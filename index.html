@@ -1311,7 +1311,7 @@ function renderPage(page) {
     'safety':         () => renderPlaceholder('🦺','Safety Module','Incident reporting, PPE compliance, toolbox talks & site safety scores','Coming in Phase 3'),
     'equipment':      () => renderPlaceholder('🚜','Equipment & Machinery','Asset register, fuel logs, maintenance schedules & breakdown alerts','Coming in Phase 3'),
     'store':          () => renderPlaceholder('🏪','Site Store','Per-site inventory, GRN, 3-way match & wastage tracking','Coming in Phase 3'),
-    'scm':            () => renderAppSheetEmbed('SCM — Supply Chain','Purchase Requests, POs & GRN', 'scm'),
+    'scm':            renderSCMDashboard,
     'purchase':       () => renderPlaceholder('🛒','Purchase Dashboard','Site-wise PRs, POs, rate contracts & spend analytics','Coming in Phase 3'),
     'vendor':         () => renderPlaceholder('🏢','Vendor Portal (Internal)','Vendor management for procurement team','Coming in Phase 2'),
     'subcontractor':  () => renderPlaceholder('🤝','Subcontractor Portal (Internal)','SC management for procurement team','Coming in Phase 2'),
@@ -1605,77 +1605,333 @@ const APPSHEET_APPS = {
 };
 
 function renderAppSheetEmbed(title, desc, appKey) {
-  const el = document.getElementById('mainContent');
+  const el  = document.getElementById('mainContent');
   const app = APPSHEET_APPS[appKey] || null;
   const url = app?.url || null;
-  const iframeId = 'appsheetFrame_' + Date.now();
 
   if (!url) {
-    // Not yet configured
     el.innerHTML = `
       <div class="page-header"><h1>${app?.icon||'📱'} ${title}</h1><p>${desc}</p></div>
-      <div class="card"><div class="card-body" style="text-align:center;padding:3rem 1rem;color:var(--txt3)">
+      <div class="card"><div class="card-body" style="text-align:center;padding:3rem;color:var(--txt3)">
         <div style="font-size:3rem;margin-bottom:1rem">📱</div>
-        <div style="font-weight:600;color:var(--g8);margin-bottom:.5rem">${title}</div>
-        <div style="font-size:.85rem;margin-bottom:1.5rem">${desc}</div>
         <div class="mp-badge">🔨 App URL not yet configured</div>
       </div></div>`;
     return;
   }
 
+  // AppSheet blocks iframe embedding via CSP — show a rich launcher card instead
   el.innerHTML = `
-    <div class="page-header" style="margin-bottom:1rem">
+    <div class="page-header" style="margin-bottom:1.2rem">
       <h1>${app.icon} ${title}</h1>
-      <p>${desc} &nbsp;·&nbsp; <span style="color:var(--g6);font-weight:600">${app.label}</span></p>
+      <p>${desc}</p>
     </div>
 
-    <div class="card" style="overflow:hidden;padding:0">
-      <!-- Toolbar -->
-      <div class="card-head" style="padding:.75rem 1rem;background:var(--g9);color:#fff;border-radius:0">
-        <div style="display:flex;align-items:center;gap:.6rem">
-          <span style="font-size:1rem">${app.icon}</span>
-          <span style="font-weight:600;font-size:.9rem">${app.label}</span>
-          <span style="font-size:.72rem;background:rgba(255,255,255,.15);padding:.1rem .45rem;border-radius:20px">AppSheet</span>
-        </div>
-        <div style="display:flex;gap:.5rem;align-items:center">
-          <button class="btn btn-sm" onclick="document.getElementById('${iframeId}').src=document.getElementById('${iframeId}').src"
-            style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);font-size:.75rem">
-            ↻ Reload
-          </button>
-          <button class="btn btn-sm" onclick="window.open('${url}','_blank')"
-            style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);font-size:.75rem">
-            ⛶ Full Screen
-          </button>
-        </div>
-      </div>
-
-      <!-- Loading overlay -->
-      <div id="${iframeId}_loader" style="position:relative">
-        <div id="${iframeId}_spinner" style="position:absolute;inset:0;z-index:10;background:#f8fbf9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:120px">
-          <div style="width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite"></div>
-          <div style="font-size:.82rem;color:var(--txt3)">Loading ${app.label}…</div>
-        </div>
-        <!-- The actual iframe -->
-        <iframe
-          id="${iframeId}"
-          src="${url}"
-          style="width:100%;height:calc(100vh - 200px);min-height:600px;border:none;display:block"
-          allow="camera; microphone; geolocation"
-          onload="document.getElementById('${iframeId}_spinner').style.display='none'"
-          title="${title}"
-        ></iframe>
-      </div>
-
-      <!-- Footer note -->
-      <div style="padding:.6rem 1rem;background:var(--surface2);border-top:1px solid var(--border);font-size:.73rem;color:var(--txt3);display:flex;justify-content:space-between;align-items:center">
-        <span>🔒 Powered by AppSheet · Embedded securely in Evergreen Intranet</span>
-        <button onclick="window.open('${url}','_blank')" style="background:none;border:none;color:var(--g6);font-size:.73rem;cursor:pointer;font-family:inherit">
-          Open in new tab ↗
+    <!-- App Launch Card -->
+    <div class="card" style="overflow:hidden;margin-bottom:1.2rem">
+      <div style="background:linear-gradient(135deg,var(--g9) 0%,var(--g7) 100%);padding:2.5rem 2rem;text-align:center;color:#fff">
+        <div style="font-size:3.5rem;margin-bottom:.75rem">${app.icon}</div>
+        <div style="font-size:1.4rem;font-weight:700;margin-bottom:.4rem">${app.label}</div>
+        <div style="font-size:.85rem;opacity:.8;margin-bottom:1.8rem;max-width:380px;margin-left:auto;margin-right:auto">${desc}</div>
+        <button onclick="window.open('${url}','_blank')"
+          style="padding:.85rem 2.5rem;background:#fff;color:var(--g8);border:none;border-radius:50px;font-size:1rem;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 15px rgba(0,0,0,.2);transition:transform .15s"
+          onmouseover="this.style.transform='translateY(-2px)'"
+          onmouseout="this.style.transform='none'">
+          🚀 Launch ${app.label}
         </button>
+        <div style="margin-top:1rem;font-size:.75rem;opacity:.6">Opens in a new tab · Sign in with your Google account</div>
       </div>
+    </div>
+
+    <!-- Quick Info Cards -->
+    <div class="dash-grid thirds">
+      <div class="card">
+        <div class="card-body" style="text-align:center;padding:1.5rem 1rem">
+          <div style="font-size:1.8rem;margin-bottom:.5rem">📱</div>
+          <div style="font-weight:700;color:var(--g8);margin-bottom:.3rem">Mobile Ready</div>
+          <div style="font-size:.8rem;color:var(--txt3)">Works on phone, tablet & desktop</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-body" style="text-align:center;padding:1.5rem 1rem">
+          <div style="font-size:1.8rem;margin-bottom:.5rem">🔐</div>
+          <div style="font-weight:700;color:var(--g8);margin-bottom:.3rem">Google Sign-In</div>
+          <div style="font-size:.8rem;color:var(--txt3)">Sign in with your @evgcpl.com account</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-body" style="text-align:center;padding:1.5rem 1rem">
+          <div style="font-size:1.8rem;margin-bottom:.5rem">🔄</div>
+          <div style="font-weight:700;color:var(--g8);margin-bottom:.3rem">Live Data</div>
+          <div style="font-size:.8rem;color:var(--txt3)">Real-time sync with Google Sheets</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- QR Code hint for mobile -->
+    <div style="margin-top:.5rem;padding:1rem 1.2rem;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rad);font-size:.8rem;color:var(--txt2);display:flex;align-items:center;gap:.75rem">
+      <span style="font-size:1.4rem">💡</span>
+      <span>To add this app to your phone's home screen: open the link on mobile → tap <strong>Share</strong> → <strong>Add to Home Screen</strong></span>
     </div>
   `;
 }
+
+
+
+// ══════════════════════════════════════════════════
+//  SCM DASHBOARD — Purchase Orders
+// ══════════════════════════════════════════════════
+const PO_SHEET_ID = '1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c';
+const APPSHEET_SCM_URL = 'https://www.appsheet.com/start/06fd0117-1dd8-445b-aaee-e2ff6e68e36f';
+
+function renderSCMDashboard() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header" style="margin-bottom:1rem">
+      <h1>📦 SCM — Purchase Orders</h1>
+      <p>Live PO tracker · Approvals · Vendor orders</p>
+    </div>
+
+    <!-- KPI Row -->
+    <div class="kpi-grid" id="scm-kpi-grid" style="margin-bottom:1.4rem">
+      <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">📋</div></div>
+        <div class="kpi-value" id="scm-kpi-total">—</div><div class="kpi-label">Total POs</div></div>
+      <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
+        <div class="kpi-value" id="scm-kpi-pending">—</div><div class="kpi-label">Pending Approval</div></div>
+      <div class="kpi-card info"><div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
+        <div class="kpi-value" id="scm-kpi-approved">—</div><div class="kpi-label">Approved</div></div>
+      <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon red">❌</div></div>
+        <div class="kpi-value" id="scm-kpi-rejected">—</div><div class="kpi-label">Rejected</div></div>
+    </div>
+
+    <!-- Pending Approval Table -->
+    <div class="card" style="margin-bottom:1.4rem">
+      <div class="card-head">
+        <h3>⏳ Pending Approval</h3>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <span class="hr-stat-pill" id="scm-pending-count">Loading…</span>
+          <button onclick="window.open('${APPSHEET_SCM_URL}','_blank')"
+            style="padding:.35rem .9rem;background:var(--g7);color:#fff;border:none;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer;font-family:inherit">
+            🚀 Open SCM App
+          </button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div id="scm-pending-table">
+          <div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:2.5rem;color:var(--txt3)">
+            <div style="width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite"></div>
+            Loading POs from v2_Purchase…
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- All POs Table -->
+    <div class="card">
+      <div class="card-head">
+        <h3>📋 All Purchase Orders</h3>
+        <span class="hr-stat-pill" id="scm-all-count">—</span>
+      </div>
+      <div class="card-body" style="padding:0">
+        <!-- Filters -->
+        <div style="display:flex;gap:.6rem;flex-wrap:wrap;padding:.75rem 1rem;border-bottom:1px solid var(--border);background:var(--surface2)">
+          <input id="scm-search" type="text" placeholder="🔍 Search PO No, Vendor, Site…"
+            style="flex:1;min-width:180px;padding:.5rem .75rem;border:1px solid var(--border);border-radius:6px;font-size:.82rem;font-family:inherit"
+            oninput="window.scmFilter()">
+          <select id="scm-status-filter" onchange="window.scmFilter()"
+            style="padding:.5rem .75rem;border:1px solid var(--border);border-radius:6px;font-size:.82rem;font-family:inherit;background:#fff">
+            <option value="">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <select id="scm-site-filter" onchange="window.scmFilter()"
+            style="padding:.5rem .75rem;border:1px solid var(--border);border-radius:6px;font-size:.82rem;font-family:inherit;background:#fff">
+            <option value="">All Sites</option>
+          </select>
+        </div>
+        <div id="scm-all-table" style="overflow-x:auto">
+          <div style="padding:2rem;text-align:center;color:var(--txt3)">Loading…</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Load PO data
+  loadPOData();
+}
+
+let _scmAllPOs = [];
+
+function loadPOData() {
+  fetchSheet('PO', null, PO_SHEET_ID).then(json => {
+    if (!json?.table) {
+      document.getElementById('scm-pending-table').innerHTML =
+        `<div style="padding:2rem;text-align:center;color:#c62828">
+          ⚠️ Could not load PO data. Make sure v2_Purchase sheet is set to <strong>"Anyone with link can view"</strong>.
+        </div>`;
+      return;
+    }
+
+    const cols = json.table.cols.map(c => c.label);
+    const idx = (name) => cols.indexOf(name);
+
+    const rows = json.table.rows
+      .filter(r => r.c[idx('PO No')]?.v && r.c[idx('PO No')]?.v !== 'Dummy')
+      .map(r => ({
+        uuid:       r.c[idx('UUID')]?.v || '',
+        poNo:       r.c[idx('PO No')]?.v || '',
+        poDate:     r.c[idx('PO Date')]?.v || '',
+        vendor:     r.c[idx('Vendor Name')]?.v || '—',
+        site:       r.c[idx('Site Name')]?.v || '—',
+        preparedBy: r.c[idx('Prepared By')]?.v || '—',
+        status:     (r.c[idx('PO Approval Status')]?.v || '').toString().trim(),
+        approvalDate: r.c[idx('PO Approval Date')]?.v || '',
+        rejection:  r.c[idx('Reason for Rejection')]?.v || '',
+        amount:     r.c[idx('Net Amount')]?.v || 0,
+        taxType:    r.c[idx('Tax Type')]?.v || '',
+        payTerms:   r.c[idx('Payment Terms')]?.v || '',
+        approver:   r.c[idx('Approver Name')]?.v || '—',
+        quote:      r.c[idx('Quote(Attachment)')]?.v || '',
+      }));
+
+    _scmAllPOs = rows;
+
+    // KPIs
+    const total    = rows.length;
+    const pending  = rows.filter(r => r.status.toUpperCase().includes('PENDING') || r.status === '').length;
+    const approved = rows.filter(r => r.status.toUpperCase().includes('APPROVED')).length;
+    const rejected = rows.filter(r => r.status.toUpperCase().includes('REJECT')).length;
+
+    document.getElementById('scm-kpi-total').textContent    = total;
+    document.getElementById('scm-kpi-pending').textContent  = pending;
+    document.getElementById('scm-kpi-approved').textContent = approved;
+    document.getElementById('scm-kpi-rejected').textContent = rejected;
+    document.getElementById('scm-pending-count').innerHTML  = `<strong>${pending}</strong> awaiting`;
+
+    // Populate site filter
+    const sites = [...new Set(rows.map(r => r.site).filter(Boolean))].sort();
+    const siteSelect = document.getElementById('scm-site-filter');
+    if (siteSelect) sites.forEach(s => {
+      const o = document.createElement('option'); o.value = s; o.textContent = s; siteSelect.appendChild(o);
+    });
+
+    // Render pending table
+    const pendingRows = rows.filter(r => r.status.toUpperCase().includes('PENDING') || r.status === '');
+    renderPOTable('scm-pending-table', pendingRows, true);
+
+    // Render all POs table
+    renderPOTable('scm-all-table', rows, false);
+  }).catch(err => {
+    document.getElementById('scm-pending-table').innerHTML =
+      `<div style="padding:2rem;text-align:center;color:#c62828">Error: ${err.message}</div>`;
+  });
+}
+
+function formatPODate(v) {
+  if (!v) return '—';
+  if (typeof v === 'string' && v.startsWith('Date(')) {
+    try {
+      const parts = v.replace('Date(','').replace(')','').split(',').map(Number);
+      return new Date(parts[0], parts[1], parts[2]).toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'});
+    } catch(e) { return v; }
+  }
+  return v;
+}
+
+function poStatusBadge(status) {
+  const s = status.toUpperCase();
+  if (s.includes('APPROVED')) return `<span style="background:#e8f5e9;color:#2e7d32;padding:.2rem .6rem;border-radius:20px;font-size:.72rem;font-weight:700">✅ Approved</span>`;
+  if (s.includes('REJECT'))   return `<span style="background:#fdecea;color:#c62828;padding:.2rem .6rem;border-radius:20px;font-size:.72rem;font-weight:700">❌ Rejected</span>`;
+  if (s.includes('PENDING') || s === '') return `<span style="background:#fff8e1;color:#e65100;padding:.2rem .6rem;border-radius:20px;font-size:.72rem;font-weight:700">⏳ Pending</span>`;
+  return `<span style="background:var(--surface2);color:var(--txt2);padding:.2rem .6rem;border-radius:20px;font-size:.72rem">${status || '—'}</span>`;
+}
+
+function renderPOTable(containerId, rows, isPending) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  if (rows.length === 0) {
+    el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3)">
+      ${isPending ? '✅ No POs pending approval' : 'No POs found'}
+    </div>`;
+    if (containerId === 'scm-all-count') return;
+    const countEl = document.getElementById('scm-all-count');
+    if (countEl) countEl.innerHTML = '0 POs';
+    return;
+  }
+
+  if (!isPending) {
+    const countEl = document.getElementById('scm-all-count');
+    if (countEl) countEl.innerHTML = `<strong>${rows.length}</strong> POs`;
+  }
+
+  const tableRows = rows.map(r => {
+    const appsheetLink = `${APPSHEET_SCM_URL}#appName=Purchase_v1&page=detail&tableName=PO&rowId=${encodeURIComponent(r.uuid)}`;
+    const amtFormatted = r.amount ? '₹' + Number(r.amount).toLocaleString('en-IN') : '—';
+    return `
+      <tr>
+        <td>
+          <div style="font-weight:700;color:var(--g7);font-size:.82rem">${r.poNo}</div>
+          <div style="font-size:.72rem;color:var(--txt3)">${formatPODate(r.poDate)}</div>
+        </td>
+        <td style="font-size:.82rem">${r.vendor}</td>
+        <td style="font-size:.82rem">${r.site}</td>
+        <td style="font-weight:600;font-size:.85rem;color:var(--g8)">${amtFormatted}</td>
+        <td>${poStatusBadge(r.status)}</td>
+        <td style="font-size:.78rem;color:var(--txt3)">${r.preparedBy}</td>
+        <td>
+          <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+            <button onclick="window.open('${appsheetLink}','_blank')"
+              style="padding:.25rem .6rem;background:var(--g7);color:#fff;border:none;border-radius:5px;font-size:.72rem;cursor:pointer;font-family:inherit;white-space:nowrap">
+              📋 View PO
+            </button>
+            ${r.quote ? `<button onclick="window.open('${r.quote}','_blank')"
+              style="padding:.25rem .6rem;background:#e3f2fd;color:#1565c0;border:none;border-radius:5px;font-size:.72rem;cursor:pointer;font-family:inherit;white-space:nowrap">
+              📎 Quote
+            </button>` : ''}
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <table class="emp-table" style="min-width:700px">
+      <thead>
+        <tr>
+          <th>PO No / Date</th>
+          <th>Vendor</th>
+          <th>Site</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Prepared By</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${tableRows}</tbody>
+    </table>`;
+}
+
+window.scmFilter = function() {
+  const search = (document.getElementById('scm-search')?.value || '').toLowerCase();
+  const statusF = (document.getElementById('scm-status-filter')?.value || '').toLowerCase();
+  const siteF   = (document.getElementById('scm-site-filter')?.value || '');
+
+  const filtered = _scmAllPOs.filter(r => {
+    const matchSearch = !search ||
+      r.poNo.toLowerCase().includes(search) ||
+      r.vendor.toLowerCase().includes(search) ||
+      r.site.toLowerCase().includes(search);
+    const s = r.status.toUpperCase();
+    const matchStatus = !statusF ||
+      (statusF === 'pending'  && (s.includes('PENDING') || s === '')) ||
+      (statusF === 'approved' && s.includes('APPROVED')) ||
+      (statusF === 'rejected' && s.includes('REJECT'));
+    const matchSite = !siteF || r.site === siteF;
+    return matchSearch && matchStatus && matchSite;
+  });
+
+  renderPOTable('scm-all-table', filtered, false);
+};
 
 // ══════════════════════════════════════════════════
 //  PLACEHOLDER
