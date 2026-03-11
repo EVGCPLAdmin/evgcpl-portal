@@ -1763,35 +1763,42 @@ function renderSCMDashboard() {
 let _scmAllPOs = [];
 
 function loadPOData() {
-  fetchSheet('PO', null, PO_SHEET_ID).then(json => {
-    if (!json?.table) {
+  // Only fetch the columns we need — keeps payload small, avoids timeout
+  // A=UUID, E=PO No, F=PO Date, G=Prepared By, R=Vendor Name, S=Site Name,
+  // AG=PO Approval Status, AH=Reason for Rejection, AJ=Net Amount,
+  // O=Tax Type, W=Payment Terms, AF=Approver Name, J=Quote(Attachment)
+  const tq = "SELECT A,E,F,G,J,O,R,S,W,AF,AG,AH,AJ";
+  fetchSheet('PO', tq, PO_SHEET_ID).then(rawRows => {
+    if (!rawRows || rawRows.length === 0) {
       document.getElementById('scm-pending-table').innerHTML =
         `<div style="padding:2rem;text-align:center;color:#c62828">
-          ⚠️ Could not load PO data. Make sure v2_Purchase sheet is set to <strong>"Anyone with link can view"</strong>.
+          ⚠️ Could not load PO data.<br><br>
+          <small style="color:var(--txt3)">Open the v2_Purchase sheet → Share → change from <strong>"Evergreen Enterprises"</strong> to <strong>"Anyone on the internet"</strong> with Viewer access.</small>
         </div>`;
       return;
     }
 
-    const cols = json.table.cols.map(c => c.label);
-    const idx = (name) => cols.indexOf(name);
-
-    const rows = json.table.rows
-      .filter(r => r.c[idx('PO No')]?.v && r.c[idx('PO No')]?.v !== 'Dummy')
+    // fetchSheet returns objects keyed by column LABEL (header row)
+    // Map them flexibly — handle whatever column names come back
+    const rows = rawRows
+      .filter(r => {
+        const poNo = r['PO No'] || r['E'] || '';
+        return poNo && poNo !== 'Dummy' && poNo !== '';
+      })
       .map(r => ({
-        uuid:       r.c[idx('UUID')]?.v || '',
-        poNo:       r.c[idx('PO No')]?.v || '',
-        poDate:     r.c[idx('PO Date')]?.v || '',
-        vendor:     r.c[idx('Vendor Name')]?.v || '—',
-        site:       r.c[idx('Site Name')]?.v || '—',
-        preparedBy: r.c[idx('Prepared By')]?.v || '—',
-        status:     (r.c[idx('PO Approval Status')]?.v || '').toString().trim(),
-        approvalDate: r.c[idx('PO Approval Date')]?.v || '',
-        rejection:  r.c[idx('Reason for Rejection')]?.v || '',
-        amount:     r.c[idx('Net Amount')]?.v || 0,
-        taxType:    r.c[idx('Tax Type')]?.v || '',
-        payTerms:   r.c[idx('Payment Terms')]?.v || '',
-        approver:   r.c[idx('Approver Name')]?.v || '—',
-        quote:      r.c[idx('Quote(Attachment)')]?.v || '',
+        uuid:        r['UUID'] || r['A'] || '',
+        poNo:        r['PO No'] || r['E'] || '',
+        poDate:      r['PO Date'] || r['F'] || '',
+        vendor:      r['Vendor Name'] || r['R'] || '—',
+        site:        r['Site Name'] || r['S'] || '—',
+        preparedBy:  r['Prepared By'] || r['G'] || '—',
+        status:      (r['PO Approval Status'] || r['AG'] || '').trim(),
+        rejection:   r['Reason for Rejection'] || r['AH'] || '',
+        amount:      r['Net Amount'] || r['AJ'] || '',
+        taxType:     r['Tax Type'] || r['O'] || '',
+        payTerms:    r['Payment Terms'] || r['W'] || '',
+        approver:    r['Approver Name'] || r['AF'] || '—',
+        quote:       r['Quote(Attachment)'] || r['J'] || '',
       }));
 
     _scmAllPOs = rows;
@@ -1866,8 +1873,10 @@ function renderPOTable(containerId, rows, isPending) {
   }
 
   const tableRows = rows.map(r => {
-    const appsheetLink = `${APPSHEET_SCM_URL}#appName=Purchase_v1&page=detail&tableName=PO&rowId=${encodeURIComponent(r.uuid)}`;
-    const amtFormatted = r.amount ? '₹' + Number(r.amount).toLocaleString('en-IN') : '—';
+    const appsheetLink = r.uuid
+      ? `https://www.appsheet.com/start/06fd0117-1dd8-445b-aaee-e2ff6e68e36f?tblName=PO&rowKey=${encodeURIComponent(r.uuid)}`
+      : APPSHEET_SCM_URL;
+    const amtFormatted = r.amount ? '₹' + Number(String(r.amount).replace(/,/g,'')||0).toLocaleString('en-IN') : '—';
     return `
       <tr>
         <td>
