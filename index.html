@@ -1,0 +1,2684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>EVGCPL Intranet — Evergreen Enterprises</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=DM+Serif+Display&display=swap" rel="stylesheet"/>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+/* ═══════════════════════════════════════════════════
+   ROOT VARIABLES
+═══════════════════════════════════════════════════ */
+:root {
+  --g9:#0d3320; --g8:#145230; --g7:#1a6038; --g6:#1e7040;
+  --g5:#2a8a52; --g4:#3cb96d; --g3:#6dd49a;
+  --gold:#f0a500; --gold-lt:#fff3d0;
+  --danger:#e53935; --warn:#fb8c00; --info:#1e88e5; --ok:#2e7d32;
+  --bg:#f0f4f1; --surface:#ffffff; --surface2:#f7faf8;
+  --border:#dde8e2; --border2:#c8ddd0;
+  --txt:#0f2318; --txt2:#3d5a47; --txt3:#6b8c76; --txt4:#9ab8a5;
+  --shadow-sm:0 1px 4px rgba(13,51,32,.08);
+  --shadow:0 2px 10px rgba(13,51,32,.10);
+  --shadow-md:0 4px 20px rgba(13,51,32,.13);
+  --shadow-lg:0 8px 32px rgba(13,51,32,.18);
+  --rad:10px; --rad-sm:7px; --rad-lg:16px; --rad-xl:22px;
+  --sidebar-w:256px; --header-h:62px;
+  --transition:.2s cubic-bezier(.4,0,.2,1);
+}
+
+/* ═══════════════════════════════════════════════════
+   RESET & BASE
+═══════════════════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-family:'DM Sans',sans-serif;color:var(--txt);background:var(--bg);font-size:15px;-webkit-font-smoothing:antialiased}
+body{min-height:100vh;overflow-x:hidden}
+a{text-decoration:none;color:inherit}
+button{font-family:inherit;cursor:pointer;border:none;outline:none}
+input,select,textarea{font-family:inherit;outline:none}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+img{max-width:100%;display:block}
+
+/* ═══════════════════════════════════════════════════
+   LOGIN SCREEN
+═══════════════════════════════════════════════════ */
+#loginScreen {
+  position:fixed;inset:0;
+  background:linear-gradient(145deg,#071a0d 0%,#0d3320 45%,#0a2a1a 100%);
+  display:flex;align-items:center;justify-content:center;
+  z-index:9999;transition:opacity .5s,transform .5s;
+  overflow:hidden;
+}
+#loginScreen.fade-out{opacity:0;transform:scale(1.03);pointer-events:none}
+
+.login-bg-circles {position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.login-bg-circles span {
+  position:absolute;border-radius:50%;
+  background:radial-gradient(circle,rgba(60,185,109,.15),transparent 70%);
+}
+.login-bg-circles span:nth-child(1){width:600px;height:600px;top:-200px;right:-150px}
+.login-bg-circles span:nth-child(2){width:400px;height:400px;bottom:-100px;left:-100px}
+.login-bg-circles span:nth-child(3){width:250px;height:250px;top:40%;left:20%;background:radial-gradient(circle,rgba(240,165,0,.08),transparent 70%)}
+
+.login-card {
+  position:relative;z-index:1;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.1);
+  backdrop-filter:blur(24px);
+  border-radius:var(--rad-xl);
+  padding:44px 48px 40px;
+  width:420px;max-width:calc(100vw - 32px);
+  text-align:center;
+  box-shadow:0 24px 80px rgba(0,0,0,.5);
+}
+.login-logo-wrap {
+  display:flex;align-items:center;justify-content:center;gap:14px;
+  margin-bottom:28px;padding-bottom:24px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.login-logo-img {
+  height:52px;width:auto;background:#fff;
+  border-radius:10px;padding:8px 14px;
+}
+.login-co-name {text-align:left}
+.login-co-name h2 {color:#fff;font-size:17px;font-weight:700;line-height:1.2}
+.login-co-name p {color:rgba(255,255,255,.4);font-size:11px;margin-top:3px;letter-spacing:.04em}
+.login-title {color:#fff;font-family:'DM Serif Display',serif;font-size:28px;font-weight:400;margin-bottom:8px}
+.login-subtitle {color:rgba(255,255,255,.45);font-size:13.5px;margin-bottom:32px;line-height:1.6}
+
+.btn-google {
+  display:flex;align-items:center;justify-content:center;gap:12px;
+  width:100%;padding:14px;border-radius:var(--rad);
+  background:#fff;color:#3c4043;font-weight:600;font-size:15px;
+  box-shadow:0 2px 12px rgba(0,0,0,.25);
+  transition:all var(--transition);border:none;
+}
+.btn-google:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.35)}
+.btn-google:active{transform:translateY(0)}
+.btn-google svg{width:20px;height:20px;flex-shrink:0}
+
+.login-divider {
+  display:flex;align-items:center;gap:12px;
+  color:rgba(255,255,255,.2);font-size:12px;margin:20px 0;
+}
+.login-divider::before,.login-divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.1)}
+
+.btn-demo {
+  width:100%;padding:12px;border-radius:var(--rad);
+  background:transparent;border:1px solid rgba(255,255,255,.2);
+  color:rgba(255,255,255,.65);font-size:14px;font-weight:500;
+  transition:all var(--transition);
+}
+.btn-demo:hover{border-color:var(--g4);color:#fff;background:rgba(60,185,109,.12)}
+
+.login-badges {
+  display:flex;justify-content:center;gap:16px;
+  margin-top:28px;padding-top:20px;
+  border-top:1px solid rgba(255,255,255,.07);
+}
+.login-badge {
+  font-size:10px;color:rgba(255,255,255,.3);
+  display:flex;align-items:center;gap:5px;
+}
+.login-badge span{width:6px;height:6px;border-radius:50%;background:var(--g4);display:inline-block}
+
+/* ═══════════════════════════════════════════════════
+   ROLE SELECT OVERLAY
+═══════════════════════════════════════════════════ */
+#roleSelect {
+  position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);
+  display:none;align-items:center;justify-content:center;z-index:9998;
+}
+#roleSelect.show{display:flex}
+.role-card {
+  background:#fff;border-radius:var(--rad-xl);padding:40px;
+  width:520px;max-width:calc(100vw - 32px);
+  box-shadow:var(--shadow-lg);
+}
+.role-card h2{font-size:22px;font-weight:700;margin-bottom:6px;color:var(--g9)}
+.role-card p{color:var(--txt3);font-size:14px;margin-bottom:28px}
+.role-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.role-btn {
+  padding:16px;border-radius:var(--rad);border:2px solid var(--border);
+  background:var(--surface2);cursor:pointer;text-align:left;
+  transition:all var(--transition);
+}
+.role-btn:hover{border-color:var(--g5);background:#edf7f1;transform:translateY(-2px)}
+.role-btn.selected{border-color:var(--g5);background:#e8f5ee}
+.role-btn .role-icon{font-size:24px;margin-bottom:8px}
+.role-btn .role-name{font-size:14px;font-weight:700;color:var(--g8)}
+.role-btn .role-desc{font-size:11px;color:var(--txt3);margin-top:2px}
+.role-confirm {
+  width:100%;margin-top:20px;padding:13px;border-radius:var(--rad);
+  background:var(--g7);color:#fff;font-size:15px;font-weight:600;
+  transition:background var(--transition);
+}
+.role-confirm:hover{background:var(--g6)}
+
+/* ═══════════════════════════════════════════════════
+   MAIN APP SHELL
+═══════════════════════════════════════════════════ */
+#app{display:none;min-height:100vh}
+#app.show{display:flex;flex-direction:column}
+
+/* ── TOP HEADER ── */
+.header {
+  position:fixed;top:0;left:0;right:0;height:var(--header-h);
+  background:#fff;z-index:500;
+  display:flex;align-items:center;
+  padding:0 1.2rem 0 0;
+  box-shadow:0 1px 0 var(--border),0 2px 12px rgba(13,51,32,.06);
+}
+.header-left {
+  width:var(--sidebar-w);flex-shrink:0;
+  display:flex;align-items:center;gap:10px;
+  padding:0 1.4rem;border-right:1px solid var(--border);height:100%;
+}
+.header-logo {height:38px;width:auto;object-fit:contain}
+.header-site-badge {
+  background:var(--g7);color:#fff;
+  font-size:10px;font-weight:700;padding:3px 10px;
+  border-radius:20px;letter-spacing:.04em;white-space:nowrap;
+}
+.header-center{flex:1;padding:0 1.2rem;display:flex;align-items:center;gap:10px}
+.header-search {
+  display:flex;align-items:center;gap:8px;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:var(--rad);padding:7px 14px;
+  width:320px;max-width:100%;
+  transition:border-color var(--transition);
+}
+.header-search:focus-within{border-color:var(--g5);background:#fff}
+.header-search input{background:transparent;border:none;font-size:13.5px;color:var(--txt);flex:1;min-width:0}
+.header-search input::placeholder{color:var(--txt4)}
+.header-search svg{width:16px;height:16px;color:var(--txt3);flex-shrink:0}
+.header-right{display:flex;align-items:center;gap:8px;margin-left:auto}
+.h-icon-btn {
+  width:38px;height:38px;border-radius:var(--rad-sm);
+  background:transparent;border:none;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--txt2);cursor:pointer;position:relative;
+  transition:background var(--transition);
+}
+.h-icon-btn:hover{background:var(--surface2)}
+.h-icon-btn svg{width:20px;height:20px}
+.notif-dot {
+  position:absolute;top:6px;right:6px;
+  width:8px;height:8px;background:var(--danger);
+  border-radius:50%;border:2px solid #fff;
+}
+.user-pill {
+  display:flex;align-items:center;gap:10px;
+  padding:6px 12px 6px 6px;border-radius:var(--rad);
+  background:var(--surface2);border:1px solid var(--border);
+  cursor:pointer;transition:all var(--transition);
+}
+.user-pill:hover{border-color:var(--border2)}
+.user-avatar {
+  width:30px;height:30px;border-radius:8px;
+  background:linear-gradient(135deg,var(--g7),var(--g4));
+  color:#fff;font-size:12px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;
+}
+.user-info .u-name{font-size:13px;font-weight:600;color:var(--txt);line-height:1.2}
+.user-info .u-role{font-size:10.5px;color:var(--txt3)}
+.hamburger {
+  display:none;width:38px;height:38px;
+  background:transparent;border:none;
+  flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  cursor:pointer;border-radius:var(--rad-sm);
+  transition:background var(--transition);
+}
+.hamburger:hover{background:var(--surface2)}
+.hamburger span{display:block;width:20px;height:2px;background:var(--g9);border-radius:2px;transition:all .3s}
+.hamburger.open span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+.hamburger.open span:nth-child(2){opacity:0}
+.hamburger.open span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+
+/* ── LAYOUT ── */
+.layout{display:flex;padding-top:var(--header-h);min-height:100vh}
+
+/* ── SIDEBAR ── */
+.sidebar {
+  position:fixed;top:var(--header-h);left:0;bottom:0;
+  width:var(--sidebar-w);
+  background:var(--g9);color:#fff;
+  overflow-y:auto;overflow-x:hidden;
+  z-index:400;
+  transition:transform var(--transition);
+  display:flex;flex-direction:column;
+}
+.sidebar-section{padding:1rem 0}
+.sidebar-section + .sidebar-section{border-top:1px solid rgba(255,255,255,.06)}
+.sidebar-label {
+  font-size:.62rem;font-weight:800;letter-spacing:.1em;
+  text-transform:uppercase;color:rgba(255,255,255,.28);
+  padding:.3rem 1.4rem .5rem;
+}
+.nav-item {
+  display:flex;align-items:center;gap:11px;
+  padding:9px 14px 9px 16px;
+  margin:2px 8px;border-radius:var(--rad-sm);
+  cursor:pointer;color:rgba(255,255,255,.65);
+  font-size:.84rem;font-weight:500;
+  transition:all var(--transition);
+  position:relative;
+}
+.nav-item:hover{background:rgba(255,255,255,.07);color:#fff}
+.nav-item.active{background:rgba(255,255,255,.13);color:#fff}
+.nav-item.active::before{
+  content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);
+  width:3px;height:60%;background:var(--gold);border-radius:0 2px 2px 0;
+}
+.nav-item .ni-icon{width:18px;height:18px;flex-shrink:0;opacity:.8}
+.nav-item.active .ni-icon,.nav-item:hover .ni-icon{opacity:1}
+.nav-item .ni-badge {
+  margin-left:auto;background:var(--danger);color:#fff;
+  font-size:.6rem;font-weight:800;padding:2px 7px;
+  border-radius:20px;min-width:20px;text-align:center;
+}
+.nav-item .ni-badge.gold{background:var(--gold);color:var(--g9)}
+.nav-item .ni-badge.info{background:var(--info)}
+.nav-item .ni-ext {
+  margin-left:auto;font-size:.6rem;color:rgba(255,255,255,.3);
+  background:rgba(255,255,255,.08);padding:2px 6px;border-radius:4px;
+}
+.sidebar-footer {
+  margin-top:auto;padding:1rem 1.4rem;
+  border-top:1px solid rgba(255,255,255,.07);
+  font-size:.7rem;color:rgba(255,255,255,.28);
+  line-height:1.6;
+}
+.sidebar-footer strong{color:rgba(255,255,255,.5);display:block;margin-bottom:2px}
+
+/* ── MAIN CONTENT ── */
+.main-content {
+  margin-left:var(--sidebar-w);
+  flex:1;min-width:0;
+  padding:1.8rem 2rem 3rem;
+}
+
+/* ── PAGE HEADER ── */
+.page-header{margin-bottom:1.8rem}
+.page-header .breadcrumb{font-size:.72rem;color:var(--txt3);margin-bottom:.4rem;display:flex;align-items:center;gap:6px}
+.page-header .breadcrumb svg{width:12px;height:12px}
+.page-header h1{font-family:'DM Serif Display',serif;font-size:1.7rem;font-weight:400;color:var(--g9)}
+.page-header p{font-size:.88rem;color:var(--txt2);margin-top:4px}
+.page-header-row{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+
+/* ── CARDS ── */
+.card{background:var(--surface);border-radius:var(--rad-lg);box-shadow:var(--shadow);border:1px solid var(--border)}
+.card-pad{padding:1.6rem}
+.card-head {
+  padding:1.4rem 1.6rem;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;gap:1rem;
+}
+.card-head h3{font-size:1rem;font-weight:700;color:var(--g9)}
+.card-body{padding:1.6rem}
+
+/* ── KPI CARDS ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1.2rem;margin-bottom:1.6rem}
+.kpi-card {
+  background:var(--surface);border-radius:var(--rad-lg);
+  padding:1.4rem 1.6rem;
+  box-shadow:var(--shadow);border:1px solid var(--border);
+  position:relative;overflow:hidden;
+  transition:transform var(--transition),box-shadow var(--transition);
+}
+.kpi-card:hover{transform:translateY(-3px);box-shadow:var(--shadow-md)}
+.kpi-card::after{
+  content:'';position:absolute;bottom:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg,var(--g7),var(--g4));
+}
+.kpi-card.gold::after{background:linear-gradient(90deg,var(--gold),#ffd050)}
+.kpi-card.info::after{background:linear-gradient(90deg,#1e88e5,#64b5f6)}
+.kpi-card.warn::after{background:linear-gradient(90deg,#fb8c00,#ffb74d)}
+.kpi-card.danger::after{background:linear-gradient(90deg,var(--danger),#ef9a9a)}
+.kpi-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.8rem}
+.kpi-icon{width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px}
+.kpi-icon.green{background:#e8f5ee}
+.kpi-icon.gold{background:var(--gold-lt)}
+.kpi-icon.blue{background:#e3f2fd}
+.kpi-icon.orange{background:#fff3e0}
+.kpi-icon.red{background:#ffebee}
+.kpi-trend {
+  font-size:.72rem;font-weight:600;display:flex;align-items:center;gap:3px;
+  padding:3px 8px;border-radius:20px;
+}
+.kpi-trend.up{background:#e8f5ee;color:var(--ok)}
+.kpi-trend.down{background:#ffebee;color:var(--danger)}
+.kpi-trend.flat{background:var(--surface2);color:var(--txt3)}
+.kpi-value{font-size:1.7rem;font-weight:700;color:var(--g9);line-height:1}
+.kpi-label{font-size:.78rem;color:var(--txt3);margin-top:5px}
+.kpi-sub{font-size:.7rem;color:var(--txt4);margin-top:2px}
+
+/* ── DASHBOARD GRID ── */
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem;margin-bottom:1.4rem}
+.dash-grid.thirds{grid-template-columns:2fr 1fr}
+.dash-grid.full{grid-template-columns:1fr}
+
+/* ── SITES TABLE ── */
+.sites-table{width:100%;border-collapse:collapse}
+.sites-table th{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--txt3);padding:.7rem 1rem;text-align:left;border-bottom:2px solid var(--border);white-space:nowrap}
+.sites-table td{padding:.85rem 1rem;font-size:.85rem;border-bottom:1px solid var(--border);color:var(--txt);vertical-align:middle}
+.sites-table tr:last-child td{border-bottom:none}
+.sites-table tr:hover td{background:var(--surface2)}
+.site-name{font-weight:600;color:var(--g8)}
+.progress-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;min-width:80px}
+.progress-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--g7),var(--g4))}
+.progress-fill.warn{background:linear-gradient(90deg,var(--warn),#ffd050)}
+.progress-fill.danger{background:linear-gradient(90deg,var(--danger),#ff8a80)}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;flex-shrink:0}
+.status-dot.green{background:var(--ok)}
+.status-dot.orange{background:var(--warn)}
+.status-dot.red{background:var(--danger)}
+.status-dot.blue{background:var(--info)}
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:.7rem;font-weight:600;padding:3px 9px;border-radius:20px}
+.tag.green{background:#e8f5ee;color:var(--ok)}
+.tag.orange{background:#fff3e0;color:#e65100}
+.tag.red{background:#ffebee;color:var(--danger)}
+.tag.blue{background:#e3f2fd;color:#1565c0}
+.tag.gold{background:var(--gold-lt);color:#7a5200}
+.tag.grey{background:var(--surface2);color:var(--txt3)}
+
+/* ── APPROVAL QUEUE ── */
+.approval-list{display:flex;flex-direction:column;gap:.8rem}
+.approval-item {
+  display:flex;align-items:flex-start;gap:12px;
+  padding:1rem 1.2rem;border-radius:var(--rad);
+  background:var(--surface2);border:1px solid var(--border);
+  transition:all var(--transition);
+}
+.approval-item:hover{border-color:var(--border2);background:#fff}
+.appr-icon{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.appr-info{flex:1;min-width:0}
+.appr-title{font-size:.85rem;font-weight:600;color:var(--g9)}
+.appr-meta{font-size:.72rem;color:var(--txt3);margin-top:2px}
+.appr-amount{font-size:.85rem;font-weight:700;color:var(--g7);white-space:nowrap}
+.appr-actions{display:flex;gap:6px;margin-top:.6rem}
+.btn-approve {
+  padding:5px 14px;border-radius:6px;
+  background:var(--g7);color:#fff;font-size:.72rem;font-weight:700;
+  transition:background var(--transition);
+}
+.btn-approve:hover{background:var(--g6)}
+.btn-reject {
+  padding:5px 14px;border-radius:6px;
+  background:transparent;border:1px solid var(--border2);
+  color:var(--txt2);font-size:.72rem;font-weight:600;
+  transition:all var(--transition);
+}
+.btn-reject:hover{border-color:var(--danger);color:var(--danger)}
+
+/* ── ALERT STRIP ── */
+.alert-strip {
+  display:flex;align-items:center;gap:12px;
+  padding:.85rem 1.2rem;border-radius:var(--rad);
+  margin-bottom:.8rem;font-size:.84rem;
+}
+.alert-strip.danger{background:#fff5f5;border:1px solid #ffcdd2;color:#b71c1c}
+.alert-strip.warn{background:#fffde7;border:1px solid #fff9c4;color:#e65100}
+.alert-strip.info{background:#e3f2fd;border:1px solid #bbdefb;color:#0d47a1}
+.alert-strip.ok{background:#e8f5e9;border:1px solid #c8e6c9;color:#1b5e20}
+.alert-icon{font-size:1.1rem;flex-shrink:0}
+.alert-text{flex:1}
+.alert-text strong{display:block;font-weight:700}
+
+/* ── MODULE PLACEHOLDER ── */
+.module-placeholder {
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:4rem 2rem;text-align:center;
+  background:var(--surface);border-radius:var(--rad-lg);
+  border:2px dashed var(--border2);
+  min-height:400px;
+}
+.module-placeholder .mp-icon{font-size:3.5rem;margin-bottom:1.2rem;opacity:.7}
+.module-placeholder h2{font-size:1.3rem;font-weight:700;color:var(--g8);margin-bottom:.5rem}
+.module-placeholder p{font-size:.9rem;color:var(--txt3);max-width:380px;line-height:1.6}
+.module-placeholder .mp-badge {
+  margin-top:1.2rem;display:inline-flex;align-items:center;gap:6px;
+  background:var(--gold-lt);color:#7a5200;
+  font-size:.75rem;font-weight:700;padding:5px 14px;border-radius:20px;
+}
+
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;gap:8px;padding:9px 20px;border-radius:var(--rad-sm);font-size:.84rem;font-weight:600;transition:all var(--transition);cursor:pointer;border:none}
+.btn-primary{background:var(--g7);color:#fff}.btn-primary:hover{background:var(--g6)}
+.btn-secondary{background:var(--surface2);color:var(--txt2);border:1px solid var(--border)}.btn-secondary:hover{border-color:var(--border2);background:#fff}
+.btn-gold{background:var(--gold);color:var(--g9);font-weight:700}.btn-gold:hover{background:#e09800}
+.btn-sm{padding:6px 14px;font-size:.78rem}
+.btn svg{width:16px;height:16px}
+
+/* ── WEATHER/TIME WIDGET ── */
+.time-widget {
+  background:linear-gradient(135deg,var(--g8),var(--g6));
+  color:#fff;border-radius:var(--rad-lg);padding:1.4rem 1.6rem;
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:1.6rem;
+}
+.tw-greeting{font-size:1.05rem;font-weight:600}
+.tw-sub{font-size:.8rem;color:rgba(255,255,255,.65);margin-top:3px}
+.tw-time{text-align:right}
+.tw-clock{font-size:1.6rem;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.tw-date{font-size:.75rem;color:rgba(255,255,255,.6);margin-top:2px}
+
+/* ── NOTIFICATION PANEL ── */
+#notifPanel {
+  position:fixed;top:var(--header-h);right:0;
+  width:360px;height:calc(100vh - var(--header-h));
+  background:#fff;box-shadow:-4px 0 24px rgba(0,0,0,.12);
+  z-index:450;transform:translateX(100%);
+  transition:transform var(--transition);
+  display:flex;flex-direction:column;
+}
+#notifPanel.open{transform:translateX(0)}
+.notif-head{padding:1.2rem 1.4rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.notif-head h3{font-size:1rem;font-weight:700}
+.notif-list{flex:1;overflow-y:auto;padding:1rem}
+.notif-item{padding:.9rem 1rem;border-radius:var(--rad);margin-bottom:.6rem;border:1px solid var(--border);background:var(--surface2);cursor:pointer;transition:all var(--transition)}
+.notif-item:hover{background:#fff;border-color:var(--border2)}
+.notif-item.unread{background:#f0f8f4;border-color:#c8e6c9}
+.notif-item-title{font-size:.84rem;font-weight:600;color:var(--g9)}
+.notif-item-body{font-size:.76rem;color:var(--txt3);margin-top:3px;line-height:1.4}
+.notif-item-time{font-size:.68rem;color:var(--txt4);margin-top:5px}
+
+/* ── MOBILE BOTTOM NAV ── */
+.mobile-nav {
+  display:none;position:fixed;bottom:0;left:0;right:0;
+  background:#fff;border-top:1px solid var(--border);
+  z-index:500;padding:4px 0 env(safe-area-inset-bottom);
+  box-shadow:0 -4px 20px rgba(0,0,0,.08);
+}
+.mobile-nav-inner{display:flex;align-items:stretch}
+.mob-nav-item {
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  padding:8px 4px;cursor:pointer;
+  color:var(--txt3);font-size:.62rem;font-weight:600;gap:3px;
+  transition:color var(--transition);
+}
+.mob-nav-item svg{width:22px;height:22px}
+.mob-nav-item.active{color:var(--g6)}
+.mob-nav-item .mob-dot{width:5px;height:5px;background:var(--danger);border-radius:50%;position:absolute;top:6px;right:calc(50% - 14px)}
+
+/* ══════════════════
+   MD COMMAND CENTER
+══════════════════ */
+.md-site-card {
+  display:flex;align-items:center;gap:12px;
+  padding:.9rem 1rem;border-radius:var(--rad);
+  border:1px solid var(--border);background:var(--surface2);
+  cursor:pointer;transition:all var(--transition);margin-bottom:.6rem;
+}
+.md-site-card:hover{background:#fff;border-color:var(--border2);transform:translateX(3px)}
+.md-site-info{flex:1;min-width:0}
+.md-site-name{font-size:.85rem;font-weight:700;color:var(--g8)}
+.md-site-loc{font-size:.7rem;color:var(--txt3);margin-top:1px}
+.md-site-prog{font-size:.8rem;font-weight:700;color:var(--g6);white-space:nowrap}
+
+/* Finance Summary */
+.fin-row{display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px solid var(--border)}
+.fin-row:last-child{border-bottom:none}
+.fin-label{font-size:.8rem;color:var(--txt2)}
+.fin-value{font-size:.9rem;font-weight:700;color:var(--g9)}
+.fin-value.pos{color:var(--ok)}
+.fin-value.neg{color:var(--danger)}
+
+/* ═══════════════════════════════════════════════════
+   MY PROFILE
+═══════════════════════════════════════════════════ */
+.profile-hero{background:linear-gradient(135deg,var(--g9) 0%,var(--g7) 100%);border-radius:var(--rad-lg);padding:2rem;color:#fff;display:flex;align-items:center;gap:2rem;margin-bottom:1.4rem;flex-wrap:wrap}
+.profile-avatar-wrap{position:relative;flex-shrink:0}
+.profile-avatar{width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,.3);background:var(--g8);display:flex;align-items:center;justify-content:center;font-size:2.4rem;overflow:hidden;color:#fff}
+.profile-avatar img{width:100%;height:100%;object-fit:cover}
+.profile-upload-btn{position:absolute;bottom:0;right:0;background:var(--gold);border:2px solid var(--g9);color:var(--g9);width:28px;height:28px;border-radius:50%;font-size:.75rem;display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:700}
+.profile-info h2{font-size:1.35rem;font-weight:700;margin-bottom:.2rem}
+.profile-code{font-size:.78rem;background:rgba(255,255,255,.15);padding:.15rem .55rem;border-radius:20px;display:inline-block;margin-bottom:.4rem}
+.profile-desig{font-size:.92rem;opacity:.82;margin-bottom:.5rem}
+.profile-tags{display:flex;gap:.4rem;flex-wrap:wrap}
+.profile-tag{background:rgba(255,255,255,.15);padding:.15rem .5rem;border-radius:20px;font-size:.72rem}
+.info-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.4rem}
+.info-grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;margin-bottom:1.4rem}
+.info-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--rad);padding:1rem 1.2rem}
+.ic-label{font-size:.7rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.25rem}
+.ic-value{font-size:.95rem;font-weight:600;color:var(--txt)}
+.ic-icon{font-size:1.2rem;margin-bottom:.3rem}
+.payslip-row{display:flex;align-items:center;justify-content:space-between;padding:.65rem 0;border-bottom:1px solid var(--border)}
+.payslip-row:last-child{border-bottom:none}
+
+/* ═══════════════════════════════════════════════════
+   HR DASHBOARD
+═══════════════════════════════════════════════════ */
+.breakup-row{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem;margin-bottom:1.4rem}
+.breakup-list{list-style:none;padding:0}
+.breakup-list li{display:flex;align-items:center;justify-content:space-between;padding:.5rem 0;border-bottom:1px solid var(--border);font-size:.875rem}
+.breakup-list li:last-child{border-bottom:none}
+.bl-label{flex:0 0 auto;min-width:120px;color:var(--txt2);font-size:.82rem}
+.bl-bar-wrap{flex:1;margin:0 .75rem;height:7px;background:var(--border);border-radius:4px;overflow:hidden}
+.bl-bar{height:100%;border-radius:4px;transition:width .6s ease}
+.bl-count{font-weight:700;color:var(--g7);min-width:2rem;text-align:right;font-size:.88rem}
+.hr-stat-pill{display:inline-flex;align-items:center;gap:.35rem;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:.3rem .75rem;font-size:.8rem;color:var(--txt2)}
+.hr-stat-pill strong{color:var(--g7)}
+.emp-search{width:100%;padding:.55rem .9rem;border:1px solid var(--border);border-radius:var(--rad-sm);font-size:.88rem;background:var(--surface);color:var(--txt);margin-bottom:.8rem}
+.emp-table{width:100%;border-collapse:collapse;font-size:.82rem}
+.emp-table th{padding:.5rem .75rem;background:var(--surface2);color:var(--txt3);font-weight:600;text-align:left;border-bottom:2px solid var(--border);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}
+.emp-table td{padding:.55rem .75rem;border-bottom:1px solid var(--border);color:var(--txt2)}
+.emp-table tr:hover td{background:var(--surface2)}
+.emp-table .emp-name{font-weight:600;color:var(--txt)}
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ═══════════════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════════════ */
+@media(max-width:1100px){
+  .kpi-grid{grid-template-columns:repeat(2,1fr)}
+  .dash-grid{grid-template-columns:1fr}
+  .dash-grid.thirds{grid-template-columns:1fr}
+  .info-grid-3{grid-template-columns:repeat(2,1fr)}
+  .breakup-row{grid-template-columns:1fr}
+}
+@media(max-width:900px){
+  .header-left{width:auto;border-right:none}
+  .header-logo{display:none}
+  .sidebar{transform:translateX(-100%)}
+  .sidebar.mobile-open{transform:translateX(0)}
+  .main-content{margin-left:0;padding:1.2rem 1rem 5rem}
+  .hamburger{display:flex}
+  .mobile-nav{display:block}
+  .header-search{display:none}
+  .user-info{display:none}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:480px){
+  .kpi-grid{grid-template-columns:1fr}
+  .main-content{padding:.9rem .75rem 5rem}
+  .time-widget{flex-direction:column;align-items:flex-start;gap:8px}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ LOGIN SCREEN ═══════════════════ -->
+<div id="loginScreen">
+  <div class="login-bg-circles">
+    <span></span><span></span><span></span>
+  </div>
+  <div class="login-card">
+    <div class="login-logo-wrap">
+      <img class="login-logo-img" src="data:image/jpeg;base64,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" alt="Evergreen Enterprises"/>
+      <div class="login-co-name">
+        <h2>Evergreen Enterprises</h2>
+        <p>ISO 9001:2015 · ASME U STAMP</p>
+      </div>
+    </div>
+    <h1 class="login-title">Welcome to Intranet</h1>
+    <p class="login-subtitle">Your unified enterprise workspace.<br/>Sign in to access your dashboard.</p>
+    <button class="btn-google" onclick="handleGoogleLogin()">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+      </svg>
+      Sign in with Google
+    </button>
+    <div class="login-divider">or</div>
+    <button class="btn-demo" onclick="handleDemoLogin()">🚀 Continue with Demo Mode</button>
+    <div style="margin-top:.75rem">
+      <button class="btn-demo" onclick="showVendorLogin()" style="background:rgba(240,165,0,.15);border-color:rgba(240,165,0,.4);color:var(--gold)">🏢 Vendor / Sub-Contractor Login</button>
+    </div>
+    <div class="login-badges">
+      <div class="login-badge"><span></span> Secure OAuth 2.0</div>
+      <div class="login-badge"><span></span> Role-Based Access</div>
+      <div class="login-badge"><span></span> 256-bit Encrypted</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ ROLE SELECTOR ═══════════════════ -->
+<div id="roleSelect">
+  <div class="role-card">
+    <h2>Select Your Role</h2>
+    <p>Choose your role to continue with the appropriate dashboard.</p>
+    <div class="role-grid">
+      <button class="role-btn" onclick="selectRole('md')" id="role-md">
+        <div class="role-icon">👑</div>
+        <div class="role-name">MD / Director</div>
+        <div class="role-desc">Command center & approvals</div>
+      </button>
+      <button class="role-btn" onclick="selectRole('hr')" id="role-hr">
+        <div class="role-icon">👥</div>
+        <div class="role-name">HR Manager</div>
+        <div class="role-desc">People & onboarding</div>
+      </button>
+      <button class="role-btn" onclick="selectRole('site')" id="role-site">
+        <div class="role-icon">🏗️</div>
+        <div class="role-name">Site Manager</div>
+        <div class="role-desc">Site operations & safety</div>
+      </button>
+      <button class="role-btn" onclick="selectRole('employee')" id="role-employee">
+        <div class="role-icon">👤</div>
+        <div class="role-name">Employee</div>
+        <div class="role-desc">Personal dashboard</div>
+      </button>
+      <button class="role-btn" onclick="selectRole('purchase')" id="role-purchase">
+        <div class="role-icon">🛒</div>
+        <div class="role-name">Purchase</div>
+        <div class="role-desc">PRs, POs & vendors</div>
+      </button>
+      <button class="role-btn" onclick="selectRole('accounts')" id="role-accounts">
+        <div class="role-icon">💰</div>
+        <div class="role-name">Accounts</div>
+        <div class="role-desc">Finance & payments</div>
+      </button>
+    </div>
+    <button class="role-confirm" onclick="confirmRole()">Continue →</button>
+  </div>
+</div>
+
+<!-- ═══════════════════ VENDOR / SC LOGIN MODAL ═══════════════════ -->
+<div id="vendorLoginModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;display:none;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:2rem;width:min(420px,90vw);box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2rem">
+      <h2 style="font-size:1.1rem;color:#0d3320">🏢 Vendor / Sub-Contractor Access</h2>
+      <button onclick="hideVendorLogin()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:#666">✕</button>
+    </div>
+    <p style="font-size:.82rem;color:#666;margin-bottom:1.2rem;line-height:1.6">Enter your registered ID and email address. We'll verify your details against our master records.</p>
+
+    <div style="margin-bottom:1rem">
+      <label style="font-size:.78rem;font-weight:600;color:#333;display:block;margin-bottom:.3rem">Account Type</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+        <button id="vl-vendor-btn" onclick="selectVendorType('vendor')" style="padding:.6rem;border:2px solid #dde8e2;border-radius:8px;background:#f7faf8;cursor:pointer;font-size:.82rem;font-family:inherit;font-weight:600;color:#1a6038">🏢 Vendor</button>
+        <button id="vl-sc-btn" onclick="selectVendorType('sc')" style="padding:.6rem;border:2px solid #dde8e2;border-radius:8px;background:#f7faf8;cursor:pointer;font-size:.82rem;font-family:inherit;font-weight:600;color:#1a6038">🤝 Sub-Contractor</button>
+      </div>
+    </div>
+
+    <div style="margin-bottom:.9rem">
+      <label style="font-size:.78rem;font-weight:600;color:#333;display:block;margin-bottom:.3rem" id="vl-id-label">Vendor ID</label>
+      <input id="vl-id-input" type="text" placeholder="e.g. VEN001" style="width:100%;padding:.65rem .9rem;border:1.5px solid #dde8e2;border-radius:8px;font-size:.9rem;font-family:inherit;outline:none">
+    </div>
+
+    <div style="margin-bottom:1.2rem">
+      <label style="font-size:.78rem;font-weight:600;color:#333;display:block;margin-bottom:.3rem">Registered Email</label>
+      <input id="vl-email-input" type="email" placeholder="your@email.com" style="width:100%;padding:.65rem .9rem;border:1.5px solid #dde8e2;border-radius:8px;font-size:.9rem;font-family:inherit;outline:none">
+    </div>
+
+    <div id="vl-error" style="display:none;background:#fdecea;color:#c62828;padding:.6rem .9rem;border-radius:8px;font-size:.8rem;margin-bottom:.9rem"></div>
+
+    <button onclick="verifyVendorLogin()" style="width:100%;padding:.75rem;background:#1a6038;color:#fff;border:none;border-radius:8px;font-size:.9rem;font-weight:700;cursor:pointer;font-family:inherit">
+      Verify & Login →
+    </button>
+
+    <div style="margin-top:.9rem;text-align:center;font-size:.75rem;color:#999">
+      First time? Contact <strong>procurement@evgcpl.com</strong> to get registered.
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ MAIN APP ═══════════════════ -->
+<div id="app">
+
+  <!-- DEMO ROLE SWITCHER BAR -->
+  <div id="demoBar" style="background:var(--g9);color:rgba(255,255,255,.8);font-size:.75rem;padding:6px 1.4rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:fixed;top:0;left:0;right:0;z-index:600">
+    <span style="font-weight:700;color:var(--gold)">🚀 DEMO MODE</span>
+    <span style="opacity:.5">|  Switch Role:</span>
+    <button onclick="switchDemoRole('md')" class="demo-role-btn" id="dr-md">👑 MD</button>
+    <button onclick="switchDemoRole('hr')" class="demo-role-btn" id="dr-hr">👥 HR</button>
+    <button onclick="switchDemoRole('site')" class="demo-role-btn" id="dr-site">🏗️ Site Mgr</button>
+    <button onclick="switchDemoRole('purchase')" class="demo-role-btn" id="dr-purchase">🛒 Purchase</button>
+    <button onclick="switchDemoRole('accounts')" class="demo-role-btn" id="dr-accounts">💰 Accounts</button>
+    <button onclick="switchDemoRole('employee')" class="demo-role-btn" id="dr-employee">👤 Employee</button>
+    <button onclick="switchDemoRole('vendor')" class="demo-role-btn" id="dr-vendor" style="border-color:rgba(240,165,0,.4);color:var(--gold)">🏢 Vendor</button>
+    <button onclick="switchDemoRole('sc')" class="demo-role-btn" id="dr-sc" style="border-color:rgba(240,165,0,.4);color:var(--gold)">🤝 SC</button>
+    <button onclick="document.getElementById('demoBar').style.display='none'" style="margin-left:auto;background:none;border:none;color:rgba(255,255,255,.4);cursor:pointer;font-size:1rem">✕</button>
+  </div>
+  <style>
+    .demo-role-btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;padding:3px 10px;border-radius:20px;cursor:pointer;font-size:.72rem;transition:all .2s}
+    .demo-role-btn:hover,.demo-role-btn.active{background:var(--gold);color:var(--g9);border-color:var(--gold);font-weight:700}
+    /* Offset header & sidebar for demo bar */
+    body.demo-active .header{top:32px}
+    body.demo-active .sidebar{top:calc(var(--header-h) + 32px)}
+    body.demo-active .layout{padding-top:calc(var(--header-h) + 32px)}
+    body.demo-active #notifPanel{top:calc(var(--header-h) + 32px)}
+  </style>
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-left">
+      <button class="hamburger" id="hamburger" onclick="toggleSidebar()">
+        <span></span><span></span><span></span>
+      </button>
+      <img class="header-logo" src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAIBAQIBAQICAgICAgICAwUDAwMDAwYEBAMFBwYHBwcGBwcICQsJCAgKCAcHCg0KCgsMDAwMBwkODw0MDgsMDAz/wAARCABGALsDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD9/KKKKACiiigArnfiT8XPC3wc0VNR8WeI9E8NWMr+VHPqd7HapK+CdilyNzYBO0ZPB4qx8R/Hlh8Lfh7rvibVDINM8O6fcandmNdz+VDG0j7R3O1TgV8O+Kvi7o37Of7O2kftNfEvRYfHfxL+IDW8nhuzlcNa+HoLiN57a2tt4PkIkALSSKpdnYjPzZrw84ziOCVrpWTlJu9oxVk20tW23ZRW+uqseXmOYrDK2i0cm3tGK66at9Elv3Poi0/4KVfBG8uEUeOreKORtq3M+nXkNp6Z894RFj33Y969f8F+OtE+JHh2DV/D2saXruk3O4Q3unXSXNvLtJB2uhKnBBB54Ir8j7H/AIL/AHxgi15J7nw/4AnsPMBe0SyuYyUzyA/nkg47kEex6V9UeEfjb4Stfglo/wC1B8P9OPg/T7q+htPiD4egANvewvdLbzzNHGApuYJJROkwCtJEWDj58L8xk/HWHxsp8lRTUFzSXJKDUVvJXlNSS6q6dtVfY8LLeKqWJcuWakoq791xaj1kryknbqtHbvsfbtFIrblyOQeQfWsnxx4/0L4ZeHJtY8Sa1pPh7SLdlWW+1O8jtLaIswVQ0khCgliAMnkkCv0M+xNeivP/AAh+1h8LfiD4jtdH0H4leANb1e9YrbWOn+IbS5ubghSxCRpIWYhQTwOgJr0CgAooooAKKKKACiiigAooooAKKKKACiiigAr8Bf8AiOYi/wCjY5P/AA4Q/wDlbX79V/Ix/wAG1P8AwTc+F/8AwU7/AGx/Gngv4rWWr32h6J4Nm1u1TT9QeykW5W9s4QSy8ldkz8euPSgD9/KKKKACiiigAr+N3/ghP/wSfof2wfAbwdpvwf+IHjn4paVqt9oPinwtN4fez0+5jgkhluLm0lDl5I3BXFseNvXNf2FUUAFFFFABRRRQB//Z" alt="EG"/>
+      <span class="header-site-badge" id="roleBadge">MD</span>
+    </div>
+    <div class="header-center">
+      <div class="header-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" placeholder="Search modules, people, sites…" id="globalSearch"/>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="h-icon-btn" title="WhatsApp Alerts">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+      </button>
+      <button class="h-icon-btn" title="Notifications" onclick="toggleNotifPanel()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span class="notif-dot"></span>
+      </button>
+      <div class="user-pill" onclick="toggleUserMenu()">
+        <div class="user-avatar" id="userAvatar">EG</div>
+        <div class="user-info">
+          <div class="u-name" id="userName">Demo User</div>
+          <div class="u-role" id="userRoleLabel">MD / Director</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- LAYOUT -->
+  <div class="layout">
+
+    <!-- SIDEBAR -->
+    <nav class="sidebar" id="sidebar">
+      <!-- VENDOR / SC ONLY — shown when role is vendor or sc -->
+      <div class="sidebar-section" id="nav-vendor-section" style="display:none">
+        <div class="sidebar-label">My Portal</div>
+        <div class="nav-item active" onclick="navigate('my-portal')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          My Dashboard
+        </div>
+        <div class="nav-item" onclick="navigate('my-orders')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Purchase Orders
+        </div>
+        <div class="nav-item" onclick="navigate('my-invoices')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Invoices & Payments
+        </div>
+        <div class="nav-item" onclick="navigate('my-documents')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          My Documents
+        </div>
+        <div class="nav-item" onclick="navigate('my-profile')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+          My Profile
+        </div>
+      </div>
+
+      <!-- INTERNAL STAFF SECTIONS — hidden for vendor/sc -->
+      <div class="sidebar-section" data-internal="true">
+        <div class="sidebar-label">Main</div>
+        <div class="nav-item active" onclick="navigate('dashboard')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Dashboard
+        </div>
+        <div class="nav-item" onclick="navigate('md-command')" id="nav-md-command">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          MD Command Center
+          <span class="ni-badge gold">5</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section" data-internal="true">
+        <div class="sidebar-label">HR & People</div>
+        <div class="nav-item" onclick="navigate('onboarding')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+          Onboarding
+          <span class="ni-badge">3</span>
+        </div>
+        <div class="nav-item" onclick="navigate('hr-dashboard')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          HR Dashboard
+        </div>
+        <div class="nav-item" onclick="navigate('personal')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+          My Dashboard
+          <span class="ni-ext">AppSheet</span>
+        </div>
+        <div class="nav-item" onclick="navigate('my-profile')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+          My Profile
+        </div>
+        <div class="nav-item" onclick="navigate('rewards')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
+          Rewards & Recognition
+        </div>
+        <div class="nav-item" onclick="navigate('policies')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Policies Hub
+        </div>
+      </div>
+
+      <div class="sidebar-section" data-internal="true">
+        <div class="sidebar-label">Site Operations</div>
+        <div class="nav-item" onclick="navigate('site-manager')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Site Manager
+        </div>
+        <div class="nav-item" onclick="navigate('safety')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Safety Module
+          <span class="ni-badge">2</span>
+        </div>
+        <div class="nav-item" onclick="navigate('equipment')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+          Equipment & Machinery
+        </div>
+        <div class="nav-item" onclick="navigate('store')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="9" y1="22" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="22"/></svg>
+          Site Store
+        </div>
+      </div>
+
+      <div class="sidebar-section" data-internal="true">
+        <div class="sidebar-label">Procurement</div>
+        <div class="nav-item" onclick="navigate('scm')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+          SCM
+          <span class="ni-ext">AppSheet</span>
+        </div>
+        <div class="nav-item" onclick="navigate('purchase')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+          Purchase
+        </div>
+        <div class="nav-item" onclick="navigate('vendor')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          Vendor Portal
+        </div>
+        <div class="nav-item" onclick="navigate('subcontractor')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>
+          Subcontractor Portal
+        </div>
+        <div class="nav-item" onclick="navigate('tendering')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Tendering
+        </div>
+      </div>
+
+      <div class="sidebar-section" data-internal="true">
+        <div class="sidebar-label">Finance</div>
+        <div class="nav-item" onclick="navigate('accounts')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Accounts
+          <span class="ni-ext">AppSheet</span>
+        </div>
+        <div class="nav-item" onclick="navigate('planning')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          Budget & Planning
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <strong>EVGCPL Intranet v1.0</strong>
+        © 2025 Evergreen Enterprises<br/>
+        Namakkal, Tamil Nadu
+      </div>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content" id="mainContent">
+      <!-- Content rendered by JS -->
+    </main>
+
+  </div><!-- /layout -->
+
+  <!-- NOTIFICATION PANEL -->
+  <div id="notifPanel">
+    <div class="notif-head">
+      <h3>🔔 Notifications</h3>
+      <button onclick="toggleNotifPanel()" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--txt3)">✕</button>
+    </div>
+    <div class="notif-list">
+      <div class="notif-item unread">
+        <div class="notif-item-title">⚠️ Payment Approval Required</div>
+        <div class="notif-item-body">PO-2025-0312 · Vendor: Laxmi Steels · ₹4,82,000</div>
+        <div class="notif-item-time">2 minutes ago</div>
+      </div>
+      <div class="notif-item unread">
+        <div class="notif-item-title">🦺 Safety Incident Reported</div>
+        <div class="notif-item-body">Site: Erode Tower B · Minor injury reported by Ravi Kumar</div>
+        <div class="notif-item-time">18 minutes ago</div>
+      </div>
+      <div class="notif-item unread">
+        <div class="notif-item-title">👶 New Onboarding Submitted</div>
+        <div class="notif-item-body">Priya Sharma · Site Engineer · Joining: Mar 15</div>
+        <div class="notif-item-time">1 hour ago</div>
+      </div>
+      <div class="notif-item">
+        <div class="notif-item-title">🚜 Equipment Breakdown Alert</div>
+        <div class="notif-item-body">Excavator JD-320 · Site: Coimbatore Phase 1</div>
+        <div class="notif-item-time">3 hours ago</div>
+      </div>
+      <div class="notif-item">
+        <div class="notif-item-title">✅ PO Approved</div>
+        <div class="notif-item-body">PO-2025-0308 approved by CFO · Released to vendor</div>
+        <div class="notif-item-time">Yesterday</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MOBILE BOTTOM NAV -->
+  <nav class="mobile-nav">
+    <div class="mobile-nav-inner">
+      <div class="mob-nav-item active" onclick="navigate('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Home
+      </div>
+      <div class="mob-nav-item" onclick="navigate('md-command')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        Command
+      </div>
+      <div class="mob-nav-item" onclick="navigate('safety')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Safety
+        <span class="mob-dot"></span>
+      </div>
+      <div class="mob-nav-item" onclick="toggleNotifPanel()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        Alerts
+      </div>
+      <div class="mob-nav-item" onclick="toggleSidebar()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        Menu
+      </div>
+    </div>
+  </nav>
+
+</div><!-- /app -->
+
+<script>
+// ══════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════
+// ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
+const GOOGLE_CLIENT_ID = 'YOUR_CLIENT_ID.apps.googleusercontent.com';
+
+// ── Apps Script backend for photo storage ──
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXW_BAunpi5TK6w9MyfzM4g-D6am3y0pgAL42WFxI6tQ6d8yhG8w3j6VKKgSLp4RWAIw/exec';
+
+const STATE = {
+  user: null,
+  role: 'md',
+  currentPage: 'dashboard',
+  selectedRole: null,
+  sidebarOpen: false,
+  notifOpen: false,
+  vendorRecord: null, // populated on vendor/SC login
+};
+
+const ROLES = {
+  md:          { label:'MD / Director',     badge:'MD',       avatar:'MD' },
+  hr:          { label:'HR Manager',        badge:'HR',       avatar:'HR' },
+  site:        { label:'Site Manager',      badge:'Site Mgr', avatar:'SM' },
+  employee:    { label:'Employee',          badge:'Staff',    avatar:'EG' },
+  purchase:    { label:'Purchase Manager',  badge:'Purchase', avatar:'PM' },
+  accounts:    { label:'Accounts',          badge:'Accounts', avatar:'AC' },
+  vendor:      { label:'Vendor',            badge:'Vendor',   avatar:'VN' },
+  sc:          { label:'Sub-Contractor',    badge:'SC',       avatar:'SC' },
+};
+
+// ══════════════════════════════════════════════════
+//  AUTH — Google OAuth + Vendor/SC Login
+// ══════════════════════════════════════════════════
+
+function initGoogleSignIn() {
+  if (typeof google === 'undefined' || !google.accounts) return;
+  if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.startsWith('YOUR_')) return;
+  google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
+}
+window.addEventListener('load', () => setTimeout(initGoogleSignIn, 1000));
+
+async function handleGoogleCredential(response) {
+  const payload = JSON.parse(atob(response.credential.split('.')[1]));
+  const email = payload.email || '';
+  STATE.user = { email, name: payload.name || email.split('@')[0], picture: payload.picture || '' };
+  if (!STATE.mastersLoaded) await loadAllMasters();
+  const emp = STATE.masters.users.find(u => u.email && u.email.toLowerCase() === email.toLowerCase());
+  let role = 'employee';
+  if (emp) {
+    const r = (emp.role || '').toLowerCase();
+    if (r.includes('md') || r.includes('director')) role = 'md';
+    else if (r.includes('hr'))                      role = 'hr';
+    else if (r.includes('site'))                    role = 'site';
+    else if (r.includes('purchase'))                role = 'purchase';
+    else if (r.includes('account'))                 role = 'accounts';
+  }
+  STATE.selectedRole = role; STATE.role = role;
+  document.getElementById('roleSelect').classList.add('show');
+  selectRole(role);
+}
+
+function handleGoogleLogin() {
+  if (GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('YOUR_') && typeof google !== 'undefined' && google.accounts) {
+    google.accounts.id.prompt();
+  } else {
+    document.getElementById('roleSelect').classList.add('show');
+    alert('\u2139\uFE0F Google OAuth: Add your Client ID to GOOGLE_CLIENT_ID to activate.\nFor now, choose your role manually.');
+  }
+}
+
+function handleDemoLogin() {
+  STATE.role = 'md'; STATE.selectedRole = 'md';
+  STATE.user = { email: 'demo@evgcpl.com', name: 'Demo User' };
+  launchApp();
+}
+
+// ── Vendor / Sub-Contractor login ──
+let _vendorType = 'vendor';
+function showVendorLogin() { document.getElementById('vendorLoginModal').style.display = 'flex'; selectVendorType('vendor'); }
+function hideVendorLogin() { document.getElementById('vendorLoginModal').style.display = 'none'; document.getElementById('vl-error').style.display = 'none'; }
+function selectVendorType(type) {
+  _vendorType = type;
+  ['vendor','sc'].forEach(t => {
+    const el = document.getElementById('vl-' + t + '-btn');
+    if (el) { el.style.borderColor = type === t ? '#1a6038' : '#dde8e2'; el.style.background = type === t ? '#e8f5ee' : '#f7faf8'; }
+  });
+  document.getElementById('vl-id-label').textContent = type === 'vendor' ? 'Vendor ID' : 'Sub-Contractor ID';
+  document.getElementById('vl-id-input').placeholder = type === 'vendor' ? 'e.g. VEN001' : 'e.g. SC001';
+}
+async function verifyVendorLogin() {
+  const id    = (document.getElementById('vl-id-input').value || '').trim().toUpperCase();
+  const email = (document.getElementById('vl-email-input').value || '').trim().toLowerCase();
+  const errEl = document.getElementById('vl-error');
+  errEl.style.display = 'none';
+  if (!id || !email) { errEl.textContent = 'Please fill in both fields.'; errEl.style.display = 'block'; return; }
+  if (!STATE.mastersLoaded) {
+    errEl.textContent = '\u23F3 Loading master data\u2026 please wait.'; errEl.style.display = 'block';
+    await loadAllMasters(); errEl.style.display = 'none';
+  }
+  let record = null;
+  if (_vendorType === 'vendor') {
+    record = STATE.masters.vendors.find(v => (v.id||'').toUpperCase() === id);
+    if (!record) { errEl.textContent = 'Vendor ID "' + id + '" not found in our records.'; errEl.style.display = 'block'; return; }
+  } else {
+    record = STATE.masters.subcontractors.find(s => (s.id||'').toUpperCase() === id);
+    if (!record) { errEl.textContent = 'SC ID "' + id + '" not found in our records.'; errEl.style.display = 'block'; return; }
+  }
+  STATE.vendorRecord = { ...record, loginEmail: email, type: _vendorType };
+  STATE.role = _vendorType; STATE.user = { email, name: record.name || id };
+  document.getElementById('vendorLoginModal').style.display = 'none';
+  launchApp();
+}
+
+function selectRole(role) {
+  STATE.selectedRole = role;
+  document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('selected'));
+  const btn = document.getElementById('role-' + role);
+  if (btn) btn.classList.add('selected');
+}
+function confirmRole() {
+  if (!STATE.selectedRole) { selectRole('md'); STATE.selectedRole = 'md'; }
+  STATE.role = STATE.selectedRole;
+  if (!STATE.user) STATE.user = { email: 'staff@evgcpl.com', name: 'Staff User' };
+  document.getElementById('roleSelect').classList.remove('show');
+  launchApp();
+}
+
+function launchApp() {
+  const r = ROLES[STATE.role] || ROLES.employee;
+  document.getElementById('roleBadge').textContent     = r.badge;
+  document.getElementById('userName').textContent      = STATE.user?.name || 'User';
+  document.getElementById('userRoleLabel').textContent = r.label;
+  document.getElementById('userAvatar').textContent    = r.avatar;
+  const isExternal = STATE.role === 'vendor' || STATE.role === 'sc';
+  document.querySelectorAll('[data-internal="true"]').forEach(s => s.style.display = isExternal ? 'none' : '');
+  document.getElementById('nav-vendor-section').style.display = isExternal ? '' : 'none';
+  document.getElementById('demoBar').style.display = isExternal ? 'none' : '';
+  if (!isExternal) {
+    document.body.classList.add('demo-active');
+    document.querySelectorAll('.demo-role-btn').forEach(b => b.classList.remove('active'));
+    const ab = document.getElementById('dr-' + STATE.role);
+    if (ab) ab.classList.add('active');
+  }
+  document.getElementById('loginScreen').classList.add('fade-out');
+  setTimeout(() => {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').classList.add('show');
+    navigate(isExternal ? 'my-portal' : 'dashboard');
+    loadAllMasters().then(() => updateAllMasterUI());
+  }, 500);
+}
+
+function updateAllMasterUI() {
+  const activeSites   = getActiveSites();
+  const inactiveSites = getInactiveSites();
+  const activeUsers   = getActiveUsers();
+  const activeAssets  = getActiveAssets();
+  const activeVendors = getActiveVendors();
+  const activeSCs     = getActiveSCs();
+
+  const totalSites    = STATE.masters.sites.length;
+  const totalUsers    = STATE.masters.users.length;
+  const totalAssets   = STATE.masters.assets.length;
+  const totalVendors  = STATE.masters.vendors.length;
+
+  // Asset top category
+  const assetCats = {};
+  activeAssets.forEach(a => { assetCats[a.category] = (assetCats[a.category]||0)+1; });
+  const topCat = Object.entries(assetCats).sort((a,b)=>b[1]-a[1])[0];
+
+  // Vendor material supply count
+  const matSupplyVendors = activeVendors.filter(v => v.type === 'Material Supply').length;
+
+  const set = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
+
+  // ── Sites ──
+  set('activeSiteCount',   activeSites.length);
+  set('activeSiteSub',     `${inactiveSites.length} inactive · ${totalSites} total`);
+  set('siteTrend',         `⬤ Live`);
+  set('mdActiveSiteCount', activeSites.length);
+  set('mdSiteCount',       activeSites.length);
+
+  // ── Users ──
+  set('activeUserCount', activeUsers.length);
+  set('activeUserSub',   `${totalUsers - activeUsers.length} inactive · ${totalUsers} total`);
+  set('userTrend',       `⬤ Live`);
+
+  // ── Assets ──
+  set('activeAssetCount', activeAssets.length);
+  set('activeAssetSub',   topCat ? `Top: ${topCat[0]} (${topCat[1]}) · ${totalAssets} total` : `${totalAssets} total`);
+  set('assetTrend',       `⬤ Live`);
+
+  // ── Vendors ──
+  set('activeVendorCount', activeVendors.length);
+  set('activeVendorSub',   `${matSupplyVendors} material supply · ${totalVendors} total`);
+  set('vendorTrend',       `⬤ Live`);
+
+  // ── Sub-Contractors ──
+  set('activeSCCount', activeSCs.length);
+  set('activeSCSub',   `${STATE.masters.subcontractors.length - activeSCs.length} inactive · ${STATE.masters.subcontractors.length} total`);
+  set('scTrend',       `⬤ Live`);
+
+  // ── MD Command subtitle ──
+  const mdSub = document.getElementById('mdCommandSubtitle');
+  if (mdSub) mdSub.textContent = `${activeSites.length} active sites · ${activeUsers.length} employees · ${activeAssets.length} equipment units`;
+
+  // ── Status badge ──
+  const loaded = [
+    STATE.masters.sites.length > 0 ? 'Sites' : null,
+    STATE.masters.users.length > 0 ? 'Users' : null,
+    STATE.masters.assets.length > 0 ? 'Assets' : null,
+    STATE.masters.vendors.length > 0 ? 'Vendors' : null,
+    STATE.masters.subcontractors.length > 0 ? 'SCs' : null,
+    STATE.masters.materialsTotal > 0 ? 'Materials' : null,
+  ].filter(Boolean);
+  const badge = document.getElementById('masterStatusBadge');
+  if (badge) {
+    const allLoaded = loaded.length === 6;
+    badge.textContent = allLoaded ? `⬤ Live — ${loaded.length}/6 masters` : `⚠ Partial — ${loaded.join(', ')} loaded`;
+    badge.style.background = allLoaded ? '#e8f5e9' : '#fff3e0';
+    badge.style.color = allLoaded ? 'var(--g7)' : 'var(--warn)';
+  }
+
+  // ── Sites table (dashboard) ──
+  const tbody = document.getElementById('sitesTableBody');
+  if (tbody) tbody.innerHTML = sitesData();
+
+  // ── MD sites list ──
+  const mdCont = document.getElementById('mdSitesContainer');
+  if (mdCont) mdCont.innerHTML = allSitesCards();
+
+  // ── Masters Summary widget ──
+  const mw = document.getElementById('mastersWidget');
+  if (mw) mw.innerHTML = mastersWidget();
+}
+
+const updateSiteUI = updateAllMasterUI;
+
+function switchDemoRole(role) {
+  STATE.role = role; STATE.selectedRole = role;
+  const r = ROLES[role] || ROLES.employee;
+  document.getElementById('roleBadge').textContent     = r.badge;
+  document.getElementById('userName').textContent      = 'Demo User';
+  document.getElementById('userRoleLabel').textContent = r.label;
+  document.getElementById('userAvatar').textContent    = r.avatar;
+  document.querySelectorAll('.demo-role-btn').forEach(b => b.classList.remove('active'));
+  const ab = document.getElementById('dr-' + role);
+  if (ab) ab.classList.add('active');
+  // Show/hide sidebar for vendor/sc demo
+  const isExternal = role === 'vendor' || role === 'sc';
+  document.querySelectorAll('[data-internal="true"]').forEach(s => s.style.display = isExternal ? 'none' : '');
+  document.getElementById('nav-vendor-section').style.display = isExternal ? '' : 'none';
+  // Set demo vendor record for testing
+  if (role === 'vendor' && STATE.masters.vendors.length > 0) {
+    STATE.vendorRecord = { ...STATE.masters.vendors[0], loginEmail: 'demo@vendor.com', type: 'vendor' };
+  } else if (role === 'sc' && STATE.masters.subcontractors.length > 0) {
+    STATE.vendorRecord = { ...STATE.masters.subcontractors[0], loginEmail: 'demo@sc.com', type: 'sc' };
+  }
+  navigate(isExternal ? 'my-portal' : 'dashboard');
+}
+
+// ══════════════════════════════════════════════════
+//  NAVIGATION
+// ══════════════════════════════════════════════════
+function navigate(page) {
+  STATE.currentPage = page;
+  // Update active nav
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const navEl = document.querySelector(`.nav-item[onclick*="'${page}'"]`);
+  if (navEl) navEl.classList.add('active');
+  // Update mobile nav
+  document.querySelectorAll('.mob-nav-item').forEach(el => el.classList.remove('active'));
+  // Close sidebar on mobile
+  if (window.innerWidth <= 900) closeSidebar();
+  // Render page
+  renderPage(page);
+  window.scrollTo(0,0);
+}
+
+function renderPage(page) {
+  const el = document.getElementById('mainContent');
+  try {
+  const pages = {
+    'dashboard':      renderDashboard,
+    'md-command':     renderMDCommand,
+    'onboarding':     () => renderPlaceholder('👶','Onboarding Portal','Workday-style employee onboarding — Phase 2 build','Coming in Phase 2'),
+    'hr-dashboard':   renderHRDashboard,
+    'my-profile':     renderMyProfile,
+    'personal':       () => renderAppSheetEmbed('Personal Dashboard','Your personal workspace — tasks, leave, payslips & more', 'personal'),
+    'rewards':        () => renderPlaceholder('🏆','Rewards & Recognition','Employee of the Month, awards wall & certificates','Coming in Phase 4'),
+    'policies':       () => renderPlaceholder('📋','Policies Hub','HR, Safety, IT & Finance policies — PDF library with acknowledgements','Coming in Phase 4'),
+    'site-manager':   () => renderPlaceholder('🏗️','Site Manager Dashboard','Daily progress, labour headcount & site-specific operations','Coming in Phase 3'),
+    'safety':         () => renderPlaceholder('🦺','Safety Module','Incident reporting, PPE compliance, toolbox talks & site safety scores','Coming in Phase 3'),
+    'equipment':      () => renderPlaceholder('🚜','Equipment & Machinery','Asset register, fuel logs, maintenance schedules & breakdown alerts','Coming in Phase 3'),
+    'store':          () => renderPlaceholder('🏪','Site Store','Per-site inventory, GRN, 3-way match & wastage tracking','Coming in Phase 3'),
+    'scm':            () => renderAppSheetEmbed('SCM — Supply Chain','Purchase Requests, POs & GRN', 'scm'),
+    'purchase':       () => renderPlaceholder('🛒','Purchase Dashboard','Site-wise PRs, POs, rate contracts & spend analytics','Coming in Phase 3'),
+    'vendor':         () => renderPlaceholder('🏢','Vendor Portal (Internal)','Vendor management for procurement team','Coming in Phase 2'),
+    'subcontractor':  () => renderPlaceholder('🤝','Subcontractor Portal (Internal)','SC management for procurement team','Coming in Phase 2'),
+    'tendering':      () => renderPlaceholder('📜','Tendering','Client bid management, BOQ uploads & tender register','Coming in Phase 4'),
+    'accounts':       () => renderAppSheetEmbed('Accounts','AP, AR & payment workflows', 'accounts'),
+    'planning':       () => renderPlaceholder('📊','Budget & Planning','Site-wise BOQ budgeting, actuals tracking & variance reports','Coming in Phase 4'),
+    // Vendor / SC external portal routes
+    'my-portal':      renderExternalPortal,
+    'my-orders':      () => renderExtPlaceholder('📋','Purchase Orders','Your active and completed purchase orders'),
+    'my-invoices':    () => renderExtPlaceholder('💰','Invoices & Payments','Invoice submissions, approval status & payment history'),
+    'my-documents':   () => renderExtPlaceholder('📂','My Documents','Compliance docs, certificates & agreements'),
+  };
+  (pages[page] || renderDashboard)();
+  // Refresh live master data into DOM after render
+  if (STATE.mastersLoaded) updateAllMasterUI();
+  } catch(err) {
+    console.error('renderPage error:', err);
+    el.innerHTML = `<div style="padding:2rem;background:#fff3cd;border:1px solid #ffc107;border-radius:12px;margin:1rem">
+      <h3 style="color:#856404;margin-bottom:.5rem">⚠️ Render Error</h3>
+      <p style="color:#856404;font-size:.85rem">Page: <strong>${page}</strong><br/>Error: ${err.message}</p>
+      <button onclick="navigate('dashboard')" style="margin-top:1rem;padding:8px 18px;background:#1a6038;color:#fff;border:none;border-radius:8px;cursor:pointer">← Back to Dashboard</button>
+    </div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  DASHBOARD
+// ══════════════════════════════════════════════════
+function renderDashboard() {
+  // HR role → their dedicated dashboard
+  if (STATE.role === 'hr') { renderHRDashboard(); return; }
+
+  const el = document.getElementById('mainContent');
+  const now = new Date();
+  const hour = now.getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  el.innerHTML = `
+    <div class="time-widget">
+      <div>
+        <div class="tw-greeting">${greeting}, ${STATE.role === 'md' ? 'Sir' : 'Team'} 👋</div>
+        <div class="tw-sub">Evergreen Enterprises · ${now.toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
+      </div>
+      <div class="tw-time">
+        <div class="tw-clock" id="liveClock">${now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div>
+        <div class="tw-date">IST · Namakkal, TN</div>
+      </div>
+    </div>
+
+    <div class="alert-strip danger">
+      <span class="alert-icon">🚨</span>
+      <span class="alert-text"><strong>2 Safety Incidents Pending Review</strong> Erode Tower B & Salem Site 3 — Immediate attention required</span>
+      <button class="btn btn-sm" onclick="navigate('safety')" style="background:var(--danger);color:#fff;margin-left:auto;flex-shrink:0">View</button>
+    </div>
+
+    <!-- ROW 1: Operational KPIs -->
+    <div class="kpi-grid">
+      <div class="kpi-card" onclick="navigate('site-manager')" style="cursor:pointer">
+        <div class="kpi-top"><div class="kpi-icon green">🏗️</div><div class="kpi-trend up" id="siteTrend">⬤ Live</div></div>
+        <div class="kpi-value" id="activeSiteCount">—</div>
+        <div class="kpi-label">Active Sites</div>
+        <div class="kpi-sub" id="activeSiteSub">Loading…</div>
+      </div>
+      <div class="kpi-card warn" onclick="navigate('hr-dashboard')" style="cursor:pointer">
+        <div class="kpi-top"><div class="kpi-icon orange">👷</div><div class="kpi-trend up" id="userTrend">⬤ Live</div></div>
+        <div class="kpi-value" id="activeUserCount">—</div>
+        <div class="kpi-label">Active Employees</div>
+        <div class="kpi-sub" id="activeUserSub">Loading…</div>
+      </div>
+      <div class="kpi-card info" onclick="navigate('equipment')" style="cursor:pointer">
+        <div class="kpi-top"><div class="kpi-icon blue">🚜</div><div class="kpi-trend flat" id="assetTrend">⬤ Live</div></div>
+        <div class="kpi-value" id="activeAssetCount">—</div>
+        <div class="kpi-label">Active Equipment</div>
+        <div class="kpi-sub" id="activeAssetSub">Loading…</div>
+      </div>
+      <div class="kpi-card" onclick="navigate('vendor')" style="cursor:pointer">
+        <div class="kpi-top"><div class="kpi-icon green">🏢</div><div class="kpi-trend up" id="vendorTrend">⬤ Live</div></div>
+        <div class="kpi-value" id="activeVendorCount">—</div>
+        <div class="kpi-label">Active Vendors</div>
+        <div class="kpi-sub" id="activeVendorSub">Loading…</div>
+      </div>
+    </div>
+
+    <!-- ROW 2: Master Summary Cards -->
+    <div class="kpi-grid" style="margin-bottom:1.6rem">
+      <div class="kpi-card gold" onclick="navigate('subcontractor')" style="cursor:pointer">
+        <div class="kpi-top"><div class="kpi-icon gold">🤝</div><div class="kpi-trend up" id="scTrend">⬤ Live</div></div>
+        <div class="kpi-value" id="activeSCCount">—</div>
+        <div class="kpi-label">Sub-Contractors</div>
+        <div class="kpi-sub" id="activeSCSub">Loading…</div>
+      </div>
+      <div class="kpi-card gold" onclick="navigate('planning')" style="cursor:pointer">
+        <div class="kpi-top"><div class="kpi-icon gold">💰</div><div class="kpi-trend flat">~ Phase 6</div></div>
+        <div class="kpi-value">₹ —</div>
+        <div class="kpi-label">Budget (FY 25-26)</div>
+        <div class="kpi-sub">Budget module in Phase 6</div>
+      </div>
+      <div class="kpi-card" onclick="navigate('purchase')" style="cursor:pointer">
+        <div class="kpi-top"><div class="kpi-icon green">🛒</div><div class="kpi-trend flat">~ Phase 3</div></div>
+        <div class="kpi-value">— POs</div>
+        <div class="kpi-label">POs This Month</div>
+        <div class="kpi-sub">Purchase module in Phase 3</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:1.4rem">
+      <div class="card-head">
+        <h3>📊 Masters Summary — Live from Google Sheets</h3>
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <span id="masterStatusBadge" class="tag" style="font-size:.68rem;background:#e8f5e9;color:var(--g7)">⏳ Loading…</span>
+          <button class="btn btn-secondary btn-sm" onclick="STATE.mastersLoaded=false;loadAllMasters().then(()=>updateAllMasterUI())" title="Refresh all master data">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="card-body" id="mastersWidget">
+        <div style="text-align:center;color:var(--txt3);padding:1rem">⏳ Loading master data…</div>
+      </div>
+    </div>
+
+    <div class="dash-grid thirds">
+      <!-- Sites Overview -->
+      <div class="card">
+        <div class="card-head">
+          <h3>🏗️ Active Sites Overview</h3>
+          <button class="btn btn-secondary btn-sm" onclick="navigate('site-manager')">View All</button>
+        </div>
+        <div class="card-body" style="padding:0">
+          <table class="sites-table">
+            <thead><tr>
+              <th>Site</th><th>Site In-Charge</th><th>Status</th>
+            </tr></thead>
+            <tbody id="sitesTableBody">
+              <tr><td colspan="3" style="padding:1.5rem;text-align:center;color:var(--txt3)">⏳ Loading from Site Master…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Quick Actions + Approvals -->
+      <div style="display:flex;flex-direction:column;gap:1.4rem">
+        <div class="card card-pad">
+          <h3 style="font-size:.95rem;font-weight:700;margin-bottom:1rem;color:var(--g9)">⚡ Quick Actions</h3>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.7rem">
+            ${quickAction('👶','New Onboarding','onboarding')}
+            ${quickAction('🦺','Report Incident','safety')}
+            ${quickAction('🛒','Raise PR','purchase')}
+            ${quickAction('📊','View Budget','planning')}
+            ${quickAction('🏢','Vendor Status','vendor')}
+            ${quickAction('📋','Policies','policies')}
+          </div>
+        </div>
+        <div class="card card-pad">
+          <h3 style="font-size:.95rem;font-weight:700;margin-bottom:1rem;color:var(--g9)">✅ Pending Approvals <span class="tag gold" style="margin-left:8px">5 new</span></h3>
+          <div class="approval-list">
+            ${approvalItem('🛒','PO-2025-0312','Laxmi Steels — TMT Bars 50MT','₹4,82,000','2 mins ago')}
+            ${approvalItem('💰','PAY-2025-089','Advance payment — Coimbatore Site','₹1,25,000','1 hr ago')}
+            ${approvalItem('👶','ONB-2025-031','Priya Sharma — Site Engineer','Joining Mar 15','3 hrs ago')}
+          </div>
+          <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:.8rem;justify-content:center" onclick="navigate('md-command')">View All Approvals →</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="dash-grid">
+      <!-- Department Modules -->
+      <div class="card card-pad">
+        <h3 style="font-size:.95rem;font-weight:700;margin-bottom:1.2rem;color:var(--g9)">📱 Department Modules</h3>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem">
+          ${moduleCard('👥','HR','hr-dashboard','#e8f5ee','var(--g8)')}
+          ${moduleCard('📦','SCM','scm','#e3f2fd','#1565c0')}
+          ${moduleCard('💰','Accounts','accounts','#fff3e0','#e65100')}
+          ${moduleCard('🛒','Purchase','purchase','#f3e5f5','#6a1b9a')}
+          ${moduleCard('🏪','Store','store','#e0f2f1','#00695c')}
+          ${moduleCard('🚜','Equipment','equipment','#fce4ec','#880e4f')}
+        </div>
+      </div>
+
+      <!-- Finance Snapshot -->
+      <div class="card card-pad">
+        <h3 style="font-size:.95rem;font-weight:700;margin-bottom:1.2rem;color:var(--g9)">💰 Finance Snapshot</h3>
+        ${finRow('Revenue (YTD)','₹31.4 Cr','pos')}
+        ${finRow('Expenses (YTD)','₹24.6 Cr','neg')}
+        ${finRow('Outstanding Receivables','₹6.8 Cr','')}
+        ${finRow('Vendor Payments Due','₹2.3 Cr','neg')}
+        ${finRow('Cash Position','₹4.1 Cr','pos')}
+        <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)">
+          <button class="btn btn-primary btn-sm" onclick="navigate('planning')" style="width:100%;justify-content:center">View Full Budget →</button>
+        </div>
+      </div>
+    </div>
+  `;
+  startClock();
+}
+
+// ══════════════════════════════════════════════════
+//  MD COMMAND CENTER
+// ══════════════════════════════════════════════════
+function renderMDCommand() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header">
+      <div class="breadcrumb">
+        <span>Home</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        <span>MD Command Center</span>
+      </div>
+      <div class="page-header-row">
+        <div>
+          <h1>Command Center</h1>
+          <p id="mdCommandSubtitle">Real-time overview of all active sites & pending actions</p>
+        </div>
+        <div style="display:flex;gap:.7rem;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm">📊 Export Report</button>
+          <button class="btn btn-gold btn-sm">📱 WhatsApp Summary</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert-strip warn" style="margin-bottom:1rem">
+      <span class="alert-icon">⚠️</span>
+      <span class="alert-text"><strong>Salem Site 3 — Budget Overrun Alert</strong> Consumed 94% of allocated budget with 40% work remaining</span>
+    </div>
+    <div class="alert-strip danger" style="margin-bottom:1.4rem">
+      <span class="alert-icon">🚨</span>
+      <span class="alert-text"><strong>2 Safety Incidents Awaiting Review</strong> Erode Tower B (minor injury) · Coimbatore Phase 1 (near miss)</span>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-grid" style="margin-bottom:1.6rem">
+      <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">🏗️</div><div class="kpi-trend up">Live</div></div><div class="kpi-value" id="mdActiveSiteCount">—</div><div class="kpi-label">Active Sites</div></div>
+      <div class="kpi-card gold"><div class="kpi-top"><div class="kpi-icon gold">✅</div><div class="kpi-trend flat">5 urgent</div></div><div class="kpi-value">12</div><div class="kpi-label">Pending Approvals</div></div>
+      <div class="kpi-card info"><div class="kpi-top"><div class="kpi-icon blue">🚜</div><div class="kpi-trend down">2 breakdown</div></div><div class="kpi-value">43</div><div class="kpi-label">Equipment on Sites</div></div>
+      <div class="kpi-card danger"><div class="kpi-top"><div class="kpi-icon red">🦺</div><div class="kpi-trend down">↑ from last month</div></div><div class="kpi-value">2</div><div class="kpi-label">Safety Incidents</div></div>
+    </div>
+
+    <div class="dash-grid thirds">
+      <!-- All Sites -->
+      <div class="card">
+        <div class="card-head">
+          <h3>📍 All Sites (<span id="mdSiteCount">—</span>)</h3>
+          <select style="font-size:.75rem;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--surface2)">
+            <option>All Regions</option>
+            <option>Tamil Nadu</option>
+            <option>Karnataka</option>
+            <option>Andhra Pradesh</option>
+          </select>
+        </div>
+        <div class="card-body" style="padding:.8rem;max-height:500px;overflow-y:auto" id="mdSitesContainer">
+          <div style="padding:2rem;text-align:center;color:var(--txt3)">⏳ Loading sites…</div>
+        </div>
+      </div>
+
+      <!-- Approvals + Finance -->
+      <div style="display:flex;flex-direction:column;gap:1.4rem">
+        <div class="card">
+          <div class="card-head"><h3>✅ Pending Your Approval</h3><span class="tag gold">12 total</span></div>
+          <div class="card-body" style="padding:.8rem">
+            <div class="approval-list">
+              ${approvalItem('💰','PAY-0089','Advance — Coimbatore Site · Ranganathan Const.','₹1,25,000','10 mins ago')}
+              ${approvalItem('🛒','PO-0312','TMT Bars 50MT · Laxmi Steels','₹4,82,000','25 mins ago')}
+              ${approvalItem('📜','TND-0021','Erode Bypass Road — Final Award','₹2.4 Cr','2 hrs ago')}
+              ${approvalItem('👶','ONB-031','Priya Sharma · Site Engineer','Day 1: Mar 15','3 hrs ago')}
+            </div>
+          </div>
+        </div>
+
+        <div class="card card-pad">
+          <h3 style="font-size:.95rem;font-weight:700;margin-bottom:1.2rem;color:var(--g9)">💰 Cash Flow Today</h3>
+          ${finRow('Opening Balance','₹5.2 Cr','pos')}
+          ${finRow('Payments Released','- ₹1.1 Cr','neg')}
+          ${finRow('Collections Received','+ ₹0.8 Cr','pos')}
+          ${finRow('Closing Balance','₹4.9 Cr','pos')}
+          <div style="margin-top:1rem;padding:.8rem;background:var(--gold-lt);border-radius:var(--rad);font-size:.78rem;color:#7a5200">
+            <strong>⚠️ Vendor payments of ₹2.3 Cr due this week</strong><br/>
+            3 vendors with overdue payments — review needed
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ══════════════════════════════════════════════════
+//  APPSHEET EMBED
+// ══════════════════════════════════════════════════
+// ── AppSheet app registry — add more apps here as they go live ──
+const APPSHEET_APPS = {
+  hr:       { url: 'https://www.appsheet.com/start/9fcf3039-c992-4498-9647-2bcccca13ece', label: 'HR_v0',       icon: '👥' },
+  personal: { url: 'https://www.appsheet.com/start/9fcf3039-c992-4498-9647-2bcccca13ece', label: 'HR_v0',       icon: '🙋' },
+  accounts: { url: 'https://www.appsheet.com/start/fcdba849-9f9d-435f-8e8a-ea0c975dbd21', label: 'Accounts',    icon: '💰' },
+  scm:      { url: 'https://www.appsheet.com/start/06fd0117-1dd8-445b-aaee-e2ff6e68e36f', label: 'SCM',         icon: '📦' },
+};
+
+function renderAppSheetEmbed(title, desc, appKey) {
+  const el = document.getElementById('mainContent');
+  const app = APPSHEET_APPS[appKey] || null;
+  const url = app?.url || null;
+  const iframeId = 'appsheetFrame_' + Date.now();
+
+  if (!url) {
+    // Not yet configured
+    el.innerHTML = `
+      <div class="page-header"><h1>${app?.icon||'📱'} ${title}</h1><p>${desc}</p></div>
+      <div class="card"><div class="card-body" style="text-align:center;padding:3rem 1rem;color:var(--txt3)">
+        <div style="font-size:3rem;margin-bottom:1rem">📱</div>
+        <div style="font-weight:600;color:var(--g8);margin-bottom:.5rem">${title}</div>
+        <div style="font-size:.85rem;margin-bottom:1.5rem">${desc}</div>
+        <div class="mp-badge">🔨 App URL not yet configured</div>
+      </div></div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="page-header" style="margin-bottom:1rem">
+      <h1>${app.icon} ${title}</h1>
+      <p>${desc} &nbsp;·&nbsp; <span style="color:var(--g6);font-weight:600">${app.label}</span></p>
+    </div>
+
+    <div class="card" style="overflow:hidden;padding:0">
+      <!-- Toolbar -->
+      <div class="card-head" style="padding:.75rem 1rem;background:var(--g9);color:#fff;border-radius:0">
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <span style="font-size:1rem">${app.icon}</span>
+          <span style="font-weight:600;font-size:.9rem">${app.label}</span>
+          <span style="font-size:.72rem;background:rgba(255,255,255,.15);padding:.1rem .45rem;border-radius:20px">AppSheet</span>
+        </div>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <button class="btn btn-sm" onclick="document.getElementById('${iframeId}').src=document.getElementById('${iframeId}').src"
+            style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);font-size:.75rem">
+            ↻ Reload
+          </button>
+          <button class="btn btn-sm" onclick="window.open('${url}','_blank')"
+            style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);font-size:.75rem">
+            ⛶ Full Screen
+          </button>
+        </div>
+      </div>
+
+      <!-- Loading overlay -->
+      <div id="${iframeId}_loader" style="position:relative">
+        <div id="${iframeId}_spinner" style="position:absolute;inset:0;z-index:10;background:#f8fbf9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:120px">
+          <div style="width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite"></div>
+          <div style="font-size:.82rem;color:var(--txt3)">Loading ${app.label}…</div>
+        </div>
+        <!-- The actual iframe -->
+        <iframe
+          id="${iframeId}"
+          src="${url}"
+          style="width:100%;height:calc(100vh - 200px);min-height:600px;border:none;display:block"
+          allow="camera; microphone; geolocation"
+          onload="document.getElementById('${iframeId}_spinner').style.display='none'"
+          title="${title}"
+        ></iframe>
+      </div>
+
+      <!-- Footer note -->
+      <div style="padding:.6rem 1rem;background:var(--surface2);border-top:1px solid var(--border);font-size:.73rem;color:var(--txt3);display:flex;justify-content:space-between;align-items:center">
+        <span>🔒 Powered by AppSheet · Embedded securely in Evergreen Intranet</span>
+        <button onclick="window.open('${url}','_blank')" style="background:none;border:none;color:var(--g6);font-size:.73rem;cursor:pointer;font-family:inherit">
+          Open in new tab ↗
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+// ══════════════════════════════════════════════════
+//  PLACEHOLDER
+// ══════════════════════════════════════════════════
+function renderPlaceholder(icon, title, desc, phase) {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header">
+      <h1>${icon} ${title}</h1>
+      <p>${desc}</p>
+    </div>
+    <div class="module-placeholder">
+      <div class="mp-icon">${icon}</div>
+      <h2>${title}</h2>
+      <p>${desc}</p>
+      <div class="mp-badge">🔨 ${phase}</div>
+      <p style="margin-top:1rem;font-size:.78rem;color:var(--txt4)">This module is in the build queue. All planning is complete — development starts soon.</p>
+    </div>
+  `;
+}
+
+// ══════════════════════════════════════════════════
+//  HR DASHBOARD
+// ══════════════════════════════════════════════════
+function renderHRDashboard() {
+  const el = document.getElementById('mainContent');
+
+  if (!STATE.mastersLoaded) {
+    el.innerHTML = `<div style="text-align:center;padding:3rem;color:var(--txt3)">⏳ Loading master data… Please wait.</div>`;
+    loadAllMasters().then(() => renderHRDashboard());
+    return;
+  }
+
+  const activeEmps   = getActiveUsers();
+  const totalEmps    = STATE.masters.users.length;
+  const onPayroll    = activeEmps.filter(e => (e.empType||'').toLowerCase().includes('payroll')).length;
+  const onContract   = activeEmps.filter(e => (e.empType||'').toLowerCase().includes('contract')).length;
+
+  // New joiners — DOJ within last 90 days
+  const now = Date.now();
+  const newJoiners = activeEmps.filter(e => {
+    const d = parseGvizDate(e.doj);
+    return d > new Date(0) && (now - d.getTime()) < 90*24*60*60*1000;
+  }).length;
+
+  // Department breakdown
+  const deptTally  = tallyBy(activeEmps, 'dept');
+  const deptMax    = deptTally[0]?.[1] || 1;
+
+  // Mess unique data — filter to CURRENT employees only
+  const currentEmpCodes = new Set(activeEmps.map(e => e.empCode).filter(Boolean));
+  const messUniq = (STATE.masters.messUnique || []).filter(m => currentEmpCodes.has(m.empCode));
+  const accomTally = tallyBy(messUniq, 'accommodation');
+  const messTally  = tallyBy(messUniq, 'messDetails');
+  const accomMax   = accomTally[0]?.[1] || 1;
+  const messMax    = messTally[0]?.[1] || 1;
+
+  const ACCOM_COLORS = {
+    'SITE ACCOMMODATION':'#2e7d32','INDIVIDUAL ACCOMMODATION':'#1565c0',
+    'NA':'#9ab8a5','—':'#ccc'
+  };
+  const MESS_COLORS = {
+    'SITE MESS':'#2e7d32','INDIVIDUAL MESS':'#e65100',
+    'NA':'#9ab8a5','—':'#ccc'
+  };
+
+  function breakupItem(label, count, max, colorMap) {
+    const pct = Math.round((count/max)*100);
+    const col = colorMap[label] || '#3cb96d';
+    return `<li>
+      <span class="bl-label">${label}</span>
+      <div class="bl-bar-wrap"><div class="bl-bar" style="width:${pct}%;background:${col}"></div></div>
+      <span class="bl-count">${count}</span>
+    </li>`;
+  }
+
+  function deptItem(label, count) {
+    const pct = Math.round((count/deptMax)*100);
+    return `<li>
+      <span class="bl-label" style="min-width:160px">${label}</span>
+      <div class="bl-bar-wrap"><div class="bl-bar" style="width:${pct}%;background:var(--g5)"></div></div>
+      <span class="bl-count">${count}</span>
+    </li>`;
+  }
+
+  // Employee table (top 30 active, searchable)
+  const empRows = activeEmps.slice(0,200).map(e => `
+    <tr>
+      <td class="emp-name">${e.name}</td>
+      <td>${e.empCode}</td>
+      <td>${e.dept || '—'}</td>
+      <td>${e.desig || '—'}</td>
+      <td>${e.grade || '—'}</td>
+      <td>${e.site || '—'}</td>
+      <td><span class="tag" style="background:#e8f5e9;color:#2e7d32;font-size:.7rem">${e.empType || 'Staff'}</span></td>
+    </tr>`).join('');
+
+  el.innerHTML = `
+    <div class="page-header">
+      <h1>👥 HR Command Centre</h1>
+      <p>Live workforce data · Employee Register + Mess & Accommodation</p>
+    </div>
+
+    <!-- KPI Row -->
+    <div class="kpi-grid">
+      <div class="kpi-card" style="border-bottom:3px solid var(--g5)">
+        <div class="kpi-top"><div class="kpi-icon green">👷</div><div class="kpi-trend up">⬤ Live</div></div>
+        <div class="kpi-value">${activeEmps.length}</div>
+        <div class="kpi-label">Current Employees</div>
+        <div class="kpi-sub">${totalEmps} total records · deduplicated</div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="kpi-top"><div class="kpi-icon orange">💼</div><div class="kpi-trend up">⬤ Live</div></div>
+        <div class="kpi-value">${onPayroll}</div>
+        <div class="kpi-label">On Payroll</div>
+        <div class="kpi-sub">${onContract} on contract · ${activeEmps.length - onPayroll - onContract} other</div>
+      </div>
+      <div class="kpi-card info">
+        <div class="kpi-top"><div class="kpi-icon blue">🏠</div><div class="kpi-trend up">⬤ Live</div></div>
+        <div class="kpi-value">${messUniq.length}</div>
+        <div class="kpi-label">Mess / Accom Assigned</div>
+        <div class="kpi-sub">${accomTally.length} accommodation types</div>
+      </div>
+      <div class="kpi-card gold">
+        <div class="kpi-top"><div class="kpi-icon gold">🌱</div><div class="kpi-trend flat">Last 90 days</div></div>
+        <div class="kpi-value">${newJoiners}</div>
+        <div class="kpi-label">Recent Joiners</div>
+        <div class="kpi-sub">New in last 90 days</div>
+      </div>
+    </div>
+
+    <!-- Mess & Accommodation Breakup -->
+    <div class="breakup-row">
+      <div class="card">
+        <div class="card-head">
+          <h3>🏠 Accommodation Breakup</h3>
+          <span class="hr-stat-pill">Unique per employee · latest entry</span>
+        </div>
+        <div class="card-body">
+          <ul class="breakup-list">
+            ${accomTally.map(([label,count]) => breakupItem(label,count,accomMax,ACCOM_COLORS)).join('') || '<li><span style="color:var(--txt3)">No data loaded</span></li>'}
+          </ul>
+          <div style="margin-top:.75rem;font-size:.75rem;color:var(--txt3)">Total records: ${messUniq.length} unique employees</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h3>🍽️ Mess Breakup</h3>
+          <span class="hr-stat-pill">Unique per employee · latest entry</span>
+        </div>
+        <div class="card-body">
+          <ul class="breakup-list">
+            ${messTally.map(([label,count]) => breakupItem(label,count,messMax,MESS_COLORS)).join('') || '<li><span style="color:var(--txt3)">No data loaded</span></li>'}
+          </ul>
+          <div style="margin-top:.75rem;font-size:.75rem;color:var(--txt3)">Source: 07_Mess_Accomodation · ${STATE.masters.mess.length} raw rows → ${messUniq.length} unique</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Department Breakdown -->
+    <div class="card" style="margin-bottom:1.4rem">
+      <div class="card-head">
+        <h3>🏢 Department-wise Headcount</h3>
+        <span class="hr-stat-pill">${deptTally.length} departments</span>
+      </div>
+      <div class="card-body">
+        <ul class="breakup-list">
+          ${deptTally.map(([label,count]) => deptItem(label,count)).join('')}
+        </ul>
+      </div>
+    </div>
+
+    <!-- Employee Directory -->
+    <div class="card">
+      <div class="card-head">
+        <h3>📋 Employee Directory</h3>
+        <span class="hr-stat-pill"><strong>${activeEmps.length}</strong> current</span>
+      </div>
+      <div class="card-body">
+        <input class="emp-search" id="empSearchInput" placeholder="🔍  Search by name, code, department, site…" oninput="filterEmpTable(this.value)">
+        <div style="overflow-x:auto;max-height:420px;overflow-y:auto">
+          <table class="emp-table" id="empDirectoryTable">
+            <thead><tr>
+              <th>Name</th><th>EMP Code</th><th>Department</th>
+              <th>Designation</th><th>Grade</th><th>Site</th><th>Type</th>
+            </tr></thead>
+            <tbody id="empTableBody">${empRows}</tbody>
+          </table>
+        </div>
+        <div style="margin-top:.5rem;font-size:.75rem;color:var(--txt3)">
+          Showing ${Math.min(200,activeEmps.length)} of ${activeEmps.length} current employees
+          &nbsp;·&nbsp; Refresh:
+          <button class="btn btn-secondary btn-sm" onclick="STATE.mastersLoaded=false;loadAllMasters().then(()=>renderHRDashboard())" style="margin-left:.3rem">↻</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Store active employees for search
+  window._hrEmpData = activeEmps;
+}
+
+window.filterEmpTable = function(q) {
+  const rows = window._hrEmpData || [];
+  const lq = q.toLowerCase();
+  const filtered = q ? rows.filter(e =>
+    (e.name||'').toLowerCase().includes(lq) ||
+    (e.empCode||'').toLowerCase().includes(lq) ||
+    (e.dept||'').toLowerCase().includes(lq) ||
+    (e.site||'').toLowerCase().includes(lq) ||
+    (e.desig||'').toLowerCase().includes(lq)
+  ) : rows.slice(0,200);
+
+  const tbody = document.getElementById('empTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = filtered.slice(0,200).map(e => `
+    <tr>
+      <td class="emp-name">${e.name}</td>
+      <td>${e.empCode}</td>
+      <td>${e.dept || '—'}</td>
+      <td>${e.desig || '—'}</td>
+      <td>${e.grade || '—'}</td>
+      <td>${e.site || '—'}</td>
+      <td><span class="tag" style="background:#e8f5e9;color:#2e7d32;font-size:.7rem">${e.empType || 'Staff'}</span></td>
+    </tr>`).join('');
+};
+
+// ══════════════════════════════════════════════════
+//  MY PROFILE
+// ══════════════════════════════════════════════════
+function renderMyProfile() {
+  const el = document.getElementById('mainContent');
+
+  // Find the logged-in user's employee record (match by email)
+  const email = STATE.user?.email || '';
+  let emp = STATE.masters.users.find(u =>
+    u.email && email && u.email.toLowerCase() === email.toLowerCase()
+  );
+
+  // Demo fallback — use first real employee record
+  if (!emp && STATE.masters.users.length > 3) {
+    emp = STATE.masters.users.find(u => u.empCode && u.empCode.startsWith('EG')) || STATE.masters.users[3];
+  }
+
+  // Mess/accommodation for this employee
+  const messInfo = emp ? (STATE.masters.messUnique || []).find(m => m.empCode === emp.empCode) : null;
+
+  // Parse DOJ for display
+  function fmtGvizDate(val) {
+    const d = parseGvizDate(val);
+    if (!d || d.getTime() === 0) return '—';
+    return d.toLocaleDateString('en-IN', {day:'numeric',month:'short',year:'numeric'});
+  }
+
+  // Photo: stored in localStorage per empCode
+  const photoKey = `evg_photo_${emp?.empCode || 'demo'}`;
+  const savedPhoto = localStorage.getItem(photoKey);
+  const avatarContent = savedPhoto
+    ? `<img src="${savedPhoto}" alt="Profile Photo">`
+    : `<span>${(emp?.name||'?').charAt(0)}</span>`;
+
+  const infoCards = emp ? `
+    <div class="info-card"><div class="ic-icon">🏢</div><div class="ic-label">Department</div><div class="ic-value">${emp.dept || '—'}</div></div>
+    <div class="info-card"><div class="ic-icon">🎯</div><div class="ic-label">Designation</div><div class="ic-value">${emp.desig || '—'}</div></div>
+    <div class="info-card"><div class="ic-icon">📊</div><div class="ic-label">Grade</div><div class="ic-value">${emp.grade || '—'}</div></div>
+    <div class="info-card"><div class="ic-icon">🏗️</div><div class="ic-label">Current Site</div><div class="ic-value">${emp.site || 'Head Office'}</div></div>
+    <div class="info-card"><div class="ic-icon">📅</div><div class="ic-label">Date of Joining</div><div class="ic-value">${fmtGvizDate(emp.doj)}</div></div>
+    <div class="info-card"><div class="ic-icon">⭐</div><div class="ic-label">EG Experience</div><div class="ic-value">${emp.expEG || emp.expTotal || '—'} yrs</div></div>
+  ` : `<div class="info-card" style="grid-column:1/-1;text-align:center;color:var(--txt3)">Employee record not found for your login email.</div>`;
+
+  const messCard = messInfo ? `
+    <div class="card" style="margin-bottom:1.4rem">
+      <div class="card-head"><h3>🏠 Mess & Accommodation</h3><span class="hr-stat-pill">⬤ Live from Register</span></div>
+      <div class="card-body">
+        <div class="info-grid-3">
+          <div class="info-card"><div class="ic-label">Accommodation</div><div class="ic-value">${messInfo.accommodation || '—'}</div></div>
+          <div class="info-card"><div class="ic-label">Mess Type</div><div class="ic-value">${messInfo.messDetails || '—'}</div></div>
+          <div class="info-card"><div class="ic-label">Assigned Site</div><div class="ic-value">${messInfo.site || '—'}</div></div>
+          <div class="info-card"><div class="ic-label">Per Day Food Allowance</div><div class="ic-value">${messInfo.perDayFood ? '₹'+messInfo.perDayFood : '—'}</div></div>
+          <div class="info-card"><div class="ic-label">Special Site Allowance</div><div class="ic-value">${messInfo.specialAllow || '—'}</div></div>
+          <div class="info-card"><div class="ic-label">Effective From</div><div class="ic-value">${fmtGvizDate(messInfo.fromDate)}</div></div>
+        </div>
+      </div>
+    </div>` : '';
+
+  const leaveCard = emp ? `
+    <div class="card" style="margin-bottom:1.4rem">
+      <div class="card-head"><h3>🌴 Leave Balance</h3></div>
+      <div class="card-body">
+        <div class="info-grid-3">
+          <div class="info-card"><div class="ic-label">PL Eligible?</div><div class="ic-value">${emp.plEligible || '—'}</div></div>
+          <div class="info-card"><div class="ic-label">PL Available Today</div><div class="ic-value" style="color:var(--g7)">${emp.plBalance || '—'}</div></div>
+          <div class="info-card"><div class="ic-label">Employee Type</div><div class="ic-value">${emp.empType || '—'}</div></div>
+        </div>
+      </div>
+    </div>` : '';
+
+  el.innerHTML = `
+    <!-- Profile Hero -->
+    <div class="profile-hero">
+      <div class="profile-avatar-wrap">
+        <div class="profile-avatar" id="profileAvatarEl">${avatarContent}</div>
+        <label class="profile-upload-btn" title="Upload photo" style="cursor:pointer">
+          📷
+          <input type="file" accept="image/*" style="display:none" onchange="uploadProfilePhoto(event,'${emp?.empCode||'demo'}')">
+        </label>
+      </div>
+      <div class="profile-info">
+        <h2>${emp?.name || STATE.user?.name || 'Employee'}</h2>
+        <div class="profile-code">${emp?.empCode || '—'}</div>
+        <div class="profile-desig">${emp?.desig || '—'} · ${emp?.dept || 'Evergreen Enterprises'}</div>
+        <div class="profile-tags">
+          ${emp?.grade ? `<span class="profile-tag">Grade: ${emp.grade}</span>` : ''}
+          ${emp?.empType ? `<span class="profile-tag">${emp.empType}</span>` : ''}
+          ${emp?.site ? `<span class="profile-tag">📍 ${emp.site}</span>` : ''}
+          ${emp?.role ? `<span class="profile-tag">🔑 ${emp.role}</span>` : ''}
+        </div>
+      </div>
+      <div style="margin-left:auto;text-align:right;opacity:.75;font-size:.8rem">
+        <div>${emp?.email || ''}</div>
+        <div style="margin-top:.3rem">Joined ${fmtGvizDate(emp?.doj)}</div>
+      </div>
+    </div>
+
+    <!-- Info Cards -->
+    <div class="info-grid-3">${infoCards}</div>
+
+    <!-- Mess & Accommodation -->
+    ${messCard}
+
+    <!-- Leave Balance -->
+    ${leaveCard}
+
+    <!-- Pay Slips -->
+    <div class="card" style="margin-bottom:1.4rem">
+      <div class="card-head">
+        <h3>💰 Pay Slips</h3>
+        <span class="tag" style="background:#fff3e0;color:#e65100;font-size:.7rem">~ Phase 3</span>
+      </div>
+      <div class="card-body">
+        ${['Mar 2026','Feb 2026','Jan 2026','Dec 2025','Nov 2025'].map((m,i) => `
+          <div class="payslip-row">
+            <div>
+              <div style="font-weight:600;font-size:.88rem">${m} Pay Slip</div>
+              <div style="font-size:.75rem;color:var(--txt3)">Processing via Payroll module · Phase 3</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" style="opacity:.5" disabled>⬇ Download</button>
+          </div>`).join('')}
+        <div style="margin-top:.75rem;font-size:.75rem;color:var(--txt3)">Pay slips will be available once Payroll integration goes live in Phase 3.</div>
+      </div>
+    </div>
+
+    <!-- Documents -->
+    <div class="card">
+      <div class="card-head">
+        <h3>📂 My Documents</h3>
+        <span class="tag" style="background:#fff3e0;color:#e65100;font-size:.7rem">~ Phase 3</span>
+      </div>
+      <div class="card-body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem">
+        ${['Offer Letter','Appointment Letter','ID Card','Experience Certificate','PF Statement'].map(d => `
+          <div class="info-card" style="display:flex;align-items:center;gap:.6rem;opacity:.55">
+            <span style="font-size:1.2rem">📄</span>
+            <div><div class="ic-label">Document</div><div class="ic-value" style="font-size:.82rem">${d}</div></div>
+          </div>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+window.uploadProfilePhoto = function(event, empCode) {
+  const file = event.target.files[0];
+  if (!file) return;
+  // Size guard — warn if > 500KB
+  if (file.size > 500 * 1024) {
+    alert('Photo is too large (' + Math.round(file.size/1024) + 'KB). Please use an image under 500KB.');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const b64 = e.target.result; // data:image/jpeg;base64,...
+    // 1. Update UI immediately
+    const avatarEl = document.getElementById('profileAvatarEl');
+    if (avatarEl) avatarEl.innerHTML = `<img src="${b64}" alt="Profile Photo" style="width:100%;height:100%;object-fit:cover">`;
+    // 2. Save to localStorage (instant fallback)
+    try { localStorage.setItem('evg_photo_' + empCode, b64); } catch(err) {}
+    // 3. Save to Apps Script / Drive in background
+    try {
+      const formData = new FormData();
+      formData.append('action', 'savePhoto');
+      formData.append('empCode', empCode);
+      formData.append('photo', b64.split(',')[1]); // base64 only, no prefix
+      formData.append('mimeType', file.type);
+      const res = await fetch(APPS_SCRIPT_URL, { method: 'POST', body: formData });
+      const json = await res.json();
+      if (json.status === 'ok') {
+        console.log('✅ Photo saved to Drive:', json.fileId);
+        // Store Drive URL for cross-device access
+        try { localStorage.setItem('evg_photo_url_' + empCode, json.webViewLink || ''); } catch(e) {}
+      }
+    } catch(err) {
+      console.warn('Drive save failed (localStorage used as fallback):', err.message);
+    }
+  };
+  reader.readAsDataURL(file);
+};
+
+// Load photo: try localStorage first, then Apps Script
+async function loadProfilePhoto(empCode) {
+  const local = localStorage.getItem('evg_photo_' + empCode);
+  if (local) return local;
+  // Try Apps Script
+  try {
+    const url = `${APPS_SCRIPT_URL}?action=getPhoto&empCode=${encodeURIComponent(empCode)}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (json.status === 'ok' && json.photo) {
+      const b64 = 'data:image/jpeg;base64,' + json.photo;
+      try { localStorage.setItem('evg_photo_' + empCode, b64); } catch(e) {}
+      return b64;
+    }
+  } catch(err) { /* Apps Script not configured yet */ }
+  return null;
+}
+
+// ══════════════════════════════════════════════════
+//  EXTERNAL PORTAL (Vendor / Sub-Contractor)
+// ══════════════════════════════════════════════════
+function renderExternalPortal() {
+  const el = document.getElementById('mainContent');
+  const rec = STATE.vendorRecord;
+  const isVendor = STATE.role === 'vendor';
+  const typeLabel = isVendor ? 'Vendor' : 'Sub-Contractor';
+  const typeIcon  = isVendor ? '🏢' : '🤝';
+
+  if (!rec && STATE.mastersLoaded) {
+    // Demo mode — pick first record
+    if (isVendor && STATE.masters.vendors.length > 0)
+      STATE.vendorRecord = { ...STATE.masters.vendors[0], type: 'vendor' };
+    else if (!isVendor && STATE.masters.subcontractors.length > 0)
+      STATE.vendorRecord = { ...STATE.masters.subcontractors[0], type: 'sc' };
+  }
+  const r = STATE.vendorRecord || {};
+  const name  = r.name || 'Your Company';
+  const id    = r.id   || '—';
+  const type  = r.type2 || r.type || '—';
+  const city  = r.city  || '—';
+  const state = r.state || '—';
+  const gst   = r.gst   || '—';
+
+  el.innerHTML = `
+    <!-- Vendor Hero Banner -->
+    <div style="background:linear-gradient(135deg,var(--g9) 0%,var(--g7) 100%);border-radius:var(--rad-lg);padding:1.8rem 2rem;color:#fff;margin-bottom:1.4rem;display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap">
+      <div style="width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:1.8rem;flex-shrink:0">${typeIcon}</div>
+      <div style="flex:1">
+        <div style="font-size:.72rem;opacity:.7;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.2rem">${typeLabel} Portal</div>
+        <div style="font-size:1.3rem;font-weight:700;margin-bottom:.2rem">${name}</div>
+        <div style="font-size:.82rem;opacity:.75">${id} &nbsp;·&nbsp; ${city}${state ? ', '+state : ''}</div>
+      </div>
+      <div style="text-align:right;opacity:.75;font-size:.8rem">
+        <div>Logged in as</div>
+        <div style="font-weight:600">${r.loginEmail || STATE.user?.email || '—'}</div>
+      </div>
+    </div>
+
+    <!-- Status KPIs -->
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">📋</div><div class="kpi-trend flat">~ Phase 2</div></div>
+        <div class="kpi-value">—</div>
+        <div class="kpi-label">Active POs</div>
+        <div class="kpi-sub">Purchase orders assigned to you</div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="kpi-top"><div class="kpi-icon orange">💰</div><div class="kpi-trend flat">~ Phase 2</div></div>
+        <div class="kpi-value">₹ —</div>
+        <div class="kpi-label">Pending Payments</div>
+        <div class="kpi-sub">Invoices awaiting clearance</div>
+      </div>
+      <div class="kpi-card info">
+        <div class="kpi-top"><div class="kpi-icon blue">📂</div><div class="kpi-trend flat">~ Phase 2</div></div>
+        <div class="kpi-value">—</div>
+        <div class="kpi-label">Documents</div>
+        <div class="kpi-sub">Compliance & certificates</div>
+      </div>
+    </div>
+
+    <!-- Company Details -->
+    <div class="card" style="margin-bottom:1.4rem">
+      <div class="card-head"><h3>${typeIcon} ${typeLabel} Details</h3><span class="hr-stat-pill">⬤ From Master Register</span></div>
+      <div class="card-body">
+        <div class="info-grid-3">
+          <div class="info-card"><div class="ic-label">${typeLabel} ID</div><div class="ic-value">${id}</div></div>
+          <div class="info-card"><div class="ic-label">Company Name</div><div class="ic-value">${name}</div></div>
+          <div class="info-card"><div class="ic-label">Type</div><div class="ic-value">${type}</div></div>
+          <div class="info-card"><div class="ic-label">City</div><div class="ic-value">${city}</div></div>
+          <div class="info-card"><div class="ic-label">State</div><div class="ic-value">${state}</div></div>
+          <div class="info-card"><div class="ic-label">GST / Reg No.</div><div class="ic-value">${gst}</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Links -->
+    <div class="dash-grid">
+      <div class="card">
+        <div class="card-head"><h3>📋 Purchase Orders</h3></div>
+        <div class="card-body" style="text-align:center;padding:2rem;color:var(--txt3)">
+          <div style="font-size:2.5rem;margin-bottom:.75rem">📋</div>
+          <div style="font-weight:600;margin-bottom:.4rem">PO Module — Phase 2</div>
+          <div style="font-size:.82rem">View, accept and track purchase orders raised by Evergreen.</div>
+          <button onclick="navigate('my-orders')" class="btn btn-secondary btn-sm" style="margin-top:1rem">View POs →</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>💰 Invoices & Payments</h3></div>
+        <div class="card-body" style="text-align:center;padding:2rem;color:var(--txt3)">
+          <div style="font-size:2.5rem;margin-bottom:.75rem">💰</div>
+          <div style="font-weight:600;margin-bottom:.4rem">Invoice Module — Phase 2</div>
+          <div style="font-size:.82rem">Submit invoices against POs and track payment status.</div>
+          <button onclick="navigate('my-invoices')" class="btn btn-secondary btn-sm" style="margin-top:1rem">View Invoices →</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:1rem;padding:1rem 1.2rem;background:#fff3e0;border:1px solid #ffe0b2;border-radius:var(--rad);font-size:.8rem;color:#e65100">
+      <strong>🔒 Portal Access:</strong> You can only see information relevant to your account. 
+      For any queries, contact <strong>procurement@evgcpl.com</strong>
+    </div>
+  `;
+}
+
+function renderExtPlaceholder(icon, title, desc) {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header"><h1>${icon} ${title}</h1><p>${desc}</p></div>
+    <div class="module-placeholder">
+      <div class="mp-icon">${icon}</div>
+      <h2>${title}</h2>
+      <p>${desc}</p>
+      <div class="mp-badge">🔨 Coming in Phase 2</div>
+      <button onclick="navigate('my-portal')" style="margin-top:1rem;padding:8px 18px;background:var(--g7);color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:inherit">← Back to My Dashboard</button>
+    </div>
+  `;
+}
+
+// ══════════════════════════════════════════════════
+//  MASTERS — ALL SHEETS CONFIG
+// ══════════════════════════════════════════════════
+const SHEET_ID     = '1B2wb38KhNwlLoZnsAGWQkO0FdEGFFfsh3ycRRurigq4'; // Master spreadsheet
+const EMP_SHEET_ID = '1HWKZPhKRhcuvxBgyyN8zRt8p-SzYmKjJWiOdCgykBHs'; // Employee Register
+const SHEET_GID    = '944085465'; // Site Master GID (kept for direct URL fallback)
+
+const MASTER_SHEETS = {
+  sites:          { sheet: '5-SiteMaster'          },
+  users:          { sheet: '2-UserMaster'           },
+  assets:         { sheet: '6-AssetMaster'          },
+  vendors:        { sheet: '7-VendorMaster'         },
+  subcontractors: { sheet: '10-SubContractorMaster' },
+  // 4-GRNMaster, 3-HeadMaster: skipped for now — Phase 3+
+};
+
+// Col indices for Site Master (0-based)
+const COL = {
+  UUID:0, CREATED_BY:1, CREATED_ON:2,
+  SITE_ID:3, SITE_NAME:4,
+  PAN:5, TAN:6, GST:7,
+  ADDR1:8, ADDR2:9, ADDR3:10, ADDRESS:11,
+  CITY:12, STATE:13, PIN:14,
+  EMAIL:15, CONTACT1:16, CONTACT2:17, CONTACT3:18,
+  WEBSITE:19, LOCATION:20,
+  DEL_ADDR:21, DEL_CONTACT:22,
+  COMPANY:23, BILLING:24,
+  SITE_INCHARGE:25, REPORTING_MGR:26,
+  PLANNING_IC:27, MESS_IC:28, ACCOUNTS_IC:29,
+  ATTENDANCE_IC:30, SC_ATTEND:31,
+  OPTION:32, STATUS:33
+};
+
+// Master state
+STATE.masters = {
+  sites: [], users: [], mess: [], messUnique: [], assets: [], vendors: [], subcontractors: []
+};
+STATE.mastersLoaded = false;
+
+// ── gviz JSONP: intercept google.visualization.Query.setResponse ──
+// Each request gets a unique reqId; the global handler routes the response back.
+window.google = window.google || {};
+window.google.visualization = window.google.visualization || {};
+window.google.visualization.Query = window.google.visualization.Query || {};
+const _gvizHandlers = {};
+window.google.visualization.Query.setResponse = function(json) {
+  const id = String(json.reqId || '0');
+  if (_gvizHandlers[id]) { _gvizHandlers[id](json); delete _gvizHandlers[id]; }
+};
+
+let _gvizReqId = 0;
+
+function fetchSheet(sheetName, tq, spreadsheetId) {
+  return new Promise((resolve) => {
+    const reqId = String(++_gvizReqId);
+    const sid = spreadsheetId || SHEET_ID;
+    let url = `https://docs.google.com/spreadsheets/d/${sid}/gviz/tq`
+            + `?tqx=out:json;reqId:${reqId}`
+            + `&sheet=${encodeURIComponent(sheetName)}`;
+    if (tq) url += `&tq=${encodeURIComponent(tq)}`;
+
+    const timer = setTimeout(() => {
+      delete _gvizHandlers[reqId];
+      if (script.parentNode) script.parentNode.removeChild(script);
+      console.warn(`Sheet "${sheetName}" timed out — skipped`);
+      resolve([]);
+    }, 20000);
+
+    _gvizHandlers[reqId] = (json) => {
+      clearTimeout(timer);
+      if (script.parentNode) script.parentNode.removeChild(script);
+      try {
+        const cols = json.table.cols.map(c => c.label);
+        resolve(json.table.rows.map(row => {
+          const obj = {};
+          row.c.forEach((cell, i) => {
+            obj[cols[i]] = (cell && cell.v != null) ? String(cell.v).trim() : '';
+          });
+          return obj;
+        }));
+      } catch(e) {
+        console.warn(`Sheet "${sheetName}" parse error:`, e.message);
+        resolve([]);
+      }
+    };
+
+    const script = document.createElement('script');
+    script.onerror = () => {
+      clearTimeout(timer);
+      delete _gvizHandlers[reqId];
+      console.warn(`Sheet "${sheetName}" script error`);
+      resolve([]);
+    };
+    script.src = url;
+    document.head.appendChild(script);
+  });
+}
+
+// ── Status helper: treat anything that is ACTIVE in the sheet as active ──
+function isActive(row, key = 'Active/Inactive?') {
+  return (row[key] || '').toUpperCase() === 'ACTIVE';
+}
+
+// ── Parse gviz Date string e.g. "Date(2025,9,2,19,58,6)" → JS Date ──
+function parseGvizDate(val) {
+  const m = String(val || '').match(/Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)/);
+  if (!m) return new Date(0);
+  return new Date(+m[1], +m[2], +m[3], +(m[4]||0), +(m[5]||0), +(m[6]||0));
+}
+
+// ── Deduplicate array by a key field — keeps the entry with the LATEST timestamp ──
+function deduplicateLatest(rows, keyField, tsField) {
+  const map = new Map();
+  for (const r of rows) {
+    const key = r[keyField];
+    if (!key) continue;
+    if (!map.has(key)) {
+      map.set(key, r);
+    } else {
+      if (parseGvizDate(r[tsField]) > parseGvizDate(map.get(key)[tsField])) {
+        map.set(key, r);
+      }
+    }
+  }
+  return Array.from(map.values());
+}
+
+// ── Tally an array by a field, sorted by count desc ──
+function tallyBy(rows, field) {
+  const m = {};
+  rows.forEach(r => { const k = r[field] || '—'; m[k] = (m[k]||0) + 1; });
+  return Object.entries(m).sort((a,b) => b[1]-a[1]);
+}
+
+async function loadAllMasters() {
+  if (STATE.mastersLoaded) return;
+
+  // ── Fetch each independently — one failure NEVER kills the rest ──
+  // NOTE: 4-GRNMaster and 3-HeadMaster skipped for now — Phase 3+
+  // VendorMaster: SELECT only 7 cols (of 39) — cuts payload ~80%
+  // Employees: separate spreadsheet — 0_EmployeeRegister_Live + 07_Mess_Accomodation
+  const [sitesRows, empRows, messRows, assetsRows, vendorsRows, scRows] = await Promise.all([
+    fetchSheet('5-SiteMaster',           null, SHEET_ID),
+    fetchSheet('0_EmployeeRegister_Live',null, EMP_SHEET_ID),
+    fetchSheet('07_Mess_Accomodation',   null, EMP_SHEET_ID),
+    fetchSheet('6-AssetMaster',          null, SHEET_ID),
+    fetchSheet('7-VendorMaster',        'SELECT C,J,K,L,Q,R,AK', SHEET_ID),
+    fetchSheet('10-SubContractorMaster', null, SHEET_ID),
+  ]);
+
+  // ── Sites: every row where Active/Inactive? = ACTIVE counts as live ──
+  STATE.masters.sites = sitesRows
+    .filter(r => r['Site ID'])
+    .map(r => ({
+      siteId:   r['Site ID'],
+      name:     r['Site Name'] || '',
+      city:     r['City'] || '',
+      state:    r['State'] || '',
+      email:    r['Email ID'] || '',
+      contact:  r['Contact 1'] || '',
+      incharge: (r['Site In Charge Name'] || '').replace(/EG\w+\|/g, ''),
+      manager:  (r['Reporting Manager Name'] || '').replace(/EG\w+\|/g, ''),
+      status:   (r['Active/Inactive?'] || '').toUpperCase().trim(),
+      gstin:    r['GST'] || '',
+      address:  r['Address'] || '',
+      company:  r['Company'] || '',
+    }));
+
+  // ── Employees — from 0_EmployeeRegister_Live (Employee Register spreadsheet) ──
+  STATE.masters.users = empRows
+    .filter(r => r['EMP CODE'] || r['Employee Name'])
+    .map(r => ({
+      empCode:    r['EMP CODE'] || r['New Employee Code'] || '',
+      name:       r['Employee Name'] || '',
+      email:      r['Mail ID'] || r['User Email'] || '',
+      dept:       r['Department'] || '',
+      desig:      r['DESIGNATION'] || '',
+      grade:      r['Grade'] || '',
+      empType:    r['Employee Type'] || '',
+      site:       r['Site Name'] || '',
+      payroll:    r['PayRoll'] || '',
+      doj:        r['DOJ MM/DD/YYYY'] || '',
+      doe:        r['DOE MM/DD/YYYY'] || '',
+      expTotal:   r['TOTAL YEAR EXPERIENCE'] || '',
+      expEG:      r['Year of Experience in Evergreen till current date'] || '',
+      photo:      r['Photo'] || '',
+      plEligible: r['PL Eligible?'] || '',
+      plBalance:  r['PL Avalable as of Today'] || '',
+      role:       r['Role (User Type)'] || '',
+      empStatus:  r['Employee Status'] || '',
+      siteIC:     r['Site In-Charge Name'] || '',
+      manager:    r['Reporting Manager'] || '',
+      timestamp:  r['Timestamp'] || '',
+      // Status: ONLY "CURRENT" = active. LEFT THE COMPANY / NOT JOINED / blank = inactive.
+      status: (r['Employee Status'] || '').trim().toUpperCase() === 'CURRENT' ? 'ACTIVE' : 'INACTIVE',
+    }));
+  // Deduplicate by EMP CODE — keep only the latest entry per employee
+  STATE.masters.users = deduplicateLatest(STATE.masters.users, 'empCode', 'timestamp');
+
+  // ── Mess & Accommodation — from 07_Mess_Accomodation ──
+  // Deduplicate by EMP CODE — sort by Timestamp desc, take unique per employee
+  const rawMess = messRows
+    .filter(r => r['EMP CODE'] || r['Employee Name'])
+    .map(r => ({
+      empCode:       r['EMP CODE'] || '',
+      name:          r['Employee Name'] || '',
+      site:          r['Site Name'] || '',
+      accommodation: r['ACCOMMODATION'] || '',
+      messDetails:   r['MESS DETAILS'] || '',
+      monthlyFood:   r['Monthly Food Allowance (30Days)'] || '',
+      perDayFood:    r['Per Day Food Allowance'] || '',
+      specialAllow:  r['Special Site Allowance'] || '',
+      fromDate:      r['From ( Date )'] || '',
+      timestamp:     r['Timestamp'] || '',
+    }));
+  STATE.masters.mess = rawMess; // keep all
+  STATE.masters.messUnique = deduplicateLatest(rawMess, 'empCode', 'timestamp');
+
+  // ── Assets ──
+  STATE.masters.assets = assetsRows
+    .filter(r => r['Asset Name'])
+    .map(r => ({
+      name:     r['Asset Name'] || '',
+      code:     r['Asset Code'] || '',
+      category: r['Category'] || '',
+      site:     r['Site'] || '',
+      ownHire:  r['OWN / HIRE'] || '',
+      status:   (r['Active/Inactive?'] || '').toUpperCase().trim(),
+    }));
+
+  // ── Vendors (SELECT C,J,K,L,Q,R,AK → Type,VendorID,LegalName,VendorName,City,State,Status) ──
+  STATE.masters.vendors = vendorsRows
+    .filter(r => r['Vendor Name'] || r['Legal Name'])
+    .map(r => ({
+      id:     r['Vendor ID']   || '',
+      name:   r['Vendor Name'] || r['Legal Name'] || '',
+      type:   r['Vendor Type'] || '',
+      city:   r['City']        || '',
+      state:  r['State']       || '',
+      status: (r['Active/Inactive?'] || '').toUpperCase().trim(),
+    }));
+
+  // ── Sub-Contractors ──
+  STATE.masters.subcontractors = scRows
+    .filter(r => r['Sub Contractor Name'])
+    .map(r => ({
+      id:     r['SC ID'] || '',
+      name:   r['Sub Contractor Name'] || '',
+      gst:    r['GST'] || '',
+      status: (r['Active/Inactive?'] || '').toUpperCase().trim(),
+    }));
+
+  STATE.mastersLoaded = true;
+  console.log(`✅ Masters loaded — Sites:${STATE.masters.sites.length} Employees:${STATE.masters.users.length} Mess:${STATE.masters.mess.length} Assets:${STATE.masters.assets.length} Vendors:${STATE.masters.vendors.length} SCs:${STATE.masters.subcontractors.length}`);
+}
+
+// Legacy aliases
+const loadSiteMaster = loadAllMasters;
+const fetchMasterSheet = fetchSheet;
+
+// ── Filtered helpers: ACTIVE in sheet = ACTIVE in portal, no exceptions ──
+function getActiveSites()    { return STATE.masters.sites.filter(s => s.status === 'ACTIVE'); }
+function getInactiveSites()  { return STATE.masters.sites.filter(s => s.status === 'INACTIVE'); }
+function getActiveUsers()    { return STATE.masters.users.filter(u => u.status === 'ACTIVE'); }
+function getActiveAssets()   { return STATE.masters.assets.filter(a => a.status === 'ACTIVE'); }
+function getActiveVendors()  { return STATE.masters.vendors.filter(v => v.status === 'ACTIVE'); }
+function getActiveSCs()      { return STATE.masters.subcontractors.filter(s => s.status === 'ACTIVE'); }
+
+// ── RENDERED HELPERS ──
+
+function sitesData() {
+  const active = getActiveSites().slice(0, 8);
+  if (!active.length) return '<tr><td colspan="4" style="padding:1.5rem;text-align:center;color:var(--txt3)">⏳ Loading site data…</td></tr>';
+  return active.map(s => `
+    <tr>
+      <td>
+        <span class="site-name">${s.name}</span>
+        <div style="font-size:.7rem;color:var(--txt3);margin-top:2px">${s.siteId} · ${s.city}, ${s.state}</div>
+      </td>
+      <td>
+        <div style="font-size:.75rem;color:var(--txt2)">${s.incharge || '—'}</div>
+      </td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="status-dot green"></span>
+          <span style="font-size:.75rem;color:var(--ok);font-weight:600">ACTIVE</span>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function allSitesCards() {
+  const active = getActiveSites();
+  if (!active.length) return '<div style="padding:2rem;text-align:center;color:var(--txt3)">⏳ Loading…</div>';
+  return active.map(s => `
+    <div class="md-site-card" onclick="navigate('site-manager')">
+      <div style="width:36px;height:36px;border-radius:9px;background:var(--g8);color:#fff;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0">🏗️</div>
+      <div class="md-site-info">
+        <div class="md-site-name">${s.name}</div>
+        <div class="md-site-loc">📍 ${s.city}, ${s.state}</div>
+        <div style="font-size:.68rem;color:var(--txt4);margin-top:2px">In-Charge: ${s.incharge || '—'}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:.7rem;font-weight:700;color:var(--g7)">${s.siteId}</div>
+        <span class="status-dot green" style="display:block;margin:4px auto 0"></span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function mastersWidget() {
+  const activeSites   = getActiveSites();
+  const activeUsers   = getActiveUsers();
+  const activeAssets  = getActiveAssets();
+  const activeVendors = getActiveVendors();
+  const activeSCs     = getActiveSCs();
+
+  // State-wise site breakdown
+  const stateMap = {};
+  activeSites.forEach(s => { stateMap[s.state] = (stateMap[s.state]||0)+1; });
+  const topStates = Object.entries(stateMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  // Asset categories
+  const catMap = {};
+  activeAssets.forEach(a => { catMap[a.category] = (catMap[a.category]||0)+1; });
+  const topCats = Object.entries(catMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.8rem">
+      <!-- Sites by State -->
+      <div>
+        <div style="font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--txt3);margin-bottom:.7rem">🏗️ Sites by State</div>
+        ${topStates.map(([state,count]) => `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:.5rem">
+            <div style="font-size:.78rem;color:var(--txt2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${state}</div>
+            <div style="font-size:.72rem;font-weight:700;color:var(--g7);white-space:nowrap">${count} sites</div>
+          </div>
+          <div style="height:4px;background:var(--border);border-radius:2px;margin-bottom:.5rem">
+            <div style="height:100%;background:var(--g5);border-radius:2px;width:${Math.round(count/activeSites.length*100)}%"></div>
+          </div>
+        `).join('')}
+        <div style="font-size:.7rem;color:var(--txt4);margin-top:.5rem">${activeSites.length} active in ${topStates.length} states + more</div>
+      </div>
+
+      <!-- Equipment by Category -->
+      <div>
+        <div style="font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--txt3);margin-bottom:.7rem">🚜 Equipment by Type</div>
+        ${topCats.map(([cat,count]) => `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:.5rem">
+            <div style="font-size:.78rem;color:var(--txt2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${cat||'Other'}</div>
+            <div style="font-size:.72rem;font-weight:700;color:var(--info);white-space:nowrap">${count}</div>
+          </div>
+          <div style="height:4px;background:var(--border);border-radius:2px;margin-bottom:.5rem">
+            <div style="height:100%;background:var(--info);border-radius:2px;width:${Math.round(count/activeAssets.length*100)}%"></div>
+          </div>
+        `).join('')}
+        <div style="font-size:.7rem;color:var(--txt4);margin-top:.5rem">${activeAssets.length} active across all sites</div>
+      </div>
+
+      <!-- Master Counts Summary -->
+      <div>
+        <div style="font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--txt3);margin-bottom:.7rem">📊 Master Records</div>
+        ${[
+          ['🏗️','Sites',       activeSites.length,  STATE.masters.sites.length],
+          ['👷','Employees',   activeUsers.length,  STATE.masters.users.length],
+          ['🚜','Equipment',   activeAssets.length, STATE.masters.assets.length],
+          ['🏢','Vendors',     activeVendors.length,STATE.masters.vendors.length],
+          ['🤝','Sub-Contractors',activeSCs.length, STATE.masters.subcontractors.length],
+        ].map(([icon,label,active,total]) => `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:.35rem 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:.78rem;color:var(--txt2)">${icon} ${label}</span>
+            <span style="font-size:.75rem">
+              <span style="font-weight:700;color:var(--g7)">${active.toLocaleString('en-IN')}</span>
+              <span style="color:var(--txt4)"> / ${total.toLocaleString('en-IN')}</span>
+            </span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function approvalItem(icon, id, desc, amount, time) {
+  return `
+    <div class="approval-item">
+      <div class="appr-icon" style="background:var(--surface2)">${icon}</div>
+      <div class="appr-info">
+        <div class="appr-title">${id} — ${desc}</div>
+        <div class="appr-meta">${time}</div>
+        <div class="appr-actions">
+          <button class="btn-approve">✓ Approve</button>
+          <button class="btn-reject">✕ Reject</button>
+        </div>
+      </div>
+      <div class="appr-amount">${amount}</div>
+    </div>
+  `;
+}
+
+function quickAction(icon, label, page) {
+  return `
+    <button onclick="navigate('${page}')" style="padding:.8rem;border-radius:var(--rad);background:var(--surface2);border:1px solid var(--border);display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;transition:all var(--transition);font-size:.75rem;font-weight:600;color:var(--txt2)" onmouseover="this.style.background='#edf7f1';this.style.borderColor='var(--border2)'" onmouseout="this.style.background='var(--surface2)';this.style.borderColor='var(--border)'">
+      <span style="font-size:1.3rem">${icon}</span>
+      ${label}
+    </button>
+  `;
+}
+
+function moduleCard(icon, label, page, bg, color) {
+  return `
+    <div onclick="navigate('${page}')" style="padding:1rem;border-radius:var(--rad);background:${bg};cursor:pointer;text-align:center;transition:all .2s;border:1px solid transparent" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-md)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+      <div style="font-size:1.5rem;margin-bottom:5px">${icon}</div>
+      <div style="font-size:.78rem;font-weight:700;color:${color}">${label}</div>
+    </div>
+  `;
+}
+
+function finRow(label, value, type) {
+  return `
+    <div class="fin-row">
+      <span class="fin-label">${label}</span>
+      <span class="fin-value ${type}">${value}</span>
+    </div>
+  `;
+}
+
+// ══════════════════════════════════════════════════
+//  UI CONTROLS
+// ══════════════════════════════════════════════════
+function toggleSidebar() {
+  STATE.sidebarOpen = !STATE.sidebarOpen;
+  document.getElementById('sidebar').classList.toggle('mobile-open', STATE.sidebarOpen);
+  document.getElementById('hamburger').classList.toggle('open', STATE.sidebarOpen);
+}
+function closeSidebar() {
+  STATE.sidebarOpen = false;
+  document.getElementById('sidebar').classList.remove('mobile-open');
+  document.getElementById('hamburger').classList.remove('open');
+}
+function toggleNotifPanel() {
+  STATE.notifOpen = !STATE.notifOpen;
+  document.getElementById('notifPanel').classList.toggle('open', STATE.notifOpen);
+}
+function toggleUserMenu() {
+  // Show role switcher
+  document.getElementById('roleSelect').classList.add('show');
+}
+
+// ══════════════════════════════════════════════════
+//  LIVE CLOCK
+// ══════════════════════════════════════════════════
+let clockInterval = null;
+function startClock() {
+  if (clockInterval) clearInterval(clockInterval);
+  clockInterval = setInterval(() => {
+    const el = document.getElementById('liveClock');
+    if (el) {
+      el.textContent = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    } else {
+      clearInterval(clockInterval);
+    }
+  }, 1000);
+}
+
+// ══════════════════════════════════════════════════
+//  CLOSE SIDEBAR ON OUTSIDE CLICK
+// ══════════════════════════════════════════════════
+document.addEventListener('click', (e) => {
+  if (STATE.sidebarOpen &&
+    !document.getElementById('sidebar').contains(e.target) &&
+    !document.getElementById('hamburger').contains(e.target)) {
+    closeSidebar();
+  }
+  if (STATE.notifOpen &&
+    !document.getElementById('notifPanel').contains(e.target) &&
+    !e.target.closest('.h-icon-btn')) {
+    STATE.notifOpen = false;
+    document.getElementById('notifPanel').classList.remove('open');
+  }
+});
+
+// ══════════════════════════════════════════════════
+//  INIT — auto demo for quick preview
+// ══════════════════════════════════════════════════
+// Uncomment below for auto-launch in demo mode:
+// window.addEventListener('load', () => { selectRole('md'); confirmRole(); });
+</script>
+</body>
+</html>
