@@ -1030,23 +1030,51 @@ function initGoogleSignIn() {
 window.addEventListener('load', () => setTimeout(initGoogleSignIn, 1000));
 
 async function handleGoogleCredential(response) {
-  const payload = JSON.parse(atob(response.credential.split('.')[1]));
-  const email = payload.email || '';
-  STATE.user = { email, name: payload.name || email.split('@')[0], picture: payload.picture || '' };
-  if (!STATE.mastersLoaded) await loadAllMasters();
-  const emp = STATE.masters.users.find(u => u.email && u.email.toLowerCase() === email.toLowerCase());
-  let role = 'employee';
-  if (emp) {
-    const r = (emp.role || '').toLowerCase();
-    if (r.includes('md') || r.includes('director')) role = 'md';
-    else if (r.includes('hr'))                      role = 'hr';
-    else if (r.includes('site'))                    role = 'site';
-    else if (r.includes('purchase'))                role = 'purchase';
-    else if (r.includes('account'))                 role = 'accounts';
+  try {
+    const payload = JSON.parse(atob(response.credential.split('.')[1]));
+    const email = payload.email || '';
+    const name  = payload.name  || email.split('@')[0];
+    STATE.user = { email, name, picture: payload.picture || '' };
+
+    // ── Launch app immediately — don't wait for masters ──
+    // Default role based on domain; will be upgraded once masters load
+    let role = email.endsWith('@evgcpl.com') ? 'md' : 'employee';
+    STATE.role = role; STATE.selectedRole = role;
+
+    // Hide login screen and go straight to dashboard
+    launchApp();
+
+    // ── Then load masters in background and upgrade role if needed ──
+    loadAllMasters().then(() => {
+      const emp = STATE.masters.users.find(u =>
+        u.email && u.email.toLowerCase() === email.toLowerCase()
+      );
+      if (emp) {
+        const r = (emp.role || '').toLowerCase();
+        let detectedRole = 'employee';
+        if (r.includes('md') || r.includes('director')) detectedRole = 'md';
+        else if (r.includes('hr'))                      detectedRole = 'hr';
+        else if (r.includes('site'))                    detectedRole = 'site';
+        else if (r.includes('purchase'))                detectedRole = 'purchase';
+        else if (r.includes('account'))                 detectedRole = 'accounts';
+
+        if (detectedRole !== STATE.role) {
+          // Upgrade role silently and re-render
+          STATE.role = detectedRole;
+          const r2 = ROLES[detectedRole] || ROLES.employee;
+          document.getElementById('roleBadge').textContent     = r2.badge;
+          document.getElementById('userRoleLabel').textContent = r2.label;
+          document.getElementById('userAvatar').textContent    = r2.avatar;
+          navigate(STATE.currentPage); // re-render current page with correct role
+        }
+      }
+      updateAllMasterUI();
+    });
+  } catch(e) {
+    console.error('Google login error:', e);
+    // Fallback — show role selector
+    document.getElementById('roleSelect').classList.add('show');
   }
-  STATE.selectedRole = role; STATE.role = role;
-  document.getElementById('roleSelect').classList.add('show');
-  selectRole(role);
 }
 
 function handleGoogleLogin() {
