@@ -1684,13 +1684,35 @@ const PO_SHEET_ID   = '1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c';
 const APPSHEET_SCM_URL = 'https://www.appsheet.com/start/06fd0117-1dd8-445b-aaee-e2ff6e68e36f';
 
 // ── State ────────────────────────────────────────────────
-let _scmPendingPOs = [];
-let _scmSiteData   = [];
-let _scmVendorData = [];
-let _scmMonthData  = [];
-let _pendingSort   = { col: 'ageDays', dir: -1 };  // oldest first by default
-let _siteSort      = { col: 'amount',  dir: -1 };
-let _vendorSort    = { col: 'amount',  dir: -1 };
+let _scmPendingPOs  = [];
+let _scmSiteData    = [];
+let _scmVendorData  = [];
+let _scmMonthData   = [];
+let _scmAllRows     = [];   // full dataset for FY filtering
+let _scmSelectedFY  = null; // e.g. '25-26'
+let _pendingSort    = { col: 'ageDays', dir: -1 };
+let _siteSort       = { col: 'amount',  dir: -1 };
+let _vendorSort     = { col: 'amount',  dir: -1 };
+
+// ── FY HELPERS ────────────────────────────────────────────
+// Indian FY: Apr 1 → Mar 31. Key = 'YY-YY' e.g. '25-26'
+function getFYKey(date) {
+  if (!date) return null;
+  const yr = date.getFullYear(), mo = date.getMonth(); // 0=Jan
+  const fyStart = mo >= 3 ? yr : yr - 1;              // Apr(3) starts new FY
+  return `${String(fyStart).slice(-2)}-${String(fyStart+1).slice(-2)}`;
+}
+function getFYRange(fyKey) {
+  // '25-26' → Apr 2025 – Mar 2026
+  const startYr = 2000 + parseInt(fyKey.split('-')[0]);
+  return {
+    start: new Date(startYr, 3, 1),      // Apr 1
+    end:   new Date(startYr + 1, 2, 31), // Mar 31
+  };
+}
+function currentFYKey() {
+  return getFYKey(new Date());
+}
 
 // ── DASHBOARD HTML ───────────────────────────────────────
 function renderSCMDashboard() {
@@ -1711,7 +1733,7 @@ function renderSCMDashboard() {
       <div class="kpi-card warn">
         <div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
         <div class="kpi-value" id="scm-kpi-pending">—</div>
-        <div class="kpi-label">Released for Approval</div>
+        <div class="kpi-label">Pending Approval</div>
       </div>
       <div class="kpi-card info">
         <div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
@@ -1728,7 +1750,7 @@ function renderSCMDashboard() {
     <!-- ⏳ Pending Approval — with Age flags -->
     <div class="card" style="margin-bottom:1.4rem">
       <div class="card-head">
-        <h3>⏳ Released for Approval</h3>
+        <h3>⏳ Pending Approval</h3>
         <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
           <span class="hr-stat-pill" id="scm-pending-badge">Loading…</span>
           <span id="scm-overdue-badge" style="display:none;background:#fdecea;color:#c62828;font-size:.72rem;font-weight:700;padding:.2rem .6rem;border-radius:20px"></span>
@@ -1752,7 +1774,13 @@ function renderSCMDashboard() {
     <div class="card" style="margin-bottom:1.4rem">
       <div class="card-head">
         <h3>📅 Monthly PO Trend</h3>
-        <span class="hr-stat-pill" id="scm-month-badge">—</span>
+        <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+          <select id="scm-fy-select" onchange="window.scmChangeFY(this.value)"
+            style="padding:.3rem .7rem;border:1px solid var(--border);border-radius:6px;font-size:.8rem;font-family:inherit;background:#fff;color:var(--g8);font-weight:600">
+            <option value="">Loading…</option>
+          </select>
+          <span class="hr-stat-pill" id="scm-month-badge">—</span>
+        </div>
       </div>
       <div class="card-body" style="padding:1.2rem 1rem">
         <div id="scm-month-chart" style="min-height:120px;display:flex;align-items:flex-end;gap:6px;overflow-x:auto">
@@ -1836,7 +1864,7 @@ function loadPOData() {
 
     // KPIs
     const total    = rows.length;
-    const pending  = rows.filter(r => r.lock === 'Released for Approval').length;
+    const pending  = rows.filter(r => r.status.toUpperCase() !== 'REJECTED' && r.lock === 'Released for Approval').length;
     const approved = rows.filter(r => r.status.toUpperCase().includes('APPROVED')).length;
     const rejected = rows.filter(r => r.status.toUpperCase().includes('REJECT')).length;
 
@@ -1847,7 +1875,7 @@ function loadPOData() {
     document.getElementById('scm-pending-badge').innerHTML  = `<strong>${pending}</strong> awaiting`;
 
     // Aged pending badge
-    _scmPendingPOs = rows.filter(r => r.lock === 'Released for Approval');
+    _scmPendingPOs = rows.filter(r => r.status.toUpperCase() !== 'REJECTED' && r.lock === 'Released for Approval');
     const overdue  = _scmPendingPOs.filter(r => r.ageDays !== null && r.ageDays > 7).length;
     const ob = document.getElementById('scm-overdue-badge');
     if (ob && overdue > 0) {
@@ -1873,15 +1901,30 @@ function loadPOData() {
     });
     _scmVendorData = Object.values(vendorMap).sort((a,b) => b.amount - a.amount).slice(0, 5);
 
-    // Month-wise trend — current financial year (Apr–Mar)
+    _scmAllRows = rows;
+
+    // Month-wise — group ALL months, FY filtering done in renderMonthChart
     const monthMap = {};
     rows.forEach(r => {
       if (!r.monthKey) return;
-      if (!monthMap[r.monthKey]) monthMap[r.monthKey] = { key: r.monthKey, label: r.monthLabel, count: 0, amount: 0 };
+      if (!monthMap[r.monthKey]) monthMap[r.monthKey] = {
+        key: r.monthKey, label: r.monthLabel, count: 0, amount: 0,
+        fyKey: getFYKey(r.jsDate)
+      };
       monthMap[r.monthKey].count++;
       monthMap[r.monthKey].amount += r.amount;
     });
     _scmMonthData = Object.values(monthMap).sort((a,b) => a.key.localeCompare(b.key));
+
+    // Populate FY dropdown with all FYs found in data
+    const fySet = [...new Set(_scmMonthData.map(m => m.fyKey).filter(Boolean))].sort().reverse();
+    _scmSelectedFY = fySet.includes(currentFYKey()) ? currentFYKey() : (fySet[0] || currentFYKey());
+    const fySelect = document.getElementById('scm-fy-select');
+    if (fySelect) {
+      fySelect.innerHTML = fySet.map(fy =>
+        `<option value="${fy}" ${fy === _scmSelectedFY ? 'selected' : ''}>FY ${fy}</option>`
+      ).join('');
+    }
 
     renderPendingTable();
     renderSiteTable();
@@ -2073,50 +2116,88 @@ function renderVendorTable() {
 }
 
 // ── MONTH TREND CHART ────────────────────────────────────
+// Called by FY dropdown onchange
+window.scmChangeFY = function(fyKey) {
+  _scmSelectedFY = fyKey;
+  renderMonthChart();
+};
+
 function renderMonthChart() {
   const el    = document.getElementById('scm-month-chart');
   const badge = document.getElementById('scm-month-badge');
   const leg   = document.getElementById('scm-month-legend');
-  if (!el || _scmMonthData.length === 0) return;
+  if (!el) return;
 
-  // Show last 12 months max
-  const data   = _scmMonthData.slice(-12);
-  const maxAmt = Math.max(...data.map(m=>m.amount), 1);
-  const maxCnt = Math.max(...data.map(m=>m.count), 1);
-  const totalThisYear = data.reduce((s,m)=>s+m.amount,0);
-  if (badge) badge.innerHTML = `FY total: <strong>${fmtAmt(totalThisYear)}</strong>`;
+  // Build the 12-month Apr–Mar grid for the selected FY
+  const fy = _scmSelectedFY || currentFYKey();
+  const startYr = 2000 + parseInt(fy.split('-')[0]);
 
-  // Bar chart — amount bars + count dots
-  const bars = data.map(m => {
-    const hPct  = Math.round((m.amount / maxAmt) * 140);
-    const cPct  = Math.round((m.count  / maxCnt) * 100);
+  // Generate all 12 month slots Apr(startYr) → Mar(startYr+1)
+  const slots = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(startYr, 3 + i, 1);           // Apr=3, wraps to next year via JS Date
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const label = d.toLocaleDateString('en-IN', {month:'short', year:'2-digit'});
+    slots.push({ key, label, count: 0, amount: 0 });
+  }
+
+  // Fill slots from _scmMonthData filtered to this FY
+  const fyMonths = _scmMonthData.filter(m => m.fyKey === fy);
+  fyMonths.forEach(m => {
+    const slot = slots.find(s => s.key === m.key);
+    if (slot) { slot.count = m.count; slot.amount = m.amount; }
+  });
+
+  const maxAmt      = Math.max(...slots.map(s => s.amount), 1);
+  const fyTotal     = slots.reduce((s, m) => s + m.amount, 0);
+  const fyPOCount   = slots.reduce((s, m) => s + m.count, 0);
+  const currentMoKey = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+
+  if (badge) badge.innerHTML = `${fmtAmt(fyTotal)} · ${fyPOCount} POs`;
+
+  if (fyTotal === 0) {
+    el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3);width:100%">No PO data for FY ${fy}</div>`;
+    return;
+  }
+
+  const bars = slots.map(m => {
+    const hPct    = Math.round((m.amount / maxAmt) * 140);
+    const isCurr  = m.key === currentMoKey;
+    const isEmpty = m.amount === 0;
+    const barCol  = isCurr
+      ? 'linear-gradient(180deg,var(--acc),#e65100)'
+      : 'linear-gradient(180deg,var(--g6),var(--g8))';
     return `
       <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:44px;max-width:80px">
-        <div style="font-size:.68rem;font-weight:700;color:var(--g7)">${fmtAmt(m.amount)}</div>
+        <div style="font-size:.68rem;font-weight:700;color:${isEmpty?'var(--txt4)':'var(--g7)'}">${isEmpty ? '—' : fmtAmt(m.amount)}</div>
         <div style="width:100%;display:flex;align-items:flex-end;height:140px">
-          <div style="width:100%;background:linear-gradient(180deg,var(--g6),var(--g8));border-radius:6px 6px 0 0;height:${hPct}px;position:relative;transition:height .3s;cursor:default"
+          ${hPct > 0 ? `
+          <div style="width:100%;background:${barCol};border-radius:6px 6px 0 0;height:${hPct}px;position:relative;cursor:default;${isCurr?'box-shadow:0 0 0 2px var(--acc)':''}"
             title="${m.label}: ${fmtAmtFull(m.amount)} · ${m.count} POs">
             <div style="position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);
-              background:var(--acc);color:#fff;font-size:.65rem;font-weight:700;
-              padding:.1rem .3rem;border-radius:20px;white-space:nowrap">${m.count} POs</div>
-          </div>
+              background:${isCurr?'var(--acc)':'var(--g7)'};color:#fff;font-size:.62rem;font-weight:700;
+              padding:.1rem .3rem;border-radius:20px;white-space:nowrap">${m.count}</div>
+          </div>` : `<div style="width:100%;height:4px;background:var(--surface2);border-radius:4px;align-self:flex-end"></div>`}
         </div>
-        <div style="margin-top:20px;font-size:.72rem;font-weight:600;color:var(--txt2);white-space:nowrap">${m.label}</div>
+        <div style="margin-top:20px;font-size:.7rem;font-weight:${isCurr?'800':'600'};color:${isCurr?'var(--g7)':'var(--txt2)'};white-space:nowrap">${m.label}</div>
       </div>`;
   }).join('');
 
-  el.innerHTML = `<div style="display:flex;align-items:flex-end;gap:6px;padding:0 .5rem;width:100%;overflow-x:auto">${bars}</div>`;
+  el.innerHTML = `<div style="display:flex;align-items:flex-end;gap:4px;padding:0 .25rem;width:100%">${bars}</div>`;
 
-  // Legend
   if (leg) leg.innerHTML = `
-    <div style="display:flex;gap:1.2rem;flex-wrap:wrap;padding-top:.5rem;border-top:1px solid var(--border)">
+    <div style="display:flex;gap:1.4rem;flex-wrap:wrap;padding-top:.5rem;border-top:1px solid var(--border);align-items:center">
       <span style="display:flex;align-items:center;gap:5px">
         <span style="display:inline-block;width:14px;height:10px;background:linear-gradient(var(--g6),var(--g8));border-radius:3px"></span>
-        <span>Net Amount</span>
+        <span>Net Amount (bar height)</span>
       </span>
       <span style="display:flex;align-items:center;gap:5px">
-        <span style="display:inline-block;width:14px;height:10px;background:var(--acc);border-radius:3px"></span>
-        <span>PO Count</span>
+        <span style="display:inline-block;width:14px;height:10px;background:var(--g7);border-radius:3px"></span>
+        <span>PO Count (label on bar)</span>
+      </span>
+      <span style="display:flex;align-items:center;gap:5px">
+        <span style="display:inline-block;width:14px;height:10px;background:linear-gradient(var(--acc),#e65100);border-radius:3px"></span>
+        <span>Current month</span>
       </span>
     </div>`;
 }
