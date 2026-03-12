@@ -878,6 +878,14 @@ img{max-width:100%;display:block}
           SCM
           <span class="ni-ext">AppSheet</span>
         </div>
+        <div class="nav-item" onclick="navigate('mrs')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
+          MRS
+        </div>
+        <div class="nav-item" onclick="navigate('stores')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 8h14M5 8a2 2 0 1 0-4 0v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8m-4-4H7m0-2h10"/><path d="M10 12h4M10 16h2"/></svg>
+          Stores
+        </div>
         <div class="nav-item" onclick="navigate('purchase')">
           <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
           Purchase
@@ -1301,27 +1309,29 @@ function renderPage(page) {
   const pages = {
     'dashboard':      renderDashboard,
     'md-command':     renderMDCommand,
-    'onboarding':     () => renderPlaceholder('👶','Onboarding Portal','Workday-style employee onboarding — Phase 2 build','Coming in Phase 2'),
+    'onboarding':     renderOnboardingPortal,
     'hr-dashboard':   renderHRDashboard,
     'my-profile':     renderMyProfile,
     'personal':       () => renderAppSheetEmbed('Personal Dashboard','Your personal workspace — tasks, leave, payslips & more', 'personal'),
     'rewards':        () => renderPlaceholder('🏆','Rewards & Recognition','Employee of the Month, awards wall & certificates','Coming in Phase 4'),
     'policies':       () => renderPlaceholder('📋','Policies Hub','HR, Safety, IT & Finance policies — PDF library with acknowledgements','Coming in Phase 4'),
-    'site-manager':   () => renderPlaceholder('🏗️','Site Manager Dashboard','Daily progress, labour headcount & site-specific operations','Coming in Phase 3'),
-    'safety':         () => renderPlaceholder('🦺','Safety Module','Incident reporting, PPE compliance, toolbox talks & site safety scores','Coming in Phase 3'),
-    'equipment':      () => renderPlaceholder('🚜','Equipment & Machinery','Asset register, fuel logs, maintenance schedules & breakdown alerts','Coming in Phase 3'),
-    'store':          () => renderPlaceholder('🏪','Site Store','Per-site inventory, GRN, 3-way match & wastage tracking','Coming in Phase 3'),
+    'site-manager':   renderSiteManager,
+    'safety':         renderSafetyModule,
+    'equipment':      renderEquipmentModule,
+    'store':          renderStoreModule,
     'scm':            renderSCMDashboard,
+    'mrs':            renderMRSDashboard,
+    'stores':         renderProcurementStores,
     'purchase':       () => renderPlaceholder('🛒','Purchase Dashboard','Site-wise PRs, POs, rate contracts & spend analytics','Coming in Phase 3'),
-    'vendor':         () => renderPlaceholder('🏢','Vendor Portal (Internal)','Vendor management for procurement team','Coming in Phase 2'),
-    'subcontractor':  () => renderPlaceholder('🤝','Subcontractor Portal (Internal)','SC management for procurement team','Coming in Phase 2'),
+    'vendor':         renderVendorPortalInternal,
+    'subcontractor':  () => renderPlaceholder('🤝','Subcontractor Portal (Internal)','SC management for procurement team','Coming in Phase 8'),
     'tendering':      () => renderPlaceholder('📜','Tendering','Client bid management, BOQ uploads & tender register','Coming in Phase 4'),
     'accounts':       () => renderAppSheetEmbed('Accounts','AP, AR & payment workflows', 'accounts'),
     'planning':       () => renderPlaceholder('📊','Budget & Planning','Site-wise BOQ budgeting, actuals tracking & variance reports','Coming in Phase 4'),
     // Vendor / SC external portal routes
     'my-portal':      renderExternalPortal,
-    'my-orders':      () => renderExtPlaceholder('📋','Purchase Orders','Your active and completed purchase orders'),
-    'my-invoices':    () => renderExtPlaceholder('💰','Invoices & Payments','Invoice submissions, approval status & payment history'),
+    'my-orders':      renderVendorPOTracker,
+    'my-invoices':    renderVendorInvoices,
     'my-documents':   () => renderExtPlaceholder('📂','My Documents','Compliance docs, certificates & agreements'),
   };
   (pages[page] || renderDashboard)();
@@ -1680,7 +1690,342 @@ function renderAppSheetEmbed(title, desc, appKey) {
 // ══════════════════════════════════════════════════
 //  SCM DASHBOARD — Purchase Orders
 // ══════════════════════════════════════════════════
-const PO_SHEET_ID   = '1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c';
+const PO_SHEET_ID      = '1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c';
+const PAYMENT_SHEET_ID = '1mLddxLRf719EaXE9XSET9gT8l0a8Cxns362yIbHo63g'; // Account View – PaymentRequest tab
+const STORES_SHEET_ID  = '1iMQxgqGilUh2_3NCZl5D-EMt-NC8FwugX83q2fWb8fE'; // v2_Stores – StockIN / GRN_No tabs
+
+// ══════════════════════════════════════════════════════════
+//  MRS DASHBOARD
+// ══════════════════════════════════════════════════════════
+let _mrsAllRows       = [];   // deduplicated MRS records (one per unique Request No)
+let _mrsSiteData      = [];   // [{site, count, pending, approved, rejected, dropped}]
+let _mrsMonthData     = [];   // [{key,label,count,fyKey}]
+let _mrsSelectedFY    = null;
+let _mrsSiteSort      = { col: 'count', dir: -1 };
+
+// ── MRS DASHBOARD HTML ────────────────────────────────────
+function renderMRSDashboard() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header" style="margin-bottom:1rem">
+      <h1>📋 MRS — Material Request Slips</h1>
+      <p>Live MRS tracker · Approval status · Site-wise analytics · Aging & Turnaround</p>
+    </div>
+
+    <!-- KPI Row 1 — counts -->
+    <div class="kpi-grid" style="margin-bottom:1rem">
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">📋</div></div>
+        <div class="kpi-value" id="mrs-kpi-total">—</div>
+        <div class="kpi-label">Total MRS</div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
+        <div class="kpi-value" id="mrs-kpi-pending">—</div>
+        <div class="kpi-label">Pending</div>
+      </div>
+      <div class="kpi-card info">
+        <div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
+        <div class="kpi-value" id="mrs-kpi-approved">—</div>
+        <div class="kpi-label">Approved</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon red">❌</div></div>
+        <div class="kpi-value" id="mrs-kpi-rejected">—</div>
+        <div class="kpi-label">Rejected</div>
+      </div>
+    </div>
+
+    <!-- KPI Row 2 — time metrics -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.4rem">
+      <div class="kpi-card" style="flex-direction:row;gap:1rem;align-items:center">
+        <div class="kpi-icon green" style="font-size:1.6rem">🕐</div>
+        <div>
+          <div class="kpi-value" id="mrs-kpi-tat" style="font-size:1.6rem">—</div>
+          <div class="kpi-label">Avg Turnaround (days)</div>
+          <div style="font-size:.72rem;color:var(--txt3)">Approved/Rejected/Dropped</div>
+        </div>
+      </div>
+      <div class="kpi-card" style="flex-direction:row;gap:1rem;align-items:center">
+        <div class="kpi-icon orange" style="font-size:1.6rem">⌛</div>
+        <div>
+          <div class="kpi-value" id="mrs-kpi-aging" style="font-size:1.6rem">—</div>
+          <div class="kpi-label">Avg Aging — Open (days)</div>
+          <div style="font-size:.72rem;color:var(--txt3)">Pending MRS only</div>
+        </div>
+      </div>
+      <div class="kpi-card" style="flex-direction:row;gap:1rem;align-items:center">
+        <div class="kpi-icon red" style="font-size:1.6rem">🔴</div>
+        <div>
+          <div class="kpi-value" id="mrs-kpi-overdue" style="font-size:1.6rem">—</div>
+          <div class="kpi-label">Overdue &gt;7 Days</div>
+          <div style="font-size:.72rem;color:var(--txt3)">Pending MRS aged &gt;7 days</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Monthly Trend + Site table side by side -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem">
+
+      <!-- 📅 Month-wise MRS Trend -->
+      <div class="card">
+        <div class="card-head">
+          <h3>📅 Monthly MRS Trend</h3>
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <select id="mrs-fy-select" onchange="window.mrsChangeFY(this.value)"
+              style="padding:.3rem .7rem;border:1px solid var(--border);border-radius:6px;font-size:.8rem;font-family:inherit;background:#fff;color:var(--g8);font-weight:600">
+              <option>Loading…</option>
+            </select>
+            <span class="hr-stat-pill" id="mrs-month-badge">—</span>
+          </div>
+        </div>
+        <div class="card-body" style="padding:1rem .8rem">
+          <div id="mrs-month-chart" style="min-height:110px;display:flex;align-items:flex-end;gap:4px">
+            <div style="padding:2rem;text-align:center;color:var(--txt3);width:100%">Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 🏗️ MRS by Site -->
+      <div class="card">
+        <div class="card-head">
+          <h3>🏗️ MRS Count by Site</h3>
+          <span class="hr-stat-pill" id="mrs-site-badge">—</span>
+        </div>
+        <div class="card-body" style="padding:0;overflow-x:auto;max-height:320px;overflow-y:auto">
+          <div id="mrs-site-table">
+            <div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:2.5rem;color:var(--txt3)">
+              <div style="width:22px;height:22px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite"></div>
+              Loading…
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Dropped KPI (full width) -->
+    <div style="background:var(--surface2);border-radius:10px;padding:.8rem 1.2rem;display:flex;align-items:center;gap:1rem;margin-bottom:.5rem;font-size:.82rem;color:var(--txt2)">
+      <span style="font-size:1.3rem">🗑️</span>
+      <span><strong id="mrs-kpi-dropped">—</strong> MRS Dropped</span>
+      <span style="margin-left:auto;color:var(--txt3)">Dropped = Cancelled before approval</span>
+    </div>
+  `;
+  loadMRSData();
+}
+
+// ── LOAD MRS DATA ─────────────────────────────────────────
+function loadMRSData() {
+  // D=Request No, F=Requested For (site), N=MR Approval Status, P=MR Approval Date, Y=Timestamp
+  fetchSheet('MRS', 'SELECT D,F,N,P,Y', PO_SHEET_ID).then(rawRows => {
+    if (!rawRows || rawRows.length === 0) {
+      document.getElementById('mrs-site-table').innerHTML =
+        `<div style="padding:2rem;text-align:center;color:#c62828">
+          ⚠️ Could not load MRS data. Ensure v2_Purchase is shared as "Anyone on the internet".
+        </div>`;
+      return;
+    }
+
+    const today = new Date(); today.setHours(0,0,0,0);
+
+    // Each row is an item — deduplicate by Request No (D) to get MRS-level view
+    const mrsMap = {};
+    rawRows.forEach(r => {
+      const reqNo = (r['Request No'] || r['D'] || '').trim();
+      if (!reqNo || reqNo.toLowerCase() === 'dummy') return;
+
+      if (!mrsMap[reqNo]) {
+        const ts        = parsePODate(r['Timestamp'] || r['Y'] || '');
+        const approveD  = parsePODate(r['MR Approval Date'] || r['P'] || '');
+        const status    = (r['MR Approval Status'] || r['N'] || '').trim();
+        const site      = (r['Requested For'] || r['F'] || '—').trim();
+        const ageDays   = ts ? Math.floor((today - ts) / 86400000) : null;
+        const tatDays   = (ts && approveD) ? Math.floor((approveD - ts) / 86400000) : null;
+        const month     = ts ? ts.toLocaleDateString('en-IN',{month:'short',year:'2-digit'}) : null;
+        const monthKey  = ts ? `${ts.getFullYear()}-${String(ts.getMonth()+1).padStart(2,'0')}` : null;
+
+        mrsMap[reqNo] = { reqNo, site, status, ts, approveD, ageDays, tatDays, month, monthKey, fyKey: getFYKey(ts) };
+      }
+    });
+
+    _mrsAllRows = Object.values(mrsMap);
+    const rows  = _mrsAllRows;
+
+    // KPIs
+    const total    = rows.length;
+    const approved = rows.filter(r => r.status.toUpperCase() === 'APPROVED').length;
+    const rejected = rows.filter(r => r.status.toUpperCase() === 'REJECTED').length;
+    const dropped  = rows.filter(r => r.status.toUpperCase() === 'DROPPED').length;
+    const pending  = rows.filter(r => !['APPROVED','REJECTED','DROPPED'].includes(r.status.toUpperCase())).length;
+
+    const pendingRows  = rows.filter(r => !['APPROVED','REJECTED','DROPPED'].includes(r.status.toUpperCase()));
+    const closedRows   = rows.filter(r => r.tatDays !== null && r.tatDays >= 0);
+    const avgTAT       = closedRows.length ? Math.round(closedRows.reduce((s,r)=>s+r.tatDays,0)/closedRows.length) : null;
+    const avgAging     = pendingRows.filter(r=>r.ageDays!==null).length
+      ? Math.round(pendingRows.filter(r=>r.ageDays!==null).reduce((s,r)=>s+r.ageDays,0)/pendingRows.filter(r=>r.ageDays!==null).length) : null;
+    const overdue      = pendingRows.filter(r => r.ageDays !== null && r.ageDays > 7).length;
+
+    document.getElementById('mrs-kpi-total').textContent    = total;
+    document.getElementById('mrs-kpi-pending').textContent  = pending;
+    document.getElementById('mrs-kpi-approved').textContent = approved;
+    document.getElementById('mrs-kpi-rejected').textContent = rejected;
+    document.getElementById('mrs-kpi-dropped').textContent  = dropped;
+    document.getElementById('mrs-kpi-tat').textContent      = avgTAT !== null ? avgTAT : '—';
+    document.getElementById('mrs-kpi-aging').textContent    = avgAging !== null ? avgAging : '—';
+    document.getElementById('mrs-kpi-overdue').textContent  = overdue;
+
+    // Site summary
+    const siteMap = {};
+    rows.forEach(r => {
+      if (!siteMap[r.site]) siteMap[r.site] = { site: r.site, count:0, pending:0, approved:0, rejected:0, dropped:0 };
+      siteMap[r.site].count++;
+      const st = r.status.toUpperCase();
+      if (st === 'APPROVED')       siteMap[r.site].approved++;
+      else if (st === 'REJECTED')  siteMap[r.site].rejected++;
+      else if (st === 'DROPPED')   siteMap[r.site].dropped++;
+      else                         siteMap[r.site].pending++;
+    });
+    _mrsSiteData = Object.values(siteMap);
+
+    // Month trend
+    const monthMap = {};
+    rows.forEach(r => {
+      if (!r.monthKey) return;
+      if (!monthMap[r.monthKey]) monthMap[r.monthKey] = { key: r.monthKey, label: r.month, count:0, fyKey: r.fyKey };
+      monthMap[r.monthKey].count++;
+    });
+    _mrsMonthData = Object.values(monthMap).sort((a,b) => a.key.localeCompare(b.key));
+
+    // FY dropdown
+    const fySet = [...new Set(_mrsMonthData.map(m=>m.fyKey).filter(Boolean))].sort().reverse();
+    _mrsSelectedFY = fySet.includes(currentFYKey()) ? currentFYKey() : (fySet[0] || currentFYKey());
+    const fySelect = document.getElementById('mrs-fy-select');
+    if (fySelect) fySelect.innerHTML = fySet.map(fy =>
+      `<option value="${fy}" ${fy===_mrsSelectedFY?'selected':''}>${fy}</option>`).join('');
+
+    renderMRSSiteTable();
+    renderMRSMonthChart();
+  }).catch(err => {
+    document.getElementById('mrs-site-table').innerHTML =
+      `<div style="padding:2rem;text-align:center;color:#c62828">Error: ${err.message}</div>`;
+  });
+}
+
+// ── MRS SITE TABLE ────────────────────────────────────────
+function mrsth(label, col) {
+  const s = _mrsSiteSort;
+  const arrow = s.col===col ? (s.dir===1?' ▲':' ▼'):' ↕';
+  return `<th style="cursor:pointer;user-select:none;white-space:nowrap"
+    onclick="window.mrsSiteSort('${col}')">${label}<span style="opacity:.45;font-size:.68rem">${arrow}</span></th>`;
+}
+window.mrsSiteSort = function(col) {
+  if (_mrsSiteSort.col===col) _mrsSiteSort.dir*=-1; else { _mrsSiteSort.col=col; _mrsSiteSort.dir=1; }
+  renderMRSSiteTable();
+};
+
+function renderMRSSiteTable() {
+  const el    = document.getElementById('mrs-site-table');
+  const badge = document.getElementById('mrs-site-badge');
+  if (!el) return;
+
+  const sorted = [..._mrsSiteData].sort((a,b) => {
+    const va=a[_mrsSiteSort.col]??'', vb=b[_mrsSiteSort.col]??'';
+    return typeof va==='number' ? (va-vb)*_mrsSiteSort.dir : String(va).localeCompare(String(vb))*_mrsSiteSort.dir;
+  });
+
+  if (badge) badge.innerHTML = `<strong>${sorted.length}</strong> sites`;
+  const maxCount = Math.max(...sorted.map(r=>r.count),1);
+
+  const trs = sorted.map(r => {
+    const pct = Math.round((r.count/maxCount)*100);
+    return `<tr>
+      <td style="font-weight:600;font-size:.81rem;color:var(--g8)">${r.site}</td>
+      <td style="text-align:center;font-weight:700;color:var(--g7)">${r.count}</td>
+      <td style="text-align:center">
+        ${r.pending ? `<span style="background:#fff3e0;color:#e65100;font-size:.68rem;font-weight:700;padding:.1rem .4rem;border-radius:12px">${r.pending}</span>` : '<span style="color:var(--txt4);font-size:.75rem">—</span>'}
+      </td>
+      <td style="text-align:center">
+        ${r.approved ? `<span style="background:#e8f5e9;color:#2e7d32;font-size:.68rem;font-weight:700;padding:.1rem .4rem;border-radius:12px">${r.approved}</span>` : '<span style="color:var(--txt4);font-size:.75rem">—</span>'}
+      </td>
+      <td style="min-width:80px">
+        <div style="background:var(--surface2);border-radius:20px;height:6px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:var(--g5);border-radius:20px"></div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <table class="emp-table" style="min-width:340px">
+      <thead><tr>
+        ${mrsth('Site','site')}
+        ${mrsth('Total','count')}
+        ${mrsth('⏳ Pending','pending')}
+        ${mrsth('✅ Approved','approved')}
+        <th>Bar</th>
+      </tr></thead>
+      <tbody>${trs}</tbody>
+      <tfoot><tr style="background:var(--surface2);font-weight:700">
+        <td style="font-size:.81rem;color:var(--g8)">TOTAL</td>
+        <td style="text-align:center;font-weight:700;color:var(--g7)">${_mrsSiteData.reduce((s,r)=>s+r.count,0)}</td>
+        <td style="text-align:center;font-size:.8rem">${_mrsSiteData.reduce((s,r)=>s+r.pending,0)}</td>
+        <td style="text-align:center;font-size:.8rem">${_mrsSiteData.reduce((s,r)=>s+r.approved,0)}</td>
+        <td></td>
+      </tr></tfoot>
+    </table>`;
+}
+
+// ── MRS MONTH CHART ───────────────────────────────────────
+window.mrsChangeFY = function(fyKey) { _mrsSelectedFY = fyKey; renderMRSMonthChart(); };
+
+function renderMRSMonthChart() {
+  const el    = document.getElementById('mrs-month-chart');
+  const badge = document.getElementById('mrs-month-badge');
+  if (!el) return;
+
+  const fy      = _mrsSelectedFY || currentFYKey();
+  const startYr = 2000 + parseInt(fy.split('-')[0]);
+
+  // Build 12-slot Apr→Mar grid
+  const slots = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(startYr, 3 + i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    slots.push({ key, label: d.toLocaleDateString('en-IN',{month:'short',year:'2-digit'}), count:0 });
+  }
+  _mrsMonthData.filter(m=>m.fyKey===fy).forEach(m => {
+    const slot = slots.find(s=>s.key===m.key);
+    if (slot) slot.count = m.count;
+  });
+
+  const maxCount   = Math.max(...slots.map(s=>s.count),1);
+  const fyTotal    = slots.reduce((s,m)=>s+m.count,0);
+  const curKey     = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+  if (badge) badge.innerHTML = `<strong>${fyTotal}</strong> MRS this FY`;
+
+  if (fyTotal === 0) {
+    el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3);width:100%">No MRS for FY ${fy}</div>`;
+    return;
+  }
+
+  const bars = slots.map(m => {
+    const h        = Math.round((m.count/maxCount)*110);
+    const isCurr   = m.key === curKey;
+    const barCol   = isCurr ? 'linear-gradient(180deg,var(--acc),#e65100)' : 'linear-gradient(180deg,var(--g6),var(--g8))';
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;min-width:38px;max-width:70px">
+      <div style="font-size:.67rem;font-weight:700;color:${m.count?'var(--g7)':'var(--txt4)'}">${m.count||'—'}</div>
+      <div style="width:100%;display:flex;align-items:flex-end;height:110px">
+        ${h>0 ? `<div style="width:100%;background:${barCol};border-radius:5px 5px 0 0;height:${h}px;${isCurr?'box-shadow:0 0 0 2px var(--acc)':''}"
+          title="${m.label}: ${m.count} MRS"></div>`
+          : `<div style="width:100%;height:3px;background:var(--surface2);border-radius:3px;align-self:flex-end"></div>`}
+      </div>
+      <div style="font-size:.68rem;font-weight:${isCurr?'800':'600'};color:${isCurr?'var(--g7)':'var(--txt3)'};white-space:nowrap">${m.label}</div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `<div style="display:flex;align-items:flex-end;gap:3px;width:100%;padding:0 .2rem">${bars}</div>`;
+}
+
 const APPSHEET_SCM_URL = 'https://www.appsheet.com/start/06fd0117-1dd8-445b-aaee-e2ff6e68e36f';
 
 // ── State ────────────────────────────────────────────────
@@ -2628,6 +2973,2330 @@ async function loadProfilePhoto(empCode) {
 // ══════════════════════════════════════════════════
 //  EXTERNAL PORTAL (Vendor / Sub-Contractor)
 // ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════
+//  PHASE 3 — SITE MANAGER DASHBOARD
+// ══════════════════════════════════════════════════════════
+let _smSelectedSite = null;
+let _smEmpSort = { col:'name', dir:1 };
+
+function renderSiteManager() {
+  const el = document.getElementById('mainContent');
+  const sites   = STATE.masters.sites || [];
+  const active  = sites.filter(s => s.status === 'ACTIVE');
+  const all     = STATE.masters.users || [];
+  const assets  = STATE.masters.assets || [];
+
+  // Pre-select: if site role, pick their site; else first active
+  if (!_smSelectedSite) {
+    const myEmp = all.find(u => u.email === STATE.user?.email);
+    _smSelectedSite = (myEmp?.site && active.find(s => s.name === myEmp.site))
+      ? myEmp.site : (active[0]?.name || '');
+  }
+
+  const sel    = active.find(s => s.name === _smSelectedSite) || active[0] || {};
+  const siteName = sel.name || '';
+
+  // Per-site employee & asset slices
+  const siteEmps   = all.filter(u => u.status === 'ACTIVE' && u.site === siteName);
+  const siteAssets = assets.filter(a => a.site === siteName);
+
+  // Dept breakdown
+  const deptMap = {};
+  siteEmps.forEach(u => { const d = u.dept||'Other'; deptMap[d] = (deptMap[d]||0)+1; });
+  const topDepts = Object.entries(deptMap).sort((a,b)=>b[1]-a[1]).slice(0,6);
+
+  // Asset category breakdown
+  const catMap = {};
+  siteAssets.forEach(a => { const c = a.category||'Other'; catMap[c] = (catMap[c]||0)+1; });
+  const topCats = Object.entries(catMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  // All-sites summary table
+  const siteRows = active.map(s => {
+    const empCnt   = all.filter(u => u.status==='ACTIVE' && u.site===s.name).length;
+    const assetCnt = assets.filter(a => a.site===s.name).length;
+    return { ...s, empCnt, assetCnt };
+  }).sort((a,b) => b.empCnt - a.empCnt);
+
+  const siteOptions = active.map(s =>
+    `<option value="${s.name}" ${s.name===siteName?'selected':''}>${s.name}</option>`).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap">
+      <div>
+        <h1 style="font-size:1.3rem;font-weight:700;color:var(--g9);margin:0">🏗️ Site Manager Dashboard</h1>
+        <p style="font-size:.8rem;color:var(--txt3);margin:0">${active.length} active sites · live from SiteMaster</p>
+      </div>
+      <select id="sm-site-sel" onchange="window.smSelectSite(this.value)"
+        style="margin-left:auto;padding:.45rem .8rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.85rem;background:#fff;cursor:pointer;max-width:260px">
+        ${siteOptions}
+      </select>
+    </div>
+
+    <!-- Site KPI strip -->
+    <div class="kpi-grid" style="margin-bottom:1.2rem">
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">👷</div></div>
+        <div class="kpi-value">${siteEmps.length}</div>
+        <div class="kpi-label">Active Employees</div>
+        <div class="kpi-sub">At ${siteName||'this site'}</div>
+      </div>
+      <div class="kpi-card info">
+        <div class="kpi-top"><div class="kpi-icon blue">🚜</div></div>
+        <div class="kpi-value">${siteAssets.length}</div>
+        <div class="kpi-label">Equipment Units</div>
+        <div class="kpi-sub">Deployed at site</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">🏗️</div></div>
+        <div class="kpi-value">${active.length}</div>
+        <div class="kpi-label">Total Active Sites</div>
+        <div class="kpi-sub">Across EVGCPL</div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="kpi-top"><div class="kpi-icon orange">👥</div></div>
+        <div class="kpi-value">${all.filter(u=>u.status==='ACTIVE').length}</div>
+        <div class="kpi-label">Total Workforce</div>
+        <div class="kpi-sub">All active employees</div>
+      </div>
+    </div>
+
+    <div class="dash-grid" style="margin-bottom:1.2rem">
+      <!-- Site Info Card -->
+      <div class="card">
+        <div class="card-head"><h3>📍 ${siteName || 'Site Details'}</h3><span class="hr-stat-pill">⬤ Live</span></div>
+        <div class="card-body">
+          <div class="info-grid-3">
+            <div class="info-card"><div class="ic-label">Site ID</div><div class="ic-value">${sel.siteId||'—'}</div></div>
+            <div class="info-card"><div class="ic-label">City</div><div class="ic-value">${sel.city||'—'}</div></div>
+            <div class="info-card"><div class="ic-label">State</div><div class="ic-value">${sel.state||'—'}</div></div>
+            <div class="info-card"><div class="ic-label">Site In-Charge</div><div class="ic-value">${sel.incharge||'—'}</div></div>
+            <div class="info-card"><div class="ic-label">Reporting Manager</div><div class="ic-value">${sel.manager||'—'}</div></div>
+            <div class="info-card"><div class="ic-label">Contact</div><div class="ic-value">${sel.contact||'—'}</div></div>
+            <div class="info-card" style="grid-column:1/-1"><div class="ic-label">Address</div><div class="ic-value" style="font-size:.82rem">${sel.address||'—'}</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dept Breakdown -->
+      <div class="card">
+        <div class="card-head"><h3>👷 Workforce by Department</h3></div>
+        <div class="card-body">
+          ${topDepts.length === 0
+            ? `<div style="padding:1.5rem;text-align:center;color:var(--txt3)">No employees mapped to this site yet.</div>`
+            : topDepts.map(([d,n]) => {
+                const pct = siteEmps.length ? Math.round(n/siteEmps.length*100) : 0;
+                return `<div style="margin-bottom:.65rem">
+                  <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:.25rem">
+                    <span style="font-weight:600;color:var(--g9)">${d}</span>
+                    <span style="color:var(--txt3)">${n} (${pct}%)</span>
+                  </div>
+                  <div style="background:var(--surface2);border-radius:20px;height:7px;overflow:hidden">
+                    <div style="width:${pct}%;height:100%;background:var(--g6);border-radius:20px"></div>
+                  </div>
+                </div>`;
+              }).join('')}
+        </div>
+      </div>
+    </div>
+
+    <!-- Employee Table for this site -->
+    <div class="card" style="margin-bottom:1.2rem">
+      <div class="card-head">
+        <h3>👷 Employees at ${siteName||'Site'} (${siteEmps.length})</h3>
+        <input id="sm-emp-search" type="text" placeholder="Search…" oninput="window.smFilterEmps()"
+          style="padding:.3rem .7rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.78rem;width:180px">
+      </div>
+      <div class="card-body" style="padding:0;overflow-x:auto" id="sm-emp-table">
+        ${renderSMEmpTable(siteEmps)}
+      </div>
+    </div>
+
+    <!-- All Sites Summary -->
+    <div class="card">
+      <div class="card-head"><h3>🗺️ All Sites Overview</h3></div>
+      <div class="card-body" style="padding:0;overflow-x:auto">
+        <table class="emp-table">
+          <thead><tr>
+            <th>Site Name</th><th>City</th><th>State</th>
+            <th style="text-align:center">👷 Staff</th>
+            <th style="text-align:center">🚜 Equipment</th>
+            <th>In-Charge</th>
+            <th style="text-align:center">Action</th>
+          </tr></thead>
+          <tbody>
+            ${siteRows.map(s => `<tr style="${s.name===siteName?'background:#e8f5e9;':''}">
+              <td style="font-weight:700;font-size:.82rem;color:var(--g8)">${s.name}</td>
+              <td style="font-size:.79rem">${s.city||'—'}</td>
+              <td style="font-size:.79rem">${s.state||'—'}</td>
+              <td style="text-align:center;font-weight:700">${s.empCnt}</td>
+              <td style="text-align:center">${s.assetCnt}</td>
+              <td style="font-size:.79rem">${s.incharge||'—'}</td>
+              <td style="text-align:center">
+                <button onclick="window.smSelectSite('${s.name.replace(/'/g,"\\'")}')"
+                  style="padding:.2rem .55rem;background:${s.name===siteName?'var(--g7)':'#f0f4f1'};color:${s.name===siteName?'#fff':'var(--g8)'};border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:.7rem;font-weight:600">
+                  ${s.name===siteName?'✓ Selected':'Select'}
+                </button>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  window.smSelectSite = function(name) {
+    _smSelectedSite = name;
+    renderSiteManager();
+  };
+  window.smFilterEmps = function() {
+    const q = (document.getElementById('sm-emp-search')?.value||'').toLowerCase();
+    const filtered = siteEmps.filter(u =>
+      (u.name+u.dept+u.desig).toLowerCase().includes(q));
+    const t = document.getElementById('sm-emp-table');
+    if (t) t.innerHTML = renderSMEmpTable(filtered);
+  };
+}
+
+function renderSMEmpTable(emps) {
+  if (!emps.length) return `<div style="padding:1.5rem;text-align:center;color:var(--txt3)">No employees found.</div>`;
+  return `<table class="emp-table">
+    <thead><tr><th>Name</th><th>Code</th><th>Designation</th><th>Department</th><th>Type</th></tr></thead>
+    <tbody>${emps.slice(0,60).map(u => `<tr>
+      <td style="font-weight:600;font-size:.82rem">${u.name}</td>
+      <td style="font-size:.78rem;color:var(--txt3)">${u.empCode||'—'}</td>
+      <td style="font-size:.79rem">${u.desig||'—'}</td>
+      <td style="font-size:.79rem">${u.dept||'—'}</td>
+      <td style="font-size:.75rem"><span style="padding:.2rem .5rem;background:#e8f5e9;color:#2e7d32;border-radius:10px">${u.empType||'—'}</span></td>
+    </tr>`).join('')}</tbody>
+    ${emps.length>60?`<tfoot><tr><td colspan="5" style="text-align:center;padding:.75rem;font-size:.78rem;color:var(--txt3)">Showing 60 of ${emps.length} employees</td></tr></tfoot>`:''}
+  </table>`;
+}
+
+// ══════════════════════════════════════════════════════════
+//  PHASE 3 — SAFETY MODULE
+// ══════════════════════════════════════════════════════════
+const SAFETY_CHECKS = [
+  { id:'ppe',       label:'PPE compliance — helmets, vests, boots',   cat:'PPE' },
+  { id:'scaffold',  label:'Scaffolding inspected & tagged',            cat:'Working at Height' },
+  { id:'electrical',label:'Electrical panels locked & labelled',       cat:'Electrical' },
+  { id:'fire_ext',  label:'Fire extinguishers serviceable & accessible', cat:'Fire Safety' },
+  { id:'first_aid', label:'First aid kit stocked & accessible',        cat:'Medical' },
+  { id:'signage',   label:'Safety signage visible at entry & hazard zones', cat:'Signage' },
+  { id:'toolbox',   label:'Toolbox talk conducted today',              cat:'Training' },
+  { id:'permits',   label:'Work permits issued for hot/confined work', cat:'Permits' },
+  { id:'housekeep', label:'Housekeeping — walkways clear of debris',   cat:'Housekeeping' },
+  { id:'machinery', label:'Machinery guards in place & functioning',   cat:'Machinery' },
+];
+
+function renderSafetyModule() {
+  const el      = document.getElementById('mainContent');
+  const sites   = (STATE.masters.sites||[]).filter(s => s.status==='ACTIVE');
+  const selSite = _smSelectedSite || sites[0]?.name || '';
+
+  // Incident log from sessionStorage
+  function getIncidents() { try { return JSON.parse(sessionStorage.getItem('safety_incidents')||'[]'); } catch(e){return[];} }
+  function saveIncidents(arr) { sessionStorage.setItem('safety_incidents', JSON.stringify(arr)); }
+
+  // Safety checklist state
+  function getSafetyChecks(site) { try { return JSON.parse(sessionStorage.getItem('sfchk_'+site)||'{}'); } catch(e){return{};} }
+  function setSafetyCheck(site,id,val) {
+    const c = getSafetyChecks(site); c[id]=val;
+    sessionStorage.setItem('sfchk_'+site, JSON.stringify(c));
+  }
+
+  const checks   = getSafetyChecks(selSite);
+  const done     = SAFETY_CHECKS.filter(c => checks[c.id]).length;
+  const score    = Math.round(done / SAFETY_CHECKS.length * 100);
+  const scoreCol = score===100 ? '#2e7d32' : score>=60 ? '#e65100' : '#c62828';
+
+  const incidents = getIncidents();
+  const siteInc   = incidents.filter(i => i.site===selSite);
+  const openInc   = incidents.filter(i => i.status==='Open');
+
+  const siteOptions = sites.map(s =>
+    `<option value="${s.name}" ${s.name===selSite?'selected':''}>${s.name}</option>`).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap">
+      <div>
+        <h1 style="font-size:1.3rem;font-weight:700;color:var(--g9);margin:0">🦺 Safety Module</h1>
+        <p style="font-size:.8rem;color:var(--txt3);margin:0">Daily checklist · Incident log · Site safety score</p>
+      </div>
+      <select id="sf-site-sel" onchange="window.sfSelectSite(this.value)"
+        style="margin-left:auto;padding:.45rem .8rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.85rem;background:#fff;cursor:pointer;max-width:260px">
+        ${siteOptions}
+      </select>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-grid" style="margin-bottom:1.2rem">
+      <div class="kpi-card ${score===100?'':'warn'}">
+        <div class="kpi-top"><div class="kpi-icon ${score===100?'green':'orange'}">🛡️</div></div>
+        <div class="kpi-value" style="color:${scoreCol}">${score}%</div>
+        <div class="kpi-label">Safety Score</div>
+        <div class="kpi-sub">${done}/${SAFETY_CHECKS.length} checks done today</div>
+      </div>
+      <div class="kpi-card ${openInc.length>0?'warn':''}">
+        <div class="kpi-top"><div class="kpi-icon ${openInc.length>0?'orange':'green'}">⚠️</div></div>
+        <div class="kpi-value">${openInc.length}</div>
+        <div class="kpi-label">Open Incidents</div>
+        <div class="kpi-sub">Across all sites</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">📋</div></div>
+        <div class="kpi-value">${incidents.length}</div>
+        <div class="kpi-label">Total Incidents</div>
+        <div class="kpi-sub">All time (this session)</div>
+      </div>
+      <div class="kpi-card info">
+        <div class="kpi-top"><div class="kpi-icon blue">🏗️</div></div>
+        <div class="kpi-value">${siteInc.length}</div>
+        <div class="kpi-label">Incidents at Site</div>
+        <div class="kpi-sub">${selSite||'Selected site'}</div>
+      </div>
+    </div>
+
+    <div class="dash-grid" style="margin-bottom:1.2rem">
+      <!-- Daily Safety Checklist -->
+      <div class="card">
+        <div class="card-head">
+          <h3>✅ Daily Safety Checklist — ${selSite||'Site'}</h3>
+          <span style="font-size:.75rem;font-weight:700;padding:.2rem .6rem;border-radius:10px;background:${scoreCol}20;color:${scoreCol}">${score}% complete</span>
+        </div>
+        <div class="card-body" style="padding:.5rem 1rem">
+          <div style="background:var(--surface2);border-radius:20px;height:8px;overflow:hidden;margin-bottom:1rem">
+            <div style="width:${score}%;height:100%;background:${scoreCol};border-radius:20px;transition:width .4s"></div>
+          </div>
+          ${SAFETY_CHECKS.map(c => {
+            const checked = !!checks[c.id];
+            return `<label style="display:flex;align-items:center;gap:.75rem;padding:.55rem 0;border-bottom:1px solid var(--surface2);cursor:pointer">
+              <input type="checkbox" ${checked?'checked':''} onchange="window.sfToggle('${selSite}','${c.id}',this.checked)"
+                style="width:16px;height:16px;cursor:pointer;accent-color:var(--g7)">
+              <span style="flex:1;font-size:.83rem;font-weight:${checked?'400':'500'};color:${checked?'var(--txt3)':'var(--txt)'};text-decoration:${checked?'line-through':'none'}">${c.label}</span>
+              <span style="font-size:.65rem;padding:.15rem .45rem;border-radius:8px;background:#e8f5e9;color:#2e7d32;white-space:nowrap">${c.cat}</span>
+            </label>`;
+          }).join('')}
+          <div style="margin-top:.75rem;display:flex;gap:.6rem">
+            <button onclick="window.sfMarkAll('${selSite}')"
+              style="flex:1;padding:.5rem;background:var(--g7);color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.8rem;font-weight:600">
+              ✅ Mark All Safe
+            </button>
+            <button onclick="window.sfClearAll('${selSite}')"
+              style="padding:.5rem .9rem;background:#fff;color:var(--txt2);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-family:inherit;font-size:.8rem">
+              Reset
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Report Incident -->
+      <div class="card">
+        <div class="card-head"><h3>🚨 Report Incident</h3></div>
+        <div class="card-body">
+          <div style="display:grid;gap:.7rem">
+            <div>
+              <label style="font-size:.75rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">Type</label>
+              <select id="inc-type" style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.82rem">
+                <option>Near Miss</option><option>First Aid</option><option>Property Damage</option>
+                <option>Lost Time Injury</option><option>Fire/Explosion</option><option>Environmental</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:.75rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">Severity</label>
+              <select id="inc-sev" style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.82rem">
+                <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:.75rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">Description</label>
+              <textarea id="inc-desc" rows="3" placeholder="Describe what happened…"
+                style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.82rem;resize:vertical;box-sizing:border-box"></textarea>
+            </div>
+            <div>
+              <label style="font-size:.75rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">Reported By</label>
+              <input id="inc-by" type="text" value="${STATE.user?.name||''}" placeholder="Your name"
+                style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.82rem;box-sizing:border-box">
+            </div>
+            <button onclick="window.sfSubmitIncident('${selSite}')"
+              style="padding:.55rem;background:#c62828;color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:700;font-size:.85rem">
+              🚨 Submit Incident Report
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Incident Log -->
+    <div class="card">
+      <div class="card-head"><h3>📋 Incident Log — All Sites</h3>
+        <span class="hr-stat-pill">${incidents.length} total</span>
+      </div>
+      <div class="card-body" style="padding:0" id="sf-incident-log">
+        ${renderIncidentLog(incidents)}
+      </div>
+    </div>
+  `;
+
+  // All-sites safety score summary
+  const sfScores = sites.map(s => {
+    const c = getSafetyChecks(s.name);
+    const d = SAFETY_CHECKS.filter(x => c[x.id]).length;
+    return { name: s.name, score: Math.round(d/SAFETY_CHECKS.length*100), done:d };
+  });
+
+  // Helpers
+  window.sfSelectSite = (name) => { _smSelectedSite = name; renderSafetyModule(); };
+  window.sfToggle = (site,id,val) => { setSafetyCheck(site,id,val); renderSafetyModule(); };
+  window.sfMarkAll = (site) => {
+    const obj={}; SAFETY_CHECKS.forEach(c=>obj[c.id]=true);
+    sessionStorage.setItem('sfchk_'+site, JSON.stringify(obj));
+    renderSafetyModule();
+  };
+  window.sfClearAll = (site) => { sessionStorage.removeItem('sfchk_'+site); renderSafetyModule(); };
+  window.sfSubmitIncident = (site) => {
+    const type = document.getElementById('inc-type')?.value;
+    const sev  = document.getElementById('inc-sev')?.value;
+    const desc = document.getElementById('inc-desc')?.value.trim();
+    const by   = document.getElementById('inc-by')?.value.trim();
+    if (!desc) { alert('Please describe the incident.'); return; }
+    const arr  = getIncidents();
+    arr.unshift({
+      id: Date.now(), site, type, sev, desc, by,
+      date: new Date().toLocaleDateString('en-IN'), status:'Open'
+    });
+    saveIncidents(arr);
+    renderSafetyModule();
+  };
+  window.sfCloseInc = (id) => {
+    const arr = getIncidents().map(i => i.id===id ? {...i, status:'Closed'} : i);
+    saveIncidents(arr);
+    const log = document.getElementById('sf-incident-log');
+    if (log) log.innerHTML = renderIncidentLog(arr);
+  };
+}
+
+function renderIncidentLog(incidents) {
+  if (!incidents.length) return `<div style="padding:1.5rem;text-align:center;color:var(--txt3)">No incidents logged yet. Use the form to report one.</div>`;
+  const sevCol = { Low:'#2e7d32', Medium:'#e65100', High:'#c62828', Critical:'#6a1b9a' };
+  const rows = incidents.slice(0,20).map(i => {
+    const sc = sevCol[i.sev]||'#555';
+    return `<tr>
+      <td style="font-size:.78rem;white-space:nowrap">${i.date}</td>
+      <td style="font-size:.79rem">${i.site}</td>
+      <td style="font-size:.79rem">${i.type}</td>
+      <td><span style="font-size:.7rem;font-weight:700;padding:.2rem .5rem;border-radius:10px;background:${sc}20;color:${sc}">${i.sev}</span></td>
+      <td style="font-size:.79rem;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${i.desc}</td>
+      <td style="font-size:.78rem">${i.by||'—'}</td>
+      <td style="text-align:center">
+        ${i.status==='Open'
+          ? `<button onclick="window.sfCloseInc(${i.id})"
+              style="padding:.2rem .55rem;background:#e8f5e9;color:#2e7d32;border:1px solid #c8e6c9;border-radius:6px;cursor:pointer;font-size:.7rem;font-weight:600">
+              Close ✓</button>`
+          : `<span style="font-size:.7rem;color:#2e7d32;font-weight:700">✅ Closed</span>`}
+      </td>
+    </tr>`;
+  }).join('');
+  return `<div style="overflow-x:auto"><table class="emp-table">
+    <thead><tr><th>Date</th><th>Site</th><th>Type</th><th>Severity</th><th>Description</th><th>Reported By</th><th>Status</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+// ══════════════════════════════════════════════════════════
+//  PHASE 3 — EQUIPMENT & MACHINERY
+// ══════════════════════════════════════════════════════════
+let _eqFilter   = { site:'', cat:'', own:'' };
+let _eqSort     = { col:'name', dir:1 };
+
+function renderEquipmentModule() {
+  const el     = document.getElementById('mainContent');
+  const assets  = STATE.masters.assets || [];
+  const active  = assets.filter(a => a.status === 'ACTIVE');
+  const inactive= assets.filter(a => a.status !== 'ACTIVE');
+
+  // Unique values for filters
+  const allSites = [...new Set(assets.map(a=>a.site).filter(Boolean))].sort();
+  const allCats  = [...new Set(assets.map(a=>a.category).filter(Boolean))].sort();
+  const ownCount = active.filter(a => (a.ownHire||'').toUpperCase()==='OWN').length;
+  const hireCount= active.filter(a => (a.ownHire||'').toUpperCase()==='HIRE').length;
+
+  // Site-wise breakdown
+  const siteMap = {};
+  active.forEach(a => { const s=a.site||'Unassigned'; siteMap[s]=(siteMap[s]||0)+1; });
+  const topSites = Object.entries(siteMap).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+  // Category breakdown
+  const catMap = {};
+  active.forEach(a => { const c=a.category||'Uncategorised'; catMap[c]=(catMap[c]||0)+1; });
+  const topCats = Object.entries(catMap).sort((a,b)=>b[1]-a[1]).slice(0,6);
+
+  el.innerHTML = `
+    <div style="margin-bottom:1rem">
+      <h1 style="font-size:1.3rem;font-weight:700;color:var(--g9);margin:0">🚜 Equipment & Machinery</h1>
+      <p style="font-size:.8rem;color:var(--txt3);margin:0">Live from AssetMaster · ${assets.length} total units</p>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="kpi-grid" style="margin-bottom:1.2rem">
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">🚜</div></div>
+        <div class="kpi-value">${active.length}</div>
+        <div class="kpi-label">Active Units</div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="kpi-top"><div class="kpi-icon orange">🔧</div></div>
+        <div class="kpi-value">${inactive.length}</div>
+        <div class="kpi-label">Inactive / Off-hire</div>
+      </div>
+      <div class="kpi-card info">
+        <div class="kpi-top"><div class="kpi-icon blue">🏢</div></div>
+        <div class="kpi-value">${ownCount}</div>
+        <div class="kpi-label">Own Assets</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">📋</div></div>
+        <div class="kpi-value">${hireCount}</div>
+        <div class="kpi-label">Hired / Leased</div>
+      </div>
+    </div>
+
+    <div class="dash-grid" style="margin-bottom:1.2rem">
+      <!-- Category breakdown -->
+      <div class="card">
+        <div class="card-head"><h3>📦 By Category (Active)</h3></div>
+        <div class="card-body">
+          ${topCats.map(([c,n]) => {
+            const pct = active.length ? Math.round(n/active.length*100):0;
+            return `<div style="margin-bottom:.65rem">
+              <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:.25rem">
+                <span style="font-weight:600;color:var(--g9)">${c}</span>
+                <span style="color:var(--txt3)">${n} (${pct}%)</span>
+              </div>
+              <div style="background:var(--surface2);border-radius:20px;height:7px;overflow:hidden">
+                <div style="width:${pct}%;height:100%;background:var(--g6);border-radius:20px"></div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- Site deployment -->
+      <div class="card">
+        <div class="card-head"><h3>🏗️ Site Deployment</h3></div>
+        <div class="card-body" style="padding:0;overflow-x:auto">
+          <table class="emp-table">
+            <thead><tr><th>Site</th><th style="text-align:center">Units</th><th>Bar</th></tr></thead>
+            <tbody>
+              ${topSites.map(([s,n]) => {
+                const pct = active.length ? Math.round(n/active.length*100):0;
+                return `<tr>
+                  <td style="font-size:.81rem;font-weight:600">${s}</td>
+                  <td style="text-align:center;font-weight:700">${n}</td>
+                  <td style="min-width:100px">
+                    <div style="background:var(--surface2);border-radius:20px;height:7px;overflow:hidden">
+                      <div style="width:${pct}%;height:100%;background:var(--g5);border-radius:20px"></div>
+                    </div>
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:.8rem">
+      <select id="eq-f-site" onchange="window.eqApplyFilter()"
+        style="padding:.4rem .7rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.8rem;background:#fff">
+        <option value="">All Sites</option>
+        ${allSites.map(s=>`<option value="${s}">${s}</option>`).join('')}
+      </select>
+      <select id="eq-f-cat" onchange="window.eqApplyFilter()"
+        style="padding:.4rem .7rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.8rem;background:#fff">
+        <option value="">All Categories</option>
+        ${allCats.map(c=>`<option value="${c}">${c}</option>`).join('')}
+      </select>
+      <select id="eq-f-own" onchange="window.eqApplyFilter()"
+        style="padding:.4rem .7rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.8rem;background:#fff">
+        <option value="">Own & Hire</option>
+        <option value="OWN">Own Only</option>
+        <option value="HIRE">Hire Only</option>
+      </select>
+      <input id="eq-search" type="text" placeholder="Search asset…" oninput="window.eqApplyFilter()"
+        style="padding:.4rem .7rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.8rem;flex:1;min-width:150px;max-width:220px">
+      <span class="hr-stat-pill" id="eq-count-badge">${assets.length} assets</span>
+    </div>
+
+    <!-- Asset Table -->
+    <div class="card">
+      <div class="card-body" style="padding:0;overflow-x:auto" id="eq-table">
+        ${renderEQTable(assets)}
+      </div>
+    </div>
+  `;
+
+  window.eqApplyFilter = function() {
+    const site  = document.getElementById('eq-f-site')?.value||'';
+    const cat   = document.getElementById('eq-f-cat')?.value||'';
+    const own   = document.getElementById('eq-f-own')?.value||'';
+    const q     = (document.getElementById('eq-search')?.value||'').toLowerCase();
+    let rows = assets.filter(a =>
+      (!site || a.site===site) &&
+      (!cat  || a.category===cat) &&
+      (!own  || (a.ownHire||'').toUpperCase()===own) &&
+      (!q    || (a.name+a.code+a.category).toLowerCase().includes(q))
+    );
+    const badge = document.getElementById('eq-count-badge');
+    if (badge) badge.innerHTML = `<strong>${rows.length}</strong> assets`;
+    const t = document.getElementById('eq-table');
+    if (t) t.innerHTML = renderEQTable(rows);
+  };
+}
+
+function renderEQTable(rows) {
+  if (!rows.length) return `<div style="padding:1.5rem;text-align:center;color:var(--txt3)">No assets match the filter.</div>`;
+  const show = rows.slice(0,100);
+  return `<table class="emp-table" style="min-width:560px">
+    <thead><tr><th>Asset Name</th><th>Code</th><th>Category</th><th>Site</th><th style="text-align:center">Own/Hire</th><th style="text-align:center">Status</th></tr></thead>
+    <tbody>${show.map(a => {
+      const stCol = a.status==='ACTIVE' ? '#2e7d32':'#c62828';
+      const stBg  = a.status==='ACTIVE' ? '#e8f5e9':'#fdecea';
+      const ohCol = (a.ownHire||'').toUpperCase()==='OWN' ? '#1565c0':'#e65100';
+      const ohBg  = (a.ownHire||'').toUpperCase()==='OWN' ? '#e3f2fd':'#fff3e0';
+      return `<tr>
+        <td style="font-weight:600;font-size:.82rem">${a.name}</td>
+        <td style="font-size:.78rem;color:var(--txt3)">${a.code||'—'}</td>
+        <td style="font-size:.79rem">${a.category||'—'}</td>
+        <td style="font-size:.79rem">${a.site||'—'}</td>
+        <td style="text-align:center">
+          <span style="font-size:.7rem;font-weight:700;padding:.2rem .5rem;border-radius:10px;background:${ohBg};color:${ohCol}">${a.ownHire||'—'}</span>
+        </td>
+        <td style="text-align:center">
+          <span style="font-size:.7rem;font-weight:700;padding:.2rem .5rem;border-radius:10px;background:${stBg};color:${stCol}">${a.status}</span>
+        </td>
+      </tr>`;
+    }).join('')}</tbody>
+    ${rows.length>100?`<tfoot><tr><td colspan="6" style="text-align:center;padding:.75rem;font-size:.78rem;color:var(--txt3)">Showing 100 of ${rows.length} assets</td></tr></tfoot>`:''}
+  </table>`;
+}
+
+// ══════════════════════════════════════════════════════════
+//  PHASE 3 — SITE STORE  (MRS-based)
+// ══════════════════════════════════════════════════════════
+let _storeAllRows = [];
+let _storeSort    = { col:'count', dir:-1 };
+let _storeFilter  = '';
+
+function renderStoreModule() {
+  const el = document.getElementById('mainContent');
+
+  el.innerHTML = `
+    <div style="margin-bottom:1rem">
+      <h1 style="font-size:1.3rem;font-weight:700;color:var(--g9);margin:0">🏪 Site Store</h1>
+      <p style="font-size:.8rem;color:var(--txt3);margin:0">Material Requests (MRS) · site-wise inventory · live from v2_Purchase</p>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-grid" style="margin-bottom:1.2rem">
+      <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">📦</div></div>
+        <div class="kpi-value" id="st-kpi-total">—</div><div class="kpi-label">Total MRS</div></div>
+      <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
+        <div class="kpi-value" id="st-kpi-pending">—</div><div class="kpi-label">Pending</div></div>
+      <div class="kpi-card info"><div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
+        <div class="kpi-value" id="st-kpi-approved">—</div><div class="kpi-label">Approved</div></div>
+      <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">🏗️</div></div>
+        <div class="kpi-value" id="st-kpi-sites">—</div><div class="kpi-label">Sites with MRS</div></div>
+    </div>
+
+    <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:.8rem">
+      <input id="st-search" type="text" placeholder="Search site…" oninput="window.stApplyFilter()"
+        style="padding:.4rem .7rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.8rem;flex:1;min-width:160px;max-width:260px">
+      <select id="st-status-f" onchange="window.stApplyFilter()"
+        style="padding:.4rem .7rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.8rem;background:#fff">
+        <option value="">All Statuses</option>
+        <option value="Pending">Pending</option>
+        <option value="Approved">Approved</option>
+        <option value="Rejected">Rejected</option>
+      </select>
+      <span class="hr-stat-pill" id="st-count-badge">Loading…</span>
+    </div>
+
+    <div id="st-table">
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:3rem;color:var(--txt3)">
+        <div style="width:22px;height:22px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite"></div>
+        Loading MRS data from v2_Purchase…
+      </div>
+    </div>
+
+    <!-- Item-level search -->
+    <div class="card" style="margin-top:1rem">
+      <div class="card-head"><h3>🔍 Search Material Requests</h3></div>
+      <div class="card-body">
+        <div style="display:flex;gap:.6rem;margin-bottom:.8rem;flex-wrap:wrap">
+          <input id="mrs-item-search" type="text" placeholder="Search by part description or request no…"
+            style="padding:.4rem .7rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.8rem;flex:1;min-width:220px">
+          <button onclick="window.mrsSiteSearch()"
+            style="padding:.4rem 1rem;background:var(--g7);color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.8rem;font-weight:600">
+            Search
+          </button>
+        </div>
+        <div id="mrs-item-results" style="font-size:.82rem;color:var(--txt3)">Enter a search term above to find specific material requests.</div>
+      </div>
+    </div>
+  `;
+
+  // Fetch MRS data — columns: D=Request No, F=Site, N=MR Approval Status, P=MR Approval Date, Y=Timestamp
+  fetchSheet('MRS', 'SELECT D,F,G,N,Y', PO_SHEET_ID).then(rawRows => {
+    // Deduplicate by Request No, filter out dummy
+    const seen = new Set();
+    _storeAllRows = rawRows.filter(r => {
+      const rn = (r['Request No']||'').trim();
+      if (!rn || rn.toLowerCase()==='dummy') return false;
+      if (seen.has(rn)) return false;
+      seen.add(rn); return true;
+    }).map(r => ({
+      reqNo:  r['Request No'] || '—',
+      site:   r['Requested For (site)'] || r['F'] || '—',
+      part:   r['Part Details'] || r['G'] || '',
+      status: (r['MR Approval Status'] || '').trim() || 'Pending',
+      ts:     r['Timestamp'] || r['Y'] || '',
+    }));
+
+    // Site aggregation
+    const siteMap = {};
+    _storeAllRows.forEach(r => {
+      const s = r.site;
+      if (!siteMap[s]) siteMap[s] = { site:s, count:0, pending:0, approved:0, rejected:0, dropped:0 };
+      siteMap[s].count++;
+      const st = r.status.toUpperCase();
+      if (st==='APPROVED') siteMap[s].approved++;
+      else if (st==='REJECTED') siteMap[s].rejected++;
+      else if (st==='DROPPED') siteMap[s].dropped++;
+      else siteMap[s].pending++;
+    });
+
+    const total    = _storeAllRows.length;
+    const pending  = _storeAllRows.filter(r => !r.status || r.status.toUpperCase()==='PENDING' || r.status==='').length;
+    const approved = _storeAllRows.filter(r => r.status.toUpperCase()==='APPROVED').length;
+    const siteCnt  = Object.keys(siteMap).length;
+
+    const kT = document.getElementById('st-kpi-total');    if(kT) kT.textContent = total;
+    const kP = document.getElementById('st-kpi-pending');  if(kP) kP.textContent = pending;
+    const kA = document.getElementById('st-kpi-approved'); if(kA) kA.textContent = approved;
+    const kS = document.getElementById('st-kpi-sites');    if(kS) kS.textContent = siteCnt;
+
+    const badge = document.getElementById('st-count-badge');
+    if (badge) badge.innerHTML = `<strong>${siteCnt}</strong> sites`;
+
+    // Store for filter
+    window._storeSiteMap = siteMap;
+    renderStoreSiteTable(Object.values(siteMap));
+  }).catch(() => {
+    const t = document.getElementById('st-table');
+    if (t) t.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;padding:2rem;color:#c62828">
+      ⚠️ Could not load MRS data. Ensure v2_Purchase is shared as "Anyone on the internet".</div></div>`;
+  });
+
+  window.stSort = function(col) {
+    if (_storeSort.col===col) _storeSort.dir*=-1; else { _storeSort.col=col; _storeSort.dir=-1; }
+    renderStoreSiteTable(Object.values(window._storeSiteMap||{}));
+  };
+  window.stApplyFilter = function() {
+    const q  = (document.getElementById('st-search')?.value||'').toLowerCase();
+    const sf = (document.getElementById('st-status-f')?.value||'').toLowerCase();
+    let rows = Object.values(window._storeSiteMap||{});
+    if (q) rows = rows.filter(r => r.site.toLowerCase().includes(q));
+    renderStoreSiteTable(rows, sf);
+  };
+  window.mrsSiteSearch = function() {
+    const q = (document.getElementById('mrs-item-search')?.value||'').trim().toLowerCase();
+    const res = document.getElementById('mrs-item-results');
+    if (!q || !res) return;
+    const hits = _storeAllRows.filter(r =>
+      (r.reqNo+r.part+r.site).toLowerCase().includes(q)).slice(0,20);
+    if (!hits.length) { res.innerHTML = `<span style="color:var(--txt3)">No results for "${q}".</span>`; return; }
+    const stC = { APPROVED:'#2e7d32', REJECTED:'#c62828', DROPPED:'#777' };
+    res.innerHTML = `<table class="emp-table"><thead><tr><th>Request No</th><th>Site</th><th>Part</th><th>Status</th></tr></thead>
+      <tbody>${hits.map(r => {
+        const c = stC[r.status.toUpperCase()]||'#e65100';
+        return `<tr>
+          <td style="font-weight:700;font-size:.8rem">${r.reqNo}</td>
+          <td style="font-size:.79rem">${r.site}</td>
+          <td style="font-size:.79rem;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.part||'—'}</td>
+          <td><span style="font-size:.7rem;font-weight:700;padding:.2rem .5rem;border-radius:10px;background:${c}20;color:${c}">${r.status}</span></td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  };
+}
+
+function renderStoreSiteTable(rows, statusFilter) {
+  const el = document.getElementById('st-table');
+  if (!el) return;
+  const col = _storeSort.col, dir = _storeSort.dir;
+  let sorted = [...rows].sort((a,b) => {
+    if (typeof a[col]==='number') return (a[col]-b[col])*dir;
+    return String(a[col]||'').localeCompare(String(b[col]||''))*dir;
+  });
+
+  function sth(label, col) {
+    const arrow = _storeSort.col===col ? (_storeSort.dir===1?' ▲':' ▼'):' ↕';
+    return `<th style="cursor:pointer;user-select:none" onclick="window.stSort('${col}')">${label}<span style="opacity:.45;font-size:.68rem">${arrow}</span></th>`;
+  }
+  const maxC = Math.max(...sorted.map(r=>r.count),1);
+  const trs = sorted.map(r => `<tr>
+    <td style="font-weight:700;font-size:.82rem;color:var(--g8)">${r.site}</td>
+    <td style="text-align:center;font-weight:700">${r.count}</td>
+    <td style="text-align:center;color:#e65100;font-weight:600">${r.pending}</td>
+    <td style="text-align:center;color:#2e7d32;font-weight:600">${r.approved}</td>
+    <td style="text-align:center;color:#c62828;font-weight:600">${r.rejected}</td>
+    <td style="min-width:80px">
+      <div style="background:var(--surface2);border-radius:20px;height:7px;overflow:hidden">
+        <div style="width:${Math.round(r.count/maxC*100)}%;height:100%;background:var(--g5);border-radius:20px"></div>
+      </div>
+    </td>
+  </tr>`).join('');
+
+  el.innerHTML = `<div class="card"><div class="card-body" style="padding:0;overflow-x:auto">
+    <table class="emp-table" style="min-width:480px">
+      <thead><tr>
+        ${sth('Site','site')}
+        ${sth('Total MRS','count')}
+        ${sth('⏳ Pending','pending')}
+        ${sth('✅ Approved','approved')}
+        ${sth('❌ Rejected','rejected')}
+        <th>Volume</th>
+      </tr></thead>
+      <tbody>${trs}</tbody>
+      <tfoot><tr style="background:var(--surface2);font-weight:700">
+        <td style="font-size:.81rem;color:var(--g8)">TOTAL (${sorted.length} sites)</td>
+        <td style="text-align:center">${sorted.reduce((s,r)=>s+r.count,0)}</td>
+        <td style="text-align:center;color:#e65100">${sorted.reduce((s,r)=>s+r.pending,0)}</td>
+        <td style="text-align:center;color:#2e7d32">${sorted.reduce((s,r)=>s+r.approved,0)}</td>
+        <td style="text-align:center;color:#c62828">${sorted.reduce((s,r)=>s+r.rejected,0)}</td>
+        <td></td>
+      </tr></tfoot>
+    </table>
+  </div></div>`;
+}
+
+// ══════════════════════════════════════════════════════════
+//  PHASE 4 — PROCUREMENT STORES (StockIN + GRN + Stock Levels)
+// ══════════════════════════════════════════════════════════
+let _pstStockIN    = [];   // all StockIN rows
+let _pstGRNMap     = {};   // UUID → { grnNo, site, poNo, ... }
+let _pstLevels     = [];   // v3StockLevels rows
+let _pstLoaded     = false;
+let _pstActiveTab  = 'stockin';
+let _pstSiteFilter = '';
+
+function renderProcurementStores() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏪 Stores</div>
+      <div class="page-sub">Stock IN · GRN Register · Site Stock Levels</div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="pstRefresh()" id="pst-refresh-btn" style="height:36px">🔄 Refresh</button>
+  </div>
+
+  <div id="pst-sheet-warn" style="display:none;background:#fff8e1;border:1px solid #f0a500;border-radius:10px;padding:.85rem 1.1rem;margin-bottom:1.1rem;font-size:.82rem;color:#7a5000">
+    ⚠️ <b>v2_Stores sheet is org-restricted.</b> Ask your admin to set <i>v2_Stores</i> to "Anyone with the link → Viewer" for data to load.
+  </div>
+
+  <!-- KPI ROW -->
+  <div id="pst-kpi-row" class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:.85rem;margin-bottom:1.1rem"></div>
+
+  <!-- SITE FILTER + TABS -->
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem;margin-bottom:.75rem">
+    <div style="display:flex;gap:.4rem;border-bottom:2px solid #e0ece4;flex:1">
+      <button class="vpi-tab-btn active" id="pst-tab-stockin"  onclick="pstSwitchTab('stockin')">📥 Stock IN</button>
+      <button class="vpi-tab-btn"        id="pst-tab-grn"      onclick="pstSwitchTab('grn')">📦 GRN Register</button>
+      <button class="vpi-tab-btn"        id="pst-tab-levels"   onclick="pstSwitchTab('levels')">📊 Stock Levels</button>
+    </div>
+    <div style="display:flex;gap:.5rem;align-items:center">
+      <select id="pst-site-select" onchange="pstSetSite(this.value)"
+        style="padding:.38rem .65rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.82rem;font-family:inherit;outline:none;background:#fff">
+        <option value="">All Sites</option>
+      </select>
+      <input type="text" id="pst-search" placeholder="Search…"
+        style="padding:.38rem .65rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.82rem;font-family:inherit;outline:none;width:160px"
+        oninput="pstSearch(this.value)" />
+    </div>
+  </div>
+
+  <div id="pst-loading" style="text-align:center;padding:3rem;color:var(--txt3)">
+    <div style="font-size:2rem;margin-bottom:.5rem">⏳</div><div>Loading stores data…</div>
+  </div>
+  <div id="pst-tab-content" style="display:none"></div>`;
+
+  if (!document.getElementById('vpi-styles')) {
+    const s = document.createElement('style');
+    s.id = 'vpi-styles';
+    s.textContent = `
+      .vpi-tab-btn { padding:.48rem 1rem;border:none;background:none;font-family:inherit;font-size:.82rem;font-weight:600;color:var(--txt3);cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px;transition:color .2s }
+      .vpi-tab-btn.active { color:var(--green);border-bottom-color:var(--green) }
+      .vpi-tab-btn:hover { color:var(--green) }
+      .vpi-tbl { width:100%;border-collapse:collapse;font-size:.81rem }
+      .vpi-tbl th { background:#f0f4f1;color:var(--txt2);font-weight:700;padding:.5rem .65rem;text-align:left;position:sticky;top:0;font-size:.75rem;text-transform:uppercase;letter-spacing:.03em }
+      .vpi-tbl td { padding:.45rem .65rem;border-bottom:1px solid #f0f4f1;color:var(--txt1);vertical-align:top }
+      .vpi-tbl tr:hover td { background:#f7faf8 }
+      .vpi-status-pill { display:inline-block;padding:.18rem .55rem;border-radius:20px;font-size:.72rem;font-weight:700 }
+    `;
+    document.head.appendChild(s);
+  }
+
+  pstLoad();
+}
+
+async function pstLoad() {
+  document.getElementById('pst-loading').style.display = 'block';
+  document.getElementById('pst-tab-content').style.display = 'none';
+
+  const [stockRows, grnRows, levelRows] = await Promise.all([
+    fetchSheet('StockIN', 'SELECT A,B,C,D,E,F,G,H,K,L,M,N,O,P,Q,U,V,W', STORES_SHEET_ID),
+    fetchSheet('GRN_No',  'SELECT A,B,C,D,E,F,G,H,I,J,K,L,M', STORES_SHEET_ID),
+    fetchSheet('v3StockLevels', 'SELECT A,B,C,D,E,F,G,H', STORES_SHEET_ID),
+  ]);
+
+  if (!stockRows.length && !levelRows.length) {
+    document.getElementById('pst-sheet-warn').style.display = 'block';
+  }
+
+  _pstStockIN = stockRows.filter(r => (r['UUID'] || r['SI ID'] || '').trim() !== '');
+  _pstLevels  = levelRows.filter(r => (r['SNo'] || r['Site & Code'] || '').trim() !== '');
+
+  // Build GRN lookup map (UUID → GRN details)
+  _pstGRNMap = {};
+  grnRows.forEach(r => {
+    const uuid = (r['UUID'] || '').trim();
+    if (uuid) _pstGRNMap[uuid] = {
+      grnNo:      r['GRN No (Goods Receipt)'] || r['GRN No'] || '',
+      site:       r['Site Name'] || '',
+      type:       r['Invoice / Stock Trans'] || '',
+      poKey:      r['PO No (Key)'] || '',
+      poNo:       r['PO No'] || '',
+      vendorId:   r['Vendor Name (ID)'] || '',
+      vendorDet:  r['Vendor Details'] || '',
+      stNo:       r['ST No'] || '',
+      invNo:      r['Invoice No / ST'] || '',
+      invDate:    r['Invoice / DC Copy'] || '',
+      receivedOn: r['Received On (At)'] || '',
+    };
+  });
+
+  _pstLoaded = true;
+
+  // Populate site filter dropdown
+  const sites = [...new Set(_pstStockIN.map(r => r['Site Name']).filter(Boolean))].sort();
+  const sel = document.getElementById('pst-site-select');
+  if (sel) {
+    sel.innerHTML = '<option value="">All Sites</option>' +
+      sites.map(s => `<option value="${s}">${s}</option>`).join('');
+    if (_pstSiteFilter) sel.value = _pstSiteFilter;
+  }
+
+  pstUpdateKPIs();
+  document.getElementById('pst-loading').style.display = 'none';
+  document.getElementById('pst-tab-content').style.display = 'block';
+  pstRenderTab();
+}
+
+function pstRefresh() {
+  _pstLoaded = false;
+  pstLoad();
+}
+
+function pstSetSite(v) {
+  _pstSiteFilter = v;
+  const si = document.getElementById('pst-search');
+  if (si) si.value = '';
+  pstUpdateKPIs();
+  pstRenderTab();
+}
+
+function pstSearch(q) {
+  pstRenderTab(q);
+}
+
+function pstSwitchTab(t) {
+  _pstActiveTab = t;
+  ['stockin','grn','levels'].forEach(x =>
+    document.getElementById('pst-tab-' + x)?.classList.toggle('active', x === t));
+  const si = document.getElementById('pst-search');
+  if (si) si.value = '';
+  pstRenderTab();
+}
+
+function pstFilteredStockIN(q) {
+  let rows = _pstSiteFilter
+    ? _pstStockIN.filter(r => r['Site Name'] === _pstSiteFilter)
+    : _pstStockIN;
+  if (q) {
+    const lq = q.toLowerCase();
+    rows = rows.filter(r =>
+      (r['Part Description'] || r['Part Details'] || '').toLowerCase().includes(lq) ||
+      (r['Vendor Name'] || '').toLowerCase().includes(lq) ||
+      (r['PO No'] || '').toLowerCase().includes(lq) ||
+      (r['Invoice No / ST No'] || '').toLowerCase().includes(lq) ||
+      (r['MR No'] || '').toLowerCase().includes(lq) ||
+      (r['SI ID'] || '').toLowerCase().includes(lq)
+    );
+  }
+  // Enrich with GRN
+  return rows.map(r => {
+    const cs = (r['CheckSum'] || r['UUID'] || '').trim();
+    const g  = _pstGRNMap[cs] || {};
+    return { ...r, _grnNo: g.grnNo || '', _grnReceivedOn: g.receivedOn || r['Received On (At)'] || '' };
+  }).sort((a, b) => new Date(b._grnReceivedOn||0) - new Date(a._grnReceivedOn||0));
+}
+
+function pstUpdateKPIs() {
+  const rows = _pstSiteFilter ? _pstStockIN.filter(r => r['Site Name'] === _pstSiteFilter) : _pstStockIN;
+  const enriched = rows.map(r => {
+    const cs = (r['CheckSum'] || r['UUID'] || '').trim();
+    return { ...r, _grnNo: (_pstGRNMap[cs] || {}).grnNo || '' };
+  });
+  const totalSI    = rows.length;
+  const totalGRNs  = new Set(enriched.map(r => r._grnNo).filter(Boolean)).size;
+  const pendingGRN = enriched.filter(r => !r._grnNo).length;
+  const sites      = new Set(rows.map(r => r['Site Name']).filter(Boolean)).size;
+  const lvlRows    = _pstSiteFilter ? _pstLevels.filter(r => r['Site Name'] === _pstSiteFilter) : _pstLevels;
+  const totalStock = lvlRows.reduce((s, r) => s + parseFloat(r['Site Stock'] || r['StockIN'] || 0), 0);
+
+  document.getElementById('pst-kpi-row').innerHTML = `
+    ${pstKpi('📥','Stock IN Lines', totalSI, '')}
+    ${pstKpi('📦','GRN Nos', totalGRNs, 'green')}
+    ${pstKpi('⏳','Pending GRN', pendingGRN, pendingGRN > 0 ? 'gold' : '')}
+    ${pstKpi('🏗️','Sites', _pstSiteFilter ? 1 : sites, '')}
+    ${pstKpi('📊','Stock Qty (Levels)', Math.round(totalStock).toLocaleString('en-IN'), '')}
+  `;
+}
+
+function pstKpi(icon, label, val, accent) {
+  const color = accent === 'green' ? '#2e7d32' : accent === 'gold' ? '#b07000' : 'var(--txt1)';
+  return `<div class="kpi-card"><div class="kpi-top"><div class="kpi-icon">${icon}</div></div>
+    <div class="kpi-val" style="color:${color}">${val}</div>
+    <div class="kpi-label">${label}</div></div>`;
+}
+
+function pstRenderTab(q) {
+  const c = document.getElementById('pst-tab-content');
+  if (!c) return;
+  if (_pstActiveTab === 'stockin') pstRenderStockIN(c, q || '');
+  else if (_pstActiveTab === 'grn')  pstRenderGRNRegister(c, q || '');
+  else if (_pstActiveTab === 'levels') pstRenderLevels(c, q || '');
+}
+
+/* ── STOCK IN TAB ─────────────────────────────────── */
+function pstRenderStockIN(c, q) {
+  const rows = pstFilteredStockIN(q);
+  if (!rows.length) {
+    c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:var(--txt3)">No Stock IN records found${q ? ' for "'+q+'"' : ''}.</div>`;
+    return;
+  }
+  c.innerHTML = `
+  <div style="font-size:.8rem;color:var(--txt3);margin-bottom:.6rem">${rows.length} record${rows.length !== 1 ? 's' : ''}</div>
+  <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
+  <table class="vpi-tbl">
+    <thead><tr>
+      <th>GRN No</th><th>SI ID</th><th>Site</th><th>Type</th>
+      <th>PO No</th><th>Vendor</th><th>Invoice / ST No</th>
+      <th>Part Description</th><th>MR No</th>
+      <th style="text-align:right">MR Qty</th><th style="text-align:right">Inv Qty</th>
+      <th style="text-align:right">GRN Qty</th><th>Received On</th><th>Received By</th>
+    </tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td style="font-weight:700;color:var(--green);font-size:.78rem;white-space:nowrap">
+        ${r._grnNo || '<span style="color:var(--txt3);font-style:italic;font-size:.73rem">Pending</span>'}
+      </td>
+      <td style="font-size:.72rem;color:var(--txt3)">${r['SI ID'] || '—'}</td>
+      <td style="font-size:.78rem">${r['Site Name'] || '—'}</td>
+      <td style="font-size:.74rem"><span style="background:${r['Invoice / Stock Transfer'] === 'Stock Transfer' ? '#e3f2fd' : '#f3e5f5'};color:${r['Invoice / Stock Transfer'] === 'Stock Transfer' ? '#1565c0' : '#6a1b9a'};padding:.12rem .4rem;border-radius:4px">${r['Invoice / Stock Transfer'] || 'Invoice'}</span></td>
+      <td style="font-size:.73rem;color:#1565c0">${r['PO No'] || '—'}</td>
+      <td style="font-size:.76rem;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r['Vendor Name'] || '—'}</td>
+      <td style="font-size:.73rem">${r['Invoice No / ST No'] || '—'}</td>
+      <td style="font-size:.8rem;max-width:160px;white-space:normal">${r['Part Description'] || r['Part Details'] || '—'}</td>
+      <td style="font-size:.73rem;color:var(--txt3)">${r['MR No'] || '—'}</td>
+      <td style="text-align:right">${r['MR Qty'] || '—'}</td>
+      <td style="text-align:right">${r['Invoice Qty'] || '—'}</td>
+      <td style="text-align:right;font-weight:700;color:#2e7d32">${r['GRN Qty'] || '—'}</td>
+      <td style="white-space:nowrap;font-size:.77rem">${(r._grnReceivedOn || '').split(' ')[0] || '—'}</td>
+      <td style="font-size:.76rem;color:var(--txt3)">${r['Received By (At)'] || '—'}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+/* ── GRN REGISTER TAB ─────────────────────────────── */
+function pstRenderGRNRegister(c, q) {
+  const base = _pstSiteFilter ? _pstStockIN.filter(r => r['Site Name'] === _pstSiteFilter) : _pstStockIN;
+
+  // Group StockIN by GRN No
+  const byGRN = {};
+  base.forEach(r => {
+    const cs  = (r['CheckSum'] || r['UUID'] || '').trim();
+    const g   = _pstGRNMap[cs] || {};
+    const key = g.grnNo || '(Pending GRN)';
+    if (!byGRN[key]) byGRN[key] = {
+      grnNo: key, site: g.site || r['Site Name'] || '', poNo: g.poNo || r['PO No'] || '',
+      vendorDet: g.vendorDet || r['Vendor Name'] || '', type: g.type || r['Invoice / Stock Transfer'] || '',
+      invNo: g.invNo || r['Invoice No / ST No'] || '', receivedOn: g.receivedOn || r['Received On (At)'] || '',
+      lines: 0, totalGRN: 0
+    };
+    byGRN[key].lines++;
+    byGRN[key].totalGRN += parseFloat(r['GRN Qty'] || 0);
+  });
+
+  let grnList = Object.values(byGRN).sort((a, b) => new Date(b.receivedOn||0) - new Date(a.receivedOn||0));
+
+  if (q) {
+    const lq = q.toLowerCase();
+    grnList = grnList.filter(g =>
+      g.grnNo.toLowerCase().includes(lq) || g.site.toLowerCase().includes(lq) ||
+      g.poNo.toLowerCase().includes(lq)  || g.vendorDet.toLowerCase().includes(lq) ||
+      g.invNo.toLowerCase().includes(lq)
+    );
+  }
+
+  if (!grnList.length) {
+    c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:var(--txt3)">No GRN records found${q ? ' for "'+q+'"' : ''}.</div>`;
+    return;
+  }
+
+  c.innerHTML = `
+  <div style="font-size:.8rem;color:var(--txt3);margin-bottom:.6rem">${grnList.length} GRN${grnList.length !== 1 ? 's' : ''}</div>
+  <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
+  <table class="vpi-tbl">
+    <thead><tr>
+      <th>GRN No</th><th>Type</th><th>Site</th><th>PO No</th>
+      <th>Vendor / Supplier</th><th>Invoice / ST No</th>
+      <th style="text-align:center">Lines</th><th style="text-align:right">Total GRN Qty</th>
+      <th>Received On</th>
+    </tr></thead>
+    <tbody>${grnList.map(g => `<tr>
+      <td style="font-weight:700;color:var(--green);font-size:.82rem;white-space:nowrap">
+        ${g.grnNo !== '(Pending GRN)' ? g.grnNo : '<span style="color:var(--txt3);font-style:italic;font-size:.76rem">Pending GRN</span>'}
+      </td>
+      <td><span style="background:${g.type === 'Stock Transfer' ? '#e3f2fd' : '#f3e5f5'};color:${g.type === 'Stock Transfer' ? '#1565c0' : '#6a1b9a'};padding:.12rem .4rem;border-radius:4px;font-size:.73rem">${g.type || 'Invoice'}</span></td>
+      <td style="font-size:.78rem">${g.site || '—'}</td>
+      <td style="font-size:.74rem;color:#1565c0">${g.poNo || '—'}</td>
+      <td style="font-size:.77rem;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${g.vendorDet || '—'}</td>
+      <td style="font-size:.74rem">${g.invNo || '—'}</td>
+      <td style="text-align:center;font-weight:600">${g.lines}</td>
+      <td style="text-align:right;font-weight:700;color:#2e7d32;font-size:.88rem">${g.totalGRN}</td>
+      <td style="white-space:nowrap;font-size:.78rem">${(g.receivedOn || '').split(' ')[0] || '—'}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+/* ── STOCK LEVELS TAB ─────────────────────────────── */
+function pstRenderLevels(c, q) {
+  let rows = _pstSiteFilter
+    ? _pstLevels.filter(r => r['Site Name'] === _pstSiteFilter)
+    : _pstLevels;
+
+  if (q) {
+    const lq = q.toLowerCase();
+    rows = rows.filter(r =>
+      (r['Part Details'] || r['Site & Code'] || '').toLowerCase().includes(lq) ||
+      (r['Site Name'] || '').toLowerCase().includes(lq)
+    );
+  }
+
+  if (!rows.length) {
+    c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:var(--txt3)">No stock level records found${q ? ' for "'+q+'"' : ''}.</div>`;
+    return;
+  }
+
+  // Site summary for summary bar
+  const bySite = {};
+  rows.forEach(r => {
+    const site = r['Site Name'] || 'Unknown';
+    if (!bySite[site]) bySite[site] = { site, items: 0, totalStock: 0 };
+    bySite[site].items++;
+    bySite[site].totalStock += parseFloat(r['Site Stock'] || r['StockIN'] || 0);
+  });
+  const siteList = Object.values(bySite).sort((a, b) => b.totalStock - a.totalStock).slice(0, 5);
+
+  c.innerHTML = `
+  ${!_pstSiteFilter ? `
+  <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1rem">
+    ${siteList.map(s => `<div style="background:#f0f4f1;border-radius:8px;padding:.45rem .85rem;font-size:.79rem">
+      <span style="font-weight:600">${s.site}</span>
+      <span style="color:var(--txt3);margin-left:.4rem">${s.items} items · </span>
+      <span style="font-weight:700;color:#2e7d32">${Math.round(s.totalStock).toLocaleString('en-IN')} units</span>
+    </div>`).join('')}
+    ${Object.keys(bySite).length > 5 ? `<div style="background:#f0f4f1;border-radius:8px;padding:.45rem .85rem;font-size:.79rem;color:var(--txt3)">+${Object.keys(bySite).length - 5} more sites</div>` : ''}
+  </div>` : ''}
+
+  <div style="font-size:.8rem;color:var(--txt3);margin-bottom:.6rem">${rows.length} item${rows.length !== 1 ? 's' : ''}</div>
+  <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
+  <table class="vpi-tbl">
+    <thead><tr>
+      <th>#</th><th>Site</th><th>Part Details</th>
+      <th style="text-align:right">Stock IN</th>
+      <th style="text-align:right">Stock Transfer</th>
+      <th style="text-align:right">Stock Out</th>
+      <th style="text-align:right;background:#e8f5e9;color:#2e7d32">Site Stock</th>
+    </tr></thead>
+    <tbody>${rows.map((r, i) => {
+      const stock = parseFloat(r['Site Stock'] || r['StockIN'] || 0);
+      const stockColor = stock <= 0 ? '#c62828' : stock <= 2 ? '#b07000' : '#2e7d32';
+      return `<tr>
+        <td style="color:var(--txt3);font-size:.74rem">${r['SNo'] || i + 1}</td>
+        <td style="font-size:.78rem">${r['Site Name'] || '—'}</td>
+        <td style="font-size:.8rem;max-width:200px;white-space:normal">${r['Part Details'] || r['Site & Code'] || '—'}</td>
+        <td style="text-align:right">${r['StockIN'] || '0'}</td>
+        <td style="text-align:right">${r['Stock Transfer (To)'] || '0'}</td>
+        <td style="text-align:right">${r['Stock Out'] || '0'}</td>
+        <td style="text-align:right;font-weight:700;color:${stockColor};background:#f9fef9">${stock}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
+// ══════════════════════════════════════════════════════════
+//  PHASE 4 — INTERNAL VENDOR PORTAL
+// ══════════════════════════════════════════════════════════
+let _vpiVendors = [];       // from VendorMaster
+let _vpiSelected = null;    // { name, code, id }
+let _vpiPayments = [];      // from PaymentRequest
+let _vpiStockIN  = [];      // from StockIN
+let _vpiGRNMap   = {};      // CheckSum → { grnNo, site, poNo, invNo, receivedOn }
+let _vpiActiveTab = 'ledger';
+
+function renderVendorPortalInternal() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏢 Vendor Portal <span style="font-size:.75rem;color:var(--txt3);font-family:'DM Sans',sans-serif;font-weight:400">(Internal)</span></div>
+      <div class="page-sub">Ledger · Payments · GRN — for Procurement & Accounts team</div>
+    </div>
+  </div>
+
+  <!-- SHEET ACCESS WARNING -->
+  <div id="vpi-sheet-warn" style="display:none;background:#fff8e1;border:1px solid #f0a500;border-radius:10px;padding:.85rem 1.1rem;margin-bottom:1.1rem;font-size:.82rem;color:#7a5000;display:flex;align-items:center;gap:.6rem">
+    ⚠️ <span>One or more data sheets may be restricted. Ask your admin to set <b>Account View</b> and <b>v2_Stores</b> sheets to <i>"Anyone with the link can view"</i> for data to load.</span>
+  </div>
+
+  <!-- VENDOR SELECTOR PANEL -->
+  <div id="vpi-selector-panel" class="card" style="padding:1.2rem 1.4rem;margin-bottom:1.2rem">
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px">
+        <div style="font-size:.78rem;color:var(--txt3);margin-bottom:.35rem;font-weight:600">SELECT VENDOR</div>
+        <div style="display:flex;gap:.5rem">
+          <input id="vpi-search" type="text" placeholder="Search by name or code…"
+            style="flex:1;padding:.52rem .75rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.85rem;font-family:inherit;outline:none"
+            oninput="vpiFilterVendors(this.value)" />
+          <button class="btn btn-primary btn-sm" onclick="vpiLoadData()" style="white-space:nowrap">▶ Load</button>
+        </div>
+        <div id="vpi-suggest" style="position:absolute;z-index:99;background:#fff;border:1px solid #dde8e2;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.1);max-height:220px;overflow-y:auto;min-width:280px;display:none"></div>
+      </div>
+      <div id="vpi-selected-badge" style="display:none;background:#e8f5e9;border:1.5px solid #66bb6a;border-radius:10px;padding:.5rem .9rem;font-size:.84rem;font-weight:600;color:#1a6038"></div>
+    </div>
+  </div>
+
+  <!-- KPI ROW -->
+  <div id="vpi-kpi-row" style="display:none;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:.85rem;margin-bottom:1.1rem;display:none" class="kpi-grid"></div>
+
+  <!-- TABS -->
+  <div id="vpi-tabs" style="display:none">
+    <div style="display:flex;gap:.4rem;border-bottom:2px solid #e0ece4;margin-bottom:1rem">
+      <button class="vpi-tab-btn active" id="vpi-tab-ledger" onclick="vpiSwitchTab('ledger')">💳 Payment Ledger</button>
+      <button class="vpi-tab-btn" id="vpi-tab-grn" onclick="vpiSwitchTab('grn')">📦 GRN / Stock IN</button>
+      <button class="vpi-tab-btn" id="vpi-tab-invoices" onclick="vpiSwitchTab('invoices')">🧾 Invoices</button>
+    </div>
+    <div id="vpi-tab-content"></div>
+  </div>
+
+  <!-- LOADING -->
+  <div id="vpi-loading" style="display:none;text-align:center;padding:3rem;color:var(--txt3)">
+    <div style="font-size:2rem;margin-bottom:.5rem">⏳</div>
+    <div>Loading vendor data…</div>
+  </div>
+
+  <!-- EMPTY STATE -->
+  <div id="vpi-empty" style="display:none;text-align:center;padding:3rem;color:var(--txt3)">
+    <div style="font-size:2.5rem;margin-bottom:.5rem">🔍</div>
+    <div>Search and load a vendor to view their ledger</div>
+  </div>`;
+
+  // Tab styles
+  if (!document.getElementById('vpi-styles')) {
+    const s = document.createElement('style');
+    s.id = 'vpi-styles';
+    s.textContent = `
+      .vpi-tab-btn { padding:.48rem 1rem;border:none;background:none;font-family:inherit;font-size:.82rem;font-weight:600;color:var(--txt3);cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px;transition:color .2s }
+      .vpi-tab-btn.active { color:var(--green);border-bottom-color:var(--green) }
+      .vpi-tab-btn:hover { color:var(--green) }
+      .vpi-tbl { width:100%;border-collapse:collapse;font-size:.81rem }
+      .vpi-tbl th { background:#f0f4f1;color:var(--txt2);font-weight:700;padding:.5rem .65rem;text-align:left;position:sticky;top:0;font-size:.75rem;text-transform:uppercase;letter-spacing:.03em }
+      .vpi-tbl td { padding:.45rem .65rem;border-bottom:1px solid #f0f4f1;color:var(--txt1);vertical-align:top }
+      .vpi-tbl tr:hover td { background:#f7faf8 }
+      .vpi-status-pill { display:inline-block;padding:.18rem .55rem;border-radius:20px;font-size:.72rem;font-weight:700 }
+    `;
+    document.head.appendChild(s);
+  }
+
+  document.getElementById('vpi-empty').style.display = 'block';
+
+  // Load vendor list
+  fetchSheet('7-VendorMaster', 'SELECT A,B,C,D,E', SHEET_ID).then(rows => {
+    _vpiVendors = rows.filter(r => r['Vendor Name'] || r['Vendor ID']).map(r => ({
+      id:    r['Vendor ID'] || r[Object.keys(r)[0]] || '',
+      name:  r['Vendor Name'] || r[Object.keys(r)[1]] || '',
+      code:  r['Vendor Code'] || r['Vendor ID'] || '',
+      type:  r['Vendor Type'] || '',
+      city:  r['City'] || '',
+    }));
+  });
+}
+
+function vpiFilterVendors(q) {
+  const suggest = document.getElementById('vpi-suggest');
+  if (!q || q.length < 2) { suggest.style.display = 'none'; return; }
+  const lower = q.toLowerCase();
+  const matches = _vpiVendors.filter(v =>
+    v.name.toLowerCase().includes(lower) || v.id.toLowerCase().includes(lower) || v.code.toLowerCase().includes(lower)
+  ).slice(0, 10);
+
+  if (!matches.length) { suggest.style.display = 'none'; return; }
+  suggest.innerHTML = matches.map(v => `
+    <div onclick="vpiSelectVendor('${v.id.replace(/'/g,"\\'")}','${v.name.replace(/'/g,"\\'")}')"
+      style="padding:.55rem .9rem;cursor:pointer;border-bottom:1px solid #f0f4f1;display:flex;flex-direction:column"
+      onmouseover="this.style.background='#f0f4f1'" onmouseout="this.style.background=''">
+      <span style="font-weight:600;font-size:.84rem">${v.name}</span>
+      <span style="font-size:.74rem;color:var(--txt3)">${v.id}${v.city ? ' · ' + v.city : ''}</span>
+    </div>`).join('');
+  suggest.style.display = 'block';
+}
+
+function vpiSelectVendor(id, name) {
+  _vpiSelected = { id, name };
+  document.getElementById('vpi-search').value = name;
+  document.getElementById('vpi-suggest').style.display = 'none';
+  const badge = document.getElementById('vpi-selected-badge');
+  badge.innerHTML = `🏢 <span>${name}</span> <span style="font-size:.75rem;color:var(--txt3);font-weight:400">${id}</span>`;
+  badge.style.display = 'flex';
+  badge.style.gap = '.5rem';
+  badge.style.alignItems = 'center';
+}
+
+async function vpiLoadData() {
+  if (!_vpiSelected) {
+    const q = document.getElementById('vpi-search').value.trim();
+    if (!q) { alert('Please search and select a vendor first'); return; }
+    // Try exact name match
+    const match = _vpiVendors.find(v => v.name.toLowerCase() === q.toLowerCase() || v.id.toLowerCase() === q.toLowerCase());
+    if (match) vpiSelectVendor(match.id, match.name);
+    else { _vpiSelected = { id: q, name: q }; }
+  }
+
+  const vName = _vpiSelected.name;
+  const vId   = _vpiSelected.id;
+
+  // Show loading
+  document.getElementById('vpi-empty').style.display = 'none';
+  document.getElementById('vpi-kpi-row').style.display = 'none';
+  document.getElementById('vpi-tabs').style.display = 'none';
+  document.getElementById('vpi-loading').style.display = 'block';
+
+  // Fetch PaymentRequest (columns: F=Date, G=Initiator, H=PaymentTo, K=VendorCode, L=Site, N=OrderNo, O=BillNo, Q=POValue, R=InvoiceValue, S=PaidValue, T=PendingValue, W=Amount, AC=AccountsStatus, AD=AccountsDate, AE=UTR, AG=Status)
+  const [payments, stockRows, grnRows] = await Promise.all([
+    fetchSheet('PaymentRequest',
+      'SELECT A,F,G,H,K,L,N,O,Q,R,S,T,W,X,AC,AD,AE,AG WHERE H IS NOT NULL',
+      PAYMENT_SHEET_ID
+    ),
+    fetchSheet('StockIN',
+      'SELECT A,C,D,F,G,H,K,L,M,N,O,P,Q,U,V,W',
+      STORES_SHEET_ID
+    ),
+    fetchSheet('GRN_No',
+      'SELECT A,B,C,F,G,J,M',
+      STORES_SHEET_ID
+    )
+  ]);
+
+  // Filter to this vendor
+  const nameLower = vName.toLowerCase();
+  const idLower   = vId.toLowerCase();
+
+  _vpiPayments = payments.filter(r => {
+    const pt = (r['Payment To'] || '').toLowerCase();
+    const kc = (r['Emp/Vendor Code'] || '').toLowerCase();
+    return pt.includes(nameLower) || pt.includes(idLower) || kc.includes(idLower) || kc === idLower;
+  }).filter(r => (r['Order No'] || '').trim() !== ''); // only vendor payments (have order no)
+
+  _vpiStockIN = stockRows.filter(r => {
+    const vn = (r['Vendor Name'] || '').toLowerCase();
+    return vn.includes(nameLower) || vn.includes(idLower);
+  });
+
+  // Build GRN lookup: CheckSum in StockIN → UUID in GRN_No
+  // GRN_No cols: A=UUID, B=GRN No, C=Site, F=PO No, G=Vendor (ID), J=Invoice No/ST, M=Received On
+  _vpiGRNMap = {};
+  grnRows.forEach(r => {
+    const uuid  = (r['UUID'] || '').trim();
+    const vn    = (r['Vendor Name (ID)'] || r['Vendor Name'] || '').toLowerCase();
+    if (!uuid) return;
+    // Include all GRN rows — we'll join to StockIN via CheckSum=UUID
+    _vpiGRNMap[uuid] = {
+      grnNo:      r['GRN No (Goods Receipt)'] || r['GRN No'] || '',
+      site:       r['Site Name'] || '',
+      poNo:       r['PO No'] || '',
+      invNo:      r['Invoice No / ST'] || r['Invoice No/ST'] || '',
+      receivedOn: r['Received On (At)'] || '',
+    };
+  });
+
+  document.getElementById('vpi-loading').style.display = 'none';
+
+  if (!_vpiPayments.length && !_vpiStockIN.length) {
+    document.getElementById('vpi-sheet-warn').style.display = 'flex';
+  }
+
+  // KPIs
+  const totalPO  = _vpiPayments.reduce((s, r) => s + parseFloat(r['PO Value'] || r['Amount'] || 0), 0);
+  const totalInv = _vpiPayments.reduce((s, r) => s + parseFloat(r['Invoice Value'] || 0), 0);
+  const totalPaid= _vpiPayments.reduce((s, r) => s + parseFloat(r['Paid Value'] || 0), 0);
+  const totalPend= _vpiPayments.reduce((s, r) => s + parseFloat(r['Pending Value'] || 0), 0);
+  const totalGRN = new Set(_vpiStockIN.map(r => {
+    const grn = _vpiGRNMap[(r['CheckSum'] || r['UUID'] || '').trim()];
+    return grn ? grn.grnNo : null;
+  }).filter(Boolean)).size || _vpiStockIN.length;
+
+  const kpiRow = document.getElementById('vpi-kpi-row');
+  kpiRow.innerHTML = `
+    ${vpiKpi('💰', 'PO Value', fmtAmt(totalPO), '')}
+    ${vpiKpi('🧾', 'Invoiced', fmtAmt(totalInv), '')}
+    ${vpiKpi('✅', 'Paid', fmtAmt(totalPaid), 'green')}
+    ${vpiKpi('⏳', 'Pending', fmtAmt(totalPend), totalPend > 0 ? 'gold' : '')}
+    ${vpiKpi('📦', 'GRN Entries', totalGRN, '')}
+  `;
+  kpiRow.style.display = 'grid';
+
+  document.getElementById('vpi-tabs').style.display = 'block';
+  _vpiActiveTab = 'ledger';
+  vpiUpdateTabUI();
+  vpiRenderTabContent();
+}
+
+function vpiKpi(icon, label, val, accent) {
+  const color = accent === 'green' ? '#2e7d32' : accent === 'gold' ? '#b07000' : 'var(--txt1)';
+  return `<div class="kpi-card">
+    <div class="kpi-top"><div class="kpi-icon">${icon}</div></div>
+    <div class="kpi-val" style="color:${color}">${val}</div>
+    <div class="kpi-label">${label}</div>
+  </div>`;
+}
+
+function vpiSwitchTab(tab) {
+  _vpiActiveTab = tab;
+  vpiUpdateTabUI();
+  vpiRenderTabContent();
+}
+
+function vpiUpdateTabUI() {
+  ['ledger','grn','invoices'].forEach(t => {
+    document.getElementById('vpi-tab-' + t)?.classList.toggle('active', t === _vpiActiveTab);
+  });
+}
+
+function vpiRenderTabContent() {
+  const c = document.getElementById('vpi-tab-content');
+  if (_vpiActiveTab === 'ledger') vpiRenderLedger(c);
+  else if (_vpiActiveTab === 'grn') vpiRenderGRN(c);
+  else if (_vpiActiveTab === 'invoices') vpiRenderInvoices(c);
+}
+
+function vpiStatusPill(status) {
+  const s = (status || '').toLowerCase();
+  let bg = '#f0f4f1', color = '#555';
+  if (s.includes('paid') || s.includes('completed')) { bg = '#e8f5e9'; color = '#2e7d32'; }
+  else if (s.includes('approved') || s.includes('verified')) { bg = '#e3f2fd'; color = '#1565c0'; }
+  else if (s.includes('pending') || s.includes('initiated')) { bg = '#fff8e1'; color = '#b07000'; }
+  else if (s.includes('reject') || s.includes('hold')) { bg = '#ffebee'; color = '#c62828'; }
+  return `<span class="vpi-status-pill" style="background:${bg};color:${color}">${status || '—'}</span>`;
+}
+
+function vpiRenderLedger(c) {
+  if (!_vpiPayments.length) {
+    c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:var(--txt3)">No payment records found for this vendor.</div>`;
+    return;
+  }
+
+  // Sort by date desc
+  const rows = [..._vpiPayments].sort((a, b) => {
+    const da = new Date(a['Date Of Request'] || 0), db = new Date(b['Date Of Request'] || 0);
+    return db - da;
+  });
+
+  c.innerHTML = `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem">
+    <div style="font-size:.82rem;color:var(--txt3)">${rows.length} payment request${rows.length !== 1 ? 's' : ''} found</div>
+    <input type="text" placeholder="Filter by order no / bill no…" id="vpi-ledger-filter"
+      style="padding:.38rem .65rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.8rem;font-family:inherit;outline:none;width:220px"
+      oninput="vpiFilterLedgerRows(this.value)" />
+  </div>
+  <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
+  <table class="vpi-tbl" id="vpi-ledger-tbl">
+    <thead><tr>
+      <th>Request ID</th><th>Date</th><th>Order No (PO/WO)</th><th>Bill No</th>
+      <th>Site</th><th>PO Value</th><th>Invoice Value</th><th>Paid</th><th>Pending</th>
+      <th>UTR</th><th>Status</th>
+    </tr></thead>
+    <tbody id="vpi-ledger-body">${rows.map(r => vpiLedgerRow(r)).join('')}</tbody>
+  </table></div>`;
+}
+
+function vpiLedgerRow(r) {
+  const amt     = v => { const n = parseFloat(v || 0); return n ? fmtAmt(n) : '—'; };
+  const dateStr = (r['Date Of Request'] || '').split(' ')[0];
+  const reqId   = r['Request ID'] || r['UUID'] || '—';
+  const orderNo = r['Order No'] || '—';
+  const billNo  = r['Bill No'] || '—';
+  const utr     = r['UTR Details'] || '—';
+  const status  = r['Status'] || r['Accounts Status'] || '';
+  return `<tr>
+    <td style="font-weight:600;color:var(--green);font-size:.78rem">${reqId}</td>
+    <td style="white-space:nowrap">${dateStr}</td>
+    <td style="font-size:.78rem;color:#1565c0">${orderNo}</td>
+    <td style="font-size:.78rem">${billNo}</td>
+    <td style="font-size:.78rem">${r['Site Name'] || '—'}</td>
+    <td style="text-align:right">${amt(r['PO Value'] || r['Amount'])}</td>
+    <td style="text-align:right">${amt(r['Invoice Value'])}</td>
+    <td style="text-align:right;color:#2e7d32;font-weight:600">${amt(r['Paid Value'])}</td>
+    <td style="text-align:right;color:#b07000;font-weight:600">${amt(r['Pending Value'])}</td>
+    <td style="font-size:.76rem;color:var(--txt3)">${utr !== '—' ? `<span style="color:#1565c0;font-weight:600">${utr}</span>` : '—'}</td>
+    <td>${vpiStatusPill(status)}</td>
+  </tr>`;
+}
+
+function vpiFilterLedgerRows(q) {
+  const lower = q.toLowerCase();
+  const tbody = document.getElementById('vpi-ledger-body');
+  if (!tbody) return;
+  const rows = [..._vpiPayments].sort((a, b) => new Date(b['Date Of Request']||0) - new Date(a['Date Of Request']||0));
+  const filtered = q ? rows.filter(r =>
+    (r['Order No'] || '').toLowerCase().includes(lower) ||
+    (r['Bill No'] || '').toLowerCase().includes(lower) ||
+    (r['Request ID'] || '').toLowerCase().includes(lower) ||
+    (r['Site Name'] || '').toLowerCase().includes(lower)
+  ) : rows;
+  tbody.innerHTML = filtered.map(r => vpiLedgerRow(r)).join('');
+}
+
+function vpiRenderGRN(c) {
+  if (!_vpiStockIN.length) {
+    c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:var(--txt3)">No GRN / Stock IN records found for this vendor.</div>`;
+    return;
+  }
+
+  // Enrich each StockIN row with its GRN No via CheckSum → UUID lookup
+  const rows = [..._vpiStockIN]
+    .map(r => {
+      const cs  = (r['CheckSum'] || r['UUID'] || '').trim();
+      const grn = _vpiGRNMap[cs] || {};
+      return { ...r, _grnNo: grn.grnNo || '', _grnReceivedOn: grn.receivedOn || r['Received On (At)'] || '' };
+    })
+    .sort((a, b) => new Date(b._grnReceivedOn || 0) - new Date(a._grnReceivedOn || 0));
+
+  // ── GRN SUMMARY grouped by GRN No ───────────────────────
+  const grnGroups = {};
+  rows.forEach(r => {
+    const key = r._grnNo || '(No GRN)';
+    if (!grnGroups[key]) grnGroups[key] = {
+      grnNo: key, site: r['Site Name'] || '', poNo: r['PO No'] || '',
+      invNo: r['Invoice No / ST No'] || '', receivedOn: r._grnReceivedOn, lines: 0, totalGRN: 0
+    };
+    grnGroups[key].lines++;
+    grnGroups[key].totalGRN += parseFloat(r['GRN Qty'] || 0);
+    if (!grnGroups[key].receivedOn && r._grnReceivedOn) grnGroups[key].receivedOn = r._grnReceivedOn;
+  });
+  const grnList = Object.values(grnGroups).sort((a, b) => new Date(b.receivedOn||0) - new Date(a.receivedOn||0));
+
+  c.innerHTML = `
+  <!-- GRN SUMMARY CARDS -->
+  <div style="font-weight:700;font-size:.82rem;color:var(--txt2);margin-bottom:.6rem;display:flex;align-items:center;justify-content:space-between">
+    <span>📦 GRN Summary <span style="font-weight:400;color:var(--txt3);font-size:.77rem">(${grnList.length} GRN${grnList.length !== 1 ? 's' : ''})</span></span>
+    <span style="font-size:.76rem;color:var(--txt3)">${rows.length} total line items</span>
+  </div>
+
+  <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4;margin-bottom:1.4rem">
+  <table class="vpi-tbl">
+    <thead><tr>
+      <th>GRN No</th><th>Site</th><th>PO No</th><th>Invoice / ST No</th>
+      <th style="text-align:center">Line Items</th><th style="text-align:right">Total GRN Qty</th>
+      <th>Received On</th>
+    </tr></thead>
+    <tbody>${grnList.map(g => `<tr style="cursor:pointer" onclick="vpiScrollToGRN('${g.grnNo.replace(/'/g,"\\'")}')" title="Click to jump to line items">
+      <td>
+        <span style="font-weight:700;color:var(--green);font-size:.82rem">${g.grnNo !== '(No GRN)' ? g.grnNo : '<span style="color:var(--txt3);font-style:italic">Pending GRN</span>'}</span>
+      </td>
+      <td style="font-size:.78rem">${g.site||'—'}</td>
+      <td style="font-size:.76rem;color:#1565c0">${g.poNo||'—'}</td>
+      <td style="font-size:.76rem">${g.invNo||'—'}</td>
+      <td style="text-align:center;font-weight:600">${g.lines}</td>
+      <td style="text-align:right;font-weight:700;color:#2e7d32;font-size:.88rem">${g.totalGRN}</td>
+      <td style="white-space:nowrap;font-size:.78rem">${(g.receivedOn||'').split(' ')[0]||'—'}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>
+
+  <!-- DIVIDER -->
+  <div style="font-weight:700;font-size:.82rem;color:var(--txt2);margin-bottom:.6rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem">
+    <span>🗒️ Stock IN Line Items</span>
+    <input type="text" id="vpi-grn-filter" placeholder="Filter by GRN No / Part / PO…"
+      style="padding:.38rem .65rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.8rem;font-family:inherit;outline:none;width:220px"
+      oninput="vpiFilterGRNRows(this.value)" />
+  </div>
+  <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4" id="vpi-grn-table-wrap">
+  <table class="vpi-tbl" id="vpi-grn-tbl">
+    <thead><tr>
+      <th>GRN No</th><th>SI ID</th><th>Site</th><th>PO No</th>
+      <th>Invoice / ST No</th><th>Part Description</th><th>MR No</th>
+      <th style="text-align:right">MR Qty</th><th style="text-align:right">Inv Qty</th>
+      <th style="text-align:right">GRN Qty</th><th>Received On</th><th>Received By</th>
+    </tr></thead>
+    <tbody id="vpi-grn-body">${rows.map(r => vpiGRNRow(r)).join('')}</tbody>
+  </table></div>`;
+}
+
+function vpiGRNRow(r) {
+  const grnNo = r._grnNo;
+  const grnBadge = grnNo
+    ? `<span style="font-weight:700;color:var(--green);font-size:.78rem" data-grn="${grnNo}">${grnNo}</span>`
+    : `<span style="color:var(--txt3);font-style:italic;font-size:.76rem">Pending</span>`;
+  return `<tr>
+    <td>${grnBadge}</td>
+    <td style="font-size:.73rem;color:var(--txt3)">${r['SI ID'] || r['UUID'] || '—'}</td>
+    <td style="font-size:.78rem">${r['Site Name'] || '—'}</td>
+    <td style="font-size:.73rem;color:#1565c0">${r['PO No'] || '—'}</td>
+    <td style="font-size:.73rem">${r['Invoice No / ST No'] || '—'}</td>
+    <td style="font-size:.8rem;max-width:180px;white-space:normal">${r['Part Description'] || r['Part Details'] || '—'}</td>
+    <td style="font-size:.73rem;color:var(--txt3)">${r['MR No'] || '—'}</td>
+    <td style="text-align:right">${r['MR Qty'] || '—'}</td>
+    <td style="text-align:right">${r['Invoice Qty'] || '—'}</td>
+    <td style="text-align:right;font-weight:700;color:#2e7d32">${r['GRN Qty'] || '—'}</td>
+    <td style="white-space:nowrap;font-size:.78rem">${(r._grnReceivedOn || '').split(' ')[0] || '—'}</td>
+    <td style="font-size:.76rem;color:var(--txt3)">${r['Received By (At)'] || '—'}</td>
+  </tr>`;
+}
+
+function vpiFilterGRNRows(q) {
+  const lower = q.toLowerCase();
+  const rows = [..._vpiStockIN].map(r => {
+    const cs  = (r['CheckSum'] || r['UUID'] || '').trim();
+    const grn = _vpiGRNMap[cs] || {};
+    return { ...r, _grnNo: grn.grnNo || '', _grnReceivedOn: grn.receivedOn || r['Received On (At)'] || '' };
+  }).sort((a, b) => new Date(b._grnReceivedOn||0) - new Date(a._grnReceivedOn||0));
+
+  const filtered = q ? rows.filter(r =>
+    (r._grnNo || '').toLowerCase().includes(lower) ||
+    (r['Part Description'] || r['Part Details'] || '').toLowerCase().includes(lower) ||
+    (r['PO No'] || '').toLowerCase().includes(lower) ||
+    (r['Invoice No / ST No'] || '').toLowerCase().includes(lower) ||
+    (r['MR No'] || '').toLowerCase().includes(lower) ||
+    (r['Site Name'] || '').toLowerCase().includes(lower)
+  ) : rows;
+
+  const tbody = document.getElementById('vpi-grn-body');
+  if (tbody) tbody.innerHTML = filtered.map(r => vpiGRNRow(r)).join('');
+}
+
+function vpiScrollToGRN(grnNo) {
+  // Populate filter and scroll to line items
+  const fi = document.getElementById('vpi-grn-filter');
+  if (fi) { fi.value = grnNo; vpiFilterGRNRows(grnNo); }
+  const wrap = document.getElementById('vpi-grn-table-wrap');
+  if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function vpiRenderInvoices(c) {
+  // Invoice view: StockIN rows that have an Invoice No / ST No
+  const invRows = _vpiStockIN.filter(r => (r['Invoice No / ST No'] || '').trim() !== '');
+  // Group by Invoice No
+  const byInv = {};
+  invRows.forEach(r => {
+    const key = (r['Invoice No / ST No'] || '').trim();
+    if (!byInv[key]) byInv[key] = { inv: key, poNo: r['PO No'] || '', site: r['Site Name'] || '', receivedOn: r['Received On (At)'] || '', items: 0, totalGRN: 0 };
+    byInv[key].items++;
+    byInv[key].totalGRN += parseFloat(r['GRN Qty'] || 0);
+  });
+
+  const grouped = Object.values(byInv).sort((a, b) => new Date(b.receivedOn||0) - new Date(a.receivedOn||0));
+
+  if (!grouped.length) {
+    c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:var(--txt3)">No invoice records found for this vendor.</div>`;
+    return;
+  }
+
+  // Also try to match against PO invoices in payment register
+  const payInvs = _vpiPayments.filter(r => (r['Bill No'] || '').trim() !== '');
+
+  c.innerHTML = `
+  <div style="font-size:.82rem;color:var(--txt3);margin-bottom:.75rem">${grouped.length} invoice(s) from GRN records${payInvs.length ? ` · ${payInvs.length} from payment register` : ''}</div>
+
+  ${payInvs.length ? `
+  <div style="font-weight:700;font-size:.82rem;color:var(--txt2);margin-bottom:.5rem;margin-top:.25rem">📋 Payment Register Bills</div>
+  <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4;margin-bottom:1.2rem">
+  <table class="vpi-tbl">
+    <thead><tr><th>Request ID</th><th>Bill No</th><th>Order No</th><th>Site</th><th>Invoice Value</th><th>Paid Value</th><th>Status</th></tr></thead>
+    <tbody>${payInvs.map(r => `<tr>
+      <td style="font-size:.76rem;font-weight:600;color:var(--green)">${r['Request ID']||'—'}</td>
+      <td style="font-size:.78rem;font-weight:600">${r['Bill No']||'—'}</td>
+      <td style="font-size:.76rem;color:#1565c0">${r['Order No']||'—'}</td>
+      <td style="font-size:.78rem">${r['Site Name']||'—'}</td>
+      <td style="text-align:right">${fmtAmt(parseFloat(r['Invoice Value']||0))}</td>
+      <td style="text-align:right;color:#2e7d32;font-weight:600">${fmtAmt(parseFloat(r['Paid Value']||0))}</td>
+      <td>${vpiStatusPill(r['Status']||r['Accounts Status']||'')}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>` : ''}
+
+  <div style="font-weight:700;font-size:.82rem;color:var(--txt2);margin-bottom:.5rem">📦 GRN Invoices (Stock IN)</div>
+  <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
+  <table class="vpi-tbl">
+    <thead><tr><th>Invoice / ST No</th><th>PO No</th><th>Site</th><th>Line Items</th><th>Total GRN Qty</th><th>Received On</th></tr></thead>
+    <tbody>${grouped.map(r => `<tr>
+      <td style="font-weight:600;font-size:.78rem">${r.inv}</td>
+      <td style="font-size:.76rem;color:#1565c0">${r.poNo||'—'}</td>
+      <td style="font-size:.78rem">${r.site||'—'}</td>
+      <td style="text-align:center">${r.items}</td>
+      <td style="text-align:right;font-weight:600;color:#2e7d32">${r.totalGRN}</td>
+      <td style="white-space:nowrap;font-size:.78rem">${r.receivedOn.split(' ')[0]||'—'}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+// ══════════════════════════════════════════════════════════
+//  PHASE 2 — ONBOARDING PORTAL
+// ══════════════════════════════════════════════════════════
+function renderOnboardingPortal() {
+  const el = document.getElementById('mainContent');
+
+  // Pull recently joined employees from master (joined in last 90 days)
+  const users = STATE.masters.users || [];
+  const today = new Date(); today.setHours(0,0,0,0);
+  const newJoiners = users.filter(u => {
+    if (u.status !== 'ACTIVE') return false;
+    const doj = parsePODate(u.doj || u['Date of Joining'] || '');
+    return doj && (today - doj) <= 90 * 86400000;
+  }).sort((a,b) => {
+    const da = parsePODate(a.doj||''), db = parsePODate(b.doj||'');
+    return (db||0)-(da||0);
+  });
+
+  // Onboarding checklist steps (track in sessionStorage per employee)
+  const STEPS = [
+    { id:'offer',      icon:'📄', label:'Offer Letter Issued',       dept:'HR' },
+    { id:'id_card',    icon:'🪪', label:'Employee ID Card Created',   dept:'HR' },
+    { id:'email',      icon:'📧', label:'Work Email Setup',           dept:'IT' },
+    { id:'bank',       icon:'🏦', label:'Bank Details Collected',     dept:'Accounts' },
+    { id:'pf',         icon:'📑', label:'PF / ESI Enrollment',        dept:'HR' },
+    { id:'medical',    icon:'🏥', label:'Medical Insurance Added',    dept:'HR' },
+    { id:'induction',  icon:'🎓', label:'Induction Completed',        dept:'HR' },
+    { id:'site_brief', icon:'🏗️', label:'Site Briefing Done',         dept:'Site Manager' },
+    { id:'ppe',        icon:'🦺', label:'PPE Kit Issued',             dept:'Safety' },
+    { id:'access',     icon:'🔑', label:'System / Portal Access',     dept:'IT' },
+    { id:'document',   icon:'📂', label:'Documents Collected (ID/PAN/Aadhar)', dept:'HR' },
+    { id:'exit',       icon:'✅', label:'Onboarding Complete',        dept:'HR' },
+  ];
+
+  // Load state from sessionStorage
+  function getChecks(empId) {
+    try { return JSON.parse(sessionStorage.getItem('ob_'+empId)||'{}'); } catch(e) { return {}; }
+  }
+  function setCheck(empId, stepId, val) {
+    const checks = getChecks(empId);
+    checks[stepId] = val;
+    sessionStorage.setItem('ob_'+empId, JSON.stringify(checks));
+  }
+
+  const totalNew  = newJoiners.length;
+  const allActive = users.filter(u => u.status === 'ACTIVE').length;
+
+  // department colour map
+  const deptColour = { HR:'#1a6038', IT:'#1565c0', Accounts:'#6a1b9a', 'Site Manager':'#e65100', Safety:'#c62828' };
+
+  // Build new joiner cards
+  const joinCards = newJoiners.slice(0,20).map(u => {
+    const doj     = parsePODate(u.doj || '');
+    const daysAgo = doj ? Math.floor((today-doj)/86400000) : null;
+    const checks  = getChecks(u.id || u.empId || u.name);
+    const done    = STEPS.filter(s => checks[s.id]).length;
+    const pct     = Math.round((done/STEPS.length)*100);
+    const eid     = u.id || u.empId || u.name || 'u'+Math.random();
+    const colour  = pct === 100 ? '#2e7d32' : pct >= 50 ? '#1565c0' : '#e65100';
+    return `
+      <div class="card" style="cursor:pointer;transition:box-shadow .2s" onclick="window.openOnboarding('${eid}','${(u.name||'').replace(/'/g,"\\'")}')">
+        <div class="card-body" style="padding:1rem">
+          <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:.7rem">
+            <div style="width:42px;height:42px;border-radius:50%;background:var(--g8);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;flex-shrink:0">
+              ${(u.name||'?').charAt(0).toUpperCase()}
+            </div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:.88rem;color:var(--g9);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.name||'—'}</div>
+              <div style="font-size:.72rem;color:var(--txt3)">${u.designation||u.dept||'—'} &middot; ${u.site||'—'}</div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+            <span style="font-size:.7rem;color:var(--txt3)">Joined ${daysAgo !== null ? daysAgo+'d ago' : '—'}</span>
+            <span style="font-size:.72rem;font-weight:700;color:${colour}">${done}/${STEPS.length} steps</span>
+          </div>
+          <div style="background:var(--surface2);border-radius:20px;height:6px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:${colour};border-radius:20px;transition:width .4s"></div>
+          </div>
+          ${pct===100 ? '<div style="font-size:.68rem;color:#2e7d32;font-weight:700;margin-top:.4rem">✅ Onboarding Complete</div>' : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="page-header" style="margin-bottom:1rem">
+      <h1>👶 Onboarding Portal</h1>
+      <p>Track new joiner onboarding progress · Last 90 days</p>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-grid" style="margin-bottom:1.2rem">
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">👥</div></div>
+        <div class="kpi-value">${totalNew}</div>
+        <div class="kpi-label">New Joiners (90 days)</div>
+      </div>
+      <div class="kpi-card info">
+        <div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
+        <div class="kpi-value" id="ob-complete-count">—</div>
+        <div class="kpi-label">Onboarding Complete</div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
+        <div class="kpi-value" id="ob-pending-count">—</div>
+        <div class="kpi-label">In Progress</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">📊</div></div>
+        <div class="kpi-value">${allActive}</div>
+        <div class="kpi-label">Total Active Employees</div>
+      </div>
+    </div>
+
+    ${totalNew === 0 ? `
+      <div style="background:#e8f5e9;border-radius:10px;padding:2.5rem;text-align:center;color:#2e7d32">
+        <div style="font-size:2.5rem;margin-bottom:.5rem">🎉</div>
+        <strong>No new joiners in the last 90 days</strong><br>
+        <span style="font-size:.82rem;color:var(--txt3)">New employees joining will appear here for onboarding tracking.</span>
+      </div>
+    ` : `
+      <!-- New Joiner Cards -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;margin-bottom:1.2rem">
+        ${joinCards}
+      </div>
+    `}
+
+    <!-- Onboarding Checklist Modal -->
+    <div id="ob-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9000;display:flex;align-items:center;justify-content:center;padding:1rem">
+      <div style="background:#fff;border-radius:16px;width:100%;max-width:560px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+        <div style="background:linear-gradient(135deg,var(--g9),var(--g7));padding:1.2rem 1.5rem;color:#fff;display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:.72rem;opacity:.7;text-transform:uppercase;letter-spacing:.08em">Onboarding Checklist</div>
+            <div id="ob-modal-name" style="font-size:1.1rem;font-weight:700"></div>
+          </div>
+          <button onclick="window.closeOBModal()" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:1.1rem;display:flex;align-items:center;justify-content:center">✕</button>
+        </div>
+        <div style="padding:1rem 1.5rem;border-bottom:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem">
+            <span style="font-size:.8rem;color:var(--txt2)" id="ob-prog-label">0 of ${STEPS.length} steps complete</span>
+            <span style="font-size:.8rem;font-weight:700;color:var(--g7)" id="ob-prog-pct">0%</span>
+          </div>
+          <div style="background:var(--surface2);border-radius:20px;height:8px;overflow:hidden">
+            <div id="ob-prog-bar" style="height:100%;background:var(--g6);border-radius:20px;transition:width .4s;width:0%"></div>
+          </div>
+        </div>
+        <div id="ob-steps-list" style="overflow-y:auto;flex:1;padding:.5rem 1rem"></div>
+        <div style="padding:1rem 1.5rem;border-top:1px solid var(--border);display:flex;gap:.6rem;justify-content:flex-end">
+          <button onclick="window.closeOBModal()" style="padding:.5rem 1.2rem;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;font-family:inherit">Close</button>
+          <button onclick="window.markAllOB()" style="padding:.5rem 1.2rem;border:none;border-radius:8px;background:var(--g7);color:#fff;cursor:pointer;font-family:inherit;font-weight:600">Mark All Complete ✅</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Compute complete/in-progress counts
+  let cmplt = 0, inprog = 0;
+  newJoiners.forEach(u => {
+    const eid = u.id || u.empId || u.name;
+    const done = STEPS.filter(s => getChecks(eid)[s.id]).length;
+    if (done === STEPS.length) cmplt++; else inprog++;
+  });
+  const cc = document.getElementById('ob-complete-count');
+  const pc = document.getElementById('ob-pending-count');
+  if (cc) cc.textContent = cmplt;
+  if (pc) pc.textContent = inprog;
+
+  // Modal logic
+  let _obEmpId = null;
+  window.openOnboarding = function(eid, name) {
+    _obEmpId = eid;
+    const modal = document.getElementById('ob-modal');
+    modal.style.display = 'flex';
+    document.getElementById('ob-modal-name').textContent = name;
+    renderOBSteps(eid);
+  };
+  window.closeOBModal = function() {
+    document.getElementById('ob-modal').style.display = 'none';
+    _obEmpId = null;
+    // Re-render to refresh progress bars
+    renderOnboardingPortal();
+  };
+  window.markAllOB = function() {
+    if (!_obEmpId) return;
+    const checks = {};
+    STEPS.forEach(s => checks[s.id] = true);
+    sessionStorage.setItem('ob_'+_obEmpId, JSON.stringify(checks));
+    renderOBSteps(_obEmpId);
+  };
+  window.toggleOBStep = function(eid, stepId, checked) {
+    setCheck(eid, stepId, checked);
+    renderOBSteps(eid);
+  };
+  function renderOBSteps(eid) {
+    const checks = getChecks(eid);
+    const done   = STEPS.filter(s => checks[s.id]).length;
+    const pct    = Math.round((done/STEPS.length)*100);
+    const pl     = document.getElementById('ob-prog-label');
+    const pb     = document.getElementById('ob-prog-bar');
+    const ppct   = document.getElementById('ob-prog-pct');
+    if (pl) pl.textContent = `${done} of ${STEPS.length} steps complete`;
+    if (pb) pb.style.width = pct+'%';
+    if (ppct) ppct.textContent = pct+'%';
+    const list = document.getElementById('ob-steps-list');
+    if (!list) return;
+    list.innerHTML = STEPS.map(s => {
+      const checked = !!checks[s.id];
+      const dc = deptColour[s.dept] || '#555';
+      return `<label style="display:flex;align-items:center;gap:.8rem;padding:.7rem .5rem;border-bottom:1px solid var(--surface2);cursor:pointer;${checked?'opacity:.6':''}">
+        <input type="checkbox" ${checked?'checked':''} onchange="window.toggleOBStep('${eid}','${s.id}',this.checked)"
+          style="width:18px;height:18px;cursor:pointer;accent-color:var(--g7)">
+        <span style="font-size:1.1rem">${s.icon}</span>
+        <span style="flex:1;font-size:.85rem;font-weight:${checked?'400':'600'};color:${checked?'var(--txt3)':'var(--txt)'};text-decoration:${checked?'line-through':'none'}">${s.label}</span>
+        <span style="font-size:.65rem;font-weight:700;padding:.2rem .5rem;border-radius:10px;background:${dc}20;color:${dc};white-space:nowrap">${s.dept}</span>
+      </label>`;
+    }).join('');
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  PHASE 2 — VENDOR PO TRACKER  (my-orders)
+// ══════════════════════════════════════════════════════════
+let _vpoAllRows = [];
+let _vpoSort    = { col: 'date', dir: -1 };
+let _vpoFilter  = 'all';
+
+function renderVendorPOTracker() {
+  const el  = document.getElementById('mainContent');
+  const rec = STATE.vendorRecord || {};
+  const vendorName = (rec.name || '').trim();
+  const isSC = STATE.role === 'sc';
+  const typeLabel = isSC ? 'Work Orders' : 'Purchase Orders';
+  const typeIcon  = isSC ? '🤝' : '📋';
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:1rem;flex-wrap:wrap">
+      <div>
+        <h1 style="font-size:1.3rem;font-weight:700;color:var(--g9);margin:0">${typeIcon} My ${typeLabel}</h1>
+        <p style="font-size:.8rem;color:var(--txt3);margin:0">${vendorName || 'Your company'} · All POs from Evergreen Enterprises</p>
+      </div>
+      <button onclick="navigate('my-portal')" style="margin-left:auto;padding:.4rem .9rem;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;font-family:inherit;font-size:.8rem">← Back</button>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="kpi-grid" style="margin-bottom:1.2rem">
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">${typeIcon}</div></div>
+        <div class="kpi-value" id="vpo-kpi-total">—</div>
+        <div class="kpi-label">Total POs</div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
+        <div class="kpi-value" id="vpo-kpi-pending">—</div>
+        <div class="kpi-label">Pending Approval</div>
+      </div>
+      <div class="kpi-card info">
+        <div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
+        <div class="kpi-value" id="vpo-kpi-approved">—</div>
+        <div class="kpi-label">Approved</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">₹</div></div>
+        <div class="kpi-value" id="vpo-kpi-value">—</div>
+        <div class="kpi-label">Total PO Value</div>
+      </div>
+    </div>
+
+    <!-- Filter + Search bar -->
+    <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem">
+      <input id="vpo-search" type="text" placeholder="Search PO No or Site…"
+        oninput="window.vpoApplyFilters()"
+        style="padding:.5rem .8rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.82rem;flex:1;min-width:180px;max-width:260px">
+      <div style="display:flex;gap:.4rem;flex-wrap:wrap" id="vpo-status-filters">
+        ${['all','pending','approved','rejected'].map(s =>
+          `<button onclick="window.vpoSetFilter('${s}')" id="vpo-f-${s}"
+            style="padding:.35rem .8rem;border:1px solid var(--border);border-radius:20px;font-family:inherit;font-size:.76rem;cursor:pointer;font-weight:600;
+            background:${s==='all'?'var(--g7)':'#fff'};color:${s==='all'?'#fff':'var(--txt2)'}">${s.charAt(0).toUpperCase()+s.slice(1)}</button>`).join('')}
+      </div>
+      <span class="hr-stat-pill" id="vpo-count-badge">Loading…</span>
+    </div>
+
+    <!-- PO Table -->
+    <div class="card">
+      <div class="card-body" style="padding:0;overflow-x:auto">
+        <div id="vpo-table">
+          <div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:3rem;color:var(--txt3)">
+            <div style="width:22px;height:22px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite"></div>
+            ${vendorName ? `Loading POs for <strong>${vendorName}</strong>…` : 'Loading…'}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Load data
+  if (!vendorName) {
+    document.getElementById('vpo-table').innerHTML =
+      `<div style="padding:2rem;text-align:center;color:#c62828">⚠️ No vendor session found. Please log in as a Vendor.</div>`;
+    return;
+  }
+
+  fetchSheet('PO', 'SELECT A,E,F,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
+    const today = new Date(); today.setHours(0,0,0,0);
+    _vpoAllRows = rawRows
+      .filter(r => {
+        const vn = (r['Vendor Name'] || '').trim().toLowerCase();
+        const pn = (r['PO No'] || '').trim().toLowerCase();
+        return vn === vendorName.toLowerCase() && pn && pn !== 'dummy';
+      })
+      .map(r => {
+        const dt  = parsePODate(r['PO Date'] || '');
+        const age = dt ? Math.floor((today - dt) / 86400000) : null;
+        return {
+          uuid:    r['UUID'] || '',
+          poNo:    r['PO No'] || '—',
+          date:    r['PO Date'] || '—',
+          dt,
+          vendor:  r['Vendor Name'] || '—',
+          site:    r['Site Name']   || '—',
+          approver:r['Approver Name'] || '—',
+          status:  (r['PO Approval Status'] || '').trim(),
+          amount:  parseFloat(r['Net Amount'] || '0') || 0,
+          lock:    r['Lock'] || '',
+          age,
+        };
+      });
+
+    // KPIs
+    const total    = _vpoAllRows.length;
+    const pending  = _vpoAllRows.filter(r => r.status.toUpperCase() !== 'REJECTED' && r.lock === 'Released for Approval').length;
+    const approved = _vpoAllRows.filter(r => r.status.toUpperCase() === 'APPROVED').length;
+    const totalVal = _vpoAllRows.reduce((s,r) => s+r.amount, 0);
+
+    const kT = document.getElementById('vpo-kpi-total');
+    const kP = document.getElementById('vpo-kpi-pending');
+    const kA = document.getElementById('vpo-kpi-approved');
+    const kV = document.getElementById('vpo-kpi-value');
+    if (kT) kT.textContent = total;
+    if (kP) kP.textContent = pending;
+    if (kA) kA.textContent = approved;
+    if (kV) kV.textContent = fmtAmt(totalVal);
+
+    // Update portal KPIs on my-portal page too
+    if (STATE.vendorRecord) STATE.vendorRecord._poCount = total;
+
+    renderVPOTable();
+  }).catch(() => {
+    document.getElementById('vpo-table').innerHTML =
+      `<div style="padding:2rem;text-align:center;color:#c62828">⚠️ Could not load PO data. Ensure v2_Purchase is shared publicly.</div>`;
+  });
+}
+
+// VPO filter / sort helpers
+window.vpoSetFilter = function(f) {
+  _vpoFilter = f;
+  ['all','pending','approved','rejected'].forEach(s => {
+    const btn = document.getElementById('vpo-f-'+s);
+    if (btn) { btn.style.background = s===f ? 'var(--g7)':'#fff'; btn.style.color = s===f ? '#fff':'var(--txt2)'; }
+  });
+  renderVPOTable();
+};
+window.vpoApplyFilters = renderVPOTable;
+window.vpoSort = function(col) {
+  if (_vpoSort.col===col) _vpoSort.dir*=-1; else { _vpoSort.col=col; _vpoSort.dir=1; }
+  renderVPOTable();
+};
+
+function renderVPOTable() {
+  const el    = document.getElementById('vpo-table');
+  const badge = document.getElementById('vpo-count-badge');
+  if (!el) return;
+
+  const search = (document.getElementById('vpo-search')?.value || '').toLowerCase();
+  let rows = _vpoAllRows.filter(r => {
+    const st = r.status.toUpperCase();
+    if (_vpoFilter === 'pending'  && !(st !== 'REJECTED' && r.lock === 'Released for Approval')) return false;
+    if (_vpoFilter === 'approved' && st !== 'APPROVED') return false;
+    if (_vpoFilter === 'rejected' && st !== 'REJECTED') return false;
+    if (search) return (r.poNo+r.site).toLowerCase().includes(search);
+    return true;
+  });
+
+  rows.sort((a,b) => {
+    const col = _vpoSort.col;
+    if (col === 'date') return ((a.dt||0)-(b.dt||0)) * _vpoSort.dir;
+    if (col === 'amount') return (a.amount-b.amount) * _vpoSort.dir;
+    return String(a[col]||'').localeCompare(String(b[col]||'')) * _vpoSort.dir;
+  });
+
+  if (badge) badge.innerHTML = `<strong>${rows.length}</strong> POs`;
+
+  if (rows.length === 0) {
+    el.innerHTML = `<div style="padding:2.5rem;text-align:center;color:var(--txt3)">No POs found${_vpoFilter!=='all'?' for this filter':''}.</div>`;
+    return;
+  }
+
+  function vth(label, col) {
+    const s = _vpoSort;
+    const arrow = s.col===col ? (s.dir===1?' ▲':' ▼'):' ↕';
+    return `<th style="cursor:pointer;user-select:none;white-space:nowrap" onclick="window.vpoSort('${col}')">${label}<span style="opacity:.45;font-size:.68rem">${arrow}</span></th>`;
+  }
+
+  const trs = rows.map(r => {
+    const st    = r.status.toUpperCase();
+    const isPend = st !== 'REJECTED' && r.lock === 'Released for Approval';
+    const stCol  = st === 'APPROVED' ? '#2e7d32' : st === 'REJECTED' ? '#c62828' : isPend ? '#e65100' : '#777';
+    const stBg   = st === 'APPROVED' ? '#e8f5e9' : st === 'REJECTED' ? '#fdecea' : isPend ? '#fff3e0' : '#f5f5f5';
+    const stLbl  = st === 'APPROVED' ? '✅ Approved' : st === 'REJECTED' ? '❌ Rejected' : isPend ? '⏳ Pending' : r.status || '—';
+    const ageLbl = r.age !== null
+      ? (r.age > 14 ? `<span style="color:#c62828;font-weight:700">🔴 ${r.age}d</span>`
+       : r.age > 7  ? `<span style="color:#e65100;font-weight:700">🟠 ${r.age}d</span>`
+                    : `<span style="color:#2e7d32;font-weight:700">🟢 ${r.age}d</span>`)
+      : '—';
+    const openBtn = r.uuid
+      ? `<a href="${APPSHEET_SCM_URL}?tblName=PO&rowKey=${encodeURIComponent(r.uuid)}" target="_blank"
+          style="padding:.25rem .6rem;background:var(--g7);color:#fff;border-radius:6px;font-size:.7rem;font-weight:600;text-decoration:none;white-space:nowrap">Open ↗</a>`
+      : '';
+    return `<tr>
+      <td style="font-weight:700;font-size:.8rem;color:var(--g8);white-space:nowrap">${r.poNo}</td>
+      <td style="font-size:.79rem;white-space:nowrap">${r.date}</td>
+      <td style="font-size:.79rem">${r.site}</td>
+      <td style="text-align:right;font-weight:700;font-size:.82rem">${fmtAmt(r.amount)}</td>
+      <td style="text-align:center">${ageLbl}</td>
+      <td style="text-align:center">
+        <span style="font-size:.7rem;font-weight:700;padding:.2rem .55rem;border-radius:12px;background:${stBg};color:${stCol};white-space:nowrap">${stLbl}</span>
+      </td>
+      <td style="text-align:center">${openBtn}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <table class="emp-table" style="min-width:620px">
+      <thead><tr>
+        ${vth('PO No','poNo')}
+        ${vth('Date','date')}
+        ${vth('Site','site')}
+        ${vth('Value','amount')}
+        <th>Age</th>
+        <th style="text-align:center">Status</th>
+        <th style="text-align:center">Action</th>
+      </tr></thead>
+      <tbody>${trs}</tbody>
+      <tfoot><tr style="background:var(--surface2);font-weight:700">
+        <td colspan="3" style="font-size:.81rem;color:var(--g8)">TOTAL (${rows.length} POs)</td>
+        <td style="text-align:right;font-size:.82rem">${fmtAmt(rows.reduce((s,r)=>s+r.amount,0))}</td>
+        <td colspan="3"></td>
+      </tr></tfoot>
+    </table>`;
+}
+
+// ══════════════════════════════════════════════════════════
+//  PHASE 2 — VENDOR INVOICES  (my-invoices)
+// ══════════════════════════════════════════════════════════
+let _vinvAllRows = [];
+let _vinvSort    = { col: 'date', dir: -1 };
+
+function renderVendorInvoices() {
+  const el  = document.getElementById('mainContent');
+  const rec = STATE.vendorRecord || {};
+  const vendorName = (rec.name || '').trim();
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:1rem;flex-wrap:wrap">
+      <div>
+        <h1 style="font-size:1.3rem;font-weight:700;color:var(--g9);margin:0">💰 Invoices & Payments</h1>
+        <p style="font-size:.8rem;color:var(--txt3);margin:0">${vendorName || 'Your company'} · Invoice & payment status</p>
+      </div>
+      <button onclick="navigate('my-portal')" style="margin-left:auto;padding:.4rem .9rem;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;font-family:inherit;font-size:.8rem">← Back</button>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="kpi-grid" style="margin-bottom:1.2rem">
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">🧾</div></div>
+        <div class="kpi-value" id="vinv-kpi-total">—</div>
+        <div class="kpi-label">Total Invoices</div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
+        <div class="kpi-value" id="vinv-kpi-pending">—</div>
+        <div class="kpi-label">Awaiting Payment</div>
+      </div>
+      <div class="kpi-card info">
+        <div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
+        <div class="kpi-value" id="vinv-kpi-paid">—</div>
+        <div class="kpi-label">Paid</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">₹</div></div>
+        <div class="kpi-value" id="vinv-kpi-value">—</div>
+        <div class="kpi-label">Total Invoice Value</div>
+      </div>
+    </div>
+
+    <div id="vinv-table">
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:3rem;color:var(--txt3)">
+        <div style="width:22px;height:22px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite"></div>
+        Loading invoices…
+      </div>
+    </div>
+  `;
+
+  if (!vendorName) {
+    document.getElementById('vinv-table').innerHTML =
+      `<div style="padding:2rem;text-align:center;color:#c62828">⚠️ No vendor session. Please log in as a Vendor.</div>`;
+    return;
+  }
+
+  // Fetch from Invoice tab — columns: A=UUID, B=Invoice No, C=Invoice Date, D=PO No, G=Vendor Name, H=Invoice Amount, I=Payment Status
+  fetchSheet('Invoice', 'SELECT A,B,C,D,G,H,I', PO_SHEET_ID).then(rawRows => {
+    const today = new Date(); today.setHours(0,0,0,0);
+
+    // Column names vary — try both possible label formats
+    _vinvAllRows = rawRows.filter(r => {
+      const vn = (r['Vendor Name'] || r['G'] || '').trim().toLowerCase();
+      const inv = (r['Invoice No'] || r['B'] || '').trim();
+      return vn === vendorName.toLowerCase() && inv && inv !== 'dummy';
+    }).map(r => {
+      const dt  = parsePODate(r['Invoice Date'] || r['C'] || '');
+      return {
+        uuid:    r['UUID'] || r['A'] || '',
+        invNo:   r['Invoice No'] || r['B'] || '—',
+        date:    r['Invoice Date'] || r['C'] || '—',
+        dt,
+        poNo:    r['PO No'] || r['D'] || '—',
+        vendor:  r['Vendor Name'] || r['G'] || '—',
+        amount:  parseFloat(r['Invoice Amount'] || r['H'] || '0') || 0,
+        payStatus: (r['Payment Status'] || r['I'] || '').trim(),
+      };
+    });
+
+    const total   = _vinvAllRows.length;
+    const pending = _vinvAllRows.filter(r => !r.payStatus || r.payStatus.toUpperCase() !== 'PAID').length;
+    const paid    = _vinvAllRows.filter(r => r.payStatus?.toUpperCase() === 'PAID').length;
+    const totalV  = _vinvAllRows.reduce((s,r) => s+r.amount, 0);
+
+    const kT = document.getElementById('vinv-kpi-total');
+    const kP = document.getElementById('vinv-kpi-pending');
+    const kA = document.getElementById('vinv-kpi-paid');
+    const kV = document.getElementById('vinv-kpi-value');
+    if (kT) kT.textContent = total;
+    if (kP) kP.textContent = pending;
+    if (kA) kA.textContent = paid;
+    if (kV) kV.textContent = fmtAmt(totalV);
+
+    renderVINVTable();
+  }).catch(() => {
+    // Invoice tab may not be accessible — show friendly state
+    document.getElementById('vinv-table').innerHTML = `
+      <div class="card">
+        <div class="card-body" style="text-align:center;padding:3rem;color:var(--txt3)">
+          <div style="font-size:2.5rem;margin-bottom:.75rem">📊</div>
+          <strong style="color:var(--txt2)">Invoice data not yet available</strong><br>
+          <span style="font-size:.82rem">Invoice tracking will appear here once the Invoice sheet is shared publicly.</span><br>
+          <a href="mailto:procurement@evgcpl.com" style="display:inline-block;margin-top:1rem;padding:.5rem 1.2rem;background:var(--g7);color:#fff;border-radius:8px;text-decoration:none;font-size:.82rem">📧 Contact Procurement</a>
+        </div>
+      </div>`;
+    const kT = document.getElementById('vinv-kpi-total'); if (kT) kT.textContent = '—';
+    const kP = document.getElementById('vinv-kpi-pending'); if (kP) kP.textContent = '—';
+    const kA = document.getElementById('vinv-kpi-paid'); if (kA) kA.textContent = '—';
+    const kV = document.getElementById('vinv-kpi-value'); if (kV) kV.textContent = '—';
+  });
+}
+
+window.vinvSort = function(col) {
+  if (_vinvSort.col===col) _vinvSort.dir*=-1; else { _vinvSort.col=col; _vinvSort.dir=1; }
+  renderVINVTable();
+};
+
+function renderVINVTable() {
+  const el = document.getElementById('vinv-table');
+  if (!el) return;
+
+  const rows = [..._vinvAllRows].sort((a,b) => {
+    const col = _vinvSort.col;
+    if (col === 'date')   return ((a.dt||0)-(b.dt||0)) * _vinvSort.dir;
+    if (col === 'amount') return (a.amount-b.amount) * _vinvSort.dir;
+    return String(a[col]||'').localeCompare(String(b[col]||'')) * _vinvSort.dir;
+  });
+
+  if (rows.length === 0) {
+    el.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;padding:2.5rem;color:var(--txt3)">No invoices found for your account.</div></div>`;
+    return;
+  }
+
+  function ivth(label, col) {
+    const s = _vinvSort;
+    const arrow = s.col===col ? (s.dir===1?' ▲':' ▼'):' ↕';
+    return `<th style="cursor:pointer;user-select:none;white-space:nowrap" onclick="window.vinvSort('${col}')">${label}<span style="opacity:.45;font-size:.68rem">${arrow}</span></th>`;
+  }
+
+  const trs = rows.map(r => {
+    const ps   = (r.payStatus||'').toUpperCase();
+    const pCol = ps === 'PAID' ? '#2e7d32' : '#e65100';
+    const pBg  = ps === 'PAID' ? '#e8f5e9' : '#fff3e0';
+    const pLbl = ps === 'PAID' ? '✅ Paid' : r.payStatus || '⏳ Awaiting';
+    return `<tr>
+      <td style="font-weight:700;font-size:.8rem;color:var(--g8);white-space:nowrap">${r.invNo}</td>
+      <td style="font-size:.79rem;white-space:nowrap">${r.date}</td>
+      <td style="font-size:.79rem">${r.poNo}</td>
+      <td style="text-align:right;font-weight:700;font-size:.82rem">${fmtAmt(r.amount)}</td>
+      <td style="text-align:center">
+        <span style="font-size:.7rem;font-weight:700;padding:.2rem .55rem;border-radius:12px;background:${pBg};color:${pCol};white-space:nowrap">${pLbl}</span>
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-body" style="padding:0;overflow-x:auto">
+        <table class="emp-table" style="min-width:520px">
+          <thead><tr>
+            ${ivth('Invoice No','invNo')}
+            ${ivth('Date','date')}
+            ${ivth('PO No','poNo')}
+            ${ivth('Amount','amount')}
+            <th style="text-align:center">Payment Status</th>
+          </tr></thead>
+          <tbody>${trs}</tbody>
+          <tfoot><tr style="background:var(--surface2);font-weight:700">
+            <td colspan="3" style="font-size:.81rem;color:var(--g8)">TOTAL (${rows.length})</td>
+            <td style="text-align:right;font-size:.82rem">${fmtAmt(rows.reduce((s,r)=>s+r.amount,0))}</td>
+            <td></td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </div>`;
+}
+
 function renderExternalPortal() {
   const el = document.getElementById('mainContent');
   const rec = STATE.vendorRecord;
@@ -2667,20 +5336,20 @@ function renderExternalPortal() {
 
     <!-- Status KPIs -->
     <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
-      <div class="kpi-card">
-        <div class="kpi-top"><div class="kpi-icon green">📋</div><div class="kpi-trend flat">~ Phase 2</div></div>
-        <div class="kpi-value">—</div>
-        <div class="kpi-label">Active POs</div>
-        <div class="kpi-sub">Purchase orders assigned to you</div>
+      <div class="kpi-card" style="cursor:pointer" onclick="navigate('my-orders')">
+        <div class="kpi-top"><div class="kpi-icon green">📋</div><div class="kpi-trend flat">→ View POs</div></div>
+        <div class="kpi-value" id="ext-kpi-po">—</div>
+        <div class="kpi-label">Total POs</div>
+        <div class="kpi-sub">Purchase orders from Evergreen</div>
       </div>
-      <div class="kpi-card warn">
-        <div class="kpi-top"><div class="kpi-icon orange">💰</div><div class="kpi-trend flat">~ Phase 2</div></div>
+      <div class="kpi-card warn" style="cursor:pointer" onclick="navigate('my-invoices')">
+        <div class="kpi-top"><div class="kpi-icon orange">💰</div><div class="kpi-trend flat">→ View Invoices</div></div>
         <div class="kpi-value">₹ —</div>
         <div class="kpi-label">Pending Payments</div>
         <div class="kpi-sub">Invoices awaiting clearance</div>
       </div>
-      <div class="kpi-card info">
-        <div class="kpi-top"><div class="kpi-icon blue">📂</div><div class="kpi-trend flat">~ Phase 2</div></div>
+      <div class="kpi-card info" style="cursor:pointer" onclick="navigate('my-documents')">
+        <div class="kpi-top"><div class="kpi-icon blue">📂</div><div class="kpi-trend flat">→ View Docs</div></div>
         <div class="kpi-value">—</div>
         <div class="kpi-label">Documents</div>
         <div class="kpi-sub">Compliance & certificates</div>
@@ -2704,20 +5373,20 @@ function renderExternalPortal() {
 
     <!-- Quick Links -->
     <div class="dash-grid">
-      <div class="card">
-        <div class="card-head"><h3>📋 Purchase Orders</h3></div>
-        <div class="card-body" style="text-align:center;padding:2rem;color:var(--txt3)">
+      <div class="card" style="cursor:pointer" onclick="navigate('my-orders')">
+        <div class="card-head"><h3>📋 Purchase Orders</h3><span class="hr-stat-pill">Live ⬤</span></div>
+        <div class="card-body" style="text-align:center;padding:1.5rem;color:var(--txt3)">
           <div style="font-size:2.5rem;margin-bottom:.75rem">📋</div>
-          <div style="font-weight:600;margin-bottom:.4rem">PO Module — Phase 2</div>
-          <div style="font-size:.82rem">View, accept and track purchase orders raised by Evergreen.</div>
+          <div style="font-weight:600;margin-bottom:.4rem;color:var(--txt)">View all POs raised for your company</div>
+          <div style="font-size:.82rem">Track approval status, amounts & site-wise breakdown.</div>
           <button onclick="navigate('my-orders')" class="btn btn-secondary btn-sm" style="margin-top:1rem">View POs →</button>
         </div>
       </div>
-      <div class="card">
-        <div class="card-head"><h3>💰 Invoices & Payments</h3></div>
-        <div class="card-body" style="text-align:center;padding:2rem;color:var(--txt3)">
+      <div class="card" style="cursor:pointer" onclick="navigate('my-invoices')">
+        <div class="card-head"><h3>💰 Invoices & Payments</h3><span class="hr-stat-pill">Live ⬤</span></div>
+        <div class="card-body" style="text-align:center;padding:1.5rem;color:var(--txt3)">
           <div style="font-size:2.5rem;margin-bottom:.75rem">💰</div>
-          <div style="font-weight:600;margin-bottom:.4rem">Invoice Module — Phase 2</div>
+          <div style="font-weight:600;margin-bottom:.4rem;color:var(--txt)">Track invoice & payment history</div>
           <div style="font-size:.82rem">Submit invoices against POs and track payment status.</div>
           <button onclick="navigate('my-invoices')" class="btn btn-secondary btn-sm" style="margin-top:1rem">View Invoices →</button>
         </div>
@@ -2739,7 +5408,7 @@ function renderExtPlaceholder(icon, title, desc) {
       <div class="mp-icon">${icon}</div>
       <h2>${title}</h2>
       <p>${desc}</p>
-      <div class="mp-badge">🔨 Coming in Phase 2</div>
+      <div class="mp-badge">🔨 Coming Soon</div>
       <button onclick="navigate('my-portal')" style="margin-top:1rem;padding:8px 18px;background:var(--g7);color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:inherit">← Back to My Dashboard</button>
     </div>
   `;
