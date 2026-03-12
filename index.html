@@ -1680,132 +1680,163 @@ function renderAppSheetEmbed(title, desc, appKey) {
 // ══════════════════════════════════════════════════
 //  SCM DASHBOARD — Purchase Orders
 // ══════════════════════════════════════════════════
-const PO_SHEET_ID = '1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c';
+const PO_SHEET_ID   = '1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c';
 const APPSHEET_SCM_URL = 'https://www.appsheet.com/start/06fd0117-1dd8-445b-aaee-e2ff6e68e36f';
 
+// ── State ────────────────────────────────────────────────
+let _scmPendingPOs = [];
+let _scmSiteData   = [];
+let _scmVendorData = [];
+let _scmMonthData  = [];
+let _pendingSort   = { col: 'ageDays', dir: -1 };  // oldest first by default
+let _siteSort      = { col: 'amount',  dir: -1 };
+let _vendorSort    = { col: 'amount',  dir: -1 };
+
+// ── DASHBOARD HTML ───────────────────────────────────────
 function renderSCMDashboard() {
   const el = document.getElementById('mainContent');
   el.innerHTML = `
     <div class="page-header" style="margin-bottom:1rem">
       <h1>📦 SCM — Purchase Orders</h1>
-      <p>Live PO tracker · Approvals · Vendor orders</p>
+      <p>Live PO tracker · Approvals · Spend analytics</p>
     </div>
 
     <!-- KPI Row -->
-    <div class="kpi-grid" id="scm-kpi-grid" style="margin-bottom:1.4rem">
-      <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">📋</div></div>
-        <div class="kpi-value" id="scm-kpi-total">—</div><div class="kpi-label">Total POs</div></div>
-      <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
-        <div class="kpi-value" id="scm-kpi-pending">—</div><div class="kpi-label">Pending Approval</div></div>
-      <div class="kpi-card info"><div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
-        <div class="kpi-value" id="scm-kpi-approved">—</div><div class="kpi-label">Approved</div></div>
-      <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon red">❌</div></div>
-        <div class="kpi-value" id="scm-kpi-rejected">—</div><div class="kpi-label">Rejected</div></div>
+    <div class="kpi-grid" style="margin-bottom:1.4rem">
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon green">📋</div></div>
+        <div class="kpi-value" id="scm-kpi-total">—</div>
+        <div class="kpi-label">Total POs</div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
+        <div class="kpi-value" id="scm-kpi-pending">—</div>
+        <div class="kpi-label">Released for Approval</div>
+      </div>
+      <div class="kpi-card info">
+        <div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
+        <div class="kpi-value" id="scm-kpi-approved">—</div>
+        <div class="kpi-label">Approved</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-top"><div class="kpi-icon red">❌</div></div>
+        <div class="kpi-value" id="scm-kpi-rejected">—</div>
+        <div class="kpi-label">Rejected</div>
+      </div>
     </div>
 
-    <!-- Pending Approval Table -->
+    <!-- ⏳ Pending Approval — with Age flags -->
     <div class="card" style="margin-bottom:1.4rem">
       <div class="card-head">
-        <h3>⏳ Pending Approval</h3>
-        <div style="display:flex;gap:.5rem;align-items:center">
-          <span class="hr-stat-pill" id="scm-pending-count">Loading…</span>
+        <h3>⏳ Released for Approval</h3>
+        <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+          <span class="hr-stat-pill" id="scm-pending-badge">Loading…</span>
+          <span id="scm-overdue-badge" style="display:none;background:#fdecea;color:#c62828;font-size:.72rem;font-weight:700;padding:.2rem .6rem;border-radius:20px"></span>
           <button onclick="window.open('${APPSHEET_SCM_URL}','_blank')"
             style="padding:.35rem .9rem;background:var(--g7);color:#fff;border:none;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer;font-family:inherit">
-            🚀 Open SCM App
+            🚀 Open in AppSheet
           </button>
         </div>
       </div>
-      <div class="card-body" style="padding:0">
+      <div class="card-body" style="padding:0;overflow-x:auto">
         <div id="scm-pending-table">
           <div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:2.5rem;color:var(--txt3)">
             <div style="width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite"></div>
-            Loading POs from v2_Purchase…
+            Loading POs…
           </div>
         </div>
       </div>
     </div>
 
-    <!-- All POs Table -->
-    <div class="card">
+    <!-- 📅 Month-wise PO Trend -->
+    <div class="card" style="margin-bottom:1.4rem">
       <div class="card-head">
-        <h3>📋 All Purchase Orders</h3>
-        <span class="hr-stat-pill" id="scm-all-count">—</span>
+        <h3>📅 Monthly PO Trend</h3>
+        <span class="hr-stat-pill" id="scm-month-badge">—</span>
       </div>
-      <div class="card-body" style="padding:0">
-        <!-- Filters -->
-        <div style="display:flex;gap:.6rem;flex-wrap:wrap;padding:.75rem 1rem;border-bottom:1px solid var(--border);background:var(--surface2)">
-          <input id="scm-search" type="text" placeholder="🔍 Search PO No, Vendor, Site…"
-            style="flex:1;min-width:180px;padding:.5rem .75rem;border:1px solid var(--border);border-radius:6px;font-size:.82rem;font-family:inherit"
-            oninput="window.scmFilter()">
-          <select id="scm-status-filter" onchange="window.scmFilter()"
-            style="padding:.5rem .75rem;border:1px solid var(--border);border-radius:6px;font-size:.82rem;font-family:inherit;background:#fff">
-            <option value="">All Statuses</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
-          <select id="scm-site-filter" onchange="window.scmFilter()"
-            style="padding:.5rem .75rem;border:1px solid var(--border);border-radius:6px;font-size:.82rem;font-family:inherit;background:#fff">
-            <option value="">All Sites</option>
-          </select>
+      <div class="card-body" style="padding:1.2rem 1rem">
+        <div id="scm-month-chart" style="min-height:120px;display:flex;align-items:flex-end;gap:6px;overflow-x:auto">
+          <div style="padding:2rem;text-align:center;color:var(--txt3);width:100%">Loading…</div>
         </div>
-        <div id="scm-all-table" style="overflow-x:auto">
-          <div style="padding:2rem;text-align:center;color:var(--txt3)">Loading…</div>
+        <div id="scm-month-legend" style="margin-top:.75rem;font-size:.72rem;color:var(--txt3);display:flex;justify-content:space-between">
         </div>
       </div>
     </div>
-  `;
 
-  // Load PO data
+    <!-- Two-column row: Site + Vendor -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1rem">
+
+      <!-- 🏗️ Site Spend -->
+      <div class="card">
+        <div class="card-head">
+          <h3>🏗️ Spend by Site</h3>
+          <span class="hr-stat-pill" id="scm-site-badge">—</span>
+        </div>
+        <div class="card-body" style="padding:0;overflow-x:auto">
+          <div id="scm-site-table"><div style="padding:2rem;text-align:center;color:var(--txt3)">Loading…</div></div>
+        </div>
+      </div>
+
+      <!-- 🏢 Top 5 Vendors -->
+      <div class="card">
+        <div class="card-head">
+          <h3>🏢 Top 5 Vendors by Spend</h3>
+          <span class="hr-stat-pill" id="scm-vendor-badge">—</span>
+        </div>
+        <div class="card-body" style="padding:0;overflow-x:auto">
+          <div id="scm-vendor-table"><div style="padding:2rem;text-align:center;color:var(--txt3)">Loading…</div></div>
+        </div>
+      </div>
+
+    </div>
+  `;
   loadPOData();
 }
 
-let _scmAllPOs = [];
-
+// ── LOAD DATA ────────────────────────────────────────────
 function loadPOData() {
-  // Only fetch the columns we need — keeps payload small, avoids timeout
-  // A=UUID, E=PO No, F=PO Date, G=Prepared By, R=Vendor Name, S=Site Name,
-  // AG=PO Approval Status, AH=Reason for Rejection, AJ=Net Amount,
-  // O=Tax Type, W=Payment Terms, AF=Approver Name, J=Quote(Attachment)
-  const tq = "SELECT A,E,F,G,J,O,R,S,W,AF,AG,AH,AJ";
-  fetchSheet('PO', tq, PO_SHEET_ID).then(rawRows => {
+  fetchSheet('PO', 'SELECT A,E,F,G,J,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
     if (!rawRows || rawRows.length === 0) {
       document.getElementById('scm-pending-table').innerHTML =
         `<div style="padding:2rem;text-align:center;color:#c62828">
-          ⚠️ Could not load PO data.<br><br>
-          <small style="color:var(--txt3)">Open the v2_Purchase sheet → Share → change from <strong>"Evergreen Enterprises"</strong> to <strong>"Anyone on the internet"</strong> with Viewer access.</small>
+          ⚠️ Could not load PO data. Open v2_Purchase → Share → set to
+          <strong>"Anyone on the internet"</strong> → Viewer.
         </div>`;
       return;
     }
 
-    // fetchSheet returns objects keyed by column LABEL (header row)
-    // Map them flexibly — handle whatever column names come back
-    const rows = rawRows
-      .filter(r => {
-        const poNo = r['PO No'] || r['E'] || '';
-        return poNo && poNo !== 'Dummy' && poNo !== '';
-      })
-      .map(r => ({
-        uuid:        r['UUID'] || r['A'] || '',
-        poNo:        r['PO No'] || r['E'] || '',
-        poDate:      r['PO Date'] || r['F'] || '',
-        vendor:      r['Vendor Name'] || r['R'] || '—',
-        site:        r['Site Name'] || r['S'] || '—',
-        preparedBy:  r['Prepared By'] || r['G'] || '—',
-        status:      (r['PO Approval Status'] || r['AG'] || '').trim(),
-        rejection:   r['Reason for Rejection'] || r['AH'] || '',
-        amount:      r['Net Amount'] || r['AJ'] || '',
-        taxType:     r['Tax Type'] || r['O'] || '',
-        payTerms:    r['Payment Terms'] || r['W'] || '',
-        approver:    r['Approver Name'] || r['AF'] || '—',
-        quote:       r['Quote(Attachment)'] || r['J'] || '',
-      }));
+    const today = new Date(); today.setHours(0,0,0,0);
 
-    _scmAllPOs = rows;
+    const rows = rawRows.filter(r => {
+      const poNo   = (r['PO No'] || '').trim();
+      const vendor = (r['Vendor Name'] || '').trim().toLowerCase();
+      return poNo && poNo.toLowerCase() !== 'dummy' && vendor !== 'dummy';
+    }).map(r => {
+      const dateRaw = r['PO Date'] || '';
+      const jsDate  = parsePODate(dateRaw);
+      const ageDays = jsDate ? Math.floor((today - jsDate) / 86400000) : null;
+      return {
+        uuid:       r['UUID'] || '',
+        poNo:       r['PO No'] || '',
+        poDate:     dateRaw,
+        jsDate,
+        ageDays,
+        monthKey:   jsDate ? `${jsDate.getFullYear()}-${String(jsDate.getMonth()+1).padStart(2,'0')}` : null,
+        monthLabel: jsDate ? jsDate.toLocaleDateString('en-IN', {month:'short', year:'2-digit'}) : '—',
+        vendor:     r['Vendor Name'] || '—',
+        site:       r['Site Name'] || '—',
+        preparedBy: r['Prepared By'] || '—',
+        approver:   r['Approver Name'] || '—',
+        status:     (r['PO Approval Status'] || '').trim(),
+        lock:       (r['Lock'] || '').trim(),
+        amount:     parseFloat((r['Net Amount']||'0').toString().replace(/,/g,''))||0,
+        quote:      r['Quote(Attachment)'] || '',
+      };
+    });
 
     // KPIs
     const total    = rows.length;
-    const pending  = rows.filter(r => r.status.toUpperCase().includes('PENDING') || r.status === '').length;
+    const pending  = rows.filter(r => r.lock === 'Released for Approval').length;
     const approved = rows.filter(r => r.status.toUpperCase().includes('APPROVED')).length;
     const rejected = rows.filter(r => r.status.toUpperCase().includes('REJECT')).length;
 
@@ -1813,134 +1844,282 @@ function loadPOData() {
     document.getElementById('scm-kpi-pending').textContent  = pending;
     document.getElementById('scm-kpi-approved').textContent = approved;
     document.getElementById('scm-kpi-rejected').textContent = rejected;
-    document.getElementById('scm-pending-count').innerHTML  = `<strong>${pending}</strong> awaiting`;
+    document.getElementById('scm-pending-badge').innerHTML  = `<strong>${pending}</strong> awaiting`;
 
-    // Populate site filter
-    const sites = [...new Set(rows.map(r => r.site).filter(Boolean))].sort();
-    const siteSelect = document.getElementById('scm-site-filter');
-    if (siteSelect) sites.forEach(s => {
-      const o = document.createElement('option'); o.value = s; o.textContent = s; siteSelect.appendChild(o);
+    // Aged pending badge
+    _scmPendingPOs = rows.filter(r => r.lock === 'Released for Approval');
+    const overdue  = _scmPendingPOs.filter(r => r.ageDays !== null && r.ageDays > 7).length;
+    const ob = document.getElementById('scm-overdue-badge');
+    if (ob && overdue > 0) {
+      ob.style.display = '';
+      ob.textContent   = `🔴 ${overdue} overdue >7 days`;
+    }
+
+    // Site summary
+    const siteMap = {};
+    rows.forEach(r => {
+      if (!siteMap[r.site]) siteMap[r.site] = { site: r.site, count: 0, amount: 0 };
+      siteMap[r.site].count++;
+      siteMap[r.site].amount += r.amount;
     });
+    _scmSiteData = Object.values(siteMap);
 
-    // Render pending table
-    const pendingRows = rows.filter(r => r.status.toUpperCase().includes('PENDING') || r.status === '');
-    renderPOTable('scm-pending-table', pendingRows, true);
+    // Vendor summary — top 5 by amount
+    const vendorMap = {};
+    rows.forEach(r => {
+      if (!vendorMap[r.vendor]) vendorMap[r.vendor] = { vendor: r.vendor, count: 0, amount: 0 };
+      vendorMap[r.vendor].count++;
+      vendorMap[r.vendor].amount += r.amount;
+    });
+    _scmVendorData = Object.values(vendorMap).sort((a,b) => b.amount - a.amount).slice(0, 5);
 
-    // Render all POs table
-    renderPOTable('scm-all-table', rows, false);
+    // Month-wise trend — current financial year (Apr–Mar)
+    const monthMap = {};
+    rows.forEach(r => {
+      if (!r.monthKey) return;
+      if (!monthMap[r.monthKey]) monthMap[r.monthKey] = { key: r.monthKey, label: r.monthLabel, count: 0, amount: 0 };
+      monthMap[r.monthKey].count++;
+      monthMap[r.monthKey].amount += r.amount;
+    });
+    _scmMonthData = Object.values(monthMap).sort((a,b) => a.key.localeCompare(b.key));
+
+    renderPendingTable();
+    renderSiteTable();
+    renderVendorTable();
+    renderMonthChart();
   }).catch(err => {
     document.getElementById('scm-pending-table').innerHTML =
       `<div style="padding:2rem;text-align:center;color:#c62828">Error: ${err.message}</div>`;
   });
 }
 
-function formatPODate(v) {
-  if (!v) return '—';
+// ── HELPERS ──────────────────────────────────────────────
+function parsePODate(v) {
+  if (!v) return null;
   if (typeof v === 'string' && v.startsWith('Date(')) {
     try {
-      const parts = v.replace('Date(','').replace(')','').split(',').map(Number);
-      return new Date(parts[0], parts[1], parts[2]).toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'});
-    } catch(e) { return v; }
+      const p = v.replace('Date(','').replace(')','').split(',').map(Number);
+      return new Date(p[0], p[1], p[2]);
+    } catch(e) { return null; }
   }
-  return v;
+  const d = new Date(v);
+  return isNaN(d) ? null : d;
+}
+function fmtDate(v) {
+  const d = parsePODate(v);
+  if (!d) return '—';
+  return d.toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+}
+function fmtAmt(n) {
+  if (!n) return '—';
+  if (n >= 10000000) return '₹' + (n/10000000).toFixed(1) + 'Cr';
+  if (n >= 100000)   return '₹' + (n/100000).toFixed(1) + 'L';
+  return '₹' + n.toLocaleString('en-IN', {maximumFractionDigits:0});
+}
+function fmtAmtFull(n) {
+  return n ? '₹' + n.toLocaleString('en-IN', {maximumFractionDigits:0}) : '—';
+}
+function ageBadge(days) {
+  if (days === null) return '';
+  if (days > 14) return `<span style="background:#fdecea;color:#c62828;font-size:.68rem;font-weight:700;padding:.15rem .45rem;border-radius:20px;margin-left:4px">🔴 ${days}d</span>`;
+  if (days > 7)  return `<span style="background:#fff3e0;color:#e65100;font-size:.68rem;font-weight:700;padding:.15rem .45rem;border-radius:20px;margin-left:4px">🟠 ${days}d</span>`;
+  return `<span style="background:#f1f8e9;color:#558b2f;font-size:.68rem;padding:.15rem .45rem;border-radius:20px;margin-left:4px">${days}d</span>`;
 }
 
-function poStatusBadge(status) {
-  const s = status.toUpperCase();
-  if (s.includes('APPROVED')) return `<span style="background:#e8f5e9;color:#2e7d32;padding:.2rem .6rem;border-radius:20px;font-size:.72rem;font-weight:700">✅ Approved</span>`;
-  if (s.includes('REJECT'))   return `<span style="background:#fdecea;color:#c62828;padding:.2rem .6rem;border-radius:20px;font-size:.72rem;font-weight:700">❌ Rejected</span>`;
-  if (s.includes('PENDING') || s === '') return `<span style="background:#fff8e1;color:#e65100;padding:.2rem .6rem;border-radius:20px;font-size:.72rem;font-weight:700">⏳ Pending</span>`;
-  return `<span style="background:var(--surface2);color:var(--txt2);padding:.2rem .6rem;border-radius:20px;font-size:.72rem">${status || '—'}</span>`;
+// ── SORT HEADER ──────────────────────────────────────────
+function sortTh(label, col, stateKey) {
+  const s = stateKey === 'pending' ? _pendingSort : stateKey === 'vendor' ? _vendorSort : _siteSort;
+  const arrow = s.col === col ? (s.dir === 1 ? ' ▲' : ' ▼') : ' ↕';
+  return `<th style="cursor:pointer;user-select:none;white-space:nowrap"
+    onclick="window.scmSort('${stateKey}','${col}')">${label}<span style="opacity:.45;font-size:.68rem">${arrow}</span></th>`;
 }
+window.scmSort = function(stateKey, col) {
+  const map = { pending: [_pendingSort, renderPendingTable], site: [_siteSort, renderSiteTable], vendor: [_vendorSort, renderVendorTable] };
+  if (!map[stateKey]) return;
+  const [state, fn] = map[stateKey];
+  if (state.col === col) state.dir *= -1; else { state.col = col; state.dir = 1; }
+  fn();
+};
 
-function renderPOTable(containerId, rows, isPending) {
-  const el = document.getElementById(containerId);
+// ── PENDING TABLE ────────────────────────────────────────
+function renderPendingTable() {
+  const el = document.getElementById('scm-pending-table');
   if (!el) return;
-
-  if (rows.length === 0) {
-    el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3)">
-      ${isPending ? '✅ No POs pending approval' : 'No POs found'}
-    </div>`;
-    if (containerId === 'scm-all-count') return;
-    const countEl = document.getElementById('scm-all-count');
-    if (countEl) countEl.innerHTML = '0 POs';
+  if (_scmPendingPOs.length === 0) {
+    el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3)">✅ No POs currently released for approval</div>`;
     return;
   }
-
-  if (!isPending) {
-    const countEl = document.getElementById('scm-all-count');
-    if (countEl) countEl.innerHTML = `<strong>${rows.length}</strong> POs`;
-  }
-
-  const tableRows = rows.map(r => {
-    const appsheetLink = r.uuid
-      ? `https://www.appsheet.com/start/06fd0117-1dd8-445b-aaee-e2ff6e68e36f?tblName=PO&rowKey=${encodeURIComponent(r.uuid)}`
-      : APPSHEET_SCM_URL;
-    const amtFormatted = r.amount ? '₹' + Number(String(r.amount).replace(/,/g,'')||0).toLocaleString('en-IN') : '—';
-    return `
-      <tr>
-        <td>
-          <div style="font-weight:700;color:var(--g7);font-size:.82rem">${r.poNo}</div>
-          <div style="font-size:.72rem;color:var(--txt3)">${formatPODate(r.poDate)}</div>
-        </td>
-        <td style="font-size:.82rem">${r.vendor}</td>
-        <td style="font-size:.82rem">${r.site}</td>
-        <td style="font-weight:600;font-size:.85rem;color:var(--g8)">${amtFormatted}</td>
-        <td>${poStatusBadge(r.status)}</td>
-        <td style="font-size:.78rem;color:var(--txt3)">${r.preparedBy}</td>
-        <td>
-          <div style="display:flex;gap:.4rem;flex-wrap:wrap">
-            <button onclick="window.open('${appsheetLink}','_blank')"
-              style="padding:.25rem .6rem;background:var(--g7);color:#fff;border:none;border-radius:5px;font-size:.72rem;cursor:pointer;font-family:inherit;white-space:nowrap">
-              📋 View PO
-            </button>
-            ${r.quote ? `<button onclick="window.open('${r.quote}','_blank')"
-              style="padding:.25rem .6rem;background:#e3f2fd;color:#1565c0;border:none;border-radius:5px;font-size:.72rem;cursor:pointer;font-family:inherit;white-space:nowrap">
-              📎 Quote
-            </button>` : ''}
-          </div>
-        </td>
-      </tr>`;
+  const sorted = [..._scmPendingPOs].sort((a,b) => {
+    const va = a[_pendingSort.col] ?? ''; const vb = b[_pendingSort.col] ?? '';
+    return typeof va === 'number' ? (va-vb)*_pendingSort.dir : String(va).localeCompare(String(vb))*_pendingSort.dir;
+  });
+  const trs = sorted.map(r => {
+    const appLink = `${APPSHEET_SCM_URL}?tblName=PO&rowKey=${encodeURIComponent(r.uuid)}`;
+    return `<tr>
+      <td>
+        <div style="font-weight:700;color:var(--g7);font-size:.82rem">${r.poNo}</div>
+        <div style="font-size:.72rem;color:var(--txt3)">${fmtDate(r.poDate)}</div>
+      </td>
+      <td style="font-size:.82rem">${r.vendor}</td>
+      <td style="font-size:.82rem">${r.site}</td>
+      <td style="font-weight:700;color:var(--g8);font-size:.85rem">${fmtAmtFull(r.amount)}</td>
+      <td>${ageBadge(r.ageDays)}</td>
+      <td style="font-size:.78rem;color:var(--txt3)">${r.approver}</td>
+      <td>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+          <button onclick="window.open('${appLink}','_blank')"
+            style="padding:.25rem .65rem;background:var(--g7);color:#fff;border:none;border-radius:5px;font-size:.72rem;cursor:pointer;font-family:inherit">📋 Open PO</button>
+          ${r.quote ? `<button onclick="window.open('${r.quote}','_blank')"
+            style="padding:.25rem .65rem;background:#e3f2fd;color:#1565c0;border:none;border-radius:5px;font-size:.72rem;cursor:pointer;font-family:inherit">📎 Quote</button>` : ''}
+        </div>
+      </td>
+    </tr>`;
   }).join('');
-
   el.innerHTML = `
-    <table class="emp-table" style="min-width:700px">
-      <thead>
-        <tr>
-          <th>PO No / Date</th>
-          <th>Vendor</th>
-          <th>Site</th>
-          <th>Amount</th>
-          <th>Status</th>
-          <th>Prepared By</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>${tableRows}</tbody>
+    <table class="emp-table" style="min-width:680px">
+      <thead><tr>
+        ${sortTh('PO No / Date','poNo','pending')}
+        ${sortTh('Vendor','vendor','pending')}
+        ${sortTh('Site','site','pending')}
+        ${sortTh('Amount','amount','pending')}
+        ${sortTh('Age','ageDays','pending')}
+        ${sortTh('Approver','approver','pending')}
+        <th>Actions</th>
+      </tr></thead>
+      <tbody>${trs}</tbody>
     </table>`;
 }
 
-window.scmFilter = function() {
-  const search = (document.getElementById('scm-search')?.value || '').toLowerCase();
-  const statusF = (document.getElementById('scm-status-filter')?.value || '').toLowerCase();
-  const siteF   = (document.getElementById('scm-site-filter')?.value || '');
-
-  const filtered = _scmAllPOs.filter(r => {
-    const matchSearch = !search ||
-      r.poNo.toLowerCase().includes(search) ||
-      r.vendor.toLowerCase().includes(search) ||
-      r.site.toLowerCase().includes(search);
-    const s = r.status.toUpperCase();
-    const matchStatus = !statusF ||
-      (statusF === 'pending'  && (s.includes('PENDING') || s === '')) ||
-      (statusF === 'approved' && s.includes('APPROVED')) ||
-      (statusF === 'rejected' && s.includes('REJECT'));
-    const matchSite = !siteF || r.site === siteF;
-    return matchSearch && matchStatus && matchSite;
+// ── SITE TABLE ───────────────────────────────────────────
+function renderSiteTable() {
+  const el = document.getElementById('scm-site-table');
+  const badge = document.getElementById('scm-site-badge');
+  if (!el) return;
+  const sorted = [..._scmSiteData].sort((a,b) => {
+    const va = a[_siteSort.col]??''; const vb = b[_siteSort.col]??'';
+    return typeof va==='number' ? (va-vb)*_siteSort.dir : String(va).localeCompare(String(vb))*_siteSort.dir;
   });
+  if (badge) badge.innerHTML = `<strong>${sorted.length}</strong> sites`;
+  const totalAmt = sorted.reduce((s,r)=>s+r.amount,0);
+  const maxAmt   = Math.max(...sorted.map(r=>r.amount),1);
+  const trs = sorted.map(r => {
+    const pct = Math.round((r.amount/maxAmt)*100);
+    return `<tr>
+      <td style="font-weight:600;font-size:.82rem;color:var(--g8)">${r.site}</td>
+      <td style="text-align:center;font-size:.82rem">${r.count}</td>
+      <td style="font-weight:700;color:var(--g7);font-size:.83rem">${fmtAmt(r.amount)}</td>
+      <td style="min-width:100px">
+        <div style="background:var(--surface2);border-radius:20px;height:7px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:var(--g5);border-radius:20px"></div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `
+    <table class="emp-table" style="min-width:360px">
+      <thead><tr>
+        ${sortTh('Site','site','site')}
+        ${sortTh('POs','count','site')}
+        ${sortTh('Amount','amount','site')}
+        <th>Bar</th>
+      </tr></thead>
+      <tbody>${trs}</tbody>
+      <tfoot><tr style="background:var(--surface2);font-weight:700">
+        <td style="font-size:.82rem;color:var(--g8)">TOTAL</td>
+        <td style="text-align:center;font-size:.82rem">${_scmSiteData.reduce((s,r)=>s+r.count,0)}</td>
+        <td style="font-weight:700;color:var(--g7);font-size:.83rem">${fmtAmt(totalAmt)}</td>
+        <td></td>
+      </tr></tfoot>
+    </table>`;
+}
 
-  renderPOTable('scm-all-table', filtered, false);
-};
+// ── VENDOR TABLE (TOP 5) ─────────────────────────────────
+function renderVendorTable() {
+  const el = document.getElementById('scm-vendor-table');
+  const badge = document.getElementById('scm-vendor-badge');
+  if (!el) return;
+  const sorted = [..._scmVendorData].sort((a,b) => {
+    const va = a[_vendorSort.col]??''; const vb = b[_vendorSort.col]??'';
+    return typeof va==='number' ? (va-vb)*_vendorSort.dir : String(va).localeCompare(String(vb))*_vendorSort.dir;
+  });
+  if (badge) badge.innerHTML = `Top 5 of <strong>${_scmVendorData.length || '—'}</strong>`;
+  const maxAmt = Math.max(...sorted.map(r=>r.amount),1);
+  const medals = ['🥇','🥈','🥉','4️⃣','5️⃣'];
+  const trs = sorted.map((r,i) => {
+    const pct = Math.round((r.amount/maxAmt)*100);
+    return `<tr>
+      <td style="font-size:.9rem;text-align:center">${medals[i]||i+1}</td>
+      <td style="font-weight:600;font-size:.82rem;color:var(--g8)">${r.vendor}</td>
+      <td style="text-align:center;font-size:.82rem">${r.count}</td>
+      <td style="font-weight:700;color:var(--g7);font-size:.83rem">${fmtAmt(r.amount)}</td>
+      <td style="min-width:80px">
+        <div style="background:var(--surface2);border-radius:20px;height:7px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:var(--acc);border-radius:20px"></div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `
+    <table class="emp-table" style="min-width:340px">
+      <thead><tr>
+        <th>#</th>
+        ${sortTh('Vendor','vendor','vendor')}
+        ${sortTh('POs','count','vendor')}
+        ${sortTh('Amount','amount','vendor')}
+        <th>Bar</th>
+      </tr></thead>
+      <tbody>${trs}</tbody>
+    </table>`;
+}
+
+// ── MONTH TREND CHART ────────────────────────────────────
+function renderMonthChart() {
+  const el    = document.getElementById('scm-month-chart');
+  const badge = document.getElementById('scm-month-badge');
+  const leg   = document.getElementById('scm-month-legend');
+  if (!el || _scmMonthData.length === 0) return;
+
+  // Show last 12 months max
+  const data   = _scmMonthData.slice(-12);
+  const maxAmt = Math.max(...data.map(m=>m.amount), 1);
+  const maxCnt = Math.max(...data.map(m=>m.count), 1);
+  const totalThisYear = data.reduce((s,m)=>s+m.amount,0);
+  if (badge) badge.innerHTML = `FY total: <strong>${fmtAmt(totalThisYear)}</strong>`;
+
+  // Bar chart — amount bars + count dots
+  const bars = data.map(m => {
+    const hPct  = Math.round((m.amount / maxAmt) * 140);
+    const cPct  = Math.round((m.count  / maxCnt) * 100);
+    return `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:44px;max-width:80px">
+        <div style="font-size:.68rem;font-weight:700;color:var(--g7)">${fmtAmt(m.amount)}</div>
+        <div style="width:100%;display:flex;align-items:flex-end;height:140px">
+          <div style="width:100%;background:linear-gradient(180deg,var(--g6),var(--g8));border-radius:6px 6px 0 0;height:${hPct}px;position:relative;transition:height .3s;cursor:default"
+            title="${m.label}: ${fmtAmtFull(m.amount)} · ${m.count} POs">
+            <div style="position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);
+              background:var(--acc);color:#fff;font-size:.65rem;font-weight:700;
+              padding:.1rem .3rem;border-radius:20px;white-space:nowrap">${m.count} POs</div>
+          </div>
+        </div>
+        <div style="margin-top:20px;font-size:.72rem;font-weight:600;color:var(--txt2);white-space:nowrap">${m.label}</div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `<div style="display:flex;align-items:flex-end;gap:6px;padding:0 .5rem;width:100%;overflow-x:auto">${bars}</div>`;
+
+  // Legend
+  if (leg) leg.innerHTML = `
+    <div style="display:flex;gap:1.2rem;flex-wrap:wrap;padding-top:.5rem;border-top:1px solid var(--border)">
+      <span style="display:flex;align-items:center;gap:5px">
+        <span style="display:inline-block;width:14px;height:10px;background:linear-gradient(var(--g6),var(--g8));border-radius:3px"></span>
+        <span>Net Amount</span>
+      </span>
+      <span style="display:flex;align-items:center;gap:5px">
+        <span style="display:inline-block;width:14px;height:10px;background:var(--acc);border-radius:3px"></span>
+        <span>PO Count</span>
+      </span>
+    </div>`;
+}
 
 // ══════════════════════════════════════════════════
 //  PLACEHOLDER
