@@ -711,7 +711,7 @@ img{max-width:100%;display:block}
     </button>
 
     <div style="margin-top:.9rem;text-align:center;font-size:.75rem;color:#999">
-      First time? Contact <strong><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="1a6a6875796f687f777f746e5a7f6c7d796a7634797577">[email&#160;protected]</a></strong> to get registered.
+      First time? Contact <strong>procurement@evgcpl.com</strong> to get registered.
     </div>
   </div>
 </div>
@@ -995,7 +995,7 @@ img{max-width:100%;display:block}
 
 </div><!-- /app -->
 
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+<script>
 // ══════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════
@@ -1714,23 +1714,23 @@ function renderMRSDashboard() {
 
     <!-- KPI Row 1 — counts -->
     <div class="kpi-grid" style="margin-bottom:1rem">
-      <div class="kpi-card">
-        <div class="kpi-top"><div class="kpi-icon green">📋</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="window.mrsJumpTo('all')">
+        <div class="kpi-top"><div class="kpi-icon green">📋</div><div class="kpi-trend flat" style="font-size:.65rem">view all ↓</div></div>
         <div class="kpi-value" id="mrs-kpi-total">—</div>
         <div class="kpi-label">Total MRS</div>
       </div>
-      <div class="kpi-card warn">
-        <div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
+      <div class="kpi-card warn" style="cursor:pointer" onclick="window.mrsJumpTo('pending')">
+        <div class="kpi-top"><div class="kpi-icon orange">⏳</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="mrs-kpi-pending">—</div>
         <div class="kpi-label">Pending</div>
       </div>
-      <div class="kpi-card info">
-        <div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
+      <div class="kpi-card info" style="cursor:pointer" onclick="window.mrsJumpTo('approved')">
+        <div class="kpi-top"><div class="kpi-icon blue">✅</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="mrs-kpi-approved">—</div>
         <div class="kpi-label">Approved</div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-top"><div class="kpi-icon red">❌</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="window.mrsJumpTo('rejected')">
+        <div class="kpi-top"><div class="kpi-icon red">❌</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="mrs-kpi-rejected">—</div>
         <div class="kpi-label">Rejected</div>
       </div>
@@ -1746,7 +1746,7 @@ function renderMRSDashboard() {
           <div style="font-size:.72rem;color:var(--txt3)">Approved/Rejected/Dropped</div>
         </div>
       </div>
-      <div class="kpi-card" style="flex-direction:row;gap:1rem;align-items:center">
+      <div class="kpi-card" style="flex-direction:row;gap:1rem;align-items:center;cursor:pointer" onclick="window.mrsJumpTo('overdue')">
         <div class="kpi-icon orange" style="font-size:1.6rem">⌛</div>
         <div>
           <div class="kpi-value" id="mrs-kpi-aging" style="font-size:1.6rem">—</div>
@@ -1754,12 +1754,12 @@ function renderMRSDashboard() {
           <div style="font-size:.72rem;color:var(--txt3)">Pending MRS only</div>
         </div>
       </div>
-      <div class="kpi-card" style="flex-direction:row;gap:1rem;align-items:center">
+      <div class="kpi-card" style="flex-direction:row;gap:1rem;align-items:center;cursor:pointer" onclick="window.mrsJumpTo('overdue')">
         <div class="kpi-icon red" style="font-size:1.6rem">🔴</div>
         <div>
           <div class="kpi-value" id="mrs-kpi-overdue" style="font-size:1.6rem">—</div>
           <div class="kpi-label">Overdue &gt;7 Days</div>
-          <div style="font-size:.72rem;color:var(--txt3)">Pending MRS aged &gt;7 days</div>
+          <div style="font-size:.72rem;color:var(--txt3)">click to view list ↓</div>
         </div>
       </div>
     </div>
@@ -1809,6 +1809,29 @@ function renderMRSDashboard() {
       <span style="font-size:1.3rem">🗑️</span>
       <span><strong id="mrs-kpi-dropped">—</strong> MRS Dropped</span>
       <span style="margin-left:auto;color:var(--txt3)">Dropped = Cancelled before approval</span>
+    </div>
+
+    <!-- 📋 All MRS — deep-link target -->
+    <div id="mrs-all-section" style="display:none;margin-top:.5rem">
+      <div class="card">
+        <div class="card-head">
+          <h3 id="mrs-all-title">📋 All MRS</h3>
+          <div style="display:flex;gap:.5rem;align-items:center">
+            <span class="hr-stat-pill" id="mrs-all-badge">—</span>
+            <button onclick="document.getElementById('mrs-all-section').style.display='none'" style="padding:.25rem .7rem;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:.75rem;cursor:pointer;font-family:inherit">✕ Close</button>
+          </div>
+        </div>
+        <div class="card-body" style="padding:.75rem;padding-bottom:0">
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem">
+            <input id="mrs-all-search" type="text" placeholder="Search Request No, Site…"
+              style="flex:1;min-width:180px;padding:.38rem .65rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.82rem;font-family:inherit;outline:none"
+              oninput="window.mrsRenderAllTable()" />
+          </div>
+        </div>
+        <div class="card-body" style="padding:0;overflow-x:auto">
+          <div id="mrs-all-table"></div>
+        </div>
+      </div>
     </div>
   `;
   loadMRSData();
@@ -1910,6 +1933,69 @@ function loadMRSData() {
       `<div style="padding:2rem;text-align:center;color:#c62828">Error: ${err.message}</div>`;
   });
 }
+
+// ── MRS DEEP LINK ─────────────────────────────────────────
+window.mrsJumpTo = function(filter) {
+  const sec = document.getElementById('mrs-all-section');
+  if (!sec) return;
+  sec.style.display = 'block';
+  const titles = { all:'📋 All MRS', pending:'⏳ Pending MRS', approved:'✅ Approved MRS', rejected:'❌ Rejected MRS', overdue:'🔴 Overdue MRS (>7 days)' };
+  const title = document.getElementById('mrs-all-title');
+  if (title) title.textContent = titles[filter] || '📋 All MRS';
+  sec.dataset.filter = filter;
+  window.mrsRenderAllTable();
+  sec.scrollIntoView({ behavior:'smooth', block:'start' });
+};
+
+window.mrsRenderAllTable = function() {
+  const sec   = document.getElementById('mrs-all-section');
+  const el    = document.getElementById('mrs-all-table');
+  const badge = document.getElementById('mrs-all-badge');
+  if (!el || !_mrsAllRows.length) return;
+
+  const filter = sec ? sec.dataset.filter || 'all' : 'all';
+  const q      = (document.getElementById('mrs-all-search')?.value || '').toLowerCase();
+  const today  = new Date(); today.setHours(0,0,0,0);
+
+  let rows = _mrsAllRows;
+  if (filter === 'pending')  rows = rows.filter(r => !r.status || r.status === 'Pending');
+  else if (filter === 'approved') rows = rows.filter(r => r.status === 'Approved');
+  else if (filter === 'rejected') rows = rows.filter(r => r.status === 'Rejected');
+  else if (filter === 'overdue')  rows = rows.filter(r => {
+    if (r.status && r.status !== 'Pending') return false;
+    return r.ts && (today - r.ts) / 86400000 > 7;
+  });
+  if (q) rows = rows.filter(r =>
+    (r.reqNo || '').toLowerCase().includes(q) || (r.site || '').toLowerCase().includes(q)
+  );
+
+  if (badge) badge.innerHTML = `<strong>${rows.length}</strong> record${rows.length !== 1 ? 's' : ''}`;
+
+  if (!rows.length) {
+    el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3)">No records match this filter.</div>`;
+    return;
+  }
+
+  const trs = rows.map(r => {
+    const st = r.status || 'Pending';
+    const stCol = st === 'Approved' ? '#e8f5e9' : st === 'Rejected' ? '#ffebee' : st === 'Dropped' ? '#f3e5f5' : '#fff8e1';
+    const stTxt = st === 'Approved' ? '#2e7d32' : st === 'Rejected' ? '#c62828' : st === 'Dropped' ? '#6a1b9a' : '#b07000';
+    const age = r.ageDays !== null && r.ageDays !== undefined ? r.ageDays : (r.ts ? Math.floor((today - r.ts) / 86400000) : null);
+    return `<tr>
+      <td style="font-weight:700;color:var(--g7);font-size:.82rem">${r.reqNo}</td>
+      <td style="font-size:.82rem">${r.site}</td>
+      <td><span style="background:${stCol};color:${stTxt};padding:.18rem .5rem;border-radius:20px;font-size:.72rem;font-weight:700">${st}</span></td>
+      <td style="font-size:.78rem;color:var(--txt3)">${r.approveD ? fmtDate(r.approveD) : '—'}</td>
+      <td style="font-size:.78rem">${r.ts ? fmtDate(r.ts) : '—'}</td>
+      <td style="font-size:.78rem">${age !== null ? `<span style="font-weight:600;color:${age>7?'#c62828':age>3?'#b07000':'#2e7d32'}">${age}d</span>` : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<table class="emp-table" style="min-width:520px">
+    <thead><tr><th>Request No</th><th>Site</th><th>Status</th><th>Approval Date</th><th>Raised On</th><th>Age</th></tr></thead>
+    <tbody>${trs}</tbody>
+  </table>`;
+};
 
 // ── MRS SITE TABLE ────────────────────────────────────────
 function mrsth(label, col) {
@@ -2070,30 +2156,30 @@ function renderSCMDashboard() {
 
     <!-- KPI Row -->
     <div class="kpi-grid" style="margin-bottom:1.4rem">
-      <div class="kpi-card">
-        <div class="kpi-top"><div class="kpi-icon green">📋</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="window.scmJumpTo('all')">
+        <div class="kpi-top"><div class="kpi-icon green">📋</div><div class="kpi-trend flat" style="font-size:.65rem">view all ↓</div></div>
         <div class="kpi-value" id="scm-kpi-total">—</div>
         <div class="kpi-label">Total POs</div>
       </div>
-      <div class="kpi-card warn">
-        <div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
+      <div class="kpi-card warn" style="cursor:pointer" onclick="window.scmJumpTo('pending')">
+        <div class="kpi-top"><div class="kpi-icon orange">⏳</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="scm-kpi-pending">—</div>
         <div class="kpi-label">Pending Approval</div>
       </div>
-      <div class="kpi-card info">
-        <div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
+      <div class="kpi-card info" style="cursor:pointer" onclick="window.scmJumpTo('approved')">
+        <div class="kpi-top"><div class="kpi-icon blue">✅</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="scm-kpi-approved">—</div>
         <div class="kpi-label">Approved</div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-top"><div class="kpi-icon red">❌</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="window.scmJumpTo('rejected')">
+        <div class="kpi-top"><div class="kpi-icon red">❌</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="scm-kpi-rejected">—</div>
         <div class="kpi-label">Rejected</div>
       </div>
     </div>
 
     <!-- ⏳ Pending Approval — with Age flags -->
-    <div class="card" style="margin-bottom:1.4rem">
+    <div class="card" id="scm-pending-section" style="margin-bottom:1.4rem">
       <div class="card-head">
         <h3>⏳ Pending Approval</h3>
         <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
@@ -2161,6 +2247,31 @@ function renderSCMDashboard() {
         </div>
       </div>
 
+    </div>
+
+    <!-- 📋 All POs — deep-link target -->
+    <div class="card" id="scm-all-section" style="margin-bottom:1.4rem;display:none">
+      <div class="card-head">
+        <h3 id="scm-all-title">📋 All POs</h3>
+        <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+          <span class="hr-stat-pill" id="scm-all-badge">—</span>
+          <button onclick="document.getElementById('scm-all-section').style.display='none'" style="padding:.25rem .7rem;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:.75rem;cursor:pointer;font-family:inherit">✕ Close</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:.75rem;padding-bottom:0">
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem">
+          <input id="scm-all-search" type="text" placeholder="Search PO No, Vendor, Site…"
+            style="flex:1;min-width:180px;padding:.38rem .65rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.82rem;font-family:inherit;outline:none"
+            oninput="window.scmRenderAllTable()" />
+          <select id="scm-all-fy" onchange="window.scmRenderAllTable()"
+            style="padding:.38rem .65rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.82rem;font-family:inherit;outline:none;background:#fff">
+            <option value="">All FY</option>
+          </select>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;overflow-x:auto">
+        <div id="scm-all-table"></div>
+      </div>
     </div>
   `;
   loadPOData();
@@ -2275,11 +2386,89 @@ function loadPOData() {
     renderSiteTable();
     renderVendorTable();
     renderMonthChart();
+
+    // Populate All POs FY dropdown
+    const fySet2 = [...new Set(_scmAllRows.map(r => getFYKey(r.jsDate)).filter(Boolean))].sort().reverse();
+    const allFySel = document.getElementById('scm-all-fy');
+    if (allFySel) allFySel.innerHTML = '<option value="">All FY</option>' +
+      fySet2.map(fy => `<option value="${fy}">${fy}</option>`).join('');
   }).catch(err => {
     document.getElementById('scm-pending-table').innerHTML =
       `<div style="padding:2rem;text-align:center;color:#c62828">Error: ${err.message}</div>`;
   });
 }
+
+// ── SCM DEEP LINK ────────────────────────────────────────
+window.scmJumpTo = function(filter) {
+  const sec = document.getElementById('scm-all-section');
+  if (!sec) return;
+  sec.style.display = 'block';
+  const titles = { all:'📋 All POs', pending:'⏳ Pending POs', approved:'✅ Approved POs', rejected:'❌ Rejected POs' };
+  const title = document.getElementById('scm-all-title');
+  if (title) title.textContent = titles[filter] || '📋 All POs';
+  // Store active filter for render
+  sec.dataset.filter = filter;
+  window.scmRenderAllTable();
+  sec.scrollIntoView({ behavior:'smooth', block:'start' });
+};
+
+window.scmRenderAllTable = function() {
+  const sec = document.getElementById('scm-all-section');
+  const el  = document.getElementById('scm-all-table');
+  const badge = document.getElementById('scm-all-badge');
+  if (!el || !_scmAllRows.length) return;
+
+  const filter = sec ? sec.dataset.filter || 'all' : 'all';
+  const q      = (document.getElementById('scm-all-search')?.value || '').toLowerCase();
+  const fy     = document.getElementById('scm-all-fy')?.value || '';
+
+  let rows = _scmAllRows;
+  // Status filter
+  if (filter === 'pending')  rows = rows.filter(r => r.status.toUpperCase() !== 'REJECTED' && r.lock === 'Released for Approval');
+  else if (filter === 'approved') rows = rows.filter(r => r.status.toUpperCase().includes('APPROVED'));
+  else if (filter === 'rejected') rows = rows.filter(r => r.status.toUpperCase().includes('REJECT'));
+  // FY filter
+  if (fy) rows = rows.filter(r => r.jsDate && getFYKey(r.jsDate) === fy);
+  // Search
+  if (q) rows = rows.filter(r =>
+    r.poNo.toLowerCase().includes(q) || r.vendor.toLowerCase().includes(q) ||
+    r.site.toLowerCase().includes(q)  || r.approver.toLowerCase().includes(q)
+  );
+
+  if (badge) badge.innerHTML = `<strong>${rows.length}</strong> record${rows.length !== 1 ? 's' : ''}`;
+
+  if (!rows.length) {
+    el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3)">No records match your filter.</div>`;
+    return;
+  }
+
+  const trs = rows.map(r => {
+    const appLink = `${APPSHEET_SCM_URL}?tblName=PO&rowKey=${encodeURIComponent(r.uuid)}`;
+    const stCol = r.status.toUpperCase().includes('APPROVED') ? '#e8f5e9' : r.status.toUpperCase().includes('REJECT') ? '#ffebee' : r.lock === 'Released for Approval' ? '#fff8e1' : '#f0f4f1';
+    const stTxt = r.status.toUpperCase().includes('APPROVED') ? '#2e7d32' : r.status.toUpperCase().includes('REJECT') ? '#c62828' : r.lock === 'Released for Approval' ? '#b07000' : 'var(--txt2)';
+    return `<tr>
+      <td><div style="font-weight:700;color:var(--g7);font-size:.82rem">${r.poNo}</div><div style="font-size:.72rem;color:var(--txt3)">${fmtDate(r.poDate)}</div></td>
+      <td style="font-size:.82rem">${r.vendor}</td>
+      <td style="font-size:.82rem">${r.site}</td>
+      <td style="font-weight:700;font-size:.85rem">${fmtAmtFull(r.amount)}</td>
+      <td><span style="background:${stCol};color:${stTxt};padding:.18rem .5rem;border-radius:20px;font-size:.72rem;font-weight:700">${r.status || 'Pending'}</span></td>
+      <td>${ageBadge(r.ageDays)}</td>
+      <td style="font-size:.78rem;color:var(--txt3)">${r.approver}</td>
+      <td><div style="display:flex;gap:.4rem">
+        <button onclick="window.open('${appLink}','_blank')" style="padding:.25rem .6rem;background:var(--g7);color:#fff;border:none;border-radius:5px;font-size:.72rem;cursor:pointer;font-family:inherit">📋 Open</button>
+        ${r.quote ? `<button onclick="window.open('${r.quote}','_blank')" style="padding:.25rem .6rem;background:#e3f2fd;color:#1565c0;border:none;border-radius:5px;font-size:.72rem;cursor:pointer;font-family:inherit">📎 Quote</button>` : ''}
+      </div></td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<table class="emp-table" style="min-width:780px">
+    <thead><tr>
+      <th>PO No / Date</th><th>Vendor</th><th>Site</th>
+      <th>Amount</th><th>Status</th><th>Age</th><th>Approver</th><th>Actions</th>
+    </tr></thead>
+    <tbody>${trs}</tbody>
+  </table>`;
+};
 
 // ── HELPERS ──────────────────────────────────────────────
 function parsePODate(v) {
@@ -3599,13 +3788,13 @@ function renderStoreModule() {
 
     <!-- KPIs -->
     <div class="kpi-grid" style="margin-bottom:1.2rem">
-      <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">📦</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="window.stJumpTo('all')"><div class="kpi-top"><div class="kpi-icon green">📦</div><div class="kpi-trend flat" style="font-size:.65rem">view all ↓</div></div>
         <div class="kpi-value" id="st-kpi-total">—</div><div class="kpi-label">Total MRS</div></div>
-      <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
+      <div class="kpi-card warn" style="cursor:pointer" onclick="window.stJumpTo('Pending')"><div class="kpi-top"><div class="kpi-icon orange">⏳</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="st-kpi-pending">—</div><div class="kpi-label">Pending</div></div>
-      <div class="kpi-card info"><div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
+      <div class="kpi-card info" style="cursor:pointer" onclick="window.stJumpTo('Approved')"><div class="kpi-top"><div class="kpi-icon blue">✅</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="st-kpi-approved">—</div><div class="kpi-label">Approved</div></div>
-      <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">🏗️</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="window.stJumpTo('sites')"><div class="kpi-top"><div class="kpi-icon green">🏗️</div><div class="kpi-trend flat" style="font-size:.65rem">view sites ↓</div></div>
         <div class="kpi-value" id="st-kpi-sites">—</div><div class="kpi-label">Sites with MRS</div></div>
     </div>
 
@@ -3729,6 +3918,21 @@ function renderStoreModule() {
       }).join('')}</tbody></table>`;
   };
 }
+
+// ── STORE DEEP LINK ───────────────────────────────────────
+window.stJumpTo = function(filter) {
+  const sf = document.getElementById('st-status-f');
+  const tbl = document.getElementById('st-table');
+  if (sf && filter !== 'sites' && filter !== 'all') {
+    sf.value = filter;   // e.g. "Pending" / "Approved"
+  } else if (sf && filter === 'all') {
+    sf.value = '';
+  }
+  window.stApplyFilter();
+  // scroll to appropriate section
+  const target = filter === 'sites' ? tbl : tbl;
+  if (target) target.scrollIntoView({ behavior:'smooth', block:'start' });
+};
 
 function renderStoreSiteTable(rows, statusFilter) {
   const el = document.getElementById('st-table');
@@ -5921,4 +6125,9 @@ document.addEventListener('click', (e) => {
 
 // ══════════════════════════════════════════════════
 //  INIT — auto demo for quick preview
-// ════════════════════════�
+// ══════════════════════════════════════════════════
+// Uncomment below for auto-launch in demo mode:
+// window.addEventListener('load', () => { selectRole('md'); confirmRole(); });
+</script>
+</body>
+</html>
