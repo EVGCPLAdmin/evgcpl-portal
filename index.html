@@ -711,7 +711,7 @@ img{max-width:100%;display:block}
     </button>
 
     <div style="margin-top:.9rem;text-align:center;font-size:.75rem;color:#999">
-      First time? Contact <strong>procurement@evgcpl.com</strong> to get registered.
+      First time? Contact <strong><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="1a6a6875796f687f777f746e5a7f6c7d796a7634797577">[email&#160;protected]</a></strong> to get registered.
     </div>
   </div>
 </div>
@@ -995,7 +995,7 @@ img{max-width:100%;display:block}
 
 </div><!-- /app -->
 
-<script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
 // ══════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════
@@ -4742,10 +4742,10 @@ function renderOnboardingPortal() {
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
             <span style="font-size:.7rem;color:var(--txt3)">Joined ${daysAgo !== null ? daysAgo+'d ago' : '—'}</span>
-            <span style="font-size:.72rem;font-weight:700;color:${colour}">${done}/${STEPS.length} steps</span>
+            <span data-ob-lbl="${eid}" style="font-size:.72rem;font-weight:700;color:${colour}">${done}/${STEPS.length} steps</span>
           </div>
           <div style="background:var(--surface2);border-radius:20px;height:6px;overflow:hidden">
-            <div style="width:${pct}%;height:100%;background:${colour};border-radius:20px;transition:width .4s"></div>
+            <div data-ob-bar="${eid}" style="width:${pct}%;height:100%;background:${colour};border-radius:20px;transition:width .4s"></div>
           </div>
           ${pct===100 ? '<div style="font-size:.68rem;color:#2e7d32;font-weight:700;margin-top:.4rem">✅ Onboarding Complete</div>' : ''}
         </div>
@@ -4796,7 +4796,7 @@ function renderOnboardingPortal() {
     `}
 
     <!-- Onboarding Checklist Modal -->
-    <div id="ob-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9000;display:flex;align-items:center;justify-content:center;padding:1rem">
+    <div id="ob-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9000;align-items:center;justify-content:center;padding:1rem">
       <div style="background:#fff;border-radius:16px;width:100%;max-width:560px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)">
         <div style="background:linear-gradient(135deg,var(--g9),var(--g7));padding:1.2rem 1.5rem;color:#fff;display:flex;align-items:center;justify-content:space-between">
           <div>
@@ -4845,10 +4845,33 @@ function renderOnboardingPortal() {
     renderOBSteps(eid);
   };
   window.closeOBModal = function() {
-    document.getElementById('ob-modal').style.display = 'none';
+    const modal = document.getElementById('ob-modal');
+    if (modal) modal.style.display = 'none';
     _obEmpId = null;
-    // Re-render to refresh progress bars
-    renderOnboardingPortal();
+    // Refresh just the progress bars on the cards without full re-render
+    newJoiners.slice(0, 20).forEach(u => {
+      const eid = u.id || u.empId || u.name;
+      const checks = getChecks(eid);
+      const done = STEPS.filter(s => checks[s.id]).length;
+      const pct  = Math.round((done / STEPS.length) * 100);
+      const colour = pct === 100 ? '#2e7d32' : pct >= 50 ? '#1565c0' : '#e65100';
+      // update progress bar inside the card — locate by data attribute
+      const bar = document.querySelector(`[data-ob-bar="${eid}"]`);
+      const lbl = document.querySelector(`[data-ob-lbl="${eid}"]`);
+      if (bar) { bar.style.width = pct + '%'; bar.style.background = colour; }
+      if (lbl) lbl.textContent = done + '/' + STEPS.length + ' steps';
+    });
+    // update complete/in-progress KPIs
+    let cmplt2 = 0, inprog2 = 0;
+    newJoiners.forEach(u => {
+      const eid = u.id || u.empId || u.name;
+      const done = STEPS.filter(s => getChecks(eid)[s.id]).length;
+      if (done === STEPS.length) cmplt2++; else inprog2++;
+    });
+    const cc2 = document.getElementById('ob-complete-count');
+    const pc2 = document.getElementById('ob-pending-count');
+    if (cc2) cc2.textContent = cmplt2;
+    if (pc2) pc2.textContent = inprog2;
   };
   window.markAllOB = function() {
     if (!_obEmpId) return;
@@ -5898,9 +5921,4 @@ document.addEventListener('click', (e) => {
 
 // ══════════════════════════════════════════════════
 //  INIT — auto demo for quick preview
-// ══════════════════════════════════════════════════
-// Uncomment below for auto-launch in demo mode:
-// window.addEventListener('load', () => { selectRole('md'); confirmRole(); });
-</script>
-</body>
-</html>
+// ════════════════════════�
