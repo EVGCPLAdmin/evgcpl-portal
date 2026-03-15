@@ -1718,21 +1718,25 @@ function renderMRSDashboard() {
         <div class="kpi-top"><div class="kpi-icon green">📋</div><div class="kpi-trend flat" style="font-size:.65rem">view all ↓</div></div>
         <div class="kpi-value" id="mrs-kpi-total">—</div>
         <div class="kpi-label">Total MRS</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.mrsMaster(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 MRS Master View</a></div>
       </div>
       <div class="kpi-card warn" style="cursor:pointer" onclick="window.mrsJumpTo('pending')">
         <div class="kpi-top"><div class="kpi-icon orange">⏳</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="mrs-kpi-pending">—</div>
         <div class="kpi-label">Pending</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.pendingMR(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 Pending MR Approval</a></div>
       </div>
       <div class="kpi-card info" style="cursor:pointer" onclick="window.mrsJumpTo('approved')">
         <div class="kpi-top"><div class="kpi-icon blue">✅</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="mrs-kpi-approved">—</div>
         <div class="kpi-label">Approved</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.mrsMaster(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 MRS Master View</a></div>
       </div>
       <div class="kpi-card" style="cursor:pointer" onclick="window.mrsJumpTo('rejected')">
         <div class="kpi-top"><div class="kpi-icon red">❌</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="mrs-kpi-rejected">—</div>
         <div class="kpi-label">Rejected</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.mrsMaster(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 MRS Master View</a></div>
       </div>
     </div>
 
@@ -1818,6 +1822,7 @@ function renderMRSDashboard() {
           <h3 id="mrs-all-title">📋 All MRS</h3>
           <div style="display:flex;gap:.5rem;align-items:center">
             <span class="hr-stat-pill" id="mrs-all-badge">—</span>
+            <button onclick="window.mrsDownloadCSV()" style="padding:.3rem .75rem;background:#f0f4f1;border:1.5px solid #cce3d4;border-radius:7px;font-size:.75rem;font-weight:600;color:#1a6038;cursor:pointer;font-family:inherit">⬇ CSV</button>
             <button onclick="document.getElementById('mrs-all-section').style.display='none'" style="padding:.25rem .7rem;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:.75rem;cursor:pointer;font-family:inherit">✕ Close</button>
           </div>
         </div>
@@ -1935,6 +1940,20 @@ function loadMRSData() {
 }
 
 // ── MRS DEEP LINK ─────────────────────────────────────────
+window.mrsDownloadCSV = function() {
+  const sec = document.getElementById('mrs-all-section');
+  const filter = sec ? sec.dataset.filter || 'all' : 'all';
+  const q = (document.getElementById('mrs-all-search')?.value || '').toLowerCase();
+  const today = new Date(); today.setHours(0,0,0,0);
+  let rows = _mrsAllRows;
+  if (filter === 'pending')  rows = rows.filter(r => !r.status || r.status === 'Pending');
+  else if (filter === 'approved') rows = rows.filter(r => r.status === 'Approved');
+  else if (filter === 'rejected') rows = rows.filter(r => r.status === 'Rejected');
+  else if (filter === 'overdue')  rows = rows.filter(r => (!r.status || r.status === 'Pending') && r.ts && (today - r.ts) / 86400000 > 7);
+  if (q) rows = rows.filter(r => (r.reqNo||'').toLowerCase().includes(q) || (r.site||'').toLowerCase().includes(q));
+  const csv = rows.map(r => ({ 'Request No': r.reqNo, 'Site': r.site, 'Status': r.status || 'Pending', 'Approval Date': r.approveD ? fmtDate(r.approveD) : '', 'Raised On': r.ts ? fmtDate(r.ts) : '', 'Age (Days)': r.ageDays ?? '' }));
+  downloadCSV(csv, `MRS_${filter}_${new Date().toISOString().slice(0,10)}.csv`);
+};
 window.mrsJumpTo = function(filter) {
   const sec = document.getElementById('mrs-all-section');
   if (!sec) return;
@@ -2114,6 +2133,52 @@ function renderMRSMonthChart() {
 
 const APPSHEET_SCM_URL = 'https://www.appsheet.com/start/06fd0117-1dd8-445b-aaee-e2ff6e68e36f';
 
+// ── APPSHEET VIEW DEEP LINKS ─────────────────────────────
+const AS = {
+  base:              APPSHEET_SCM_URL,
+  v: n =>           `${APPSHEET_SCM_URL}#view=${encodeURIComponent(n)}`,
+  // Named views from screenshot
+  pendingMR:        () => AS.v('Pending MR Approval'),
+  mrsMaster:        () => AS.v('MRS Master View'),
+  purchase:         () => AS.v('Purchase'),
+  poApproval:       () => AS.v('PO Approval'),
+  stockLevels:      () => AS.v('Stock Levels'),
+  newMR:            () => AS.v('New Material Request'),
+  stockInOut:       () => AS.v('Stock IN / Stock Out'),
+  goodsReceived:    () => AS.v('Goods Received'),
+  stockInDetails:   () => AS.v('Stock IN Details'),
+  pendingStockIn:   () => AS.v('Pending Stock IN'),
+  stockOutList:     () => AS.v('StockOut List'),
+  stockTransfer:    () => AS.v('Stock Transfer'),
+  vendorRateList:   () => AS.v('Vendor Rate List'),
+  invoiceTransport: () => AS.v('Invoice & Transport Update'),
+  poAccounts:       () => AS.v('POs Moved to Accounts'),
+};
+
+// ── CSV DOWNLOAD UTILITY ─────────────────────────────────
+function downloadCSV(rows, filename) {
+  if (!rows || !rows.length) { alert('No data to download.'); return; }
+  const keys = Object.keys(rows[0]).filter(k => !k.startsWith('_'));
+  const esc  = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const csv  = [keys.map(esc).join(','), ...rows.map(r => keys.map(k => esc(r[k])).join(','))].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = filename || 'export.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function dlBtn(fn, label) {
+  return `<button onclick="${fn}" title="Download CSV"
+    style="padding:.3rem .75rem;background:#f0f4f1;border:1.5px solid #cce3d4;border-radius:7px;font-size:.75rem;font-weight:600;color:#1a6038;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:.3rem">
+    ⬇ ${label || 'Download CSV'}</button>`;
+}
+function asBtn(url, label) {
+  return `<button onclick="window.open('${url}','_blank')" title="Open in AppSheet"
+    style="padding:.3rem .75rem;background:#e3f2fd;border:1.5px solid #90caf9;border-radius:7px;font-size:.75rem;font-weight:600;color:#1565c0;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:.3rem">
+    🚀 ${label || 'AppSheet'}</button>`;
+}
+
 // ── State ────────────────────────────────────────────────
 let _scmPendingPOs  = [];
 let _scmSiteData    = [];
@@ -2160,21 +2225,25 @@ function renderSCMDashboard() {
         <div class="kpi-top"><div class="kpi-icon green">📋</div><div class="kpi-trend flat" style="font-size:.65rem">view all ↓</div></div>
         <div class="kpi-value" id="scm-kpi-total">—</div>
         <div class="kpi-label">Total POs</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.purchase(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 Purchase View</a></div>
       </div>
       <div class="kpi-card warn" style="cursor:pointer" onclick="window.scmJumpTo('pending')">
         <div class="kpi-top"><div class="kpi-icon orange">⏳</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="scm-kpi-pending">—</div>
         <div class="kpi-label">Pending Approval</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.poApproval(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 PO Approval</a></div>
       </div>
       <div class="kpi-card info" style="cursor:pointer" onclick="window.scmJumpTo('approved')">
         <div class="kpi-top"><div class="kpi-icon blue">✅</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="scm-kpi-approved">—</div>
         <div class="kpi-label">Approved</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.purchase(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 Purchase View</a></div>
       </div>
       <div class="kpi-card" style="cursor:pointer" onclick="window.scmJumpTo('rejected')">
         <div class="kpi-top"><div class="kpi-icon red">❌</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="scm-kpi-rejected">—</div>
         <div class="kpi-label">Rejected</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.purchase(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 Purchase View</a></div>
       </div>
     </div>
 
@@ -2255,6 +2324,7 @@ function renderSCMDashboard() {
         <h3 id="scm-all-title">📋 All POs</h3>
         <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
           <span class="hr-stat-pill" id="scm-all-badge">—</span>
+          <button onclick="window.scmDownloadCSV()" style="padding:.3rem .75rem;background:#f0f4f1;border:1.5px solid #cce3d4;border-radius:7px;font-size:.75rem;font-weight:600;color:#1a6038;cursor:pointer;font-family:inherit">⬇ CSV</button>
           <button onclick="document.getElementById('scm-all-section').style.display='none'" style="padding:.25rem .7rem;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:.75rem;cursor:pointer;font-family:inherit">✕ Close</button>
         </div>
       </div>
@@ -2399,6 +2469,20 @@ function loadPOData() {
 }
 
 // ── SCM DEEP LINK ────────────────────────────────────────
+window.scmDownloadCSV = function() {
+  const sec = document.getElementById('scm-all-section');
+  const filter = sec ? sec.dataset.filter || 'all' : 'all';
+  const q  = (document.getElementById('scm-all-search')?.value || '').toLowerCase();
+  const fy = document.getElementById('scm-all-fy')?.value || '';
+  let rows = _scmAllRows;
+  if (filter === 'pending')  rows = rows.filter(r => r.status.toUpperCase() !== 'REJECTED' && r.lock === 'Released for Approval');
+  else if (filter === 'approved') rows = rows.filter(r => r.status.toUpperCase().includes('APPROVED'));
+  else if (filter === 'rejected') rows = rows.filter(r => r.status.toUpperCase().includes('REJECT'));
+  if (fy) rows = rows.filter(r => r.jsDate && getFYKey(r.jsDate) === fy);
+  if (q)  rows = rows.filter(r => r.poNo.toLowerCase().includes(q) || r.vendor.toLowerCase().includes(q) || r.site.toLowerCase().includes(q));
+  const csv = rows.map(r => ({ 'PO No': r.poNo, 'PO Date': fmtDate(r.poDate), 'Vendor': r.vendor, 'Site': r.site, 'Amount': r.amount, 'Status': r.status, 'Age (Days)': r.ageDays ?? '', 'Approver': r.approver }));
+  downloadCSV(csv, `POs_${filter}_${new Date().toISOString().slice(0,10)}.csv`);
+};
 window.scmJumpTo = function(filter) {
   const sec = document.getElementById('scm-all-section');
   if (!sec) return;
@@ -3789,11 +3873,14 @@ function renderStoreModule() {
     <!-- KPIs -->
     <div class="kpi-grid" style="margin-bottom:1.2rem">
       <div class="kpi-card" style="cursor:pointer" onclick="window.stJumpTo('all')"><div class="kpi-top"><div class="kpi-icon green">📦</div><div class="kpi-trend flat" style="font-size:.65rem">view all ↓</div></div>
-        <div class="kpi-value" id="st-kpi-total">—</div><div class="kpi-label">Total MRS</div></div>
+        <div class="kpi-value" id="st-kpi-total">—</div><div class="kpi-label">Total MRS</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.newMR(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 New Material Request</a></div></div>
       <div class="kpi-card warn" style="cursor:pointer" onclick="window.stJumpTo('Pending')"><div class="kpi-top"><div class="kpi-icon orange">⏳</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
-        <div class="kpi-value" id="st-kpi-pending">—</div><div class="kpi-label">Pending</div></div>
+        <div class="kpi-value" id="st-kpi-pending">—</div><div class="kpi-label">Pending</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.pendingMR(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 Pending MR Approval</a></div></div>
       <div class="kpi-card info" style="cursor:pointer" onclick="window.stJumpTo('Approved')"><div class="kpi-top"><div class="kpi-icon blue">✅</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
-        <div class="kpi-value" id="st-kpi-approved">—</div><div class="kpi-label">Approved</div></div>
+        <div class="kpi-value" id="st-kpi-approved">—</div><div class="kpi-label">Approved</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.mrsMaster(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 MRS Master View</a></div></div>
       <div class="kpi-card" style="cursor:pointer" onclick="window.stJumpTo('sites')"><div class="kpi-top"><div class="kpi-icon green">🏗️</div><div class="kpi-trend flat" style="font-size:.65rem">view sites ↓</div></div>
         <div class="kpi-value" id="st-kpi-sites">—</div><div class="kpi-label">Sites with MRS</div></div>
     </div>
@@ -3809,6 +3896,7 @@ function renderStoreModule() {
         <option value="Rejected">Rejected</option>
       </select>
       <span class="hr-stat-pill" id="st-count-badge">Loading…</span>
+      <button onclick="window.stDownloadCSV()" style="padding:.3rem .75rem;background:#f0f4f1;border:1.5px solid #cce3d4;border-radius:7px;font-size:.75rem;font-weight:600;color:#1a6038;cursor:pointer;font-family:inherit">⬇ CSV</button>
     </div>
 
     <div id="st-table">
@@ -3920,6 +4008,15 @@ function renderStoreModule() {
 }
 
 // ── STORE DEEP LINK ───────────────────────────────────────
+window.stDownloadCSV = function() {
+  const sf = (document.getElementById('st-status-f')?.value || '').toLowerCase();
+  const q  = (document.getElementById('st-search')?.value || '').toLowerCase();
+  let rows = _storeAllRows;
+  if (sf) rows = rows.filter(r => r.status.toLowerCase() === sf);
+  if (q)  rows = rows.filter(r => (r.site||'').toLowerCase().includes(q) || (r.reqNo||'').toLowerCase().includes(q));
+  const csv = rows.map(r => ({ 'Request No': r.reqNo, 'Site': r.site, 'Part Details': r.part, 'Status': r.status, 'Timestamp': r.ts }));
+  downloadCSV(csv, `SiteStore_${sf||'all'}_${new Date().toISOString().slice(0,10)}.csv`);
+};
 window.stJumpTo = function(filter) {
   const sf = document.getElementById('st-status-f');
   const tbl = document.getElementById('st-table');
@@ -4112,6 +4209,43 @@ function pstRefresh() {
   pstLoad();
 }
 
+window.pstDownloadCSV = function(tab) {
+  const site = _pstSiteFilter;
+  const q    = (document.getElementById('pst-search')?.value || '').toLowerCase();
+  if (tab === 'stockin') {
+    const rows = pstFilteredStockIN(q);
+    downloadCSV(rows.map(r => ({
+      'GRN No': r._grnNo || '', 'SI ID': r['SI ID'] || '', 'Site': r['Site Name'] || '',
+      'Type': r['Invoice / Stock Transfer'] || '', 'PO No': r['PO No'] || '',
+      'Vendor': r['Vendor Name'] || '', 'Invoice/ST No': r['Invoice No / ST No'] || '',
+      'Part Description': r['Part Description'] || r['Part Details'] || '',
+      'MR No': r['MR No'] || '', 'MR Qty': r['MR Qty'] || '',
+      'Invoice Qty': r['Invoice Qty'] || '', 'GRN Qty': r['GRN Qty'] || '',
+      'Received On': (r._grnReceivedOn || '').split(' ')[0],
+    })), `StockIN_${site||'all'}_${new Date().toISOString().slice(0,10)}.csv`);
+  } else if (tab === 'grn') {
+    const base = site ? _pstStockIN.filter(r => r['Site Name'] === site) : _pstStockIN;
+    const byGRN = {};
+    base.forEach(r => {
+      const cs = (r['CheckSum'] || r['UUID'] || '').trim();
+      const g  = _pstGRNMap[cs] || {};
+      const key = g.grnNo || '(Pending GRN)';
+      if (!byGRN[key]) byGRN[key] = { 'GRN No': key, 'Site': g.site || r['Site Name'] || '', 'PO No': g.poNo || '', 'Vendor': g.vendorDet || r['Vendor Name'] || '', 'Invoice/ST No': g.invNo || '', 'Line Items': 0, 'Total GRN Qty': 0, 'Received On': (g.receivedOn || '').split(' ')[0] };
+      byGRN[key]['Line Items']++;
+      byGRN[key]['Total GRN Qty'] += parseFloat(r['GRN Qty'] || 0);
+    });
+    downloadCSV(Object.values(byGRN), `GRNRegister_${site||'all'}_${new Date().toISOString().slice(0,10)}.csv`);
+  } else if (tab === 'levels') {
+    const rows = (site ? _pstLevels.filter(r => r['Site Name'] === site) : _pstLevels)
+      .filter(r => !q || (r['Part Details'] || r['Site & Code'] || '').toLowerCase().includes(q) || (r['Site Name'] || '').toLowerCase().includes(q));
+    downloadCSV(rows.map(r => ({
+      'SNo': r['SNo'] || '', 'Site': r['Site Name'] || '', 'Part Details': r['Part Details'] || r['Site & Code'] || '',
+      'Stock IN': r['StockIN'] || '0', 'Stock Transfer': r['Stock Transfer (To)'] || '0',
+      'Stock Out': r['Stock Out'] || '0', 'Site Stock': r['Site Stock'] || '0',
+    })), `StockLevels_${site||'all'}_${new Date().toISOString().slice(0,10)}.csv`);
+  }
+};
+
 function pstSetSite(v) {
   _pstSiteFilter = v;
   const si = document.getElementById('pst-search');
@@ -4170,19 +4304,23 @@ function pstUpdateKPIs() {
   const totalStock = lvlRows.reduce((s, r) => s + parseFloat(r['Site Stock'] || r['StockIN'] || 0), 0);
 
   document.getElementById('pst-kpi-row').innerHTML = `
-    ${pstKpi('📥','Stock IN Lines', totalSI, '')}
-    ${pstKpi('📦','GRN Nos', totalGRNs, 'green')}
-    ${pstKpi('⏳','Pending GRN', pendingGRN, pendingGRN > 0 ? 'gold' : '')}
-    ${pstKpi('🏗️','Sites', _pstSiteFilter ? 1 : sites, '')}
-    ${pstKpi('📊','Stock Qty (Levels)', Math.round(totalStock).toLocaleString('en-IN'), '')}
+    ${pstKpi('📥','Stock IN Lines', totalSI, '', 'stockin', AS.stockInOut(),'Stock IN / Stock Out')}
+    ${pstKpi('📦','GRN Nos', totalGRNs, 'green', 'grn', AS.goodsReceived(),'Goods Received')}
+    ${pstKpi('⏳','Pending GRN', pendingGRN, pendingGRN > 0 ? 'gold' : '', 'stockin', AS.pendingStockIn(),'Pending Stock IN')}
+    ${pstKpi('🏗️','Sites', _pstSiteFilter ? 1 : sites, '', '', '','') }
+    ${pstKpi('📊','Stock Qty', Math.round(totalStock).toLocaleString('en-IN'), '', 'levels', AS.stockLevels(),'Stock Levels')}
   `;
 }
 
-function pstKpi(icon, label, val, accent) {
+function pstKpi(icon, label, val, accent, tab, asUrl, asLabel) {
   const color = accent === 'green' ? '#2e7d32' : accent === 'gold' ? '#b07000' : 'var(--txt1)';
-  return `<div class="kpi-card"><div class="kpi-top"><div class="kpi-icon">${icon}</div></div>
+  const clickHandler = tab ? `onclick="pstSwitchTab('${tab}');document.getElementById('pst-tab-content')?.scrollIntoView({behavior:'smooth',block:'start'})"` : '';
+  const asLink = asUrl ? `<div style="margin-top:.3rem"><a onclick="event.stopPropagation()" href="javascript:window.open('${asUrl}','_blank')" style="font-size:.65rem;color:#1565c0;text-decoration:none">🚀 ${asLabel}</a></div>` : '';
+  return `<div class="kpi-card" style="${tab?'cursor:pointer':''}" ${clickHandler}>
+    <div class="kpi-top"><div class="kpi-icon">${icon}</div>${tab?'<div class="kpi-trend flat" style="font-size:.62rem">view ↓</div>':''}</div>
     <div class="kpi-val" style="color:${color}">${val}</div>
-    <div class="kpi-label">${label}</div></div>`;
+    <div class="kpi-label">${label}</div>${asLink}
+  </div>`;
 }
 
 function pstRenderTab(q) {
@@ -4201,7 +4339,10 @@ function pstRenderStockIN(c, q) {
     return;
   }
   c.innerHTML = `
-  <div style="font-size:.8rem;color:var(--txt3);margin-bottom:.6rem">${rows.length} record${rows.length !== 1 ? 's' : ''}</div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;gap:.5rem;flex-wrap:wrap">
+    <span style="font-size:.8rem;color:var(--txt3)">${rows.length} record${rows.length !== 1 ? 's' : ''}</span>
+    <button onclick="window.pstDownloadCSV('stockin')" style="padding:.3rem .75rem;background:#f0f4f1;border:1.5px solid #cce3d4;border-radius:7px;font-size:.75rem;font-weight:600;color:#1a6038;cursor:pointer;font-family:inherit">⬇ CSV</button>
+  </div>
   <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
   <table class="vpi-tbl">
     <thead><tr>
@@ -4269,7 +4410,10 @@ function pstRenderGRNRegister(c, q) {
   }
 
   c.innerHTML = `
-  <div style="font-size:.8rem;color:var(--txt3);margin-bottom:.6rem">${grnList.length} GRN${grnList.length !== 1 ? 's' : ''}</div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;gap:.5rem;flex-wrap:wrap">
+    <span style="font-size:.8rem;color:var(--txt3)">${grnList.length} GRN${grnList.length !== 1 ? 's' : ''}</span>
+    <button onclick="window.pstDownloadCSV('grn')" style="padding:.3rem .75rem;background:#f0f4f1;border:1.5px solid #cce3d4;border-radius:7px;font-size:.75rem;font-weight:600;color:#1a6038;cursor:pointer;font-family:inherit">⬇ CSV</button>
+  </div>
   <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
   <table class="vpi-tbl">
     <thead><tr>
@@ -4334,7 +4478,10 @@ function pstRenderLevels(c, q) {
     ${Object.keys(bySite).length > 5 ? `<div style="background:#f0f4f1;border-radius:8px;padding:.45rem .85rem;font-size:.79rem;color:var(--txt3)">+${Object.keys(bySite).length - 5} more sites</div>` : ''}
   </div>` : ''}
 
-  <div style="font-size:.8rem;color:var(--txt3);margin-bottom:.6rem">${rows.length} item${rows.length !== 1 ? 's' : ''}</div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;gap:.5rem;flex-wrap:wrap">
+    <span style="font-size:.8rem;color:var(--txt3)">${rows.length} item${rows.length !== 1 ? 's' : ''}</span>
+    <button onclick="window.pstDownloadCSV('levels')" style="padding:.3rem .75rem;background:#f0f4f1;border:1.5px solid #cce3d4;border-radius:7px;font-size:.75rem;font-weight:600;color:#1a6038;cursor:pointer;font-family:inherit">⬇ CSV</button>
+  </div>
   <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
   <table class="vpi-tbl">
     <thead><tr>
@@ -4573,11 +4720,11 @@ async function vpiLoadData() {
 
   const kpiRow = document.getElementById('vpi-kpi-row');
   kpiRow.innerHTML = `
-    ${vpiKpi('💰', 'PO Value', fmtAmt(totalPO), '')}
-    ${vpiKpi('🧾', 'Invoiced', fmtAmt(totalInv), '')}
-    ${vpiKpi('✅', 'Paid', fmtAmt(totalPaid), 'green')}
-    ${vpiKpi('⏳', 'Pending', fmtAmt(totalPend), totalPend > 0 ? 'gold' : '')}
-    ${vpiKpi('📦', 'GRN Entries', totalGRN, '')}
+    ${vpiKpi('💰', 'PO Value', fmtAmt(totalPO), '', 'ledger', AS.purchase(), 'Purchase View')}
+    ${vpiKpi('🧾', 'Invoiced', fmtAmt(totalInv), '', 'invoices', AS.invoiceTransport(), 'Invoice & Transport')}
+    ${vpiKpi('✅', 'Paid', fmtAmt(totalPaid), 'green', 'ledger', AS.poAccounts(), 'POs → Accounts')}
+    ${vpiKpi('⏳', 'Pending', fmtAmt(totalPend), totalPend > 0 ? 'gold' : '', 'ledger', AS.poApproval(), 'PO Approval')}
+    ${vpiKpi('📦', 'GRN Entries', totalGRN, '', 'grn', AS.goodsReceived(), 'Goods Received')}
   `;
   kpiRow.style.display = 'grid';
 
@@ -4587,14 +4734,54 @@ async function vpiLoadData() {
   vpiRenderTabContent();
 }
 
-function vpiKpi(icon, label, val, accent) {
+function vpiKpi(icon, label, val, accent, tab, asUrl, asLabel) {
   const color = accent === 'green' ? '#2e7d32' : accent === 'gold' ? '#b07000' : 'var(--txt1)';
-  return `<div class="kpi-card">
-    <div class="kpi-top"><div class="kpi-icon">${icon}</div></div>
+  const clickHandler = tab ? `onclick="vpiSwitchTab('${tab}')"` : '';
+  const asLink = asUrl ? `<div style="margin-top:.3rem"><a onclick="event.stopPropagation()" href="javascript:window.open('${asUrl}','_blank')" style="font-size:.65rem;color:#1565c0;text-decoration:none">🚀 ${asLabel}</a></div>` : '';
+  return `<div class="kpi-card" style="${tab?'cursor:pointer':''}" ${clickHandler}>
+    <div class="kpi-top"><div class="kpi-icon">${icon}</div>${tab?'<div class="kpi-trend flat" style="font-size:.62rem">view ↓</div>':''}</div>
     <div class="kpi-val" style="color:${color}">${val}</div>
-    <div class="kpi-label">${label}</div>
+    <div class="kpi-label">${label}</div>${asLink}
   </div>`;
 }
+
+window.vpiDownloadCSV = function(tab) {
+  if (tab === 'ledger') {
+    const q = (document.getElementById('vpi-ledger-filter')?.value || '').toLowerCase();
+    const rows = q ? _vpiPayments.filter(r =>
+      (r['Order No']||'').toLowerCase().includes(q) || (r['Bill No']||'').toLowerCase().includes(q) ||
+      (r['Request ID']||'').toLowerCase().includes(q) || (r['Site Name']||'').toLowerCase().includes(q)
+    ) : _vpiPayments;
+    downloadCSV(rows.map(r => ({
+      'Request ID': r['Request ID'] || '', 'Date': (r['Date Of Request']||'').split(' ')[0],
+      'Order No': r['Order No']||'', 'Bill No': r['Bill No']||'', 'Site': r['Site Name']||'',
+      'PO Value': r['PO Value']||'', 'Invoice Value': r['Invoice Value']||'',
+      'Paid Value': r['Paid Value']||'', 'Pending Value': r['Pending Value']||'',
+      'UTR': r['UTR Details']||'', 'Status': r['Status']||r['Accounts Status']||'',
+    })), `VendorLedger_${new Date().toISOString().slice(0,10)}.csv`);
+  } else if (tab === 'grn') {
+    downloadCSV(_vpiStockIN.map(r => {
+      const cs = (r['CheckSum']||r['UUID']||'').trim();
+      const g  = _vpiGRNMap[cs] || {};
+      return { 'GRN No': g.grnNo||'', 'SI ID': r['SI ID']||'', 'Site': r['Site Name']||'',
+        'PO No': r['PO No']||'', 'Invoice/ST No': r['Invoice No / ST No']||'',
+        'Part Description': r['Part Description']||r['Part Details']||'',
+        'MR No': r['MR No']||'', 'MR Qty': r['MR Qty']||'',
+        'Invoice Qty': r['Invoice Qty']||'', 'GRN Qty': r['GRN Qty']||'',
+        'Received On': (g.receivedOn||r['Received On (At)']||'').split(' ')[0],
+      };
+    }), `VendorGRN_${new Date().toISOString().slice(0,10)}.csv`);
+  } else if (tab === 'invoices') {
+    const invRows = _vpiStockIN.filter(r => (r['Invoice No / ST No']||'').trim());
+    const byInv = {};
+    invRows.forEach(r => {
+      const k = (r['Invoice No / ST No']||'').trim();
+      if (!byInv[k]) byInv[k] = { 'Invoice/ST No': k, 'PO No': r['PO No']||'', 'Site': r['Site Name']||'', 'Line Items': 0, 'Total GRN Qty': 0, 'Received On': (r['Received On (At)']||'').split(' ')[0] };
+      byInv[k]['Line Items']++; byInv[k]['Total GRN Qty'] += parseFloat(r['GRN Qty']||0);
+    });
+    downloadCSV(Object.values(byInv), `VendorInvoices_${new Date().toISOString().slice(0,10)}.csv`);
+  }
+};
 
 function vpiSwitchTab(tab) {
   _vpiActiveTab = tab;
@@ -4640,9 +4827,12 @@ function vpiRenderLedger(c) {
   c.innerHTML = `
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem">
     <div style="font-size:.82rem;color:var(--txt3)">${rows.length} payment request${rows.length !== 1 ? 's' : ''} found</div>
-    <input type="text" placeholder="Filter by order no / bill no…" id="vpi-ledger-filter"
-      style="padding:.38rem .65rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.8rem;font-family:inherit;outline:none;width:220px"
-      oninput="vpiFilterLedgerRows(this.value)" />
+    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+      <input type="text" placeholder="Filter by order no / bill no…" id="vpi-ledger-filter"
+        style="padding:.38rem .65rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.8rem;font-family:inherit;outline:none;width:200px"
+        oninput="vpiFilterLedgerRows(this.value)" />
+      <button onclick="window.vpiDownloadCSV('ledger')" style="padding:.3rem .75rem;background:#f0f4f1;border:1.5px solid #cce3d4;border-radius:7px;font-size:.75rem;font-weight:600;color:#1a6038;cursor:pointer;font-family:inherit">⬇ CSV</button>
+    </div>
   </div>
   <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
   <table class="vpi-tbl" id="vpi-ledger-tbl">
@@ -4723,9 +4913,12 @@ function vpiRenderGRN(c) {
 
   c.innerHTML = `
   <!-- GRN SUMMARY CARDS -->
-  <div style="font-weight:700;font-size:.82rem;color:var(--txt2);margin-bottom:.6rem;display:flex;align-items:center;justify-content:space-between">
+  <div style="font-weight:700;font-size:.82rem;color:var(--txt2);margin-bottom:.6rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.4rem">
     <span>📦 GRN Summary <span style="font-weight:400;color:var(--txt3);font-size:.77rem">(${grnList.length} GRN${grnList.length !== 1 ? 's' : ''})</span></span>
-    <span style="font-size:.76rem;color:var(--txt3)">${rows.length} total line items</span>
+    <div style="display:flex;gap:.4rem;align-items:center">
+      <span style="font-size:.76rem;color:var(--txt3)">${rows.length} total line items</span>
+      <button onclick="window.vpiDownloadCSV('grn')" style="padding:.28rem .7rem;background:#f0f4f1;border:1.5px solid #cce3d4;border-radius:7px;font-size:.73rem;font-weight:600;color:#1a6038;cursor:pointer;font-family:inherit">⬇ CSV</button>
+    </div>
   </div>
 
   <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4;margin-bottom:1.4rem">
@@ -4840,7 +5033,10 @@ function vpiRenderInvoices(c) {
   const payInvs = _vpiPayments.filter(r => (r['Bill No'] || '').trim() !== '');
 
   c.innerHTML = `
-  <div style="font-size:.82rem;color:var(--txt3);margin-bottom:.75rem">${grouped.length} invoice(s) from GRN records${payInvs.length ? ` · ${payInvs.length} from payment register` : ''}</div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;flex-wrap:wrap;gap:.4rem">
+    <span style="font-size:.82rem;color:var(--txt3)">${grouped.length} invoice(s) from GRN records${payInvs.length ? ` · ${payInvs.length} from payment register` : ''}</span>
+    <button onclick="window.vpiDownloadCSV('invoices')" style="padding:.28rem .7rem;background:#f0f4f1;border:1.5px solid #cce3d4;border-radius:7px;font-size:.73rem;font-weight:600;color:#1a6038;cursor:pointer;font-family:inherit">⬇ CSV</button>
+  </div>
 
   ${payInvs.length ? `
   <div style="font-weight:700;font-size:.82rem;color:var(--txt2);margin-bottom:.5rem;margin-top:.25rem">📋 Payment Register Bills</div>
@@ -5140,20 +5336,23 @@ function renderVendorPOTracker() {
 
     <!-- KPI Cards -->
     <div class="kpi-grid" style="margin-bottom:1.2rem">
-      <div class="kpi-card">
-        <div class="kpi-top"><div class="kpi-icon green">${typeIcon}</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="window.vpoSetFilter('all');document.getElementById('vpo-table')?.scrollIntoView({behavior:'smooth',block:'start'})">
+        <div class="kpi-top"><div class="kpi-icon green">${typeIcon}</div><div class="kpi-trend flat" style="font-size:.65rem">view all ↓</div></div>
         <div class="kpi-value" id="vpo-kpi-total">—</div>
         <div class="kpi-label">Total POs</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.purchase(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 Purchase View</a></div>
       </div>
-      <div class="kpi-card warn">
-        <div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
+      <div class="kpi-card warn" style="cursor:pointer" onclick="window.vpoSetFilter('pending');document.getElementById('vpo-table')?.scrollIntoView({behavior:'smooth',block:'start'})">
+        <div class="kpi-top"><div class="kpi-icon orange">⏳</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="vpo-kpi-pending">—</div>
         <div class="kpi-label">Pending Approval</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.poApproval(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 PO Approval</a></div>
       </div>
-      <div class="kpi-card info">
-        <div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
+      <div class="kpi-card info" style="cursor:pointer" onclick="window.vpoSetFilter('approved');document.getElementById('vpo-table')?.scrollIntoView({behavior:'smooth',block:'start'})">
+        <div class="kpi-top"><div class="kpi-icon blue">✅</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="vpo-kpi-approved">—</div>
         <div class="kpi-label">Approved</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.purchase(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 Purchase View</a></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-top"><div class="kpi-icon green">₹</div></div>
@@ -5367,20 +5566,23 @@ function renderVendorInvoices() {
 
     <!-- KPI Cards -->
     <div class="kpi-grid" style="margin-bottom:1.2rem">
-      <div class="kpi-card">
-        <div class="kpi-top"><div class="kpi-icon green">🧾</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="document.getElementById('vinv-table')?.scrollIntoView({behavior:'smooth',block:'start'})">
+        <div class="kpi-top"><div class="kpi-icon green">🧾</div><div class="kpi-trend flat" style="font-size:.65rem">view all ↓</div></div>
         <div class="kpi-value" id="vinv-kpi-total">—</div>
         <div class="kpi-label">Total Invoices</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.invoiceTransport(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 Invoice & Transport</a></div>
       </div>
-      <div class="kpi-card warn">
-        <div class="kpi-top"><div class="kpi-icon orange">⏳</div></div>
+      <div class="kpi-card warn" style="cursor:pointer" onclick="document.getElementById('vinv-table')?.scrollIntoView({behavior:'smooth',block:'start'})">
+        <div class="kpi-top"><div class="kpi-icon orange">⏳</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="vinv-kpi-pending">—</div>
         <div class="kpi-label">Awaiting Payment</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.invoiceTransport(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 Invoice & Transport</a></div>
       </div>
-      <div class="kpi-card info">
-        <div class="kpi-top"><div class="kpi-icon blue">✅</div></div>
+      <div class="kpi-card info" style="cursor:pointer" onclick="document.getElementById('vinv-table')?.scrollIntoView({behavior:'smooth',block:'start'})">
+        <div class="kpi-top"><div class="kpi-icon blue">✅</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="vinv-kpi-paid">—</div>
         <div class="kpi-label">Paid</div>
+        <div style="margin-top:.35rem"><a onclick="event.stopPropagation()" href="javascript:window.open(AS.poAccounts(),'_blank')" style="font-size:.68rem;color:#1565c0;text-decoration:none">🚀 POs → Accounts</a></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-top"><div class="kpi-icon green">₹</div></div>
