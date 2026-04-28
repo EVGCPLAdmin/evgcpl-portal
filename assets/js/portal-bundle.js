@@ -1321,7 +1321,7 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','hr-dashboard','personal','my-profile','policies','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance']),
+  md:        new Set(['dashboard','md-command','hr-dashboard','personal','my-profile','policies','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance']),
   hr:        new Set(['dashboard','hr-dashboard','personal','my-profile','policies','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance']),
@@ -1532,6 +1532,7 @@ function renderPage(page) {
     'asset-verification':() => renderPlantMachineryPage('verification'),
     'asset-maintenance': () => renderPlantMachineryPage('maintenance'),
     'dev-mode':       renderDevModePage,
+    'settings':       renderSettingsPage,
     'reports':        renderReportsModule,
     // Vendor / SC external portal routes
     'my-portal':      renderExternalPortal,
@@ -3539,30 +3540,11 @@ function planningMountComponent(tab) {
   if (!mount) return;
   mount.innerHTML = '';
 
-  // ── Project Setup: embed the standalone Planning page as iframe ──
-  if (tab === 'setup') {
-    mount.innerHTML = `
-      <div style="position:relative;width:100%;border-radius:10px;overflow:hidden;border:1px solid var(--border);background:var(--g9)">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:.55rem 1rem;background:var(--g9);border-bottom:1px solid rgba(255,255,255,.08)">
-          <span style="font-size:.8rem;font-weight:600;color:rgba(255,255,255,.7)">&#9881;&#65039; Project Setup &nbsp;·&nbsp; <span style="opacity:.5;font-size:.72rem">https://evgcpladmin.github.io/evgcpl-portal/Planning</span></span>
-          <a href="https://evgcpladmin.github.io/evgcpl-portal/Planning" target="_blank" rel="noopener"
-            style="font-size:.72rem;padding:.25rem .7rem;background:rgba(255,255,255,.1);color:rgba(255,255,255,.7);border-radius:6px;text-decoration:none;border:1px solid rgba(255,255,255,.12)">
-            &#8599; Open in new tab
-          </a>
-        </div>
-        <iframe
-          src="https://evgcpladmin.github.io/evgcpl-portal/Planning"
-          style="width:100%;height:calc(100vh - 220px);min-height:600px;border:none;display:block;background:#0f1114"
-          title="Project Setup"
-          allow="clipboard-write"
-          id="planning-setup-iframe">
-        </iframe>
-      </div>`;
-    return;
-  }
-
-  // Measurement Book: render via Babel/React
-  const src = PLANNING_MB_JSX;
+  // Both 'setup' and 'measurement' now render inline via Babel/React.
+  // (Previously 'setup' loaded an iframe pointing at /Planning which 404'd
+  //  because that path doesn't exist on GitHub Pages.)
+  const src = (tab === 'setup') ? PLANNING_SETUP_JSX : PLANNING_MB_JSX;
+  const expectedComponent = (tab === 'setup') ? 'ProjectSetup' : 'MeasurementBook';
 
   try {
     const reactPreamble = 'const { useState, useCallback, useMemo, useEffect, useRef, useContext } = React;\n';
@@ -3571,7 +3553,7 @@ function planningMountComponent(tab) {
       .replace(/^export\s+default\s+function\s+/gm, 'function ')
       .replace(/^export\s+default\s+class\s+/gm, 'class ')
       .replace(/^export\s+default\s+/gm, 'const __defaultExport__ = ')
-      + '\nwindow.__PlanningComponent__ = typeof MeasurementBook !== "undefined" ? MeasurementBook : __defaultExport__;';
+      + `\nwindow.__PlanningComponent__ = typeof ${expectedComponent} !== "undefined" ? ${expectedComponent} : (typeof __defaultExport__ !== "undefined" ? __defaultExport__ : null);`;
     const compiled = Babel.transform(cleanSrc, { presets: ['react'], sourceType: 'script', plugins: [] }).code;
     eval(compiled); // eslint-disable-line no-eval
     const Component = window.__PlanningComponent__;
@@ -3579,6 +3561,8 @@ function planningMountComponent(tab) {
       const root = ReactDOM.createRoot ? ReactDOM.createRoot(mount) : null;
       if (root) root.render(React.createElement(Component));
       else ReactDOM.render(React.createElement(Component), mount);
+    } else {
+      mount.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--danger)">&#9888; Component not found in source.</div>';
     }
   } catch(err) {
     console.error('Planning component error:', err);
@@ -4809,6 +4793,362 @@ function applyPortalConfig() {
 }
 
 // ── Render Configuration page ─────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════
+//  SETTINGS PAGE — Sheet IDs · Tab/Query Bindings · Apps Scripts list
+//  Admin-only. Uses localStorage overrides so changes apply without a
+//  rebuild. Lives at route 'settings' (sidebar link added too).
+// ════════════════════════════════════════════════════════════════════
+const SETTINGS_LS_KEY = 'evgcpl_settings_overrides';
+
+// Canonical Sheet ID directory — lifted from the bundle's existing
+// constants. Editing here in the UI saves to localStorage; runtime
+// fetches read from getSheetId('PIN') etc which checks overrides first.
+const SHEETS_DIRECTORY = [
+  { key:'PIN',     label:'UserSecrets / PIN store',  defaultId:'1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0', tabs:['UserSecrets','ReportConfig','ReportSchedules'], notes:'Login PIN authentication' },
+  { key:'EMP',     label:'Employee Register',         defaultId:'1HWKZPhKRhcuvxBgyyN8zRt8p-SzYmKjJWiOdCgykBHs', tabs:['0_EmployeeRegister_Live'], notes:'333 employees' },
+  { key:'PO',      label:'Purchase / Master',         defaultId:'1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c', tabs:['MRS','PO','SiteMaster','VendorMaster'], notes:'SCM dashboard data' },
+  { key:'PAYMENT', label:'Account View / Payments',   defaultId:'1mLddxLRf719EaXE9XSET9gT8l0a8Cxns362yIbHo63g', tabs:['PaymentRequest'], notes:'42-column PaymentRequest schema' },
+  { key:'STORES',  label:'v2_Stores',                 defaultId:'1iMQxgqGilUh2_3NCZl5D-EMt-NC8FwugX83q2fWb8fE', tabs:['StockIN','GRN_No','StockLevels'], notes:'Stores & GRN' },
+  { key:'V2',      label:'v2_Master',                 defaultId:'1fhSO4WBYp0LNXPxe9I9zr5qsIPs9CIDFpUixBogPnsM', tabs:['DPR','LogSheet','Maintenance','Verification'], notes:'Site DPR & plant data' },
+  { key:'SAFETY',  label:'Safety',                    defaultId:'1B8P0PawV43ksazbzhKsil1X6-INOfxx9PFvGycNOvDY', tabs:['Incidents','Checklist'], notes:'Incidents & SHE checklist' },
+  { key:'REWARDS', label:'Rewards & Recognition',     defaultId:'1vz8HLopjlSF8TF7rzYuVu5JjqukT929I7aSx7kdehlI', tabs:['Nomination','BlogPosts'], notes:'R&R + wall posts' },
+  { key:'BUDGET',  label:'IC Budget Template',        defaultId:'', tabs:['BOQ_Items','Project_Master','Resources'], notes:'Pending — upload template to Drive first' },
+];
+
+// Apps Scripts deployed for the portal. Same exec URL handles all
+// actions via doGet / doPost; the .gs files in the apps-script/ folder
+// are reference copies only.
+const APPS_SCRIPTS = [
+  {
+    name: 'EVGCPL Portal Backend',
+    file: 'apps-script/SafetyHandlers.gs',
+    execUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec',
+    purpose: 'Primary write-back endpoint',
+    actions: [
+      'appendRow      — adds rows to any sheet/tab (used by Safety, Reports, DPR)',
+      'updateCell     — patches single cells (Safety incident close)',
+      'listHRDocs     — Drive folder listing for My Profile',
+      'listPolicyFiles — Policy Hub document index',
+      'uploadPolicyFile — Policy Hub upload',
+      'sendReportTest — manual report email trigger',
+      'getScheduleLog — Reports module recent send log',
+    ],
+  },
+  {
+    name: 'PIN Reset (v2_PINReset)',
+    file: '— external project —',
+    execUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec',
+    purpose: 'Standalone PIN-set/reset flow (also linked from login page)',
+    actions: [
+      'Hosted at evgcpladmin.github.io/password/',
+      'Writes to UserSecrets sheet · Modified PIN column',
+    ],
+  },
+  {
+    name: 'Sheet Diagnostic',
+    file: 'apps-script/SheetDiagnostic.gs',
+    execUrl: '— same as Portal Backend —',
+    purpose: 'Server-side reachability probe (used by Sharing Doctor)',
+    actions: [
+      'diagnoseSheet  — verifies a sheetId/tab is accessible from the server',
+      'Bypasses CORS limitations of in-browser checks',
+    ],
+  },
+  {
+    name: 'Scheduled Reports',
+    file: 'apps-script/ScheduledReports.gs',
+    execUrl: '— time-driven trigger —',
+    purpose: 'Runs hourly via Apps Script trigger; no exec URL needed',
+    actions: [
+      'sendScheduledReports — checks ReportSchedules tab, fires due reports',
+      'setupTriggers       — one-time setup helper (run once after deploy)',
+    ],
+  },
+];
+
+function loadSettingsOverrides() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_LS_KEY) || '{}'); }
+  catch (e) { return {}; }
+}
+function saveSettingsOverrides(obj) {
+  try { localStorage.setItem(SETTINGS_LS_KEY, JSON.stringify(obj)); }
+  catch (e) { console.warn('Settings save failed:', e); }
+}
+function getSheetId(key) {
+  const ov = loadSettingsOverrides().sheets || {};
+  if (ov[key]) return ov[key];
+  const def = SHEETS_DIRECTORY.find(s => s.key === key);
+  return def ? def.defaultId : '';
+}
+
+function renderSettingsPage() {
+  const el = document.getElementById('mainContent');
+  const ov = loadSettingsOverrides();
+  ov.sheets = ov.sheets || {};
+
+  el.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-row">
+        <div>
+          <h1>&#128295; Settings</h1>
+          <p>Sheet IDs &middot; Tab overrides &middot; Apps Scripts &middot; Admin only</p>
+        </div>
+        <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+          <button onclick="settingsResetAll()" class="btn btn-secondary btn-sm">&#8635; Reset to Defaults</button>
+          <button onclick="settingsExport()" class="btn btn-secondary btn-sm">&#11015; Export</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Help banner -->
+    <div class="alert-strip" style="margin-bottom:1rem">
+      <span class="alert-icon">&#8505;&#65039;</span>
+      <span class="alert-text">
+        <b>How overrides work.</b> Edits save to your browser's localStorage and override the bundled defaults on the next data fetch. Per-user, no rebuild needed. To roll out a change company-wide, update the canonical constants in <code>assets/js/portal-bundle.js</code> and redeploy.
+      </span>
+    </div>
+
+    <!-- Tab bar -->
+    <div style="display:flex;gap:4px;border-bottom:2px solid var(--border);margin-bottom:1.4rem">
+      <button onclick="settingsSetTab('sheets')" id="stab-sheets"
+        class="settings-tab active"
+        style="padding:9px 18px;border:none;border-bottom:3px solid var(--g7);background:none;font-family:inherit;font-size:.85rem;font-weight:600;cursor:pointer;color:var(--g7);margin-bottom:-2px">
+        &#128203; Sheet IDs
+      </button>
+      <button onclick="settingsSetTab('appscripts')" id="stab-appscripts"
+        class="settings-tab"
+        style="padding:9px 18px;border:none;border-bottom:3px solid transparent;background:none;font-family:inherit;font-size:.85rem;font-weight:600;cursor:pointer;color:var(--txt3);margin-bottom:-2px">
+        &#9881; Apps Scripts
+      </button>
+      <button onclick="settingsSetTab('diagnostics')" id="stab-diagnostics"
+        class="settings-tab"
+        style="padding:9px 18px;border:none;border-bottom:3px solid transparent;background:none;font-family:inherit;font-size:.85rem;font-weight:600;cursor:pointer;color:var(--txt3);margin-bottom:-2px">
+        &#129658; Diagnostics
+      </button>
+    </div>
+
+    <div id="settings-tab-content"></div>
+  `;
+
+  window.settingsSetTab = function(tab) {
+    document.querySelectorAll('.settings-tab').forEach(b => {
+      b.style.color = 'var(--txt3)';
+      b.style.borderBottomColor = 'transparent';
+      b.classList.remove('active');
+    });
+    const btn = document.getElementById('stab-' + tab);
+    if (btn) {
+      btn.style.color = 'var(--g7)';
+      btn.style.borderBottomColor = 'var(--g7)';
+      btn.classList.add('active');
+    }
+    const c = document.getElementById('settings-tab-content');
+    if (!c) return;
+    if (tab === 'sheets')      settingsRenderSheets(c);
+    if (tab === 'appscripts')  settingsRenderAppsScripts(c);
+    if (tab === 'diagnostics') settingsRenderDiagnostics(c);
+  };
+  settingsSetTab('sheets');
+}
+
+function settingsRenderSheets(container) {
+  const ov = loadSettingsOverrides();
+  const sheets = ov.sheets || {};
+  container.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <h3>&#128203; Sheet IDs &amp; Tab Overrides</h3>
+        <span style="font-size:.75rem;color:var(--txt3)">${SHEETS_DIRECTORY.length} sheets registered</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table" style="width:100%">
+          <thead>
+            <tr style="background:var(--g9);color:#fff">
+              <th style="padding:10px 12px;text-align:left;min-width:160px">Sheet</th>
+              <th style="padding:10px 12px;text-align:left;min-width:340px">Sheet ID</th>
+              <th style="padding:10px 12px;text-align:left;min-width:240px">Tabs</th>
+              <th style="padding:10px 12px;text-align:left">Notes</th>
+              <th style="padding:10px 12px;text-align:center;min-width:80px">Open</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${SHEETS_DIRECTORY.map((s,i) => {
+              const overridden = !!sheets[s.key];
+              const currentId  = sheets[s.key] || s.defaultId || '';
+              return `<tr style="border-bottom:1px solid var(--border);${i%2?'background:var(--surface2)':''}">
+                <td style="padding:10px 12px">
+                  <div style="font-weight:700;color:var(--g9)">${s.label}</div>
+                  <div style="font-size:.7rem;color:var(--txt3);margin-top:2px">key: <code>${s.key}</code></div>
+                </td>
+                <td style="padding:10px 12px">
+                  <input type="text" value="${currentId}"
+                    placeholder="${s.defaultId || '— not set —'}"
+                    onchange="settingsSetSheetId('${s.key}', this.value)"
+                    style="width:100%;font-family:'DM Mono',monospace;font-size:.78rem;padding:6px 9px;border:1px solid ${overridden?'#f0a500':'var(--border)'};border-radius:6px;background:var(--surface2);color:var(--txt)">
+                  ${overridden ? '<div style="font-size:.7rem;color:#f0a500;margin-top:3px">&#9888; Overridden — <a href="#" onclick="settingsClearSheetId(\''+s.key+'\');return false" style="color:var(--g7)">reset</a></div>' : ''}
+                </td>
+                <td style="padding:10px 12px;font-size:.75rem;color:var(--txt2)">
+                  ${s.tabs.map(t => `<span class="tag" style="margin:2px;font-size:.68rem">${t}</span>`).join('')}
+                </td>
+                <td style="padding:10px 12px;font-size:.78rem;color:var(--txt3)">${s.notes||''}</td>
+                <td style="padding:10px 12px;text-align:center">
+                  ${currentId
+                    ? `<a href="https://docs.google.com/spreadsheets/d/${currentId}/edit" target="_blank" rel="noopener" style="color:var(--g7);text-decoration:none;font-size:1rem" title="Open in Google Sheets">&#8599;</a>`
+                    : '<span style="color:var(--txt3)">—</span>'}
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function settingsRenderAppsScripts(container) {
+  container.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <h3>&#9881; Deployed Apps Scripts</h3>
+        <span style="font-size:.75rem;color:var(--txt3)">${APPS_SCRIPTS.length} scripts</span>
+      </div>
+      <div style="padding:.5rem">
+        ${APPS_SCRIPTS.map((s,i) => `
+          <div style="padding:1rem 1rem;border-bottom:${i<APPS_SCRIPTS.length-1?'1px solid var(--border)':'none'}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+              <div style="flex:1;min-width:260px">
+                <div style="font-size:1rem;font-weight:700;color:var(--g9)">${s.name}</div>
+                <div style="font-size:.78rem;color:var(--txt3);margin-top:2px">
+                  <code style="font-family:'DM Mono',monospace">${s.file}</code> &middot; ${s.purpose}
+                </div>
+              </div>
+              ${s.execUrl.startsWith('https://')
+                ? `<a href="${s.execUrl}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" style="white-space:nowrap;text-decoration:none">&#8599; Open Exec URL</a>`
+                : `<span class="tag" style="font-size:.7rem">${s.execUrl}</span>`}
+            </div>
+            ${s.execUrl.startsWith('https://') ? `
+              <div style="margin-top:.6rem;padding:.5rem .7rem;background:var(--surface2);border-radius:6px;font-family:'DM Mono',monospace;font-size:.72rem;color:var(--txt2);word-break:break-all;display:flex;align-items:center;gap:.5rem">
+                <span style="flex:1">${s.execUrl}</span>
+                <button onclick="navigator.clipboard.writeText('${s.execUrl}');this.textContent='&#10003; Copied'" class="btn btn-secondary btn-sm" style="font-size:.7rem;padding:3px 9px;white-space:nowrap">Copy</button>
+              </div>
+            ` : ''}
+            <div style="margin-top:.7rem;font-size:.75rem;color:var(--txt2)">
+              <div style="font-weight:600;color:var(--txt);margin-bottom:.3rem">Actions / Functions:</div>
+              <ul style="margin:0;padding-left:1.2rem;line-height:1.6">
+                ${s.actions.map(a => `<li><code style="font-family:'DM Mono',monospace;font-size:.72rem">${a}</code></li>`).join('')}
+              </ul>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="alert-strip" style="margin-top:1.2rem">
+      <span class="alert-icon">&#9881;</span>
+      <span class="alert-text">
+        <b>To redeploy:</b> open the <a href="https://script.google.com" target="_blank" rel="noopener" style="color:var(--g7)">Apps Script editor</a>, paste the corresponding <code>.gs</code> file from <code>apps-script/</code>, then Deploy &gt; Manage Deployments &gt; Edit pencil &gt; New Version &gt; Deploy. The exec URL stays the same.
+      </span>
+    </div>
+  `;
+}
+
+function settingsRenderDiagnostics(container) {
+  container.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <h3>&#129658; Sharing Doctor</h3>
+      </div>
+      <div style="padding:1rem">
+        <p style="font-size:.85rem;color:var(--txt2);margin-bottom:1rem">
+          The Sharing Doctor runs a server-side diagnostic on every active Sheet ID using the portal's Apps Script as the network probe. It tells you exactly which sheets are reachable and which are blocked — bypassing CORS limitations of in-browser checks.
+        </p>
+        <div style="display:flex;gap:.6rem;align-items:center;margin-bottom:1rem">
+          <button onclick="settingsRunDoctor()" class="btn btn-primary btn-sm" id="doctorBtn">&#9658; Run Diagnostic</button>
+          <span id="doctorStatus" style="font-size:.78rem;color:var(--txt3)"></span>
+        </div>
+        <div id="doctorResults"></div>
+      </div>
+    </div>
+  `;
+}
+
+window.settingsSetSheetId = function(key, val) {
+  const ov = loadSettingsOverrides();
+  ov.sheets = ov.sheets || {};
+  if (val && val.trim()) ov.sheets[key] = val.trim();
+  else delete ov.sheets[key];
+  saveSettingsOverrides(ov);
+  // Re-render to refresh state of override badges
+  settingsRenderSheets(document.getElementById('settings-tab-content'));
+};
+
+window.settingsClearSheetId = function(key) {
+  const ov = loadSettingsOverrides();
+  if (ov.sheets) { delete ov.sheets[key]; saveSettingsOverrides(ov); }
+  settingsRenderSheets(document.getElementById('settings-tab-content'));
+};
+
+window.settingsResetAll = function() {
+  if (!confirm('Clear ALL local overrides and revert to bundled defaults?')) return;
+  localStorage.removeItem(SETTINGS_LS_KEY);
+  renderSettingsPage();
+};
+
+window.settingsExport = function() {
+  const ov = loadSettingsOverrides();
+  const txt = JSON.stringify(ov, null, 2);
+  navigator.clipboard.writeText(txt).then(() => {
+    alert('Overrides copied to clipboard:\n\n' + txt);
+  }).catch(() => prompt('Copy this:', txt));
+};
+
+window.settingsRunDoctor = function() {
+  const btn = document.getElementById('doctorBtn');
+  const status = document.getElementById('doctorStatus');
+  const results = document.getElementById('doctorResults');
+  if (btn) { btn.disabled = true; btn.textContent = '&#8635; Running...'; }
+  if (status) status.textContent = 'Probing each sheet via Apps Script…';
+
+  const checks = SHEETS_DIRECTORY
+    .filter(s => (loadSettingsOverrides().sheets?.[s.key] || s.defaultId))
+    .map(s => {
+      const id = loadSettingsOverrides().sheets?.[s.key] || s.defaultId;
+      return fetch(`${APPS_SCRIPT_URL}?action=diagnoseSheet&sheetId=${encodeURIComponent(id)}&tab=${encodeURIComponent(s.tabs[0]||'')}`)
+        .then(r => r.text())
+        .then(t => { try { return JSON.parse(t); } catch(e) { return { ok:false, error:'Bad JSON: '+t.slice(0,80) }; } })
+        .catch(e => ({ ok:false, error: e.message }))
+        .then(res => ({ ...s, result: res }));
+    });
+
+  Promise.all(checks).then(rows => {
+    if (btn) { btn.disabled = false; btn.textContent = '&#9658; Re-run'; }
+    if (status) status.textContent = `${rows.length} sheets probed.`;
+    if (results) {
+      results.innerHTML = `<table class="data-table" style="width:100%;margin-top:.6rem">
+        <thead>
+          <tr style="background:var(--g9);color:#fff">
+            <th style="padding:8px 10px;text-align:left">Sheet</th>
+            <th style="padding:8px 10px;text-align:center">Status</th>
+            <th style="padding:8px 10px;text-align:left">Detail</th>
+          </tr>
+        </thead><tbody>
+        ${rows.map(r => {
+          const ok = r.result && r.result.ok;
+          const detail = ok ? `Rows: ${r.result.rowCount ?? '?'}` : (r.result?.error || 'Unreachable');
+          return `<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:8px 10px"><b>${r.label}</b><br><code style="font-size:.7rem;color:var(--txt3)">${r.key}</code></td>
+            <td style="padding:8px 10px;text-align:center">
+              <span class="tag" style="background:${ok?'#dcfce7':'#fee2e2'};color:${ok?'#166534':'#991b1b'};font-weight:700">${ok?'✓ OK':'✗ FAIL'}</span>
+            </td>
+            <td style="padding:8px 10px;font-size:.78rem;color:var(--txt2)">${detail}</td>
+          </tr>`;
+        }).join('')}
+        </tbody></table>`;
+    }
+  });
+};
+
+
 function renderDevModePage() {
   const el = document.getElementById('mainContent');
   const cfg = loadPortalConfig();

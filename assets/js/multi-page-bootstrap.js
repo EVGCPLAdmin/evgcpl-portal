@@ -159,6 +159,7 @@
     'dashboard':         'dashboard.html',
     'md-command':        'dashboard.html',
     'dev-mode':          'dashboard.html',
+    'settings':          'dashboard.html',
 
     // HR group
     'hr-dashboard':      'hr.html',
