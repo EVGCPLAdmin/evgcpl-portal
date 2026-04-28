@@ -17,6 +17,139 @@
 (function() {
   'use strict';
 
+  // ── Detect which page we're on ───────────────────────────────────
+  const PAGE = (document.body.dataset.page || '').toLowerCase();
+  const IS_LOGIN = (PAGE === 'index' || PAGE === '');
+
+  // ── On the LOGIN page: override launchApp() to skip main-app DOM
+  //    ops (which would crash since header/sidebar don't exist here)
+  //    and instead persist STATE then redirect to the destination page.
+  // ─────────────────────────────────────────────────────────────────
+  if (IS_LOGIN) {
+    // Patch must apply BEFORE any login-button handler fires. Since the
+    // bundle defines launchApp at parse time, we wait for it to exist
+    // then immediately replace it.
+    const tryPatch = () => {
+      if (typeof window.launchApp !== 'function') return setTimeout(tryPatch, 30);
+      window.launchApp = function() {
+        try {
+          // Persist STATE so the destination page can read it
+          if (typeof persistState === 'function') persistState();
+        } catch (_) { /* fallback: localStorage write */ }
+        try {
+          localStorage.setItem('STATE', JSON.stringify({
+            role:         STATE.role,
+            selectedRole: STATE.selectedRole,
+            user:         STATE.user,
+            isDemo:       !!STATE.isDemo,
+            deptHeadDept: STATE.deptHeadDept || null,
+          }));
+        } catch (_) {}
+        // Redirect to the right starting page for this role
+        const isExternal = STATE.role === 'vendor' || STATE.role === 'sc';
+        const dest = isExternal ? 'external.html' : 'dashboard.html';
+        location.href = dest;
+      };
+    };
+    tryPatch();
+    return; // Login page does NOT need the rest of the bootstrap
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // From here on: we're on a MAIN-APP page (dashboard.html, hr.html, ...)
+  // ──────────────────────────────────────────────────────────────────
+
+  // ── Restore STATE from localStorage as soon as bundle has parsed ──
+  // The bundle defines STATE as a plain global object with default
+  // values. We overwrite it with whatever was persisted on the login
+  // page redirect, before any function tries to use STATE.
+  function restoreState() {
+    if (typeof STATE === 'undefined') return setTimeout(restoreState, 20);
+    try {
+      const saved = JSON.parse(localStorage.getItem('STATE') || 'null');
+      if (saved && saved.user && saved.user.email) {
+        // Only overwrite the keys we know about — leave the bundle's own
+        // defaults (mastersLoaded, currentPage, etc.) intact.
+        STATE.role         = saved.role || 'employee';
+        STATE.selectedRole = saved.selectedRole || saved.role || 'employee';
+        STATE.user         = saved.user;
+        STATE.isDemo       = !!saved.isDemo;
+        STATE.deptHeadDept = saved.deptHeadDept || null;
+      } else {
+        // No login state — bounce to login
+        location.href = 'index.html';
+      }
+    } catch (_) {
+      location.href = 'index.html';
+    }
+  }
+  restoreState();
+
+  // ── Run the UI-population parts of launchApp without the redirect.
+  //    On a main-app page, all the DOM elements (header, sidebar, demo
+  //    bar) DO exist, so we can safely run those bits. We skip the
+  //    fade-out / setTimeout / navigate(default) path because we're
+  //    already on the right page and the bootstrap below will call
+  //    renderPage() with the route from data-page or hash.
+  function runLaunchAppUI() {
+    if (typeof STATE === 'undefined' || !STATE.user) return setTimeout(runLaunchAppUI, 30);
+    if (typeof ROLES === 'undefined' || typeof applyRoleNavRestrictions !== 'function') {
+      return setTimeout(runLaunchAppUI, 30);
+    }
+    try {
+      const r = ROLES[STATE.role] || ROLES.employee;
+      const _roleLabel = STATE.role === 'dept_head' && STATE.deptHeadDept
+        ? 'Dept Head – ' + STATE.deptHeadDept : r.label;
+      const setText = (id, txt) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = txt;
+      };
+      setText('roleBadge',     r.badge);
+      setText('userName',      STATE.user.name || 'User');
+      setText('userRoleLabel', _roleLabel);
+      setText('userAvatar',    r.avatar);
+
+      const isExternal = STATE.role === 'vendor' || STATE.role === 'sc';
+      const showDemoBar = STATE.isDemo && !isExternal;
+      const demoBar = document.getElementById('demoBar');
+      if (demoBar) demoBar.style.display = showDemoBar ? '' : 'none';
+      if (showDemoBar) {
+        document.body.classList.add('demo-active');
+        document.querySelectorAll('.demo-role-btn').forEach(b => b.classList.remove('active'));
+        const ab = document.getElementById('dr-' + STATE.role);
+        if (ab) ab.classList.add('active');
+      }
+
+      if (typeof applyPortalConfig === 'function') applyPortalConfig();
+      if (typeof applyRoleNavRestrictions === 'function') applyRoleNavRestrictions(STATE.role);
+      if (typeof applyDevModeUI === 'function') applyDevModeUI();
+
+      // Show the app shell
+      const appEl = document.getElementById('app');
+      if (appEl) appEl.classList.add('show');
+      const login = document.getElementById('loginScreen');
+      if (login) login.style.display = 'none';
+    } catch (e) {
+      console.warn('runLaunchAppUI partial failure:', e);
+    }
+
+    // Kick off background data load
+    if (typeof loadAllMasters === 'function') {
+      loadAllMasters().then(() => {
+        if (typeof updateAllMasterUI === 'function') updateAllMasterUI();
+      }).catch(() => { /* tolerate */ });
+    }
+    if (typeof initNotifications === 'function') {
+      try { initNotifications(); } catch (_) {}
+    }
+  }
+  // Wait for DOM ready before populating header
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(runLaunchAppUI, 0);
+  } else {
+    document.addEventListener('DOMContentLoaded', runLaunchAppUI);
+  }
+
   // ── Route → Page map ─────────────────────────────────────────────
   // Routes not listed default to dashboard.html so unknown routes fall
   // back gracefully. Each page hosts ONE primary route plus any
@@ -135,37 +268,27 @@
   // ── On DOMContentLoaded: render the page's primary route ─────────
   function bootstrapPage() {
     const dataPage = (document.body.dataset.page || '').toLowerCase();
-    if (!dataPage) return; // login page or admin page handles itself
+    if (!dataPage) return;
 
-    // If a hash is present (e.g. site-ops.html#equipment), use that route;
-    // otherwise pick the first route that maps to this page.
+    // Use hash route if it belongs to this page; otherwise default to
+    // the first route mapped to this page (or the page name itself).
     let route = (location.hash || '').replace(/^#/, '');
     if (!route || ROUTE_TO_PAGE[route] !== dataPage + '.html') {
-      // Resolve default route for this page
       route = Object.keys(ROUTE_TO_PAGE).find(r =>
         ROUTE_TO_PAGE[r] === dataPage + '.html'
       ) || dataPage;
     }
 
-    // Auth gate — if not logged in (and this is not the login page itself),
-    // bounce to index.html. STATE is set up by the legacy bundle.
-    if (typeof STATE !== 'undefined' && !STATE.user && dataPage !== 'index') {
-      // Allow the legacy bundle's own auth flow to run first; if it
-      // doesn't show the login overlay, redirect.
-      setTimeout(() => {
-        if (typeof STATE !== 'undefined' && !STATE.user) {
-          location.href = 'index.html';
-        }
-      }, 500);
-    }
-
-    // Hand off to the legacy renderer
-    if (typeof renderPage === 'function') {
+    // Wait for both renderPage AND a logged-in STATE before rendering
+    function tryRender(tries = 0) {
+      if (typeof renderPage !== 'function' || typeof STATE === 'undefined' || !STATE.user) {
+        if (tries > 50) return; // give up after ~5s
+        return setTimeout(() => tryRender(tries + 1), 100);
+      }
       try { renderPage(route); }
       catch (e) { console.error('renderPage failed for route:', route, e); }
-    } else {
-      console.warn('Multi-page bootstrap: renderPage not found.');
     }
+    tryRender();
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
