@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HR & People · EVGCPL Portal</title>
+<link rel="icon" type="image/jpeg" href="assets/img/EG.jpg">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/portal.css">
+</head>
+<body>
+<div data-shell-root></div>
+<main class="shell-main">
+  <div id="pageHead"></div>
+
+  <!-- Sub-route tabs -->
+  <nav style="display:flex;gap:.4rem;margin-bottom:1.4rem;border-bottom:1px solid var(--border)" aria-label="HR sections">
+    <a class="hr-tab" href="#hr-dashboard" data-route="hr-dashboard">Dashboard</a>
+    <a class="hr-tab" href="#my-profile"   data-route="my-profile">My Profile</a>
+    <a class="hr-tab" href="#my-team"      data-route="my-team">My Team</a>
+    <a class="hr-tab" href="#onboarding"   data-route="onboarding">Onboarding</a>
+    <a class="hr-tab" href="#policies"     data-route="policies">Policies</a>
+  </nav>
+
+  <div id="hrContent"></div>
+</main>
+
+<style>
+  .hr-tab {
+    padding: .55rem .9rem;
+    font-size:.84rem; font-weight:600;
+    color:var(--txt3);
+    border-bottom:2px solid transparent;
+    transition:color var(--t-fast), border-color var(--t-fast);
+  }
+  .hr-tab:hover { color:var(--txt2); }
+  .hr-tab.active { color:var(--g7); border-bottom-color:var(--g7); }
+</style>
+
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/nav-config.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/modules/hr.js"></script>
+</body>
+</html>

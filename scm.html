@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SCM Dashboard · EVGCPL Portal</title>
+<link rel="icon" type="image/jpeg" href="assets/img/EG.jpg"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=DM+Mono:wght@500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/css/portal.css"/>
+</head>
+<body>
+
+<div data-shell-root></div>
+
+<main class="shell-main">
+  <div id="pageHead"></div>
+
+  <!-- KPI ROW -->
+  <section class="kpi-grid" id="scmKpis">
+    <div class="kpi"><div class="skel" style="height:80px"></div></div>
+    <div class="kpi"><div class="skel" style="height:80px"></div></div>
+    <div class="kpi"><div class="skel" style="height:80px"></div></div>
+    <div class="kpi"><div class="skel" style="height:80px"></div></div>
+  </section>
+
+  <!-- ERROR SLOT -->
+  <div id="errorSlot"></div>
+
+  <!-- PENDING APPROVAL -->
+  <div class="card" style="margin-bottom:1.4rem">
+    <div class="card-head">
+      <h3>⏳ Pending approval</h3>
+      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+        <span class="tag" id="scmPendingBadge">Loading…</span>
+        <span class="tag red" id="scmOverdueBadge" style="display:none"></span>
+        <button class="btn btn-secondary btn-sm" id="scmPendingCsv">⬇ CSV</button>
+        <a class="btn btn-secondary btn-sm" href="https://www.appsheet.com/start/06fd0117-1dd8-445b-aaee-e2ff6e68e36f" target="_blank" rel="noopener">Open in AppSheet ↗</a>
+      </div>
+    </div>
+    <div class="card-body" style="padding:0;overflow-x:auto">
+      <div id="scmPendingTable" style="padding:2.4rem;text-align:center;color:var(--txt3);font-size:.85rem">Loading POs…</div>
+    </div>
+  </div>
+
+  <!-- MONTHLY TREND -->
+  <div class="card" style="margin-bottom:1.4rem">
+    <div class="card-head">
+      <h3>📅 Monthly PO trend</h3>
+      <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+        <select id="scmFySelect" class="btn btn-secondary btn-sm" style="cursor:pointer"><option>Loading…</option></select>
+        <span class="tag" id="scmMonthBadge">—</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div id="scmMonthChart" style="min-height:160px"></div>
+    </div>
+  </div>
+
+  <!-- SITE + VENDOR -->
+  <section style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.4rem">
+    <div class="card">
+      <div class="card-head">
+        <h3>🏗️ Spend by site</h3>
+        <span class="tag" id="scmSiteBadge">—</span>
+      </div>
+      <div class="card-body" style="padding:0;overflow-x:auto" id="scmSiteTable"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h3>🏢 Top 5 vendors</h3>
+        <span class="tag" id="scmVendorBadge">—</span>
+      </div>
+      <div class="card-body" style="padding:0;overflow-x:auto" id="scmVendorTable"></div>
+    </div>
+  </section>
+
+  <!-- ALL POs (deep-link target) -->
+  <div class="card" id="scmAllSection" style="display:none;margin-bottom:1.4rem">
+    <div class="card-head">
+      <h3 id="scmAllTitle">📋 All POs</h3>
+      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+        <span class="tag" id="scmAllBadge">—</span>
+        <button class="btn btn-secondary btn-sm" id="scmAllCsv">⬇ CSV</button>
+        <button class="btn btn-secondary btn-sm" id="scmAllClose">✕ Close</button>
+      </div>
+    </div>
+    <div class="card-body" style="padding:.75rem 1rem 0">
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem">
+        <input id="scmAllSearch" type="text" placeholder="Search PO No, Vendor, Site…" style="flex:1;min-width:180px;padding:.4rem .65rem;border:1px solid var(--border);border-radius:8px;font-size:.82rem;font-family:inherit;outline:none"/>
+        <select id="scmAllFy" style="padding:.4rem .65rem;border:1px solid var(--border);border-radius:8px;font-size:.82rem;font-family:inherit;background:var(--surface)"><option value="">All FY</option></select>
+      </div>
+    </div>
+    <div class="card-body" style="padding:0;overflow:auto;max-height:420px">
+      <div id="scmAllTable"></div>
+    </div>
+  </div>
+
+</main>
+
+<script src="assets/js/state.js"></script>
+<script src="assets/js/data-bindings.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/nav-config.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/modules/scm.js"></script>
+
+</body>
+</html>

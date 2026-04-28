@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Apps · EVGCPL Portal</title>
+<link rel="icon" type="image/jpeg" href="assets/img/EG.jpg"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=DM+Mono:wght@500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/css/portal.css"/>
+<style>
+  .app-grid {
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));
+    gap:.85rem;
+    margin-bottom:1.4rem;
+  }
+  .app-card {
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--rad);
+    padding:1.1rem 1.2rem;
+    text-decoration:none;
+    color:var(--txt);
+    display:flex;
+    gap:.85rem;
+    align-items:flex-start;
+    transition:border-color var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast);
+  }
+  .app-card:hover {
+    border-color:var(--g6);
+    box-shadow:0 4px 14px rgba(26,96,56,.1);
+    transform:translateY(-1px);
+  }
+  .app-icon {
+    font-size:1.8rem; flex-shrink:0;
+    width:46px; height:46px;
+    background:var(--surface2);
+    border-radius:10px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .app-name { font-weight:700; font-size:.95rem; color:var(--txt); margin-bottom:.2rem; }
+  .app-cat  { font-size:.66rem; font-weight:700; color:var(--g7); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.4rem; }
+  body.dark .app-cat { color:#7fdc8f; }
+  .app-desc { font-size:.78rem; color:var(--txt2); line-height:1.5; }
+  .app-arrow { margin-left:auto; opacity:.4; font-size:1.1rem; flex-shrink:0; }
+  .app-card:hover .app-arrow { opacity:1; color:var(--g7); }
+
+  .cat-section-head {
+    font-size:.7rem; font-weight:700; color:var(--txt3);
+    text-transform:uppercase; letter-spacing:.06em;
+    margin:1.6rem 0 .6rem;
+    padding-bottom:.4rem;
+    border-bottom:1px solid var(--border);
+  }
+  .cat-section-head:first-of-type { margin-top:0; }
+</style>
+</head>
+<body>
+
+<div data-shell-root></div>
+
+<main class="shell-main">
+  <div id="pageHead"></div>
+
+  <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1.2rem;align-items:center">
+    <input id="appSearch" type="text" placeholder="Search apps…" style="flex:1;min-width:220px;max-width:340px;padding:.5rem .75rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:.84rem;background:var(--surface);color:var(--txt)"/>
+    <span class="tag" id="appCount">—</span>
+    <a class="btn btn-secondary btn-sm" href="config.html#app-links" style="margin-left:auto" id="appConfigBtn" style="display:none">⚙ Manage</a>
+  </div>
+
+  <div id="appList"></div>
+
+</main>
+
+<script src="assets/js/state.js"></script>
+<script src="assets/js/data-bindings.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/nav-config.js"></script>
+<script src="assets/js/shell.js"></script>
+<script>
+(function() {
+  Shell.mount('apps');
+  document.getElementById('pageHead').innerHTML = Shell.pageHead({
+    crumbs: [{ label:'Home', href:'dashboard.html' }, { label:'Apps' }],
+    title:  '🔗 Apps',
+    sub:    'External tools, AppSheets, and dashboards the portal links to',
+  });
+
+  // Show config-shortcut for admins/MD only
+  const role = STATE.get('role') || 'employee';
+  if (['md', 'admin'].includes(role)) {
+    document.getElementById('appConfigBtn').style.display = '';
+  }
+
+  let _filter = '';
+  document.getElementById('appSearch').addEventListener('input', e => {
+    _filter = e.target.value.trim().toLowerCase();
+    render();
+  });
+
+  function render() {
+    const all = API.loadAppLinks();
+    const filtered = _filter
+      ? all.filter(a =>
+          (a.name + ' ' + a.category + ' ' + a.description).toLowerCase().includes(_filter))
+      : all;
+
+    document.getElementById('appCount').textContent = `${filtered.length} app${filtered.length === 1 ? '' : 's'}`;
+
+    if (!filtered.length) {
+      document.getElementById('appList').innerHTML = `
+        <div style="padding:3rem;text-align:center;color:var(--txt3)">
+          <div style="font-size:2rem;margin-bottom:.5rem">🔍</div>
+          ${all.length === 0 ? 'No app links configured yet.' : 'No matches for "' + esc(_filter) + '"'}
+        </div>`;
+      return;
+    }
+
+    // Group by category
+    const groups = {};
+    filtered.forEach(a => {
+      const cat = a.category || 'Other';
+      (groups[cat] = groups[cat] || []).push(a);
+    });
+
+    const order = ['AppSheet', 'Google Sheet', 'Reporting', 'Backend', 'Source'];
+    const cats = [
+      ...order.filter(c => groups[c]),
+      ...Object.keys(groups).filter(c => !order.includes(c)).sort(),
+    ];
+
+    document.getElementById('appList').innerHTML = cats.map(cat => `
+      <div class="cat-section-head">${esc(cat)}</div>
+      <div class="app-grid">
+        ${groups[cat].map(a => `
+          <a class="app-card" href="${esc(a.url || '#')}" target="_blank" rel="noopener">
+            <div class="app-icon">${esc(a.icon || '🔗')}</div>
+            <div style="flex:1;min-width:0">
+              <div class="app-cat">${esc(a.category || 'App')}</div>
+              <div class="app-name">${esc(a.name || '—')}</div>
+              <div class="app-desc">${esc(a.description || '')}</div>
+            </div>
+            <span class="app-arrow">↗</span>
+          </a>`).join('')}
+      </div>
+    `).join('');
+  }
+
+  render();
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+})();
+</script>
+
+</body>
+</html>

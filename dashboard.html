@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard · EVGCPL Portal</title>
+<link rel="icon" type="image/jpeg" href="assets/img/EG.jpg">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/portal.css">
+</head>
+<body>
+<div data-shell-root></div>
+<main class="shell-main" id="mainContent">
+  <!-- PAGE HEAD -->
+  <div id="pageHead"></div>
+
+  <!-- HEADLINE KPIs -->
+  <section class="kpi-grid" id="kpiPrimary">
+    <div class="kpi"><div class="skel" style="height:80px"></div></div>
+    <div class="kpi"><div class="skel" style="height:80px"></div></div>
+    <div class="kpi"><div class="skel" style="height:80px"></div></div>
+    <div class="kpi"><div class="skel" style="height:80px"></div></div>
+  </section>
+
+  <!-- SECONDARY KPIs (status snapshots) -->
+  <section class="kpi-grid" id="kpiSecondary">
+    <div class="kpi"><div class="skel" style="height:80px"></div></div>
+    <div class="kpi"><div class="skel" style="height:80px"></div></div>
+    <div class="kpi"><div class="skel" style="height:80px"></div></div>
+  </section>
+
+  <!-- PINNED + RECENT (premium touch) -->
+  <section style="display:grid;grid-template-columns:2fr 1fr;gap:1rem;margin-bottom:1.4rem" id="pinnedRow"></section>
+
+  <!-- ACTIVE SITES + EMPLOYEE BREAKUP (two columns) -->
+  <section style="display:grid;grid-template-columns:1.4fr 1fr;gap:1rem;margin-bottom:1.4rem">
+    <div class="card">
+      <div class="card-head"><h3>Active sites</h3>
+        <a class="btn btn-ghost btn-sm" href="site-ops.html#sites">View all →</a>
+      </div>
+      <div class="card-body" id="sitesList"><div class="skel" style="height:120px"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Department breakup</h3></div>
+      <div class="card-body" id="deptBreakup"><div class="skel" style="height:120px"></div></div>
+    </div>
+  </section>
+
+  <!-- ERROR SLOT (used by API.renderSheetError) -->
+  <div id="errorSlot"></div>
+</main>
+
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/nav-config.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/modules/dashboard.js"></script>
+</body>
+</html>

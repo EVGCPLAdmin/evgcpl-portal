@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Config · EVGCPL Portal</title>
+<link rel="icon" type="image/jpeg" href="assets/img/EG.jpg"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/css/portal.css"/>
+<style>
+  .cfg-tabs { display:flex; gap:.4rem; border-bottom:1px solid var(--border); margin-bottom:1.4rem; }
+  .cfg-tab {
+    padding:.6rem 1.1rem; cursor:pointer;
+    font-size:.86rem; font-weight:600; color:var(--txt3);
+    border-bottom:2px solid transparent;
+    transition:color var(--t-fast), border-color var(--t-fast);
+  }
+  .cfg-tab:hover { color:var(--txt); }
+  .cfg-tab.active { color:var(--g7); border-bottom-color:var(--g7); }
+  body.dark .cfg-tab.active { color:#7fdc8f; border-bottom-color:#7fdc8f; }
+
+  .cfg-pane { display:none; }
+  .cfg-pane.active { display:block; }
+
+  .sid-card {
+    display:grid;
+    grid-template-columns: 160px 1fr auto;
+    gap:1rem;
+    align-items:center;
+    padding:.85rem 1.1rem;
+    border-bottom:1px solid var(--border);
+  }
+  .sid-card:last-child { border-bottom:none; }
+  .sid-key {
+    font-family:'DM Mono', ui-monospace, monospace;
+    font-size:.78rem; font-weight:600; color:var(--g7);
+  }
+  body.dark .sid-key { color:#7fdc8f; }
+  .sid-input, .bind-input {
+    width:100%; padding:.5rem .75rem;
+    border:1px solid var(--border);
+    border-radius:8px;
+    font-family:'DM Mono', ui-monospace, monospace;
+    font-size:.78rem;
+    background:var(--surface);
+    color:var(--txt);
+    transition:border-color var(--t-fast);
+  }
+  .sid-input:focus, .bind-input:focus { outline:none; border-color:var(--g5); }
+  .sid-input.dirty, .bind-input.dirty { border-color:var(--gold); background:rgba(240,165,0,.06); }
+  .sid-input.overridden, .bind-input.overridden { border-color:var(--info); background:rgba(30,136,229,.04); }
+  .sid-meta { font-size:.7rem; color:var(--txt3); margin-top:.25rem; }
+  .sid-actions { display:flex; gap:.4rem; }
+
+  .bind-row {
+    display:grid;
+    grid-template-columns: 1.1fr .8fr 1fr 1.4fr auto;
+    gap:.75rem;
+    align-items:center;
+    padding:.7rem 1.1rem;
+    border-bottom:1px solid var(--border);
+  }
+  .bind-row:last-child { border-bottom:none; }
+  .bind-row:hover { background:var(--surface2); }
+  .bind-name {
+    font-family:'DM Mono', ui-monospace, monospace;
+    font-size:.74rem; font-weight:600; color:var(--txt2);
+  }
+  .bind-input { padding:.4rem .55rem; font-size:.76rem; }
+  .bind-input.tq { font-size:.7rem; }
+
+  .bind-test-result {
+    font-size:.68rem; font-weight:600;
+    padding:2px 7px; border-radius:99px;
+    white-space:nowrap;
+  }
+  .bind-test-result.ok   { background:rgba(46,125,50,.12); color:#15803d; }
+  .bind-test-result.bad  { background:rgba(220,38,38,.12); color:#b91c1c; }
+  .bind-test-result.idle { background:var(--surface3); color:var(--txt3); }
+
+  .bind-group-head {
+    padding:.55rem 1.1rem;
+    background:var(--surface2);
+    border-bottom:1px solid var(--border);
+    border-top:1px solid var(--border);
+    font-size:.7rem; font-weight:700;
+    color:var(--txt3);
+    letter-spacing:.06em; text-transform:uppercase;
+  }
+
+  .save-bar {
+    position:sticky; bottom:0;
+    background:var(--surface);
+    border-top:1px solid var(--border);
+    padding:.85rem 1.1rem;
+    display:flex; align-items:center; gap:.7rem;
+    z-index:10;
+  }
+  .save-bar .pending-count {
+    font-size:.84rem; color:var(--txt2);
+    margin-right:auto;
+  }
+  .save-bar .pending-count b { color:var(--gold); }
+
+  .legend-pill {
+    display:inline-flex; align-items:center; gap:.4rem;
+    font-size:.72rem; color:var(--txt3);
+  }
+  .legend-pill .dot { width:8px; height:8px; border-radius:50%; }
+  @media (max-width: 760px) {
+    .sid-card { grid-template-columns: 1fr; }
+    .bind-row { grid-template-columns: 1fr; gap:.4rem; }
+  }
+
+  /* Sheets directory rows */
+  .dir-row {
+    display:grid;
+    grid-template-columns: 36px 1.2fr 1.6fr 2fr auto;
+    gap:.85rem;
+    align-items:center;
+    padding:.85rem 1.1rem;
+    border-bottom:1px solid var(--border);
+  }
+  .dir-row:last-child { border-bottom:none; }
+  .dir-row:hover { background:var(--surface2); }
+  .dir-key {
+    font-family:'DM Mono', ui-monospace, monospace;
+    font-size:.74rem; font-weight:700; color:var(--g7);
+    background:rgba(46,125,50,.1); border-radius:6px;
+    padding:6px 8px; text-align:center;
+  }
+  body.dark .dir-key { color:#7fdc8f; background:rgba(60,185,109,.12); }
+  .dir-name {
+    font-weight:700; font-size:.88rem; color:var(--txt);
+    border:1px solid transparent; border-radius:6px;
+    padding:.3rem .5rem; background:transparent;
+    width:100%; box-sizing:border-box;
+    font-family:inherit;
+  }
+  .dir-name:focus, .dir-desc:focus { outline:none; border-color:var(--g5); background:var(--surface); }
+  .dir-name.dirty, .dir-desc.dirty { border-color:var(--gold); background:rgba(240,165,0,.06); }
+  .dir-desc {
+    font-size:.76rem; color:var(--txt2);
+    border:1px solid transparent; border-radius:6px;
+    padding:.3rem .5rem; background:transparent;
+    width:100%; box-sizing:border-box; min-height:38px;
+    font-family:inherit; resize:vertical;
+  }
+  .dir-id-row {
+    font-family:'DM Mono', ui-monospace, monospace;
+    font-size:.7rem; color:var(--txt3); margin-bottom:.2rem;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .dir-tabs {
+    font-size:.7rem; color:var(--txt3); line-height:1.4;
+    word-break:break-word;
+  }
+  .dir-tabs b { color:var(--txt2); }
+  .dir-actions { display:flex; gap:.3rem; flex-direction:column; }
+
+  /* App Links rows */
+  .al-row {
+    display:grid;
+    grid-template-columns: 36px 1.5fr 1fr 2.2fr 2fr auto;
+    gap:.7rem;
+    align-items:center;
+    padding:.75rem 1.1rem;
+    border-bottom:1px solid var(--border);
+  }
+  .al-row:last-child { border-bottom:none; }
+  .al-row:hover { background:var(--surface2); }
+  .al-icon-input {
+    width:36px; height:36px; text-align:center;
+    border:1px solid var(--border); border-radius:8px;
+    font-size:1.2rem; background:var(--surface);
+    color:var(--txt);
+  }
+  .al-input {
+    padding:.4rem .55rem;
+    border:1px solid var(--border); border-radius:6px;
+    font-family:inherit; font-size:.78rem;
+    background:var(--surface); color:var(--txt);
+    width:100%; box-sizing:border-box;
+  }
+  .al-input.url { font-family:'DM Mono',ui-monospace,monospace; font-size:.72rem; }
+  .al-input:focus { outline:none; border-color:var(--g5); }
+  .al-input.dirty, .al-icon-input.dirty { border-color:var(--gold); background:rgba(240,165,0,.06); }
+  .al-actions { display:flex; gap:.3rem; }
+
+  @media (max-width: 760px) {
+    .dir-row, .al-row { grid-template-columns: 1fr; gap:.45rem; }
+  }
+</style>
+</head>
+<body>
+
+<div data-shell-root></div>
+
+<main class="shell-main">
+  <div id="pageHead"></div>
+
+  <div class="alert info" style="margin-bottom:1.2rem">
+    <span class="alert-icon">ℹ</span>
+    <div class="alert-body">
+      <b>How this works.</b> Edits here are saved to your browser's local storage and override the portal's hardcoded defaults on the next data fetch — no rebuild needed. Each user's overrides are local to their browser; for company-wide config, route through Apps Script (see roadmap).
+      <div style="margin-top:.4rem;font-size:.78rem;display:flex;gap:1.2rem;flex-wrap:wrap">
+        <span class="legend-pill"><span class="dot" style="background:var(--g5)"></span>Default value</span>
+        <span class="legend-pill"><span class="dot" style="background:var(--info)"></span>Active override</span>
+        <span class="legend-pill"><span class="dot" style="background:var(--gold)"></span>Unsaved change</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="cfg-tabs">
+    <div class="cfg-tab active" data-pane="sheets">📄 Sheet IDs</div>
+    <div class="cfg-tab" data-pane="sheets-dir">📚 Sheets directory</div>
+    <div class="cfg-tab" data-pane="bindings">🔗 Tab &amp; Query bindings</div>
+    <div class="cfg-tab" data-pane="app-links">🔗 App Links</div>
+    <div class="cfg-tab" data-pane="status">🩺 Diagnostics</div>
+  </div>
+
+  <div class="cfg-pane active" id="pane-sheets">
+    <div class="card">
+      <div class="card-head">
+        <h3>Sheet IDs</h3>
+        <button class="btn btn-secondary btn-sm" id="sidResetAll">Reset all to defaults</button>
+      </div>
+      <div id="sidList"></div>
+      <div class="save-bar" id="sidSaveBar" style="display:none">
+        <span class="pending-count">You have <b id="sidDirtyCount">0</b> unsaved sheet ID changes.</span>
+        <button class="btn btn-secondary btn-sm" id="sidDiscard">Discard</button>
+        <button class="btn btn-primary btn-sm" id="sidSave">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="cfg-pane" id="pane-bindings">
+    <div class="card">
+      <div class="card-head">
+        <h3>Module → Sheet/Tab bindings</h3>
+        <div style="display:flex;gap:.4rem;align-items:center">
+          <input id="bindSearch" type="text" placeholder="Filter…" class="bind-input" style="width:160px;font-family:inherit"/>
+          <button class="btn btn-secondary btn-sm" id="bindResetAll">Reset all</button>
+        </div>
+      </div>
+      <div id="bindList"></div>
+      <div class="save-bar" id="bindSaveBar" style="display:none">
+        <span class="pending-count">You have <b id="bindDirtyCount">0</b> unsaved binding changes.</span>
+        <button class="btn btn-secondary btn-sm" id="bindDiscard">Discard</button>
+        <button class="btn btn-primary btn-sm" id="bindSave">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PANE: Sheets directory ─────────────────────────────────── -->
+  <div class="cfg-pane" id="pane-sheets-dir">
+    <div class="card">
+      <div class="card-head">
+        <h3>Sheets directory</h3>
+        <div style="display:flex;gap:.4rem;align-items:center">
+          <input id="dirSearch" type="text" placeholder="Search sheet, ID, or tab…" class="bind-input" style="width:240px;font-family:inherit"/>
+          <button class="btn btn-secondary btn-sm" id="dirResetAll">Reset descriptions</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:.5rem 0 0;font-size:.78rem;color:var(--txt3);border-bottom:1px solid var(--border);padding-bottom:.85rem;margin:0 1.1rem">
+        Every Google Sheet the portal connects to. <b>Name</b> &amp; <b>description</b> are editable inline; <b>Sheet ID</b> opens the Sheet IDs tab; <b>tabs</b> opens the bindings tab. <b>Open</b> launches the live spreadsheet.
+      </div>
+      <div id="dirList"></div>
+      <div class="save-bar" id="dirSaveBar" style="display:none">
+        <span class="pending-count">You have <b id="dirDirtyCount">0</b> unsaved description changes.</span>
+        <button class="btn btn-secondary btn-sm" id="dirDiscard">Discard</button>
+        <button class="btn btn-primary btn-sm" id="dirSave">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PANE: App Links ────────────────────────────────────────── -->
+  <div class="cfg-pane" id="pane-app-links">
+    <div class="card">
+      <div class="card-head">
+        <h3>App Links</h3>
+        <div style="display:flex;gap:.4rem;align-items:center">
+          <input id="alSearch" type="text" placeholder="Search…" class="bind-input" style="width:200px;font-family:inherit"/>
+          <button class="btn btn-secondary btn-sm" id="alAddBtn">+ Add app link</button>
+          <button class="btn btn-secondary btn-sm" id="alResetAll">Reset to defaults</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:.5rem 0 0;font-size:.78rem;color:var(--txt3);border-bottom:1px solid var(--border);padding-bottom:.85rem;margin:0 1.1rem">
+        External services the portal links to. Each row shows <b>icon</b>, <b>name</b>, <b>category</b>, <b>URL</b>, <b>description</b>. Click any field to edit. Save or discard from the bar at the bottom.
+      </div>
+      <div id="alList"></div>
+      <div class="save-bar" id="alSaveBar" style="display:none">
+        <span class="pending-count">You have <b id="alDirtyCount">0</b> unsaved app-link changes.</span>
+        <button class="btn btn-secondary btn-sm" id="alDiscard">Discard</button>
+        <button class="btn btn-primary btn-sm" id="alSave">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="cfg-pane" id="pane-status">
+    <div class="card">
+      <div class="card-head"><h3>Sharing &amp; reachability</h3></div>
+      <div class="card-body">
+        <p style="font-size:.85rem;color:var(--txt2);line-height:1.6;margin-bottom:.8rem">
+          The Sharing Doctor runs a server-side diagnostic on every active binding using the portal's Apps Script as the network probe. It tells you exactly which sheet/tab combinations are reachable and which are blocked — bypassing the CORS limitations of in-browser checks.
+        </p>
+        <a class="btn btn-primary btn-sm" href="sharing-doctor.html">Open Sharing Doctor →</a>
+      </div>
+    </div>
+    <div class="card" style="margin-top:1rem">
+      <div class="card-head"><h3>Storage</h3></div>
+      <div class="card-body" id="storageInfo">—</div>
+    </div>
+  </div>
+
+</main>
+
+<script src="assets/js/state.js"></script>
+<script src="assets/js/data-bindings.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/nav-config.js"></script>
+<script src="assets/js/shell.js"></script>
+<script>
+(function() {
+  Shell.mount('config');
+  document.getElementById('pageHead').innerHTML = Shell.pageHead({
+    crumbs: [{ label:'Home', href:'dashboard.html' }, { label:'Config' }],
+    title:  'Sheet & data configuration',
+    sub:    'Edit which spreadsheets and tabs the portal reads from. Changes take effect on the next fetch.',
+  });
+
+  document.querySelectorAll('.cfg-tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.cfg-tab').forEach(x => x.classList.remove('active'));
+      document.querySelectorAll('.cfg-pane').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      document.getElementById('pane-' + t.dataset.pane).classList.add('active');
+      if (t.dataset.pane === 'status')     renderStorageInfo();
+      if (t.dataset.pane === 'sheets-dir') renderDir();
+      if (t.dataset.pane === 'app-links')  renderAL();
+      if (location.hash !== '#' + t.dataset.pane) {
+        history.replaceState(null, '', '#' + t.dataset.pane);
+      }
+    });
+  });
+
+  // Honour ?#pane on load and on browser back/forward
+  function syncFromHash() {
+    const h = (location.hash || '').replace(/^#/, '');
+    const valid = ['sheets', 'sheets-dir', 'bindings', 'app-links', 'status'];
+    if (!h || !valid.includes(h)) return;
+    const tab = document.querySelector(`.cfg-tab[data-pane="${h}"]`);
+    if (tab && !tab.classList.contains('active')) tab.click();
+  }
+  window.addEventListener('hashchange', syncFromHash);
+  syncFromHash();
+
+  // ── PANE 1: Sheet IDs ─────────────────────────────────────────
+  const sidPending = {};
+
+  function renderSheetIdList() {
+    const wrap = document.getElementById('sidList');
+    const overrides = API.loadOverrides().sheets;
+    wrap.innerHTML = Object.keys(API.SHEETS_DEFAULT).map(key => {
+      const def = API.SHEETS_DEFAULT[key];
+      const cur = overrides[key];
+      const val = sidPending[key] != null ? sidPending[key] : (cur || def);
+      const isOverridden = !!cur && cur !== def;
+      const isDirty      = sidPending[key] != null && sidPending[key] !== (cur || def);
+      const cls = [isDirty?'dirty':null, !isDirty&&isOverridden?'overridden':null].filter(Boolean).join(' ');
+      return `
+        <div class="sid-card">
+          <div>
+            <div class="sid-key">${key}</div>
+            <div class="sid-meta">${esc(API.SHEET_LABELS[key] || '')}</div>
+          </div>
+          <div>
+            <input type="text" class="sid-input ${cls}" data-sid-key="${key}" value="${esc(val)}" placeholder="Paste sheet ID here"/>
+            <div class="sid-meta">
+              ${isOverridden && !isDirty ? '<span style="color:var(--info)">Currently overridden</span>'
+                : isDirty ? '<span style="color:var(--gold)">Unsaved</span>'
+                : '<span>Using default</span>'}
+              ${val ? ` · <a href="https://docs.google.com/spreadsheets/d/${esc(val)}/edit" target="_blank" rel="noopener" style="color:var(--g6);text-decoration:underline">Open ↗</a>` : ''}
+            </div>
+          </div>
+          <div class="sid-actions">
+            ${isOverridden ? `<button class="btn btn-secondary btn-sm" data-sid-revert="${key}">Revert</button>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    wrap.querySelectorAll('input[data-sid-key]').forEach(input => {
+      input.addEventListener('input', e => {
+        const k = e.target.dataset.sidKey;
+        const v = e.target.value.trim();
+        const def = API.SHEETS_DEFAULT[k];
+        const cur = API.loadOverrides().sheets[k] || def;
+        if (v === cur) delete sidPending[k]; else sidPending[k] = v;
+        e.target.classList.toggle('dirty', sidPending[k] != null);
+        updateSidSaveBar();
+      });
+    });
+    wrap.querySelectorAll('[data-sid-revert]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        API.setSheetId(btn.dataset.sidRevert, '');
+        delete sidPending[btn.dataset.sidRevert];
+        renderSheetIdList(); updateSidSaveBar();
+        Shell.toast('Reverted to default', 'success');
+      });
+    });
+  }
+  function updateSidSaveBar() {
+    const n = Object.keys(sidPending).length;
+    document.getElementById('sidDirtyCount').textContent = n;
+    document.getElementById('sidSaveBar').style.display = n > 0 ? 'flex' : 'none';
+  }
+  document.getElementById('sidSave').addEventListener('click', () => {
+    let saved = 0;
+    Object.entries(sidPending).forEach(([k, v]) => { if (API.setSheetId(k, v)) saved++; });
+    Object.keys(sidPending).forEach(k => delete sidPending[k]);
+    renderSheetIdList(); updateSidSaveBar();
+    Shell.toast(`Saved ${saved} sheet ID${saved===1?'':'s'}`, 'success');
+  });
+  document.getElementById('sidDiscard').addEventListener('click', () => {
+    Object.keys(sidPending).forEach(k => delete sidPending[k]);
+    renderSheetIdList(); updateSidSaveBar();
+  });
+  document.getElementById('sidResetAll').addEventListener('click', () => {
+    if (!confirm('Reset ALL sheet IDs to their hardcoded defaults? Any custom IDs will be lost.')) return;
+    const ov = API.loadOverrides(); ov.sheets = {};
+    localStorage.setItem('EVGCPL_DATA_OVERRIDES_V1', JSON.stringify(ov));
+    Object.keys(sidPending).forEach(k => delete sidPending[k]);
+    renderSheetIdList(); updateSidSaveBar();
+    Shell.toast('All sheet IDs reset to defaults', 'success');
+  });
+
+  // ── PANE 2: Bindings ──────────────────────────────────────────
+  const bindPending = {};
+  let bindFilter = '';
+
+  function renderBindings() {
+    const wrap = document.getElementById('bindList');
+    const meta = window.DATA_BINDING_META || {};
+    const all  = window.DATA_BINDINGS || {};
+    const ov   = API.loadOverrides().bindings;
+
+    const groups = {};
+    Object.keys(all).forEach(name => {
+      if (bindFilter && !name.toLowerCase().includes(bindFilter) &&
+          !(meta[name]?.label || '').toLowerCase().includes(bindFilter)) return;
+      const mod = meta[name]?.module || 'Other';
+      (groups[mod] = groups[mod] || []).push(name);
+    });
+
+    let html = '';
+    Object.keys(groups).sort().forEach(mod => {
+      html += `<div class="bind-group-head">${esc(mod)}</div>`;
+      groups[mod].forEach(name => {
+        const base = all[name];
+        const o = ov[name] || {};
+        const p = bindPending[name] || {};
+        const eff = {
+          sheetKey: p.sheetKey ?? o.sheetKey ?? base.sheetKey,
+          tab:      p.tab      ?? o.tab      ?? base.tab,
+          tq:       p.tq       ?? o.tq       ?? base.tq,
+        };
+        const isOv = (o.tab != null) || (o.tq != null) || (o.sheetKey != null);
+        const sheetOptions = Object.keys(API.SHEETS_DEFAULT).map(k =>
+          `<option value="${k}" ${k === eff.sheetKey ? 'selected':''}>${k}</option>`).join('');
+        const cls = (field) => {
+          const dirty = p[field] != null && p[field] !== (o[field] != null ? o[field] : base[field]);
+          const overridden = !dirty && o[field] != null;
+          return [dirty?'dirty':null, overridden?'overridden':null].filter(Boolean).join(' ');
+        };
+        html += `
+          <div class="bind-row">
+            <div>
+              <div class="bind-name">${esc(name)}</div>
+              <div style="font-size:.7rem;color:var(--txt3);margin-top:2px">${esc(meta[name]?.label || '')}</div>
+            </div>
+            <select class="bind-input ${cls('sheetKey')}" data-bind-name="${name}" data-bind-field="sheetKey">${sheetOptions}</select>
+            <input class="bind-input ${cls('tab')}" data-bind-name="${name}" data-bind-field="tab" value="${esc(eff.tab)}" placeholder="Tab name"/>
+            <input class="bind-input tq ${cls('tq')}" data-bind-name="${name}" data-bind-field="tq" value="${esc(eff.tq)}" placeholder="SELECT *"/>
+            <div style="display:flex;gap:.3rem;align-items:center">
+              <button class="btn btn-secondary btn-sm" data-bind-test="${name}">Test</button>
+              ${isOv ? `<button class="btn btn-secondary btn-sm" data-bind-revert="${name}" title="Revert to default">↺</button>` : ''}
+              <span class="bind-test-result idle" data-bind-result="${name}">·</span>
+            </div>
+          </div>`;
+      });
+    });
+    wrap.innerHTML = html || `<div style="padding:2rem;text-align:center;color:var(--txt3)">No bindings match "${esc(bindFilter)}"</div>`;
+
+    wrap.querySelectorAll('[data-bind-name]').forEach(input => {
+      input.addEventListener('input',  e => onBindEdit(e.target));
+      input.addEventListener('change', e => onBindEdit(e.target));
+    });
+    wrap.querySelectorAll('[data-bind-test]').forEach(btn => {
+      btn.addEventListener('click', () => testBinding(btn.dataset.bindTest));
+    });
+    wrap.querySelectorAll('[data-bind-revert]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const name = btn.dataset.bindRevert;
+        API.resetBinding(name);
+        delete bindPending[name];
+        renderBindings(); updateBindSaveBar();
+        Shell.toast(`Reverted ${name}`, 'success');
+      });
+    });
+  }
+  function onBindEdit(el) {
+    const name  = el.dataset.bindName;
+    const field = el.dataset.bindField;
+    const val   = el.value;
+    const base  = window.DATA_BINDINGS[name];
+    const ov    = API.loadOverrides().bindings[name] || {};
+    const cur   = ov[field] != null ? ov[field] : base[field];
+    bindPending[name] = bindPending[name] || {};
+    if (val === cur) delete bindPending[name][field];
+    else bindPending[name][field] = val;
+    if (Object.keys(bindPending[name]).length === 0) delete bindPending[name];
+    el.classList.toggle('dirty', !!(bindPending[name] && bindPending[name][field] != null));
+    updateBindSaveBar();
+  }
+  function updateBindSaveBar() {
+    const n = Object.keys(bindPending).length;
+    document.getElementById('bindDirtyCount').textContent = n;
+    document.getElementById('bindSaveBar').style.display = n > 0 ? 'flex' : 'none';
+  }
+  document.getElementById('bindSave').addEventListener('click', () => {
+    let saved = 0;
+    Object.entries(bindPending).forEach(([name, partial]) => { if (API.setBinding(name, partial)) saved++; });
+    Object.keys(bindPending).forEach(k => delete bindPending[k]);
+    renderBindings(); updateBindSaveBar();
+    Shell.toast(`Saved ${saved} binding change${saved===1?'':'s'}`, 'success');
+  });
+  document.getElementById('bindDiscard').addEventListener('click', () => {
+    Object.keys(bindPending).forEach(k => delete bindPending[k]);
+    renderBindings(); updateBindSaveBar();
+  });
+  document.getElementById('bindResetAll').addEventListener('click', () => {
+    if (!confirm('Reset ALL binding overrides? Tab names and queries will revert to the hardcoded defaults.')) return;
+    const ov = API.loadOverrides(); ov.bindings = {};
+    localStorage.setItem('EVGCPL_DATA_OVERRIDES_V1', JSON.stringify(ov));
+    Object.keys(bindPending).forEach(k => delete bindPending[k]);
+    renderBindings(); updateBindSaveBar();
+    Shell.toast('All binding overrides cleared', 'success');
+  });
+  document.getElementById('bindSearch').addEventListener('input', e => {
+    bindFilter = e.target.value.trim().toLowerCase();
+    renderBindings();
+  });
+
+  async function testBinding(name) {
+    const resEl = document.querySelector(`[data-bind-result="${name}"]`);
+    if (!resEl) return;
+    resEl.className = 'bind-test-result idle';
+    resEl.textContent = 'testing…';
+
+    // Read effective draft values from the inputs in the row directly
+    // — this lets the user test before saving.
+    const row = resEl.closest('.bind-row');
+    const draftSheetKey = row.querySelector('[data-bind-field="sheetKey"]').value;
+    const draftTab      = row.querySelector('[data-bind-field="tab"]').value;
+    const draftTq       = row.querySelector('[data-bind-field="tq"]').value;
+
+    const sid = API.getSheetId(draftSheetKey);
+    if (!sid) {
+      resEl.className = 'bind-test-result bad';
+      resEl.textContent = '✕ no sheet ID';
+      return;
+    }
+    try {
+      const rows = await API.fetchSheet(draftTab, draftTq, sid);
+      resEl.className = 'bind-test-result ok';
+      resEl.textContent = `✓ ${rows.length} rows`;
+      resEl.title = `${rows.length} rows from ${draftSheetKey} · ${draftTab}`;
+    } catch (err) {
+      resEl.className = 'bind-test-result bad';
+      resEl.textContent = `✕ ${err.code || 'fail'}`;
+      resEl.title = err.message || 'Fetch failed';
+    }
+  }
+
+  function renderStorageInfo() {
+    const ov = API.loadOverrides();
+    const sN = Object.keys(ov.sheets).length;
+    const bN = Object.keys(ov.bindings).length;
+    const raw = JSON.stringify(ov);
+    document.getElementById('storageInfo').innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;font-size:.85rem">
+        <div><b>${sN}</b> sheet ID overrides</div>
+        <div><b>${bN}</b> binding overrides</div>
+        <div><b>${raw.length}</b> bytes used</div>
+        <div><b>localStorage</b> · per-browser</div>
+      </div>
+      <details style="margin-top:.8rem">
+        <summary style="cursor:pointer;font-size:.78rem;color:var(--txt3)">View raw JSON</summary>
+        <pre style="background:var(--surface2);padding:.7rem;border-radius:8px;font-size:.72rem;overflow:auto;margin-top:.4rem;max-height:240px">${esc(JSON.stringify(ov, null, 2))}</pre>
+      </details>
+      <button class="btn btn-secondary btn-sm" style="margin-top:.7rem" onclick="if(confirm('Wipe ALL portal config overrides? Sheet IDs and bindings will all revert to defaults.')){API.resetAll();location.reload();}">Wipe all overrides</button>
+    `;
+  }
+
+  // ── PANE: Sheets directory ────────────────────────────────────
+  // Each row mirrors a sheet KEY in SHEETS_DEFAULT and lets the admin
+  // edit the friendly name + description inline. The Sheet ID itself
+  // is edited on the dedicated Sheet IDs tab (we link to it).
+  const dirPending = {};   // { KEY: { label?, description?, primaryTabs? } }
+
+  function renderDir() {
+    const wrap = document.getElementById('dirList');
+    const q = (document.getElementById('dirSearch').value || '').toLowerCase().trim();
+    const ov = API.loadOverrides();
+    const allBindings = window.DATA_BINDINGS || {};
+
+    // Build a tabs-by-key index from the bindings registry so each sheet
+    // shows which tabs the portal actually reads from it.
+    const tabsByKey = {};
+    Object.entries(allBindings).forEach(([name, b]) => {
+      if (!tabsByKey[b.sheetKey]) tabsByKey[b.sheetKey] = new Set();
+      tabsByKey[b.sheetKey].add(b.tab);
+    });
+
+    let html = '';
+    Object.keys(API.SHEETS_DEFAULT).forEach(key => {
+      const id = API.getSheetId(key);
+      const meta = API.getSheetMeta(key);
+      const p = dirPending[key] || {};
+      const eff = {
+        label:       p.label       != null ? p.label       : meta.label,
+        description: p.description != null ? p.description : meta.description,
+      };
+      const url = API.sheetUrl(key);
+      const tabs = [...(tabsByKey[key] || [])].sort();
+      const overrideId = (ov.sheets || {})[key];
+      const idIsOverridden = !!overrideId && overrideId !== API.SHEETS_DEFAULT[key];
+
+      // Apply search filter
+      const haystack = (key + ' ' + eff.label + ' ' + eff.description + ' ' + tabs.join(' ') + ' ' + (id || '')).toLowerCase();
+      if (q && !haystack.includes(q)) return;
+
+      const dirty = (k) => p[k] != null && p[k] !== meta[k];
+
+      html += `
+        <div class="dir-row">
+          <div class="dir-key">${esc(key)}</div>
+          <div>
+            <input type="text" class="dir-name ${dirty('label')?'dirty':''}" data-dir-key="${esc(key)}" data-dir-field="label" value="${esc(eff.label)}" placeholder="Display name"/>
+            ${idIsOverridden ? '<div style="font-size:.66rem;color:var(--info);margin-top:.2rem">⚙ ID overridden</div>' : ''}
+          </div>
+          <div>
+            <div class="dir-id-row" title="${esc(id || '(empty)')}">
+              ${id
+                ? `<span style="color:var(--txt2)">ID:</span> <span style="user-select:all">${esc(id)}</span>`
+                : '<span style="color:#b91c1c">No ID set</span>'}
+            </div>
+            <div class="dir-tabs">
+              <b>Used tabs (${tabs.length}):</b><br/>
+              ${tabs.length ? tabs.map(t => `<span style="display:inline-block;font-family:'DM Mono',monospace;background:var(--surface3);padding:1px 6px;margin:1px 2px 1px 0;border-radius:4px;font-size:.65rem">${esc(t)}</span>`).join('') : '<i style="color:var(--txt4)">none yet</i>'}
+            </div>
+          </div>
+          <div>
+            <textarea class="dir-desc ${dirty('description')?'dirty':''}" data-dir-key="${esc(key)}" data-dir-field="description" placeholder="What lives in this sheet…" rows="2">${esc(eff.description)}</textarea>
+          </div>
+          <div class="dir-actions">
+            ${url ? `<a class="btn btn-secondary btn-sm" href="${esc(url)}" target="_blank" rel="noopener" style="white-space:nowrap">Open ↗</a>` : ''}
+            <button class="btn btn-secondary btn-sm" data-dir-go-id="${esc(key)}" title="Edit Sheet ID">📄 ID</button>
+            <button class="btn btn-secondary btn-sm" data-dir-go-binding="${esc(key)}" title="Edit bindings (tabs/queries)">🔗 Tabs</button>
+          </div>
+        </div>`;
+    });
+
+    wrap.innerHTML = html || `<div style="padding:2rem;text-align:center;color:var(--txt3)">No sheets match "${esc(q)}"</div>`;
+
+    // Wire input changes
+    wrap.querySelectorAll('input[data-dir-key], textarea[data-dir-key]').forEach(el => {
+      el.addEventListener('input', e => {
+        const k = e.target.dataset.dirKey;
+        const f = e.target.dataset.dirField;
+        const val = e.target.value;
+        const meta = API.getSheetMeta(k);
+        dirPending[k] = dirPending[k] || {};
+        if (val === meta[f]) delete dirPending[k][f];
+        else dirPending[k][f] = val;
+        if (Object.keys(dirPending[k]).length === 0) delete dirPending[k];
+        e.target.classList.toggle('dirty', !!(dirPending[k] && dirPending[k][f] != null));
+        updateDirSaveBar();
+      });
+    });
+    // Quick-jump buttons
+    wrap.querySelectorAll('[data-dir-go-id]').forEach(b =>
+      b.addEventListener('click', () => switchPane('sheets')));
+    wrap.querySelectorAll('[data-dir-go-binding]').forEach(b =>
+      b.addEventListener('click', () => {
+        switchPane('bindings');
+        const key = b.dataset.dirGoBinding;
+        const search = document.getElementById('bindSearch');
+        if (search) {
+          search.value = key.toLowerCase();
+          search.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }));
+  }
+  function switchPane(name) {
+    document.querySelectorAll('.cfg-tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.cfg-pane').forEach(x => x.classList.remove('active'));
+    const tab = document.querySelector(`.cfg-tab[data-pane="${name}"]`);
+    if (tab) tab.classList.add('active');
+    const pane = document.getElementById('pane-' + name);
+    if (pane) pane.classList.add('active');
+    if (name === 'status')     renderStorageInfo();
+    if (name === 'sheets-dir') renderDir();
+    if (name === 'app-links')  renderAL();
+  }
+  function updateDirSaveBar() {
+    const n = Object.keys(dirPending).length;
+    document.getElementById('dirDirtyCount').textContent = n;
+    document.getElementById('dirSaveBar').style.display = n > 0 ? 'flex' : 'none';
+  }
+  document.getElementById('dirSearch').addEventListener('input', renderDir);
+  document.getElementById('dirSave').addEventListener('click', () => {
+    let saved = 0;
+    Object.entries(dirPending).forEach(([k, partial]) => {
+      if (API.setSheetMeta(k, partial)) saved++;
+    });
+    Object.keys(dirPending).forEach(k => delete dirPending[k]);
+    renderDir(); updateDirSaveBar();
+    Shell.toast(`Saved ${saved} sheet description${saved === 1 ? '' : 's'}`, 'success');
+  });
+  document.getElementById('dirDiscard').addEventListener('click', () => {
+    Object.keys(dirPending).forEach(k => delete dirPending[k]);
+    renderDir(); updateDirSaveBar();
+  });
+  document.getElementById('dirResetAll').addEventListener('click', () => {
+    if (!confirm('Reset ALL sheet name + description overrides to defaults?')) return;
+    const ov = API.loadOverrides(); ov.sheetsMeta = {};
+    localStorage.setItem('EVGCPL_DATA_OVERRIDES_V1', JSON.stringify(ov));
+    Object.keys(dirPending).forEach(k => delete dirPending[k]);
+    renderDir(); updateDirSaveBar();
+    Shell.toast('Sheet descriptions reset to defaults', 'success');
+  });
+
+
+  // ── PANE: App Links ───────────────────────────────────────────
+  // Editable registry of external apps. Each row supports inline edit
+  // of icon/name/category/url/description; rows are reorderable via
+  // drag handle (added on hover); +Add inserts a blank row.
+  let alDraft = null;   // working copy until Save
+
+  function renderAL() {
+    if (!alDraft) alDraft = JSON.parse(JSON.stringify(API.loadAppLinks()));
+    const wrap = document.getElementById('alList');
+    const q = (document.getElementById('alSearch').value || '').toLowerCase().trim();
+    const original = API.loadAppLinks();
+
+    const rowDirty = (i) => {
+      const a = alDraft[i] || {};
+      const b = original[i] || {};
+      return (a.id !== b.id) || (a.name !== b.name) || (a.category !== b.category) ||
+             (a.url !== b.url) || (a.description !== b.description) || (a.icon !== b.icon);
+    };
+
+    let html = '';
+    alDraft.forEach((link, i) => {
+      const haystack = (link.name + ' ' + link.category + ' ' + link.url + ' ' + link.description).toLowerCase();
+      if (q && !haystack.includes(q)) return;
+      const dirty = rowDirty(i);
+      html += `
+        <div class="al-row">
+          <input type="text" class="al-icon-input ${dirty?'dirty':''}" data-al-i="${i}" data-al-f="icon" value="${esc(link.icon || '')}" maxlength="3"/>
+          <div>
+            <input type="text" class="al-input ${dirty?'dirty':''}" data-al-i="${i}" data-al-f="name" value="${esc(link.name || '')}" placeholder="Display name" style="font-weight:600"/>
+            <div style="font-size:.66rem;color:var(--txt3);margin-top:.15rem;font-family:'DM Mono',monospace">${esc(link.id || 'no-id')}</div>
+          </div>
+          <input type="text" class="al-input ${dirty?'dirty':''}" data-al-i="${i}" data-al-f="category" value="${esc(link.category || '')}" placeholder="Category"/>
+          <input type="text" class="al-input url ${dirty?'dirty':''}" data-al-i="${i}" data-al-f="url" value="${esc(link.url || '')}" placeholder="https://…"/>
+          <input type="text" class="al-input ${dirty?'dirty':''}" data-al-i="${i}" data-al-f="description" value="${esc(link.description || '')}" placeholder="Short description"/>
+          <div class="al-actions">
+            ${link.url ? `<a class="btn btn-secondary btn-sm" href="${esc(link.url)}" target="_blank" rel="noopener" title="Open">↗</a>` : ''}
+            <button class="btn btn-secondary btn-sm" data-al-up="${i}"   title="Move up"   ${i === 0 ? 'disabled' : ''}>↑</button>
+            <button class="btn btn-secondary btn-sm" data-al-down="${i}" title="Move down" ${i === alDraft.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="btn btn-secondary btn-sm" data-al-del="${i}"  title="Remove" style="color:#b91c1c">✕</button>
+          </div>
+        </div>`;
+    });
+
+    wrap.innerHTML = html || `<div style="padding:2rem;text-align:center;color:var(--txt3)">${alDraft.length === 0 ? 'No app links yet — click "+ Add app link" to create one.' : 'No matches for "' + esc(q) + '"'}</div>`;
+
+    wrap.querySelectorAll('input[data-al-i]').forEach(el => {
+      el.addEventListener('input', e => {
+        const i = parseInt(e.target.dataset.alI);
+        const f = e.target.dataset.alF;
+        alDraft[i][f] = e.target.value;
+        e.target.classList.toggle('dirty', rowDirty(i));
+        updateALSaveBar();
+      });
+    });
+    wrap.querySelectorAll('[data-al-up]').forEach(b => b.addEventListener('click', () => {
+      const i = parseInt(b.dataset.alUp);
+      if (i > 0) [alDraft[i-1], alDraft[i]] = [alDraft[i], alDraft[i-1]];
+      renderAL(); updateALSaveBar();
+    }));
+    wrap.querySelectorAll('[data-al-down]').forEach(b => b.addEventListener('click', () => {
+      const i = parseInt(b.dataset.alDown);
+      if (i < alDraft.length - 1) [alDraft[i+1], alDraft[i]] = [alDraft[i], alDraft[i+1]];
+      renderAL(); updateALSaveBar();
+    }));
+    wrap.querySelectorAll('[data-al-del]').forEach(b => b.addEventListener('click', () => {
+      const i = parseInt(b.dataset.alDel);
+      const link = alDraft[i];
+      if (!confirm(`Remove "${link.name || 'this app link'}"? You can still discard before saving.`)) return;
+      alDraft.splice(i, 1);
+      renderAL(); updateALSaveBar();
+    }));
+  }
+  function updateALSaveBar() {
+    const original = API.loadAppLinks();
+    const dirty = (alDraft && (alDraft.length !== original.length || alDraft.some((l, i) => {
+      const o = original[i] || {};
+      return l.id !== o.id || l.name !== o.name || l.category !== o.category ||
+             l.url !== o.url || l.description !== o.description || l.icon !== o.icon;
+    })));
+    const n = dirty ? Math.abs(alDraft.length - original.length) +
+      alDraft.filter((l, i) => {
+        const o = original[i] || {};
+        return l.id !== o.id || l.name !== o.name || l.category !== o.category ||
+               l.url !== o.url || l.description !== o.description || l.icon !== o.icon;
+      }).length : 0;
+    document.getElementById('alDirtyCount').textContent = n;
+    document.getElementById('alSaveBar').style.display = dirty ? 'flex' : 'none';
+  }
+  document.getElementById('alSearch').addEventListener('input', renderAL);
+  document.getElementById('alAddBtn').addEventListener('click', () => {
+    if (!alDraft) alDraft = JSON.parse(JSON.stringify(API.loadAppLinks()));
+    const newId = 'app-' + Date.now().toString(36);
+    alDraft.unshift({ id:newId, name:'New app link', category:'General', url:'', description:'', icon:'🔗' });
+    renderAL(); updateALSaveBar();
+    // Focus the new row's name input
+    setTimeout(() => {
+      const inp = document.querySelector('input[data-al-i="0"][data-al-f="name"]');
+      if (inp) { inp.focus(); inp.select(); }
+    }, 60);
+  });
+  document.getElementById('alSave').addEventListener('click', () => {
+    if (!alDraft) return;
+    // Validate URLs lightly
+    const bad = alDraft.find(l => l.url && !/^https?:\/\//.test(l.url));
+    if (bad) {
+      Shell.toast(`URL must start with http:// or https:// — see "${bad.name}"`, 'warn');
+      return;
+    }
+    API.saveAppLinks(alDraft);
+    alDraft = JSON.parse(JSON.stringify(alDraft));   // re-sync draft
+    renderAL(); updateALSaveBar();
+    Shell.toast('App links saved', 'success');
+  });
+  document.getElementById('alDiscard').addEventListener('click', () => {
+    alDraft = JSON.parse(JSON.stringify(API.loadAppLinks()));
+    renderAL(); updateALSaveBar();
+  });
+  document.getElementById('alResetAll').addEventListener('click', () => {
+    if (!confirm('Reset ALL app links to the built-in defaults? Custom additions and edits will be lost.')) return;
+    API.resetAppLinks();
+    alDraft = JSON.parse(JSON.stringify(API.loadAppLinks()));
+    renderAL(); updateALSaveBar();
+    Shell.toast('App links reset to defaults', 'success');
+  });
+
+  renderSheetIdList();
+  renderBindings();
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+})();
+</script>
+
+</body>
+</html>

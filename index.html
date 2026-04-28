@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in · EVGCPL Portal</title>
+<link rel="icon" type="image/jpeg" href="assets/img/EG.jpg">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/portal.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+<div class="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <img src="assets/img/EG.jpg" alt="EVGCPL">
+      <h2>Evergreen Enterprises</h2>
+    </div>
+    <div class="login-greet">
+      <h1>Welcome back</h1>
+      <p>Sign in to access the EVGCPL Portal</p>
+    </div>
+
+    <!-- Real Google Sign-In button — GSI renders into this -->
+    <div id="googleSignInBtn" style="display:flex;justify-content:center;margin-bottom:.4rem;min-height:44px"></div>
+
+    <!-- Fallback / demo button (only shown if GSI fails to load) -->
+    <button id="demoBtn" class="login-btn" onclick="loginAsDemo('md')" style="display:none">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="">
+      Continue (demo)
+    </button>
+
+    <div class="login-divider">— or —</div>
+
+    <form class="login-pin-form" onsubmit="event.preventDefault(); pinLogin();">
+      <input type="email"    id="email" placeholder="Mail ID" autocomplete="username">
+      <input type="password" id="pin"   placeholder="PIN" autocomplete="current-password" maxlength="10">
+      <button type="submit" id="pinSubmitBtn">Sign in with PIN</button>
+    </form>
+
+    <div id="loginErr" style="display:none;margin-top:.85rem;padding:.6rem .8rem;background:rgba(220,38,38,.12);color:#fca5a5;border-radius:8px;font-size:.78rem;text-align:center"></div>
+
+    <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap;justify-content:center">
+      <a href="https://neurolooom-eng.github.io/onboarding/" target="_blank" rel="noopener"
+         style="font-size:.72rem;color:rgba(255,255,255,.55);text-decoration:none;padding:.3rem .55rem;border-radius:6px;border:1px solid rgba(255,255,255,.1)">📝 Onboarding</a>
+      <a href="https://evgcpladmin.github.io/password/" target="_blank" rel="noopener"
+         style="font-size:.72rem;color:rgba(255,255,255,.55);text-decoration:none;padding:.3rem .55rem;border-radius:6px;border:1px solid rgba(255,255,255,.1)">🔑 PIN Set / Reset</a>
+    </div>
+
+    <div style="margin-top:1.4rem;font-size:.7rem;color:rgba(255,255,255,.4);text-align:center">
+      EVGCPL Portal · v1.4 · ISO 9001:2015 · ASME U STAMP
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/state.js"></script>
+<script src="assets/js/data-bindings.js"></script>
+<script src="assets/js/api.js"></script>
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   EVGCPL Portal — Login (v1.4)
+   Restores the v1.0–v1.3 single-card aesthetic with full PIN auth
+   wired to the live UserSecrets sheet.
+   ════════════════════════════════════════════════════════════════════ */
+if (STATE.isLoggedIn()) location.href = 'dashboard.html';
+
+const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
+
+// ── Google Sign-In wiring ─────────────────────────────────────
+let _gsiTries = 0;
+function tryInitGoogle() {
+  if (typeof google === 'undefined' || !google.accounts || !google.accounts.id) {
+    if (++_gsiTries < 30) return setTimeout(tryInitGoogle, 200);
+    document.getElementById('demoBtn').style.display = '';
+    return;
+  }
+  if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.startsWith('YOUR_')) {
+    document.getElementById('demoBtn').style.display = '';
+    return;
+  }
+  try {
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: handleGoogleCredential,
+      auto_select: false,
+      cancel_on_tap_outside: true,
+    });
+    google.accounts.id.renderButton(
+      document.getElementById('googleSignInBtn'),
+      { theme:'filled_blue', size:'large', type:'standard',
+        shape:'rectangular', text:'continue_with',
+        logo_alignment:'left', width:280 }
+    );
+    try { google.accounts.id.prompt(); } catch (_) { /* silent */ }
+  } catch (e) {
+    console.warn('Google Sign-In init failed:', e);
+    document.getElementById('demoBtn').style.display = '';
+  }
+}
+tryInitGoogle();
+
+let _empCache = null;
+function loadEmployees() {
+  if (_empCache) return Promise.resolve(_empCache);
+  return API.fetchByBinding('hr.employees').then(rows => { _empCache = rows; return rows; });
+}
+
+function resolveRole(empRecord, fallback) {
+  const desig = (empRecord['DESIGNATION']      || '').toLowerCase();
+  const role  = (empRecord['Role (User Type)'] || '').toLowerCase();
+  if (role.includes('md') || desig.includes('managing director'))                return 'md';
+  if (role.includes('admin'))                                                    return 'admin';
+  if (role.includes('hr') || desig.includes('hr'))                               return 'hr';
+  if (role.includes('purchase') || desig.includes('purchase'))                   return 'purchase';
+  if (role.includes('accounts') || role.includes('finance')
+      || desig.includes('accounts'))                                             return 'accounts';
+  if (role.includes('site') || desig.includes('site'))                           return 'site';
+  return fallback || 'employee';
+}
+
+async function handleGoogleCredential(response) {
+  try {
+    const payload = JSON.parse(atob(response.credential.split('.')[1]));
+    const email   = (payload.email || '').toLowerCase();
+    const name    = payload.name || email.split('@')[0];
+    const picture = payload.picture || '';
+
+    const initialRole = email.endsWith('@evgcpl.com') ? 'md' : 'employee';
+    STATE.set({ user: { email, name, picture }, role: initialRole, isDemo: false });
+
+    try {
+      const rows = await loadEmployees();
+      const me = rows.find(r => (r['Mail ID'] || '').toString().toLowerCase().trim() === email);
+      if (me) STATE.set({ role: resolveRole(me, initialRole) });
+    } catch (_) { /* keep initial */ }
+
+    location.href = 'dashboard.html';
+  } catch (e) {
+    console.error('Sign-in error:', e);
+    showErr('Sign-in failed. Please try again or use PIN login.');
+  }
+}
+
+function loginAsDemo(role) {
+  STATE.set({
+    user: { name:'Demo User', email:'demo@evgcpl.com', picture:'' },
+    role: role || 'md',
+    isDemo: true,
+  });
+  location.href = 'dashboard.html';
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   PIN LOGIN — gviz lookup against UserSecrets sheet
+   ════════════════════════════════════════════════════════════════════ */
+async function pinLogin() {
+  const email = (document.getElementById('email').value || '').trim().toLowerCase();
+  const pin   = (document.getElementById('pin').value   || '').trim();
+  const btn   = document.getElementById('pinSubmitBtn');
+
+  if (!email) return showErr('Please enter your Mail ID.');
+  if (!pin)   return showErr('Please enter your PIN.');
+
+  setBtn('Verifying…', true);
+  hideErr();
+
+  try {
+    const pinRows = await API.fetchByBinding('auth.userSecrets');
+    if (!pinRows || !pinRows.length) {
+      setBtn('Sign in with PIN', false);
+      return showErr('Could not reach the PIN database. Please check your connection.');
+    }
+
+    const pinRow = pinRows.find(r =>
+      (r['Mail ID'] || '').toString().trim().toLowerCase() === email
+    );
+    if (!pinRow) {
+      setBtn('Sign in with PIN', false);
+      return showErr('Email not found. Use "PIN Set / Reset" if this is your first login.');
+    }
+
+    const storedPIN = (pinRow['Modified PIN'] || pinRow['Current PIN'] || '').toString().trim();
+    if (!storedPIN) {
+      setBtn('Sign in with PIN', false);
+      return showErr('No PIN set. Please use the PIN Set / Reset link below.');
+    }
+    if (String(pin) !== String(storedPIN)) {
+      setBtn('Sign in with PIN', false);
+      return showErr('Incorrect PIN. Please try again.');
+    }
+
+    setBtn('Loading profile…', true);
+    let userName = pinRow['User Name'] || email.split('@')[0];
+    let role = 'employee';
+    try {
+      const emps = await loadEmployees();
+      const me = emps.find(u => (u['Mail ID'] || '').toString().trim().toLowerCase() === email);
+      if (me) {
+        userName = me['Employee Name'] || userName;
+        role = resolveRole(me, 'employee');
+      }
+    } catch (_) { /* keep defaults */ }
+
+    STATE.set({
+      user: { email, name: userName, empCode: (pinRow['Employee Ref'] || '').toUpperCase() },
+      role,
+      isDemo: false,
+    });
+    location.href = 'dashboard.html';
+  } catch (err) {
+    console.error('PIN login error:', err);
+    setBtn('Sign in with PIN', false);
+    showErr('Login failed: ' + (err && err.message || 'Unknown error'));
+  }
+}
+
+function showErr(msg) {
+  const el = document.getElementById('loginErr');
+  el.textContent = msg;
+  el.style.display = '';
+}
+function hideErr() { document.getElementById('loginErr').style.display = 'none'; }
+function setBtn(text, disabled) {
+  const btn = document.getElementById('pinSubmitBtn');
+  btn.textContent = text;
+  btn.disabled = disabled;
+  btn.style.opacity = disabled ? '0.7' : '1';
+}
+</script>
+</body>
+</html>

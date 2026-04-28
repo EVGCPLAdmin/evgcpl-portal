@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Accounts &amp; Payments · EVGCPL Portal</title>
+<link rel="icon" type="image/jpeg" href="assets/img/EG.jpg"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=DM+Mono:wght@500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/css/portal.css"/>
+<style>
+  /* Status pill buttons */
+  .status-pill {
+    padding:.34rem .8rem;
+    border:1px solid var(--border);
+    border-radius:99px;
+    background:var(--surface);
+    font-family:inherit;
+    font-size:.78rem;
+    font-weight:600;
+    cursor:pointer;
+    color:var(--txt2);
+    transition:all var(--t-fast);
+    white-space:nowrap;
+  }
+  .status-pill:hover { border-color:var(--g6); color:var(--txt); }
+  .status-pill.active { border-color:var(--g7); background:var(--g7); color:#fff; }
+  .status-pill.pending  { color:#92400e; border-color:#f59e0b; }
+  .status-pill.pending.active  { background:#f59e0b; color:#fff; }
+  .status-pill.progress { color:#1e40af; border-color:#2563eb; }
+  .status-pill.progress.active { background:#2563eb; color:#fff; }
+  .status-pill.rejected { color:#991b1b; border-color:#ef4444; }
+  .status-pill.rejected.active { background:#ef4444; color:#fff; }
+  .status-pill.completed { color:#14532d; border-color:#16a34a; }
+  .status-pill.completed.active { background:#16a34a; color:#fff; }
+
+  body.dark .status-pill.pending   { color:#fbbf24; border-color:#f59e0b; }
+  body.dark .status-pill.progress  { color:#93c5fd; border-color:#3b82f6; }
+  body.dark .status-pill.rejected  { color:#fca5a5; border-color:#dc2626; }
+  body.dark .status-pill.completed { color:#86efac; border-color:#22c55e; }
+
+  /* Filter row */
+  .acc-filter-row {
+    display:flex; gap:.7rem; flex-wrap:wrap; align-items:flex-end;
+  }
+  .acc-filter {
+    display:flex; flex-direction:column; gap:.25rem;
+  }
+  .acc-filter label {
+    font-size:.66rem; font-weight:700;
+    color:var(--txt3);
+    text-transform:uppercase; letter-spacing:.05em;
+  }
+  .acc-filter select, .acc-filter input {
+    padding:.4rem .6rem;
+    border:1px solid var(--border); border-radius:6px;
+    background:var(--surface);
+    font-family:inherit; font-size:.78rem;
+    color:var(--txt);
+    min-width:130px;
+  }
+  .acc-filter input { min-width:200px; }
+  .acc-filter select:focus, .acc-filter input:focus { outline:none; border-color:var(--g5); }
+
+  /* Sticky-header data table for the long Accounts grid */
+  .acc-table-wrap {
+    overflow:auto;
+    max-height:72vh;
+    border-radius:0 0 var(--rad) var(--rad);
+  }
+  .acc-table {
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:.78rem;
+  }
+  .acc-table thead th {
+    position:sticky; top:0; z-index:2;
+    background:var(--g9); color:#fff;
+    padding:9px 10px;
+    font-weight:600;
+    text-align:left;
+    white-space:nowrap;
+    border-right:1px solid rgba(255,255,255,.15);
+    border-bottom:none;
+    font-size:.74rem;
+  }
+  body.dark .acc-table thead th { background:#0f1c14; }
+  .acc-table thead th.sortable { cursor:pointer; user-select:none; }
+  .acc-table thead th.sortable:hover { background:rgba(255,255,255,.05); }
+  .acc-table tbody td {
+    padding:7px 10px;
+    border-bottom:1px solid var(--border);
+    vertical-align:top;
+  }
+  .acc-table tbody tr:nth-child(even) { background:var(--surface2); }
+  .acc-table tbody tr:hover { background:rgba(46,125,50,.05); }
+  body.dark .acc-table tbody tr:hover { background:rgba(60,185,109,.06); }
+  .acc-clip {
+    max-width:160px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .acc-clip-wide { max-width:220px; }
+
+  .stat-pill {
+    display:inline-flex; align-items:center; gap:3px;
+    padding:3px 9px; border-radius:10px;
+    font-size:.68rem; font-weight:600;
+    white-space:nowrap;
+    border:1px solid;
+  }
+
+  /* AppSheet quick action card */
+  .quick-action {
+    display:flex; align-items:center; gap:.55rem;
+    padding:.6rem .85rem;
+    background:var(--surface2);
+    border:1px solid var(--border);
+    border-radius:8px;
+    text-decoration:none;
+    color:var(--txt2);
+    font-size:.78rem; font-weight:500;
+    transition:all var(--t-fast);
+  }
+  .quick-action:hover {
+    background:rgba(46,125,50,.06);
+    border-color:var(--g5);
+    color:var(--g8);
+  }
+  body.dark .quick-action:hover {
+    background:rgba(60,185,109,.08);
+    color:#7fdc8f;
+  }
+</style>
+</head>
+<body>
+
+<div data-shell-root></div>
+
+<main class="shell-main">
+  <div id="pageHead"></div>
+  <div id="errorSlot"></div>
+
+  <!-- Status KPIs -->
+  <section class="kpi-grid" id="accKpis" style="margin-bottom:1rem">
+    <div class="kpi"><div class="skel" style="height:88px"></div></div>
+    <div class="kpi"><div class="skel" style="height:88px"></div></div>
+    <div class="kpi"><div class="skel" style="height:88px"></div></div>
+    <div class="kpi"><div class="skel" style="height:88px"></div></div>
+  </section>
+
+  <!-- Currency cards (shown only if non-INR present) -->
+  <section id="accCurrencyCards" style="display:none"></section>
+
+  <!-- Filter bar -->
+  <div class="card" style="margin-bottom:.8rem">
+    <div class="card-body" style="padding:.8rem 1rem">
+      <div class="acc-filter-row">
+        <div class="acc-filter">
+          <label>Status</label>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <button class="status-pill active" data-cat="all">All</button>
+            <button class="status-pill pending"   data-cat="pending">⏳ Pending</button>
+            <button class="status-pill progress"  data-cat="progress">🔄 In progress</button>
+            <button class="status-pill rejected"  data-cat="rejected">✕ Rejected</button>
+            <button class="status-pill completed" data-cat="completed">✓ Completed</button>
+          </div>
+        </div>
+        <div class="acc-filter">
+          <label>Site</label>
+          <select id="accSiteFilter"><option value="">All sites</option></select>
+        </div>
+        <div class="acc-filter">
+          <label>For</label>
+          <select id="accEntityFilter"><option value="">All</option></select>
+        </div>
+        <div class="acc-filter">
+          <label>Process</label>
+          <select id="accProcessFilter"><option value="">All processes</option></select>
+        </div>
+        <div class="acc-filter" style="flex:1;min-width:220px">
+          <label>Search all fields</label>
+          <input id="accSearch" type="text" placeholder="Request ID, name, site, Order No, Bill No, UTR, remarks…" style="width:100%"/>
+        </div>
+        <div class="acc-filter">
+          <label>Sort by</label>
+          <div style="display:flex;gap:4px">
+            <select id="accSortCol">
+              <option value="date">Date</option>
+              <option value="requestId">Request ID</option>
+              <option value="initiator">Initiator</option>
+              <option value="nature">Nature of expenses</option>
+              <option value="payTo">Payment to</option>
+              <option value="costCode">Cost code</option>
+              <option value="site">Site</option>
+              <option value="amount">Amount</option>
+              <option value="status">Status</option>
+              <option value="accDate">Accounts date</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" id="accSortDirBtn" style="white-space:nowrap;min-width:62px">↓ Desc</button>
+          </div>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="accReset" style="align-self:flex-end">✕ Reset</button>
+        <button class="btn btn-primary btn-sm" id="accCsv" style="align-self:flex-end">⬇ CSV</button>
+      </div>
+      <div id="accRowCount" style="margin-top:.55rem;font-size:.74rem;color:var(--txt3)"></div>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="card" style="overflow:hidden">
+    <div class="acc-table-wrap" id="accTableWrap">
+      <table class="acc-table">
+        <thead id="accThead">
+          <tr>
+            <th data-col="manualAuto" class="sortable" style="text-align:center">M/A ↕</th>
+            <th data-col="installment" class="sortable" style="text-align:center">Inst ↕</th>
+            <th>Request ID</th>
+            <th data-col="date" class="sortable">Date ↕</th>
+            <th data-col="initiator" class="sortable">Initiator ↕</th>
+            <th data-col="nature" class="sortable">Nature ↕</th>
+            <th data-col="payTo" class="sortable">Payment to ↕</th>
+            <th data-col="dept" class="sortable">Department ↕</th>
+            <th data-col="process" class="sortable">Process ↕</th>
+            <th data-col="costCode" class="sortable">Cost code ↕</th>
+            <th data-col="site" class="sortable">Site ↕</th>
+            <th data-col="company" class="sortable">For ↕</th>
+            <th data-col="orderNo" class="sortable">Order No ↕</th>
+            <th data-col="billNo" class="sortable">Bill No ↕</th>
+            <th data-col="currency" class="sortable">Currency ↕</th>
+            <th data-col="amount" class="sortable" style="text-align:right">Amount ↕</th>
+            <th>Narrative</th>
+            <th data-col="status" class="sortable">Status ↕</th>
+            <th data-col="accDate" class="sortable">Acc. date ↕</th>
+            <th>UTR</th>
+            <th>Remarks</th>
+          </tr>
+        </thead>
+        <tbody id="accTbody">
+          <tr><td colspan="21" style="text-align:center;padding:3rem;color:var(--txt3)">⏳ Loading payment requests…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Quick actions -->
+  <div class="card" style="margin-top:1.2rem">
+    <div class="card-body">
+      <h3 style="font-size:.88rem;font-weight:700;margin:0 0 .8rem;color:var(--txt)">📱 AppSheet quick actions</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:.55rem" id="accQuickActions"></div>
+    </div>
+  </div>
+
+</main>
+
+<script src="assets/js/state.js"></script>
+<script src="assets/js/data-bindings.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/nav-config.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/modules/accounts.js"></script>
+
+</body>
+</html>

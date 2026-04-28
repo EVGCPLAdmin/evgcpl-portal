@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Site Operations · EVGCPL Portal</title>
+<link rel="icon" type="image/jpeg" href="assets/img/EG.jpg"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=DM+Mono:wght@500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/css/portal.css"/>
+<style>
+  /* Sub-route tabs */
+  .sub-tabs { display:flex; gap:.4rem; border-bottom:1px solid var(--border); margin-bottom:1.4rem; overflow-x:auto; }
+  .sub-tab {
+    padding:.55rem 1rem; cursor:pointer;
+    font-size:.84rem; font-weight:600; color:var(--txt3);
+    border-bottom:2px solid transparent;
+    white-space:nowrap;
+    transition:color var(--t-fast), border-color var(--t-fast);
+  }
+  .sub-tab:hover { color:var(--txt); }
+  .sub-tab.active { color:var(--g7); border-bottom-color:var(--g7); }
+  body.dark .sub-tab.active { color:#7fdc8f; border-bottom-color:#7fdc8f; }
+  .sub-tab .count { font-weight:500; color:var(--txt4); margin-left:.4rem; font-size:.78rem; }
+</style>
+</head>
+<body>
+
+<div data-shell-root></div>
+
+<main class="shell-main">
+  <div id="pageHead"></div>
+
+  <div class="sub-tabs">
+    <a class="sub-tab" href="#equipment" data-route="equipment">Equipment</a>
+    <a class="sub-tab" href="#store"     data-route="store">Site Store</a>
+    <a class="sub-tab" href="#sites"     data-route="sites">Site Manager</a>
+  </div>
+
+  <div id="errorSlot"></div>
+  <div id="content"></div>
+</main>
+
+<script src="assets/js/state.js"></script>
+<script src="assets/js/data-bindings.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/nav-config.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/modules/site-ops.js"></script>
+
+</body>
+</html>
