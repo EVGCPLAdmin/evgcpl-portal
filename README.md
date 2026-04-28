@@ -1,187 +1,100 @@
-# EVGCPL Intranet Portal — Multi-page Build (v1.3)
+# EVGCPL Intranet Portal — Multi-page (v2.0)
 
-Complete rewrite of the EVGCPL portal as a multi-page architecture, ported
-session-by-session from the canonical single-file `index__87_.html` baseline.
-
-Live data flows from your Google Sheets via the `gviz` API; writes go through
-the existing Apps Script deployment.
-
-## Pages
-
-| Route | File | Status |
-|---|---|---|
-| Sign-in (real Google OAuth + PIN fallback) | `index.html` | Live |
-| Dashboard | `dashboard.html` | Live |
-| HR · Dashboard / My Profile / My Team / Onboarding / Policies | `hr.html#…` | Live |
-| SCM Dashboard | `scm.html` | Live |
-| Site Ops · Equipment / Site Store / Site Manager (all 7 ops tabs) | `site-ops.html#…` | Live |
-| Safety | `safety.html` | Live |
-| Accounts & Payments | `accounts.html` | Live |
-| Reports (catalogue + end-to-end scheduled emails) | `reports.html` | Live |
-| **Apps launcher** (consumer view of App Links registry) | `apps.html` | **Live** |
-| Config — 5 sub-tabs | `config.html#…` | Live |
-| Sharing Doctor | `sharing-doctor.html` | Live |
-| IC Budget & Cost Control | `ic-budget.html` | Blocked on `BUDGET_SHEET_ID` |
-
-## Config sub-pages (admin/MD only)
-
-| Tab | URL | Purpose |
-|---|---|---|
-| Sheet IDs | `config.html#sheets` | Edit Google Sheet IDs per logical key |
-| **Sheets directory** | `config.html#sheets-dir` | Full registry: name · ID · URL · tabs in use · description (all editable) |
-| Tab & Query bindings | `config.html#bindings` | Per-binding sheet/tab/query, with live "Test" button |
-| **App Links** | `config.html#app-links` | Editable registry: icon · name · category · URL · description; add/remove/reorder |
-| Diagnostics | `config.html#status` | Sharing Doctor + raw localStorage view |
-
+This build is a **multi-page split** of the canonical `index__88_.html`
+(byte-identical to v87). The UI/UX is **preserved exactly** — same CSS,
+same render functions, same layout, same vector graphics. Only the
+**routing layer** is changed: instead of one giant single-page file,
+the bundle is loaded by 11 page templates that each request the right
+route at boot.
 
 ## Architecture
 
-### Shell + module pattern
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Each *.html page                                            │
+│     <link href="assets/css/portal.css">     ← v88 CSS verbatim│
+│     <body data-page="dashboard">                             │
+│       <!-- v88 main-app shell: topnav + sidebar + main -->   │
+│     <script src="assets/js/portal-bundle.js">  ← v88 JS       │
+│     <script src="assets/js/multi-page-bootstrap.js">          │
+│                                                              │
+│  Bootstrap reads body.dataset.page and calls renderPage(...)  │
+└──────────────────────────────────────────────────────────────┘
+```
 
-Every page loads:
-1. `assets/css/portal.css`
-2. Five core JS files: `state.js`, `api.js`, `data-bindings.js`, `nav-config.js`, `shell.js`
-3. One module file from `assets/js/modules/`
+- **`assets/css/portal.css`** — 1,003 lines, lifted verbatim from
+  v88's `<style>` block. Zero modifications.
+- **`assets/js/portal-bundle.js`** — 13,371 lines, lifted verbatim
+  from v88's main `<script>` block. All 218 render functions, all
+  Apps Script calls, all sheet IDs preserved.
+- **`assets/js/multi-page-bootstrap.js`** — 188 lines, the ONLY new
+  code. It maps every route to its owning HTML page, intercepts
+  `navigate()` for cross-page redirects, and hands off to
+  `renderPage()` on each page load.
 
-### Editable data layer
+## Pages
 
-Every fetch goes through `API.fetchByBinding('module.dataset')`. Bindings live
-in `assets/js/data-bindings.js`. The Config page lets admins override **sheet
-IDs**, **tab names**, and **gviz queries** at runtime — stored in
-`localStorage["EVGCPL_DATA_OVERRIDES_V1"]`. Changes take effect on the next
-fetch.
+| File | data-page | Owns routes |
+|---|---|---|
+| `index.html` | `index` | Login + role selector + vendor modal |
+| `dashboard.html` | `dashboard` | `dashboard`, `md-command`, `dev-mode` |
+| `hr.html` | `hr` | `hr-dashboard`, `my-profile`, `personal`, `onboarding`, `rewards`, `wall`, `policies` |
+| `scm.html` | `scm` | `scm`, `mrs`, `purchase`, `stores`, `vendor`, `subcontractor` |
+| `site-ops.html` | `site-ops` | `site-manager`, `safety`, `equipment`, `store` |
+| `accounts.html` | `accounts` | `accounts` |
+| `reports.html` | `reports` | `reports` |
+| `planning.html` | `planning` | `planning`, `tendering`, `budget`, `project-setup`, `boq-planning`, `execution`, `planning-overview`, `planning-setup` |
+| `plant.html` | `plant` | `plant`, `plant-log`, `plant-verify`, `plant-maintenance`, `log-entry`, `asset-verification`, `asset-maintenance` |
+| `apps.html` | `apps` | `apps` (v88 Apps hub) |
+| `external.html` | `external` | `my-portal`, `my-orders`, `my-invoices`, `my-documents` (vendor/SC) |
 
-### Apps Script handlers
+## Admin Config Pages (NEW — added on top of v87/v88)
 
-Three reference files are in `apps-script/`:
-- `SheetDiagnostic.gs` — Sharing Doctor backend
-- `SafetyHandlers.gs` — `appendRow`, `updateCell`, `listHRDocs`,
-  `listPolicyFiles`, `uploadPolicyFile`, `sendReportTest`
-- `ScheduledReports.gs` — `saveReportSchedule`, `deleteReportSchedule`,
-  + the time-driven trigger `runScheduledReports` and one-time setup
-  helpers (`installReportTrigger`, `_initReportSchedulesTab`, `_dryRunNow`)
+These are not in the v87/v88 baseline. They were built earlier to give
+admins UI-level control over portal data sources:
 
-Per project memory, the live Apps Script at the deployment URL hardcoded in
-`assets/js/api.js` already has the first two files' handlers. To activate
-**scheduled emails**, paste `ScheduledReports.gs` into the same project and
-run the one-time setup steps documented at the top of that file.
+| File | Purpose |
+|---|---|
+| `config.html` | 5 tabs: Sheet IDs · Sheets directory · Tab & Query bindings · App Links · Diagnostics |
+| `sharing-doctor.html` | Server-side reachability check for every binding |
+| `apps-script/SheetDiagnostic.gs` | Sharing Doctor backend |
+| `apps-script/SafetyHandlers.gs` | `appendRow`, `updateCell`, `listHRDocs`, `listPolicyFiles`, `uploadPolicyFile`, `sendReportTest` reference |
+| `apps-script/ScheduledReports.gs` | Time-driven trigger + setup helpers (run once after deploying) |
+
+## What did NOT change
+
+- The login screen 2-column layout with embedded base64 logo
+- The animated floating green-glow circles
+- The dark green `var(--g7)/var(--g8)/var(--g9)` palette
+- The DM Serif Display + DM Sans typography
+- The sidebar with all role-gated nav items
+- The top nav with all dropdowns
+- The header with user avatar and avatar menu
+- The `#mainContent` rendering and all 218 `render*` functions
+- Apps Script URL (already deployed and working)
+- Google OAuth client ID
+- All sheet IDs and tab names
 
 ## Deployment
 
-1. Drop the **entire contents** of this folder into your GitHub Pages repo
-   root (`evgcpladmin.github.io/evgcpl-portal/`).
-2. Commit and push.
-3. Visit the site. Sign in with Google (the official GSI button renders
-   automatically using the real OAuth client ID).
-
-### After deployment
-
-- Visit `/config.html` → "Tab & Query bindings" to verify all sheet IDs and
-  tab names. Click "Test" on any binding for a live fetch check.
-- Visit `/sharing-doctor.html` to confirm reachability of every binding.
-- For Safety / Onboarding / Policy write-back to work, ensure the relevant
-  tabs and Drive folders exist (see binding definitions and the Apps Script
-  reference for the contract).
-
-### Activating scheduled emails (one-time)
-
-1. Open your live Apps Script project (script.google.com).
-2. Paste `apps-script/ScheduledReports.gs` alongside `SafetyHandlers.gs`.
-3. Add three cases to the `doPost` switch statement (case lines documented
-   at the top of `ScheduledReports.gs`).
-4. Run `_initReportSchedulesTab()` once from the editor to create the
-   `ReportSchedules` tab in the EMPLOYEE sheet.
-5. Run `installReportTrigger()` once to install the hourly trigger.
-6. Verify in Apps Script → Triggers panel that `runScheduledReports` fires
-   every hour.
-7. Optional: run `_dryRunNow()` to fire all active schedules immediately
-   for testing.
-
-After this, every "Save" in the Reports schedule modal mirrors to the
-`ReportSchedules` tab and the trigger fires the email at the scheduled hour.
-
-## Project file layout
-
-```
-.
-├── README.md                      ← this file
-├── index.html                     ← Sign-in (real Google OAuth)
-├── dashboard.html
-├── hr.html                        ← 5 hash-routed sub-pages
-├── scm.html
-├── site-ops.html                  ← 3 hash-routed sub-pages
-├── safety.html
-├── accounts.html
-├── reports.html
-├── config.html
-├── sharing-doctor.html
-├── ic-budget.html                 ← Placeholder
-├── assets/
-│   ├── css/portal.css             ← All styles, light + dark
-│   ├── img/EG.jpg
-│   └── js/
-│       ├── state.js
-│       ├── api.js
-│       ├── data-bindings.js       ← 31 bindings
-│       ├── nav-config.js
-│       ├── shell.js
-│       └── modules/
-│           ├── dashboard.js
-│           ├── hr.js              (Dashboard, Profile, Team, Onboarding, Policies)
-│           ├── scm.js
-│           ├── site-ops.js        (Equipment, Store, Site Manager + 7 ops tabs)
-│           ├── safety.js
-│           ├── accounts.js
-│           └── reports.js         (Catalogue + scheduling)
-└── apps-script/
-    ├── SheetDiagnostic.gs
-    ├── SafetyHandlers.gs          ← appendRow, updateCell, listHRDocs, listPolicyFiles, uploadPolicyFile
-    └── ScheduledReports.gs        ← saveReportSchedule, deleteReportSchedule, time-driven trigger
+```bash
+cd ~/path/to/evgcpl-portal
+find . -maxdepth 1 ! -name '.git' ! -name '.' -exec rm -rf {} +
+unzip ~/Downloads/EVGCPL_Portal_v2.0.zip -d .
+git add -A
+git commit -m "Deploy EVGCPL Portal v2.0 — multi-page split of v88 baseline"
+git push origin main
 ```
 
-## Sessions delivered
+## Verification after deployment
 
-| Session | Scope |
-|---|---|
-| A | SCM Dashboard + Equipment + Site Store + Editable config layer |
-| B | Reports catalogue (9 reports) + Safety (checklist + incident form + log) |
-| C | Accounts & Payments (42-col PaymentRequest, 27-key status map) |
-| D | Onboarding Portal (12 steps, write-back to OnboardingChecklist) |
-| E | My Profile (gradient hero, Drive docs grid) + My Team |
-| F | Site Manager (per-site core + MRS + PO ops tabs) |
-| G | Real Google OAuth · Policy Hub · Reports schedule UI · Stock + GRN ops tabs |
-| H | Time-driven email trigger · DPR / Log Sheet / Maintenance ops launchers |
-| **I** | **Sheets directory · App Links registry · Apps launcher page · deep-linkable Config tabs** |
+1. Visit `index.html` — confirm the v88 login layout is intact
+2. Sign in with Google or PIN — should redirect to `dashboard.html`
+3. Click any sidebar item — URL should change to that page's HTML file
+4. Within a section (e.g. site-ops.html), sidebar items in the same
+   section change route via hash — no full page reload
+5. Cross-section clicks trigger a full-page navigation
+6. Visit `config.html` — admin Sheet IDs / bindings / app-links UI
 
-Each session built against the canonical `index__87_.html` baseline (891 KB,
-~14,951 lines). All modules pass `node --check` and use only CSS classes
-defined in `portal.css`.
-
-## What's truly remaining
-
-- **IC Budget portal route** — blocked on `BUDGET_SHEET_ID` upload to Drive.
-  Once the Excel template is uploaded and the ID is pasted into Config, the
-  route can be wired using the same `fetchByBinding` pattern as everything
-  else. The 18-sheet calculation engine lives in Sheets per the architecture
-  decision; portal just needs to read it.
-
-That's the only genuine outstanding item. Everything else from the canonical
-baseline is now ported and live.
-
-## Key constants
-
-- Apps Script URL: hardcoded in `assets/js/api.js` (`APPS_SCRIPT_URL`)
-- Google OAuth client ID: hardcoded in `index.html`
-- HR docs Drive folder: `1I1ESOw_0EncSMt3nLZV2P7I106aniLY-` (in `hr.js`)
-- Policy Hub Drive folder: placeholder in `hr.js` — replace with live ID
-- localStorage keys:
-  - `EVGCPL_DATA_OVERRIDES_V1` — Config overrides
-  - `evgcpl_rpt_schedules` — Report schedules (mirrored to sheet)
-  - `evgcpl_safety_local_v1` — Local incident fallback
-  - `sfchk_<date>_<site>` — Daily safety checklist (sessionStorage)
-  - `evgcpl_ob_<empId>` — Onboarding progress (sessionStorage)
-  - `evg_photo_<empCode>` — Profile photos
-- Server-side stores:
-  - `ReportSchedules` tab in EMPLOYEE sheet (created on first save)
-  - `OnboardingChecklist` tab in EMPLOYEE sheet (per-step write-back)
-  - `Incidents` + `DailyChecks` tabs in SAFETY sheet
+If any page shows a blank `#mainContent`, it means the bootstrap couldn't
+resolve the default route. Check browser console — should say what failed.

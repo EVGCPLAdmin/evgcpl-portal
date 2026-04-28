@@ -1,231 +1,178 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sign in · EVGCPL Portal</title>
-<link rel="icon" type="image/jpeg" href="assets/img/EG.jpg">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/portal.css">
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>EVGCPL Intranet — Evergreen Enterprises</title>
+<link rel="icon" type="image/jpeg" href="assets/img/EG.jpg"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=DM+Mono:wght@500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/css/portal.css"/>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
-<body>
-<div class="login-screen">
+<body data-page="index">
+<!-- ═══════════════════ LOGIN SCREEN ═══════════════════ -->
+<div id="loginScreen">
+  <div class="login-bg-circles">
+    <span></span><span></span><span></span>
+  </div>
   <div class="login-card">
-    <div class="login-logo">
-      <img src="assets/img/EG.jpg" alt="EVGCPL">
-      <h2>Evergreen Enterprises</h2>
+    <div class="login-logo-wrap">
+      <img class="login-logo-img" src="data:image/jpeg;base64,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" alt="Evergreen Enterprises"/>
+      <div class="login-co-name">
+        <h2>Evergreen Enterprises</h2>
+        <p>ISO 9001:2015 · ASME U STAMP</p>
+      </div>
     </div>
-    <div class="login-greet">
-      <h1>Welcome back</h1>
-      <p>Sign in to access the EVGCPL Portal</p>
+    <h1 class="login-title">Welcome to Intranet</h1>
+    <p class="login-subtitle">Your unified enterprise workspace.<br/>Sign in to access your dashboard.</p>
+
+    <!-- ROW 1: Two columns — Left: Google+Demo+Vendor | Right: Email & PIN -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;align-items:stretch">
+
+      <!-- LEFT: Google + Demo + Vendor stacked -->
+      <div style="display:flex;flex-direction:column;gap:.55rem">
+        <div style="font-size:.73rem;color:rgba(255,255,255,.45);text-align:center;letter-spacing:.04em;text-transform:uppercase;margin-bottom:.1rem">Sign in with Google</div>
+        <button class="btn-google" onclick="handleGoogleLogin()" style="margin:0">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+          </svg>
+          Sign in with Google
+        </button>
+        <button class="btn-demo" onclick="handleDemoLogin()" style="margin:0">🚀 Demo Mode</button>
+        <!-- Demo Mode disabled for production -->
+        <button class="btn-demo" onclick="showVendorLogin()" style="margin:0;background:rgba(240,165,0,.15);border-color:rgba(240,165,0,.4);color:var(--gold)">🏢 Vendor / Sub-Contractor Login</button>
+      </div>
+
+      <!-- RIGHT: Email & PIN -->
+      <div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:.85rem;display:flex;flex-direction:column;gap:.45rem">
+        <div style="font-size:.73rem;color:rgba(255,255,255,.45);text-align:center;letter-spacing:.04em;text-transform:uppercase">Email & PIN</div>
+        <input id="pin-email" type="email" placeholder="Mail ID"
+          style="width:100%;padding:.6rem .75rem;background:rgba(255,255,255,.1);border:1.5px solid rgba(255,255,255,.15);border-radius:9px;color:#fff;font-family:inherit;font-size:.82rem;outline:none;box-sizing:border-box"
+          onfocus="this.style.borderColor='rgba(102,187,106,.6)'" onblur="this.style.borderColor='rgba(255,255,255,.15)'"
+          onkeydown="if(event.key==='Enter')document.getElementById('pin-input').focus()"/>
+        <div style="position:relative">
+          <input id="pin-input" type="password" placeholder="Enter PIN" maxlength="10"
+            style="width:100%;padding:.6rem .75rem;background:rgba(255,255,255,.1);border:1.5px solid rgba(255,255,255,.15);border-radius:9px;color:#fff;font-family:inherit;font-size:.82rem;outline:none;box-sizing:border-box"
+            onfocus="this.style.borderColor='rgba(102,187,106,.6)'" onblur="this.style.borderColor='rgba(255,255,255,.15)'"
+            onkeydown="if(event.key==='Enter')handlePINLogin()"/>
+          <button onclick="var i=document.getElementById('pin-input');i.type=i.type==='password'?'text':'password'"
+            style="position:absolute;right:.5rem;top:50%;transform:translateY(-50%);background:none;border:none;color:rgba(255,255,255,.4);cursor:pointer;font-size:.82rem;padding:.15rem">👁</button>
+        </div>
+        <div id="pin-error" style="display:none;color:#ff7043;font-size:.72rem;text-align:center"></div>
+        <button onclick="handlePINLogin()" id="pin-submit-btn"
+          style="width:100%;padding:.65rem;background:var(--g7);color:#fff;border:none;border-radius:9px;font-family:inherit;font-size:.85rem;font-weight:700;cursor:pointer;margin-top:auto">
+          Sign In
+        </button>
+      </div>
+
     </div>
 
-    <!-- Real Google Sign-In button — GSI renders into this -->
-    <div id="googleSignInBtn" style="display:flex;justify-content:center;margin-bottom:.4rem;min-height:44px"></div>
-
-    <!-- Fallback / demo button (only shown if GSI fails to load) -->
-    <button id="demoBtn" class="login-btn" onclick="loginAsDemo('md')" style="display:none">
-      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="">
-      Continue (demo)
+    <!-- ROW 2: Onboarding — full width -->
+    <button onclick="window.open('https://neurolooom-eng.github.io/onboarding/','_blank')"
+      style="width:100%;margin-top:.75rem;padding:.9rem;background:rgba(26,96,56,.35);border:1.5px solid rgba(76,175,80,.4);border-radius:12px;color:#81c784;font-family:inherit;font-size:.88rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.5rem">
+      📝 New Employee? Complete Onboarding Form
     </button>
 
-    <div class="login-divider">— or —</div>
+    <!-- ROW 3: PIN Set/Reset — full width -->
+    <button onclick="window.open('https://evgcpladmin.github.io/password/','_blank')"
+      style="width:100%;margin-top:.55rem;padding:.8rem;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.15);border-radius:12px;color:rgba(255,255,255,.55);font-family:inherit;font-size:.85rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.5rem">
+      🔑 PIN Set / Reset
+    </button>
 
-    <form class="login-pin-form" onsubmit="event.preventDefault(); pinLogin();">
-      <input type="email"    id="email" placeholder="Mail ID" autocomplete="username">
-      <input type="password" id="pin"   placeholder="PIN" autocomplete="current-password" maxlength="10">
-      <button type="submit" id="pinSubmitBtn">Sign in with PIN</button>
-    </form>
-
-    <div id="loginErr" style="display:none;margin-top:.85rem;padding:.6rem .8rem;background:rgba(220,38,38,.12);color:#fca5a5;border-radius:8px;font-size:.78rem;text-align:center"></div>
-
-    <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap;justify-content:center">
-      <a href="https://neurolooom-eng.github.io/onboarding/" target="_blank" rel="noopener"
-         style="font-size:.72rem;color:rgba(255,255,255,.55);text-decoration:none;padding:.3rem .55rem;border-radius:6px;border:1px solid rgba(255,255,255,.1)">📝 Onboarding</a>
-      <a href="https://evgcpladmin.github.io/password/" target="_blank" rel="noopener"
-         style="font-size:.72rem;color:rgba(255,255,255,.55);text-decoration:none;padding:.3rem .55rem;border-radius:6px;border:1px solid rgba(255,255,255,.1)">🔑 PIN Set / Reset</a>
-    </div>
-
-    <div style="margin-top:1.4rem;font-size:.7rem;color:rgba(255,255,255,.4);text-align:center">
-      EVGCPL Portal · v1.4 · ISO 9001:2015 · ASME U STAMP
+    <div class="login-badges" style="margin-top:.9rem">
+      <div class="login-badge"><span></span> Secure OAuth 2.0</div>
+      <div class="login-badge"><span></span> Role-Based Access</div>
+      <div class="login-badge"><span></span> 256-bit Encrypted</div>
     </div>
   </div>
 </div>
 
-<script src="assets/js/state.js"></script>
-<script src="assets/js/data-bindings.js"></script>
-<script src="assets/js/api.js"></script>
-<script>
-/* ════════════════════════════════════════════════════════════════════
-   EVGCPL Portal — Login (v1.4)
-   Restores the v1.0–v1.3 single-card aesthetic with full PIN auth
-   wired to the live UserSecrets sheet.
-   ════════════════════════════════════════════════════════════════════ */
-if (STATE.isLoggedIn()) location.href = 'dashboard.html';
 
-const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
+<!-- ═══════════════════ ROLE SELECTOR ═══════════════════ -->
+<div id="roleSelect">
+  <div class="role-card">
+    <h2>Select Your Role</h2>
+    <p>Choose your role to continue with the appropriate dashboard.</p>
+    <div class="role-grid">
+      <button class="role-btn" onclick="selectRole('md')" id="role-md">
+        <div class="role-icon">👑</div>
+        <div class="role-name">MD / Director</div>
+        <div class="role-desc">Command center & approvals</div>
+      </button>
+      <button class="role-btn" onclick="selectRole('hr')" id="role-hr">
+        <div class="role-icon">👥</div>
+        <div class="role-name">HR Manager</div>
+        <div class="role-desc">People & onboarding</div>
+      </button>
+      <button class="role-btn" onclick="selectRole('site')" id="role-site">
+        <div class="role-icon">🏗️</div>
+        <div class="role-name">Site Manager</div>
+        <div class="role-desc">Site operations & safety</div>
+      </button>
+      <button class="role-btn" onclick="selectRole('employee')" id="role-employee">
+        <div class="role-icon">👤</div>
+        <div class="role-name">Employee</div>
+        <div class="role-desc">Personal dashboard</div>
+      </button>
+      <button class="role-btn" onclick="selectRole('purchase')" id="role-purchase">
+        <div class="role-icon">🛒</div>
+        <div class="role-name">Purchase</div>
+        <div class="role-desc">PRs, POs & vendors</div>
+      </button>
+      <button class="role-btn" onclick="selectRole('accounts')" id="role-accounts">
+        <div class="role-icon">💰</div>
+        <div class="role-name">Accounts</div>
+        <div class="role-desc">Finance & payments</div>
+      </button>
+    </div>
+    <button class="role-confirm" onclick="confirmRole()">Continue →</button>
+  </div>
+</div>
 
-// ── Google Sign-In wiring ─────────────────────────────────────
-let _gsiTries = 0;
-function tryInitGoogle() {
-  if (typeof google === 'undefined' || !google.accounts || !google.accounts.id) {
-    if (++_gsiTries < 30) return setTimeout(tryInitGoogle, 200);
-    document.getElementById('demoBtn').style.display = '';
-    return;
-  }
-  if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.startsWith('YOUR_')) {
-    document.getElementById('demoBtn').style.display = '';
-    return;
-  }
-  try {
-    google.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: handleGoogleCredential,
-      auto_select: false,
-      cancel_on_tap_outside: true,
-    });
-    google.accounts.id.renderButton(
-      document.getElementById('googleSignInBtn'),
-      { theme:'filled_blue', size:'large', type:'standard',
-        shape:'rectangular', text:'continue_with',
-        logo_alignment:'left', width:280 }
-    );
-    try { google.accounts.id.prompt(); } catch (_) { /* silent */ }
-  } catch (e) {
-    console.warn('Google Sign-In init failed:', e);
-    document.getElementById('demoBtn').style.display = '';
-  }
-}
-tryInitGoogle();
+<!-- ═══════════════════ VENDOR / SC LOGIN MODAL ═══════════════════ -->
+<div id="vendorLoginModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;display:none;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:2rem;width:min(420px,90vw);box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2rem">
+      <h2 style="font-size:1.1rem;color:#0d3320">🏢 Vendor / Sub-Contractor Access</h2>
+      <button onclick="hideVendorLogin()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:#666">✕</button>
+    </div>
+    <p style="font-size:.82rem;color:#666;margin-bottom:1.2rem;line-height:1.6">Enter your registered ID and email address. We'll verify your details against our master records.</p>
 
-let _empCache = null;
-function loadEmployees() {
-  if (_empCache) return Promise.resolve(_empCache);
-  return API.fetchByBinding('hr.employees').then(rows => { _empCache = rows; return rows; });
-}
+    <div style="margin-bottom:1rem">
+      <label style="font-size:.78rem;font-weight:600;color:#333;display:block;margin-bottom:.3rem">Account Type</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+        <button id="vl-vendor-btn" onclick="selectVendorType('vendor')" style="padding:.6rem;border:2px solid #dde8e2;border-radius:8px;background:#f7faf8;cursor:pointer;font-size:.82rem;font-family:inherit;font-weight:600;color:#1a6038">🏢 Vendor</button>
+        <button id="vl-sc-btn" onclick="selectVendorType('sc')" style="padding:.6rem;border:2px solid #dde8e2;border-radius:8px;background:#f7faf8;cursor:pointer;font-size:.82rem;font-family:inherit;font-weight:600;color:#1a6038">🤝 Sub-Contractor</button>
+      </div>
+    </div>
 
-function resolveRole(empRecord, fallback) {
-  const desig = (empRecord['DESIGNATION']      || '').toLowerCase();
-  const role  = (empRecord['Role (User Type)'] || '').toLowerCase();
-  if (role.includes('md') || desig.includes('managing director'))                return 'md';
-  if (role.includes('admin'))                                                    return 'admin';
-  if (role.includes('hr') || desig.includes('hr'))                               return 'hr';
-  if (role.includes('purchase') || desig.includes('purchase'))                   return 'purchase';
-  if (role.includes('accounts') || role.includes('finance')
-      || desig.includes('accounts'))                                             return 'accounts';
-  if (role.includes('site') || desig.includes('site'))                           return 'site';
-  return fallback || 'employee';
-}
+    <div style="margin-bottom:.9rem">
+      <label style="font-size:.78rem;font-weight:600;color:#333;display:block;margin-bottom:.3rem" id="vl-id-label">Vendor ID</label>
+      <input id="vl-id-input" type="text" placeholder="e.g. VEN001" style="width:100%;padding:.65rem .9rem;border:1.5px solid #dde8e2;border-radius:8px;font-size:.9rem;font-family:inherit;outline:none">
+    </div>
 
-async function handleGoogleCredential(response) {
-  try {
-    const payload = JSON.parse(atob(response.credential.split('.')[1]));
-    const email   = (payload.email || '').toLowerCase();
-    const name    = payload.name || email.split('@')[0];
-    const picture = payload.picture || '';
+    <div style="margin-bottom:1.2rem">
+      <label style="font-size:.78rem;font-weight:600;color:#333;display:block;margin-bottom:.3rem">Registered Email</label>
+      <input id="vl-email-input" type="email" placeholder="your@email.com" style="width:100%;padding:.65rem .9rem;border:1.5px solid #dde8e2;border-radius:8px;font-size:.9rem;font-family:inherit;outline:none">
+    </div>
 
-    const initialRole = email.endsWith('@evgcpl.com') ? 'md' : 'employee';
-    STATE.set({ user: { email, name, picture }, role: initialRole, isDemo: false });
+    <div id="vl-error" style="display:none;background:#fdecea;color:#c62828;padding:.6rem .9rem;border-radius:8px;font-size:.8rem;margin-bottom:.9rem"></div>
 
-    try {
-      const rows = await loadEmployees();
-      const me = rows.find(r => (r['Mail ID'] || '').toString().toLowerCase().trim() === email);
-      if (me) STATE.set({ role: resolveRole(me, initialRole) });
-    } catch (_) { /* keep initial */ }
+    <button onclick="verifyVendorLogin()" style="width:100%;padding:.75rem;background:#1a6038;color:#fff;border:none;border-radius:8px;font-size:.9rem;font-weight:700;cursor:pointer;font-family:inherit">
+      Verify & Login →
+    </button>
 
-    location.href = 'dashboard.html';
-  } catch (e) {
-    console.error('Sign-in error:', e);
-    showErr('Sign-in failed. Please try again or use PIN login.');
-  }
-}
+    <div style="margin-top:.9rem;text-align:center;font-size:.75rem;color:#999">
+      First time? Contact <strong><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="a2d2d0cdc1d7d0c7cfc7ccd6e2c7d4c5c1d2ce8cc1cdcf">[email&#160;protected]</a></strong> to get registered.
+    </div>
+  </div>
+</div>
 
-function loginAsDemo(role) {
-  STATE.set({
-    user: { name:'Demo User', email:'demo@evgcpl.com', picture:'' },
-    role: role || 'md',
-    isDemo: true,
-  });
-  location.href = 'dashboard.html';
-}
 
-/* ════════════════════════════════════════════════════════════════════
-   PIN LOGIN — gviz lookup against UserSecrets sheet
-   ════════════════════════════════════════════════════════════════════ */
-async function pinLogin() {
-  const email = (document.getElementById('email').value || '').trim().toLowerCase();
-  const pin   = (document.getElementById('pin').value   || '').trim();
-  const btn   = document.getElementById('pinSubmitBtn');
-
-  if (!email) return showErr('Please enter your Mail ID.');
-  if (!pin)   return showErr('Please enter your PIN.');
-
-  setBtn('Verifying…', true);
-  hideErr();
-
-  try {
-    const pinRows = await API.fetchByBinding('auth.userSecrets');
-    if (!pinRows || !pinRows.length) {
-      setBtn('Sign in with PIN', false);
-      return showErr('Could not reach the PIN database. Please check your connection.');
-    }
-
-    const pinRow = pinRows.find(r =>
-      (r['Mail ID'] || '').toString().trim().toLowerCase() === email
-    );
-    if (!pinRow) {
-      setBtn('Sign in with PIN', false);
-      return showErr('Email not found. Use "PIN Set / Reset" if this is your first login.');
-    }
-
-    const storedPIN = (pinRow['Modified PIN'] || pinRow['Current PIN'] || '').toString().trim();
-    if (!storedPIN) {
-      setBtn('Sign in with PIN', false);
-      return showErr('No PIN set. Please use the PIN Set / Reset link below.');
-    }
-    if (String(pin) !== String(storedPIN)) {
-      setBtn('Sign in with PIN', false);
-      return showErr('Incorrect PIN. Please try again.');
-    }
-
-    setBtn('Loading profile…', true);
-    let userName = pinRow['User Name'] || email.split('@')[0];
-    let role = 'employee';
-    try {
-      const emps = await loadEmployees();
-      const me = emps.find(u => (u['Mail ID'] || '').toString().trim().toLowerCase() === email);
-      if (me) {
-        userName = me['Employee Name'] || userName;
-        role = resolveRole(me, 'employee');
-      }
-    } catch (_) { /* keep defaults */ }
-
-    STATE.set({
-      user: { email, name: userName, empCode: (pinRow['Employee Ref'] || '').toUpperCase() },
-      role,
-      isDemo: false,
-    });
-    location.href = 'dashboard.html';
-  } catch (err) {
-    console.error('PIN login error:', err);
-    setBtn('Sign in with PIN', false);
-    showErr('Login failed: ' + (err && err.message || 'Unknown error'));
-  }
-}
-
-function showErr(msg) {
-  const el = document.getElementById('loginErr');
-  el.textContent = msg;
-  el.style.display = '';
-}
-function hideErr() { document.getElementById('loginErr').style.display = 'none'; }
-function setBtn(text, disabled) {
-  const btn = document.getElementById('pinSubmitBtn');
-  btn.textContent = text;
-  btn.disabled = disabled;
-  btn.style.opacity = disabled ? '0.7' : '1';
-}
-</script>
+<script src="assets/js/portal-bundle.js"></script>
+<script src="assets/js/multi-page-bootstrap.js"></script>
 </body>
 </html>
