@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bill of Quantities · Step 2 · Project Cost Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/app.css" />
+</head>
+<body>
+
+<main class="app-main">
+  <div class="page-head">
+    <div>
+      <h1>&#128203; Bill of Quantities</h1>
+      <div class="ph-sub">Step 2 &middot; Inline-editable BOQ with AI-suggested line items &middot; CSV import / export</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-secondary" onclick="PAGE.exportCSV()">CSV Export</button>
+      <button class="btn btn-primary" onclick="PAGE.save()" id="saveBtn">Save BOQ</button>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Active Project</div><div class="kpi-val mono" id="kBoqProj">&mdash;</div><div class="kpi-sub" id="kBoqProjName">No project</div></div>
+    <div class="kpi blue"><div class="kpi-label">Line Items</div><div class="kpi-val" id="kBoqCount">0</div><div class="kpi-sub">in BOQ</div></div>
+    <div class="kpi gold"><div class="kpi-label">BOQ Total</div><div class="kpi-val" id="kBoqTotal">0</div><div class="kpi-sub">contract value</div></div>
+    <div class="kpi"><div class="kpi-label">Avg Line Value</div><div class="kpi-val" id="kBoqAvg">0</div><div class="kpi-sub">per item</div></div>
+  </div>
+
+  <div class="boq-layout">
+
+    <div class="card">
+      <div class="card-head">
+        <div class="ch-l">
+          <div class="ch-icon green">&#128203;</div>
+          <div>
+            <div class="ch-title">BOQ Items</div>
+            <div class="ch-sub">Click any cell to edit &middot; Tab through rows</div>
+          </div>
+        </div>
+        <span class="pill pill-green" id="boqStatus">Idle</span>
+      </div>
+      <div class="card-pad">
+        <div class="boq-toolbar">
+          <div class="left">
+            <span style="font-size:12px;color:var(--text-faint)">Filter:</span>
+            <input type="text" id="boqFilter" placeholder="Search description&hellip;" style="width:240px" oninput="PAGE.filter(this.value)" />
+          </div>
+          <div class="right">
+            <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="PAGE.importCSV(event)" />
+            <button class="btn btn-secondary" onclick="document.getElementById('csvFile').click()">Import CSV</button>
+            <button class="btn btn-secondary" onclick="PAGE.clearAll()">Clear All</button>
+          </div>
+        </div>
+
+        <div class="table-scroll">
+          <table id="boqTable">
+            <thead>
+              <tr>
+                <th style="width:40px">#</th>
+                <th>Description</th>
+                <th style="width:80px">Unit</th>
+                <th style="width:90px;text-align:right">Qty</th>
+                <th style="width:120px;text-align:right">Rate</th>
+                <th style="width:140px;text-align:right">Amount</th>
+                <th style="width:40px"></th>
+              </tr>
+            </thead>
+            <tbody id="boqTbody">
+              <tr><td colspan="7" class="empty-cell">No items yet &mdash; type below or use AI assistant on the right.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="boq-add-row">
+          <input type="text" class="boq-add-input" id="quickAddInput"
+            placeholder="Type description and press Enter to add a row&hellip;"
+            onkeydown="if(event.key==='Enter')PAGE.quickAdd()" />
+          <button class="btn btn-primary" onclick="PAGE.quickAdd()">+ Add</button>
+        </div>
+
+        <div class="boq-total-row">
+          <span class="total-label">Items</span>
+          <span class="mono" id="boqRowCount">0</span>
+          <span class="total-label">Total Value</span>
+          <span class="total-val" id="boqTotalVal">&#8377; 0.00</span>
+        </div>
+      </div>
+    </div>
+
+    <aside class="ai-panel" id="aiPanel">
+      <div class="ai-panel-header">
+        <div class="ai-avatar">AI</div>
+        <div>
+          <div class="ai-panel-title">BOQ Assistant</div>
+          <div class="ai-panel-sub">Describe scope &middot; get line items</div>
+        </div>
+      </div>
+      <div class="ai-chat-area" id="aiChatArea">
+        <div class="ai-msg bot">
+          Hi! Tell me about the work scope &mdash; e.g. <em>"PCC raft for 100 cum at 1:2:4"</em> or <em>"cement plastering walls 350 sqm"</em>
+          &mdash; and I'll suggest BOQ line items with units &amp; rates.
+        </div>
+      </div>
+      <div class="ai-input-area">
+        <div class="ai-quick-btns">
+          <button class="ai-quick-btn" onclick="PAGE.askAI('Earthwork excavation 500 cum hard soil')">Earthwork</button>
+          <button class="ai-quick-btn" onclick="PAGE.askAI('PCC 1:3:6 for sub-base 80 cum')">PCC</button>
+          <button class="ai-quick-btn" onclick="PAGE.askAI('Brickwork 230 mm thick 250 cum')">Brickwork</button>
+          <button class="ai-quick-btn" onclick="PAGE.askAI('12mm cement plaster CM 1:6 for 800 sqm')">Plaster</button>
+        </div>
+        <div class="ai-input-row">
+          <input type="text" id="aiInput" placeholder="Describe scope&hellip;" onkeydown="if(event.key==='Enter')PAGE.askAI()" />
+          <button class="send-btn" id="aiSend" onclick="PAGE.askAI()">Send</button>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <div style="margin-top:18px;display:flex;gap:.6rem;justify-content:space-between;flex-wrap:wrap">
+    <a class="btn btn-secondary" href="setup.html">&larr; Back to Setup</a>
+    <a class="btn btn-primary" href="wbs.html">Continue to WBS &rarr;</a>
+  </div>
+</main>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/pages/boq.js"></script>
+<script>
+(async function() {
+  await Shell.init({ pageId: 'boq' });
+  await PAGE.load();
+})();
+</script>
+</body>
+</html>

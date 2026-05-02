@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Machinery · Step 5B · Project Cost Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/app.css" />
+</head>
+<body>
+
+<main class="app-main">
+  <div class="page-head">
+    <div>
+      <h1>🚜 Machinery Planning</h1>
+      <div class="ph-sub">Step 5B · Owned: Depreciation + Maintenance + Fuel + Operator · Rental: Monthly Rate + Diesel · + Mob/Demob · + 5–10% idle/breakdown</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-secondary" onclick="PAGE.add()">+ Add Row</button>
+      <button class="btn btn-primary" onclick="PAGE.save()">💾 Save Machinery</button>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Equipment Items</div><div class="kpi-val" id="kpiMcCount">0</div><div class="kpi-sub">owned + rental</div></div>
+    <div class="kpi"><div class="kpi-label">Owned Equipment</div><div class="kpi-val" id="kpiMcOwned">₹0</div><div class="kpi-sub">depreciation+maint+fuel</div></div>
+    <div class="kpi gold"><div class="kpi-label">Rental Equipment</div><div class="kpi-val" id="kpiMcRental">₹0</div><div class="kpi-sub">monthly rent + diesel</div></div>
+    <div class="kpi danger"><div class="kpi-label">Total Machinery</div><div class="kpi-val" id="kpiMcTotal">₹0</div><div class="kpi-sub">incl. mob/demob + idle</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon gold">🚜</div>
+        <div><div class="ch-title">Equipment per Activity</div><div class="ch-sub">Hours per day × days × rate model</div></div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="tbl" id="machineryTbl">
+        <thead><tr>
+          <th style="width:24px"></th>
+          <th>Activity</th><th>Equipment</th><th>Mode</th>
+          <th style="width:70px">Hrs/Day</th><th style="width:70px">Days</th>
+          <th style="width:100px">Rate (₹/hr or month)</th><th style="width:100px">Diesel/Op Cost</th>
+          <th style="width:90px">Mob/Demob</th><th style="width:70px">Idle %</th>
+          <th style="width:110px">Total Cost</th>
+        </tr></thead>
+        <tbody id="machineryBody"></tbody>
+        <tfoot>
+          <tr class="totals">
+            <td colspan="10" style="text-align:right">Grand Total</td>
+            <td class="num">₹<span id="mcTotalFoot">0</span></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/pages/machinery.js"></script>
+<script>
+(async function() {
+  await Shell.init({ pageId: 'machinery' });
+  await PAGE.load();
+})();
+</script>
+</body>
+</html>

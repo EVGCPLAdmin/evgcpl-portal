@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Variations · Step 8 · Project Cost Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/app.css" />
+</head>
+<body>
+
+<main class="app-main">
+  <div class="page-head">
+    <div>
+      <h1>🔄 Variations</h1>
+      <div class="ph-sub">Step 8 · Scope/Design/Quantity/Site/Client variations · Internal → Client → Cost Impact → Revised Budget</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-primary" onclick="PAGE.add()">+ New Variation</button>
+      <button class="btn btn-secondary" onclick="PAGE.save()">💾 Save All</button>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Total Variations</div><div class="kpi-val" id="kpiVarTotal">0</div><div class="kpi-sub">all status</div></div>
+    <div class="kpi gold"><div class="kpi-label">Pending Approval</div><div class="kpi-val" id="kpiVarPending">0</div><div class="kpi-sub">internal + client</div></div>
+    <div class="kpi"><div class="kpi-label">Approved</div><div class="kpi-val" id="kpiVarApproved">0</div><div class="kpi-sub">cost impact applied</div></div>
+    <div class="kpi danger"><div class="kpi-label">Net Cost Impact</div><div class="kpi-val" id="kpiVarImpact">₹0</div><div class="kpi-sub">approved variations</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon purple">🔄</div>
+        <div><div class="ch-title">Variation Register</div><div class="ch-sub">Workflow: Draft → Internal Approval → Client Submission → Approved / Rejected</div></div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="tbl" id="variationsTbl">
+        <thead><tr>
+          <th style="width:24px"></th>
+          <th style="width:90px">V-ID</th><th style="width:100px">Date</th>
+          <th>Description</th>
+          <th style="width:120px">Type</th><th style="width:130px">Status</th>
+          <th style="width:100px">Internal</th><th style="width:100px">Client</th>
+          <th style="width:120px">Cost Impact (₹)</th><th style="width:90px">Time (days)</th>
+        </tr></thead>
+        <tbody id="variationsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/pages/variations.js"></script>
+<script>
+(async function() {
+  await Shell.init({ pageId: 'variations' });
+  await PAGE.load();
+})();
+</script>
+</body>
+</html>

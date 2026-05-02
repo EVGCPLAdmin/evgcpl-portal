@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cost Summary · Steps 6+7 · Project Cost Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/app.css" />
+</head>
+<body>
+
+<main class="app-main">
+  <div class="page-head">
+    <div>
+      <h1>💰 Total Project Budget</h1>
+      <div class="ph-sub">Steps 6 &amp; 7 · Activity Cost (Labour + Material + Machinery) + Running Cost (Overheads) · + 5–10% unexpected · Approval: Top Management</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-secondary" onclick="PAGE.recompute()">↻ Recompute</button>
+      <button class="btn btn-gold" onclick="PAGE.exportCSV()">📊 Export CSV</button>
+      <button class="btn btn-primary" onclick="PAGE.approve()">✓ Submit for Approval</button>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Manpower</div><div class="kpi-val" id="sumManpower">₹0</div><div class="kpi-sub">step 5A</div></div>
+    <div class="kpi"><div class="kpi-label">Machinery</div><div class="kpi-val" id="sumMachinery">₹0</div><div class="kpi-sub">step 5B</div></div>
+    <div class="kpi"><div class="kpi-label">Materials</div><div class="kpi-val" id="sumMaterials">₹0</div><div class="kpi-sub">step 5C</div></div>
+    <div class="kpi gold"><div class="kpi-label">Activity Cost</div><div class="kpi-val" id="sumActivity">₹0</div><div class="kpi-sub">M+M+M total</div></div>
+    <div class="kpi blue"><div class="kpi-label">Overheads</div><div class="kpi-val" id="sumOverheads">₹0</div><div class="kpi-sub">direct + indirect</div></div>
+    <div class="kpi danger"><div class="kpi-label">Project Budget</div><div class="kpi-val" id="sumGrand">₹0</div><div class="kpi-sub">activity + overhead + buffer</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon gold">💰</div>
+        <div><div class="ch-title">Budget Summary</div><div class="ch-sub">Roll-up across all resource categories</div></div>
+      </div>
+      <div style="display:flex;gap:14px;align-items:center;font-size:11px;color:var(--text-faint)">
+        Buffer
+        <input type="number" id="bufferPct" value="7" min="0" max="20" step="0.5"
+               style="width:70px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right"
+               oninput="PAGE.recompute()" />
+        %
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead><tr>
+          <th>Cost Component</th><th>Reference</th>
+          <th style="width:140px;text-align:right">Amount (₹)</th>
+          <th style="width:90px;text-align:right">% of Total</th>
+        </tr></thead>
+        <tbody id="summaryBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon green">📊</div>
+        <div><div class="ch-title">Activity-wise Cost Breakdown</div><div class="ch-sub">Per activity: Labour + Material + Machinery</div></div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="tbl" id="actBreakdownTbl">
+        <thead><tr>
+          <th>Activity Code</th><th>Activity</th>
+          <th style="width:70px;text-align:right">BOQ Qty</th>
+          <th style="width:120px;text-align:right">Manpower</th>
+          <th style="width:120px;text-align:right">Machinery</th>
+          <th style="width:120px;text-align:right">Materials</th>
+          <th style="width:130px;text-align:right">Activity Cost</th>
+          <th style="width:100px;text-align:right">Cost / Unit</th>
+        </tr></thead>
+        <tbody id="actBreakdownBody"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/pages/summary.js"></script>
+<script>
+(async function() {
+  await Shell.init({ pageId: 'summary' });
+  await PAGE.load();
+})();
+</script>
+</body>
+</html>

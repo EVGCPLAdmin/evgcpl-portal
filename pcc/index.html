@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Project Cost Control · Evergreen Enterprises</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/app.css" />
+</head>
+<body>
+
+<main class="app-main">
+
+  <div class="page-head">
+    <div>
+      <h1>Project Cost Control</h1>
+      <div class="ph-sub">
+        Multi-page workspace covering all 8 steps of the Project Budget Preparation Flow &middot;
+        backed by
+        <a href="https://docs.google.com/spreadsheets/d/1dQow9nD4e0qVOSfpwEWQmPTuhF3FW_8r1oK5dMjJlRE/edit"
+           target="_blank" rel="noopener" style="color:var(--green);font-weight:600">a single Google Sheet &uarr;</a>
+      </div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-primary" onclick="Shell.openProjectSwitcher()">Switch Project</button>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Active Project</div><div class="kpi-val mono" id="kpiHomeCode">&mdash;</div><div class="kpi-sub" id="kpiHomeName">No project selected</div></div>
+    <div class="kpi gold"><div class="kpi-label">Sub-pages (1&ndash;7)</div><div class="kpi-val">7</div><div class="kpi-sub">setup &middot; boq &middot; wbs &middot; workplan &middot; 5A/B/C</div></div>
+    <div class="kpi blue"><div class="kpi-label">Project Months</div><div class="kpi-val" id="kpiHomeMonths">0</div><div class="kpi-sub">workplan duration</div></div>
+    <div class="kpi"><div class="kpi-label">Total Projects</div><div class="kpi-val" id="kpiHomeProjs">0</div><div class="kpi-sub">in backing sheet</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon green">&#128203;</div>
+        <div>
+          <div class="ch-title">Steps 1&ndash;3 &middot; Foundation</div>
+          <div class="ch-sub">Project identity &middot; bill of quantities &middot; work breakdown structure</div>
+        </div>
+      </div>
+      <span class="pill pill-green">3 sub-pages</span>
+    </div>
+    <div class="card-pad">
+      <div class="module-grid" id="setupGrid"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon gold">&#128176;</div>
+        <div>
+          <div class="ch-title">Steps 4&ndash;5 &middot; Workplan &amp; Resources</div>
+          <div class="ch-sub">Monthly quantity &middot; manpower (5A) &middot; machinery (5B) &middot; materials (5C)</div>
+        </div>
+      </div>
+      <span class="pill pill-gold">4 sub-pages</span>
+    </div>
+    <div class="card-pad">
+      <div class="module-grid" id="resourcesGrid"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon blue">&#128202;</div>
+        <div>
+          <div class="ch-title">Steps 6&ndash;8 &middot; Cost Estimation, Budget &amp; Variations</div>
+          <div class="ch-sub">Per-activity cost &middot; total project budget &middot; scope variations workflow</div>
+        </div>
+      </div>
+      <span class="pill pill-blue">3 sub-pages</span>
+    </div>
+    <div class="card-pad">
+      <div class="module-grid" id="estimateGrid"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon green">&#128279;</div>
+        <div>
+          <div class="ch-title">EVGCPL Portal Integration</div>
+          <div class="ch-sub">This app links into the main portal as the "Project Cost Control" sub-section under Finance</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-pad" style="display:flex;gap:.6rem;flex-wrap:wrap">
+      <a class="btn btn-secondary" href="https://evgcpladmin.github.io/evgcpl-portal/" target="_blank" rel="noopener">&larr; Back to EVGCPL Portal</a>
+      <a class="btn btn-secondary" href="https://docs.google.com/spreadsheets/d/1dQow9nD4e0qVOSfpwEWQmPTuhF3FW_8r1oK5dMjJlRE/edit" target="_blank" rel="noopener">Backing Sheet &uarr;</a>
+      <a class="btn btn-secondary" href="README.md" target="_blank" rel="noopener">Architecture README</a>
+    </div>
+  </div>
+
+</main>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/shell.js"></script>
+<script>
+(async function() {
+  await Shell.init({ pageId: 'home' });
+
+  // Group page IDs into the 3 dashboard sections
+  const setupIds     = ['setup', 'boq', 'wbs'];                                  // Steps 1–3
+  const resourceIds  = ['workplan', 'manpower', 'machinery', 'materials'];      // Steps 4–5
+  const estimateIds  = ['overheads', 'summary', 'variations'];                  // Steps 6–8
+
+  function cardHtml(p, accentClass) {
+    return `<a class="module-card ${accentClass || ''}" href="${p.file}">
+      <div class="mc-head">
+        <div class="mc-icon">${p.icon}</div>
+        <div>
+          <div class="mc-step">Step ${p.step}</div>
+          <div class="mc-title">${Utils.esc(p.title)}</div>
+        </div>
+      </div>
+      <div class="mc-desc">${Utils.esc(p.desc)}</div>
+      <div class="mc-foot">
+        <span class="pill pill-green">Live</span>
+        <span class="mc-arr">&rarr;</span>
+      </div>
+    </a>`;
+  }
+
+  function fillGrid(id, ids, accentMap) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = window.CONFIG.PAGES
+      .filter(p => ids.includes(p.id))
+      .map(p => cardHtml(p, (accentMap && accentMap[p.id]) || ''))
+      .join('');
+  }
+
+  fillGrid('setupGrid',     setupIds);
+  fillGrid('resourcesGrid', resourceIds, { manpower: 'gold', machinery: 'blue', materials: 'gold' });
+  fillGrid('estimateGrid',  estimateIds, { summary: 'gold', variations: 'purple' });
+
+  // KPIs
+  const ap = window.STATE.activeProject;
+  document.getElementById('kpiHomeCode').textContent  = ap ? (ap['Project Code'] || '—') : '—';
+  document.getElementById('kpiHomeName').textContent  = ap ? (ap['Project Name'] || '(no name)') : 'No project selected';
+  document.getElementById('kpiHomeMonths').textContent = window.STATE.months.length;
+  document.getElementById('kpiHomeProjs').textContent  = window.STATE.projects.length;
+})();
+</script>
+</body>
+</html>

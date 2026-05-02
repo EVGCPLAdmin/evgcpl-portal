@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WBS · Step 3 · Project Cost Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/app.css" />
+</head>
+<body>
+
+<main class="app-main">
+  <div class="page-head">
+    <div>
+      <h1>&#127795; Work Breakdown Structure</h1>
+      <div class="ph-sub">Step 3 &middot; Hierarchical decomposition &middot; activities &middot; cost-code mapping</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-secondary" onclick="PAGE.exportCSV()">CSV Export</button>
+      <button class="btn btn-primary" onclick="PAGE.save()" id="saveBtn">Save WBS</button>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Active Project</div><div class="kpi-val mono" id="kWbsProj">&mdash;</div><div class="kpi-sub" id="kWbsProjName">No project</div></div>
+    <div class="kpi blue"><div class="kpi-label">WBS Nodes</div><div class="kpi-val" id="kWbsNodes">0</div><div class="kpi-sub">deliverables</div></div>
+    <div class="kpi"><div class="kpi-label">Activities</div><div class="kpi-val" id="kWbsActs">0</div><div class="kpi-sub">leaf-level</div></div>
+    <div class="kpi gold"><div class="kpi-label">Max Depth</div><div class="kpi-val" id="kWbsDepth">0</div><div class="kpi-sub">levels</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon green">&#127795;</div>
+        <div>
+          <div class="ch-title">WBS Tree</div>
+          <div class="ch-sub">Loaded from <code>WBS</code> tab &middot; uses indent-by-code (1, 1.1, 1.1.1)</div>
+        </div>
+      </div>
+      <span class="pill pill-green" id="wbsStatus">Idle</span>
+    </div>
+    <div class="card-pad">
+      <div class="boq-toolbar">
+        <div class="left">
+          <span style="font-size:12px;color:var(--text-faint)">Filter:</span>
+          <input type="text" id="wbsFilter" placeholder="Search code or name&hellip;" style="width:280px" oninput="PAGE.filter(this.value)" />
+        </div>
+        <div class="right">
+          <button class="btn btn-secondary" onclick="PAGE.addNode()">+ Add Node</button>
+        </div>
+      </div>
+      <div class="wbs-tree" id="wbsTree">
+        <div class="plp-empty">Loading WBS&hellip;</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon gold">&#9881;&#65039;</div>
+        <div>
+          <div class="ch-title">Activities</div>
+          <div class="ch-sub">Leaf-level work items &middot; mapped to a cost code &amp; a WBS node</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-pad">
+      <div class="table-scroll">
+        <table id="actTable">
+          <thead>
+            <tr>
+              <th style="width:60px">#</th>
+              <th>Activity</th>
+              <th style="width:120px">WBS Code</th>
+              <th style="width:140px">Cost Code</th>
+              <th style="width:80px">Unit</th>
+              <th style="width:140px;text-align:right">BOQ Qty</th>
+              <th style="width:40px"></th>
+            </tr>
+          </thead>
+          <tbody id="actTbody">
+            <tr><td colspan="7" class="empty-cell">No activities yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="boq-add-row">
+        <input type="text" class="boq-add-input" id="quickActInput"
+          placeholder="Type activity name &amp; press Enter to add&hellip;"
+          onkeydown="if(event.key==='Enter')PAGE.quickAddActivity()" />
+        <button class="btn btn-primary" onclick="PAGE.quickAddActivity()">+ Add</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:18px;display:flex;gap:.6rem;justify-content:space-between;flex-wrap:wrap">
+    <a class="btn btn-secondary" href="boq.html">&larr; Back to BOQ</a>
+    <a class="btn btn-primary" href="workplan.html">Continue to Workplan &rarr;</a>
+  </div>
+</main>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/pages/wbs.js"></script>
+<script>
+(async function() {
+  await Shell.init({ pageId: 'wbs' });
+  await PAGE.load();
+})();
+</script>
+</body>
+</html>
