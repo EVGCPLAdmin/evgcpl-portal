@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Overheads · Project Cost Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/app.css" />
+</head>
+<body>
+
+<main class="app-main">
+  <div class="page-head">
+    <div>
+      <h1>🏢 Running Costs / Overheads</h1>
+      <div class="ph-sub">Direct: Site office, staff salaries, utilities, temporary structures, safety · Indirect: PMC, insurances, taxes, HO @ 5% of project cost</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-secondary" onclick="PAGE.add('direct')">+ Direct</button>
+      <button class="btn btn-secondary" onclick="PAGE.add('indirect')">+ Indirect</button>
+      <button class="btn btn-primary" onclick="PAGE.save()">💾 Save Overheads</button>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Direct Overheads</div><div class="kpi-val" id="kpiOhDirect">₹0</div><div class="kpi-sub">site running</div></div>
+    <div class="kpi gold"><div class="kpi-label">Indirect Overheads</div><div class="kpi-val" id="kpiOhIndirect">₹0</div><div class="kpi-sub">PMC, taxes, HO 5%</div></div>
+    <div class="kpi blue"><div class="kpi-label">Months</div><div class="kpi-val" id="kpiOhMonths">0</div><div class="kpi-sub">running duration</div></div>
+    <div class="kpi danger"><div class="kpi-label">Total Overheads</div><div class="kpi-val" id="kpiOhTotal">₹0</div><div class="kpi-sub">monthly × duration</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon purple">🏢</div>
+        <div><div class="ch-title">Overhead Line Items</div><div class="ch-sub">Toggle between Direct (site-level) and Indirect (HO/insurance/taxes)</div></div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="tbl" id="overheadsTbl">
+        <thead><tr>
+          <th style="width:24px"></th>
+          <th>Type</th><th>Category</th><th>Description</th>
+          <th style="width:120px">Monthly Cost</th><th style="width:80px">Months</th>
+          <th style="width:120px">Total Cost</th>
+        </tr></thead>
+        <tbody id="overheadsBody"></tbody>
+        <tfoot>
+          <tr class="totals">
+            <td colspan="6" style="text-align:right">Grand Total</td>
+            <td class="num">₹<span id="ohTotalFoot">0</span></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/pages/overheads.js"></script>
+<script>
+(async function() {
+  await Shell.init({ pageId: 'overheads' });
+  await PAGE.load();
+})();
+</script>
+</body>
+</html>

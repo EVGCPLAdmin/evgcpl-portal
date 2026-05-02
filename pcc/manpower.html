@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Manpower · Step 5A · Project Cost Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/app.css" />
+</head>
+<body>
+
+<main class="app-main">
+  <div class="page-head">
+    <div>
+      <h1>👥 Manpower Planning</h1>
+      <div class="ph-sub">Step 5A · Daily Wages × No. of Workers × Duration · + 5–10% buffer for leave/absences · Indirect: ESI, PF, Allowances</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-secondary" onclick="PAGE.add()">+ Add Row</button>
+      <button class="btn btn-primary" onclick="PAGE.save()">💾 Save Manpower</button>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Total Workers</div><div class="kpi-val" id="kpiMpWorkers">0</div><div class="kpi-sub">across all activities</div></div>
+    <div class="kpi gold"><div class="kpi-label">Direct Wages</div><div class="kpi-val" id="kpiMpDirect">₹0</div><div class="kpi-sub">qty × rate × days</div></div>
+    <div class="kpi blue"><div class="kpi-label">Indirect (ESI/PF)</div><div class="kpi-val" id="kpiMpIndirect">₹0</div><div class="kpi-sub">% of direct</div></div>
+    <div class="kpi danger"><div class="kpi-label">Total Manpower</div><div class="kpi-val" id="kpiMpTotal">₹0</div><div class="kpi-sub">direct + indirect + buffer</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon green">👥</div>
+        <div><div class="ch-title">Activity-wise Manpower</div><div class="ch-sub">Skilled · Semi-Skilled · Helper · Supervisor</div></div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="tbl" id="manpowerTbl">
+        <thead><tr>
+          <th style="width:24px"></th>
+          <th>Activity</th><th>Type</th>
+          <th style="width:80px">Workers</th><th style="width:80px">Days</th>
+          <th style="width:100px">Daily Rate</th><th style="width:110px">Productivity (Qty/Day)</th>
+          <th style="width:80px">Buffer %</th><th style="width:110px">Direct Cost</th>
+          <th style="width:80px">Indirect %</th><th style="width:110px">Total Cost</th>
+        </tr></thead>
+        <tbody id="manpowerBody"></tbody>
+        <tfoot>
+          <tr class="totals">
+            <td colspan="8" style="text-align:right">Grand Total</td>
+            <td class="num">₹<span id="mpDirectFoot">0</span></td>
+            <td></td>
+            <td class="num">₹<span id="mpTotalFoot">0</span></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/pages/manpower.js"></script>
+<script>
+(async function() {
+  await Shell.init({ pageId: 'manpower' });
+  await PAGE.load();
+})();
+</script>
+</body>
+</html>

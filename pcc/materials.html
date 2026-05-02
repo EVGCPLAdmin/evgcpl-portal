@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Materials · Step 5C · Project Cost Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/app.css" />
+</head>
+<body>
+
+<main class="app-main">
+  <div class="page-head">
+    <div>
+      <h1>🧱 Materials Planning</h1>
+      <div class="ph-sub">Step 5C · Material Cost = Qty × Unit Rate · Wastage: Cement 2% · Steel 1% · + Transportation, storage, handling</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-secondary" onclick="PAGE.add()">+ Add Row</button>
+      <button class="btn btn-primary" onclick="PAGE.save()">💾 Save Materials</button>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Material Lines</div><div class="kpi-val" id="kpiMtCount">0</div><div class="kpi-sub">across activities</div></div>
+    <div class="kpi"><div class="kpi-label">Base Material Cost</div><div class="kpi-val" id="kpiMtBase">₹0</div><div class="kpi-sub">qty × rate</div></div>
+    <div class="kpi gold"><div class="kpi-label">Wastage Cost</div><div class="kpi-val" id="kpiMtWastage">₹0</div><div class="kpi-sub">% addition</div></div>
+    <div class="kpi danger"><div class="kpi-label">Total Materials</div><div class="kpi-val" id="kpiMtTotal">₹0</div><div class="kpi-sub">incl. procurement</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon blue">🧱</div>
+        <div><div class="ch-title">Materials per Activity</div><div class="ch-sub">Linked to BOQ quantity · with wastage and procurement loading</div></div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="tbl" id="materialsTbl">
+        <thead><tr>
+          <th style="width:24px"></th>
+          <th>Activity</th><th>Material</th>
+          <th style="width:60px">Unit</th><th style="width:80px">BOQ Qty</th>
+          <th style="width:80px">Wastage %</th><th style="width:90px">Final Qty</th>
+          <th style="width:90px">Unit Rate (₹)</th><th style="width:80px">Procurement %</th>
+          <th style="width:110px">Total Cost</th>
+        </tr></thead>
+        <tbody id="materialsBody"></tbody>
+        <tfoot>
+          <tr class="totals">
+            <td colspan="9" style="text-align:right">Grand Total</td>
+            <td class="num">₹<span id="mtTotalFoot">0</span></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/pages/materials.js"></script>
+<script>
+(async function() {
+  await Shell.init({ pageId: 'materials' });
+  await PAGE.load();
+})();
+</script>
+</body>
+</html>

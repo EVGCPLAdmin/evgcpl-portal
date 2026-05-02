@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Workplan · Step 4 · Project Cost Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/app.css" />
+</head>
+<body>
+
+<main class="app-main">
+  <div class="page-head">
+    <div>
+      <h1>📅 Workplan — Monthly Quantity</h1>
+      <div class="ph-sub">Step 4 · Distribute each activity's quantity across months · Formula: <code>Monthly Workplan ÷ Productivity Norm = Planned Hours</code></div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-secondary" onclick="PAGE.addMonth()">+ Add Month</button>
+      <button class="btn btn-primary" onclick="PAGE.save()">💾 Save Workplan</button>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Activities</div><div class="kpi-val" id="kpiWpAct">0</div><div class="kpi-sub">linked from WBS</div></div>
+    <div class="kpi gold"><div class="kpi-label">Total Planned Qty</div><div class="kpi-val" id="kpiWpQty">0</div><div class="kpi-sub">sum across months</div></div>
+    <div class="kpi blue"><div class="kpi-label">BOQ Coverage</div><div class="kpi-val" id="kpiWpCov">0%</div><div class="kpi-sub">planned ÷ BOQ qty</div></div>
+    <div class="kpi"><div class="kpi-label">Months In Plan</div><div class="kpi-val" id="kpiWpMonths">0</div><div class="kpi-sub">project duration</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon green">📅</div>
+        <div><div class="ch-title">Monthly Activity Quantity Grid</div><div class="ch-sub">Enter planned quantity per activity per month · sticky-left activity column scrolls horizontally</div></div>
+      </div>
+      <span class="pill pill-green">UoM auto-filled from Activities</span>
+    </div>
+    <div class="month-grid-wrap" id="workplanGridWrap">
+      <div class="empty">
+        <div class="empty-icon">📅</div>
+        <div class="empty-title">Loading…</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/pages/workplan.js"></script>
+<script>
+(async function() {
+  await Shell.init({ pageId: 'workplan' });
+  await PAGE.load();
+})();
+</script>
+</body>
+</html>
