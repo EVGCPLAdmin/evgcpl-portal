@@ -4679,13 +4679,16 @@ function accDeepLink(label, url) {
 //  ROLE_ROUTES are rebuilt from config on every load
 // ══════════════════════════════════════════════════════════════
 
-const CONFIG_KEY = 'evgcpl_portal_config';
+// v2 → bumped May 2026 when Planning section restructured to Budgeting + Execution.
+// Old config keys with 'planning' / 'project-setup' / 'md-command' entries are obsolete.
+const CONFIG_KEY = 'evgcpl_portal_config_v2';
+const LEGACY_CONFIG_KEYS = ['evgcpl_portal_config']; // cleared on first load
 
 // ── Master module registry ─────────────────────────────────────
 const MODULE_REGISTRY = [
   // ── Main ──────────────────────────────────────────────────────
   { route:'dashboard',         label:'Dashboard',              section:'Main',             defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
-  { route:'md-command',        label:'MD Command Center',      section:'Main',             defStatus:'live', defRoles:['md'] },
+  // Note: md-command merged into Dashboard for MD; not exposed in Config.
 
   // ── HR & People ───────────────────────────────────────────────
   { route:'hr-dashboard',      label:'HR Dashboard',           section:'HR & People',      defStatus:'live', defRoles:['md','hr','dept_head'] },
@@ -4713,8 +4716,8 @@ const MODULE_REGISTRY = [
   { route:'accounts',          label:'Accounts & Payments',    section:'Finance',          defStatus:'live', defRoles:['md','accounts','dept_head'] },
 
   // ── Planning ──────────────────────────────────────────────────
-  { route:'planning',          label:'Overview',               section:'Planning',         defStatus:'live', defRoles:['md','accounts','purchase','dept_head'] },
-  { route:'project-setup',     label:'Project Setup',          section:'Planning',         defStatus:'live', defRoles:['md','accounts','purchase','dept_head'] },
+  { route:'budgeting',         label:'Budgeting',              section:'Planning',         defStatus:'live', defRoles:['md','hr','site','accounts','purchase','employee','dept_head'] },
+  { route:'execution',         label:'Execution (DPR)',        section:'Planning',         defStatus:'live', defRoles:['md','hr','site','accounts','purchase','dept_head'] },
 
   // ── Plant & Machinery ─────────────────────────────────────────
   { route:'plant-log',         label:'Log Entry',              section:'Plant & Machinery',defStatus:'live', defRoles:['md','site','dept_head'] },
@@ -4749,9 +4752,28 @@ const ALL_ROLES = [
 
 // ── Load config from localStorage (or build defaults) ───────────
 function loadPortalConfig() {
+  // Clean up legacy v1 keys (had old planning/project-setup/md-command entries)
+  try {
+    LEGACY_CONFIG_KEYS.forEach(k => localStorage.removeItem(k));
+  } catch(e) {}
   try {
     const saved = JSON.parse(localStorage.getItem(CONFIG_KEY) || 'null');
-    if (saved && saved.modules) return saved;
+    if (saved && saved.modules) {
+      // Self-heal: ensure every registry route has a config entry.
+      // Without this, a saved config from before a registry update would
+      // permanently hide newly-added modules (e.g. Budgeting / Execution).
+      let dirty = false;
+      MODULE_REGISTRY.forEach(m => {
+        if (!saved.modules[m.route]) {
+          saved.modules[m.route] = { status: m.defStatus, roles: [...m.defRoles] };
+          dirty = true;
+        }
+      });
+      if (dirty) {
+        try { localStorage.setItem(CONFIG_KEY, JSON.stringify(saved)); } catch(e) {}
+      }
+      return saved;
+    }
   } catch(e) {}
   return buildDefaultConfig();
 }
@@ -4784,7 +4806,7 @@ function applyPortalConfig() {
     });
     // md also always gets dashboard and critical routes
     if (key === 'md') {
-      ['dashboard','md-command','planning','accounts','reports'].forEach(r => allowed.add(r));
+      ['dashboard','md-command','budgeting','execution','accounts','reports'].forEach(r => allowed.add(r));
     }
     ROLE_ROUTES[key] = allowed;
   });
