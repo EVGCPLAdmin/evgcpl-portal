@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Sharing Doctor — EVGCPL Portal</title>
+<link rel="icon" href="assets/img/EG.jpg"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/css/portal.css"/>
+</head>
+<body>
+
+<div data-shell-root></div>
+
+<main class="shell-main">
+
+  <div id="pageHead"></div>
+
+      <div class="alert info" style="margin-bottom:1.2rem">
+        <div class="alert-icon">ℹ</div>
+        <div class="alert-body">
+          <b>How this page works.</b> It calls the portal's Apps Script with each sheet ID, server-side. Apps Script does a real anonymous fetch (no CORS) and returns the actual HTTP status, content-type, and redirect target. That gives a definitive answer to "is this sheet really public?" — bypassing the limitations of browser-side checks.
+          <div style="margin-top:.45rem;font-size:.78rem;color:var(--txt3)">
+            If the bulk diagnostic doesn't return results, the <code>diagnoseAllSheets_</code> handler isn't deployed to your Apps Script yet. Paste the snippet from <code>/apps-script/SheetDiagnostic.gs</code> into your project, redeploy, and refresh.
+          </div>
+        </div>
+      </div>
+
+      <div id="sdSummary" class="sd-summary"></div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Per-sheet results</h3>
+          <button class="btn btn-secondary btn-sm" id="sdRerun">Re-run all checks</button>
+        </div>
+        <div id="sdResults" style="padding:.4rem 0">
+          <div style="padding:2.4rem;text-align:center;color:var(--txt3);font-size:.85rem">
+            Running diagnostics for all sheets…
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:1.2rem">
+        <div class="card-head"><h3>Common verdicts &amp; what they mean</h3></div>
+        <div class="card-body">
+          <table class="tbl">
+            <thead><tr><th>Verdict</th><th>What it means</th><th>How to fix</th></tr></thead>
+            <tbody>
+              <tr><td><span class="sd-status ok"><span class="dot"></span>PUBLIC_OK</span></td><td>Sheet returned CSV anonymously.</td><td>No action needed.</td></tr>
+              <tr><td><span class="sd-status bad"><span class="dot"></span>NOT_PUBLIC_REDIRECTS_TO_LOGIN</span></td><td>Anonymous request was bounced to a Google sign-in page.</td><td>Either set Share → Anyone with the link, OR your Workspace org policy is blocking it (most common).</td></tr>
+              <tr><td><span class="sd-status bad"><span class="dot"></span>WORKSPACE_POLICY_BLOCKED</span></td><td>Sheet redirected, but to a Workspace policy page.</td><td>Workspace admin policy is overriding sharing. Allowlist the file at admin.google.com, or move it to a personal account.</td></tr>
+              <tr><td><span class="sd-status warn"><span class="dot"></span>TAB_NOT_FOUND</span></td><td>Sheet is public, but the requested tab name doesn't exist.</td><td>Check tab spelling/case in the sheet vs the portal code.</td></tr>
+              <tr><td><span class="sd-status bad"><span class="dot"></span>SHEET_NOT_FOUND</span></td><td>The sheet ID doesn't exist (404).</td><td>The ID in <code>api.js → SHEETS</code> is wrong, or the sheet was deleted.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+</main>
+
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/nav-config.js"></script>
+<script src="assets/js/shell.js"></script>
+<script>
+(async function() {
+  if (!Shell.requireAuth()) return;
+  Shell.mount('sharing-doctor');
+
+  document.getElementById('pageHead').innerHTML = Shell.pageHead({
+    crumbs: [{ label:'Home', href:'dashboard.html' }, { label:'Config', href:'config.html' }, { label:'Sharing Doctor' }],
+    title: 'Sharing Doctor',
+    sub: 'Real-time diagnostic of every Google Sheet linked to the portal',
+  });
+
+  document.getElementById('sdRerun').addEventListener('click', runAll);
+  runAll();
+})();
+
+async function runAll() {
+  const summary = document.getElementById('sdSummary');
+  const results = document.getElementById('sdResults');
+  results.innerHTML = `<div style="padding:2.4rem;text-align:center;color:var(--txt3);font-size:.85rem">Running diagnostics for all sheets…</div>`;
+  summary.innerHTML = '';
+
+  // Build the list to check — pulled from API.SHEETS, with one
+  // representative tab per sheet so we get a real loadable hit.
+  const list = [
+    { id: API.SHEETS.MASTER,        tab: 'Sites',          label: 'Master · Sites' },
+    { id: API.SHEETS.MASTER,        tab: 'Vendor',         label: 'Master · Vendor' },
+    { id: API.SHEETS.EMPLOYEE,      tab: 'Master',         label: 'Employee Register · Master' },
+    { id: API.SHEETS.PURCHASE,      tab: 'PO',             label: 'v2_Purchase · PO' },
+    { id: API.SHEETS.PURCHASE,      tab: 'MRS',            label: 'v2_Purchase · MRS' },
+    { id: API.SHEETS.PAYMENT,       tab: 'PaymentRequest', label: 'Payment · PaymentRequest' },
+    { id: API.SHEETS.STORES,        tab: 'GRN',            label: 'Stores · GRN' },
+    { id: API.SHEETS.SAFETY,        tab: 'Incident',       label: 'Safety · Incident' },
+    { id: API.SHEETS.V2_MASTER,     tab: 'Sites',          label: 'v2_Master · Sites' },
+    { id: API.SHEETS.REWARDS,       tab: 'Master',         label: 'Rewards · Master' },
+    { id: API.SHEETS.USER_SECRETS,  tab: 'Sheet1',         label: 'UserSecrets · Sheet1' },
+  ].filter(s => s.id);
+
+  let rows;
+  try {
+    rows = await API.diagnoseAllSheets(list);
+  } catch (e) {
+    results.innerHTML = `<div class="alert danger" style="margin:1rem"><div class="alert-icon">⚠</div><div class="alert-body">
+      Could not reach the Apps Script diagnostic endpoint. Make sure <code>diagnoseSheet_</code> and <code>diagnoseAllSheets_</code> from <code>/apps-script/SheetDiagnostic.gs</code> are added to your Apps Script project and the deployment is updated.
+      <div style="margin-top:.4rem;font-size:.75rem;color:var(--txt3)">${e.message || ''}</div>
+    </div></div>`;
+    return;
+  }
+
+  // ── Summary KPIs
+  const total = rows.length;
+  const okCt   = rows.filter(r => r.verdict === 'PUBLIC_OK').length;
+  const badCt  = rows.filter(r => /NOT_PUBLIC|WORKSPACE_POLICY|SHEET_NOT_FOUND/.test(r.verdict || '')).length;
+  const warnCt = rows.filter(r => r.verdict === 'TAB_NOT_FOUND').length;
+  const unknCt = total - okCt - badCt - warnCt;
+  summary.innerHTML = `
+    <div class="kpi"><div class="kpi-top"><div class="kpi-icon green">✓</div></div>
+      <div class="kpi-val">${okCt}</div><div class="kpi-label">Public &amp; loading</div></div>
+    <div class="kpi"><div class="kpi-top"><div class="kpi-icon red">✕</div></div>
+      <div class="kpi-val">${badCt}</div><div class="kpi-label">Sharing blocked</div></div>
+    <div class="kpi"><div class="kpi-top"><div class="kpi-icon orange">!</div></div>
+      <div class="kpi-val">${warnCt}</div><div class="kpi-label">Tab not found</div></div>
+    <div class="kpi"><div class="kpi-top"><div class="kpi-icon">?</div></div>
+      <div class="kpi-val">${unknCt}</div><div class="kpi-label">Unknown</div></div>
+  `;
+
+  // ── Results table
+  results.innerHTML = rows.map(r => {
+    const v = r.verdict || 'UNKNOWN';
+    let cls = 'unkn', text = v;
+    if (v === 'PUBLIC_OK') { cls = 'ok'; text = 'PUBLIC_OK'; }
+    else if (/NOT_PUBLIC|WORKSPACE_POLICY|SHEET_NOT_FOUND/.test(v)) { cls = 'bad'; }
+    else if (v === 'TAB_NOT_FOUND') { cls = 'warn'; }
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${r.sheetId}/edit`;
+    return `
+      <div class="sd-row">
+        <div>
+          <div class="sd-name">${esc(r.label)}</div>
+          <div class="sd-id">${esc(r.sheetId || '')}</div>
+        </div>
+        <div><span class="sd-status ${cls}"><span class="dot"></span>${esc(text)}</span>
+          <div style="font-size:.7rem;color:var(--txt3);margin-top:.2rem">HTTP ${r.status} · ${esc(r.contentType || '—')}</div>
+        </div>
+        <div class="sd-fix">${esc(r.fixHint || '')}</div>
+        <div class="sd-actions">
+          <a class="btn btn-secondary btn-sm" href="${sheetUrl}" target="_blank" rel="noopener">Open ↗</a>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+</script>
+
+</body>
+</html>

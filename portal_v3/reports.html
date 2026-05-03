@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Reports · EVGCPL Portal</title>
+<link rel="icon" type="image/jpeg" href="assets/img/EG.jpg"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=DM+Mono:wght@500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/css/portal.css"/>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body data-page="reports">
+<div id="loginScreen" style="display:none !important"></div>
+<!-- ═══════════════════ MAIN APP ═══════════════════ -->
+<div id="app">
+
+  <!-- DEMO ROLE SWITCHER BAR -->
+  <div id="demoBar" style="background:var(--g9);color:rgba(255,255,255,.8);font-size:.75rem;padding:6px 1.4rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:fixed;top:0;left:0;right:0;z-index:600">
+    <span style="font-weight:700;color:var(--gold)">🚀 DEMO MODE</span>
+    <span style="opacity:.5">|  Switch Role:</span>
+    <button onclick="switchDemoRole('md')" class="demo-role-btn" id="dr-md">👑 MD</button>
+    <button onclick="switchDemoRole('hr')" class="demo-role-btn" id="dr-hr">👥 HR</button>
+    <button onclick="switchDemoRole('site')" class="demo-role-btn" id="dr-site">🏗️ Site Mgr</button>
+    <button onclick="switchDemoRole('purchase')" class="demo-role-btn" id="dr-purchase">🛒 Purchase</button>
+    <button onclick="switchDemoRole('accounts')" class="demo-role-btn" id="dr-accounts">💰 Accounts</button>
+    <button onclick="switchDemoRole('employee')" class="demo-role-btn" id="dr-employee">👤 Employee</button>
+    <button onclick="switchDemoRole('vendor')" class="demo-role-btn" id="dr-vendor" style="border-color:rgba(240,165,0,.4);color:var(--gold)">🏢 Vendor</button>
+    <button onclick="switchDemoRole('sc')" class="demo-role-btn" id="dr-sc" style="border-color:rgba(240,165,0,.4);color:var(--gold)">🤝 SC</button>
+    <button onclick="document.getElementById('demoBar').style.display='none'" style="margin-left:auto;background:none;border:none;color:rgba(255,255,255,.4);cursor:pointer;font-size:1rem">✕</button>
+  </div>
+    <!-- TOP NAV -->
+  <nav id="topNav">
+
+    <!-- Main -->
+    <div class="tnav-group" data-internal="true" data-roles="all">
+      <button class="tnav-btn solo" onclick="navigate('dashboard')" data-route="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </button>
+    </div>
+    <div class="tnav-group" id="tnav-md-command" data-internal="true" data-roles="md" style="display:none">
+      <button class="tnav-btn solo" onclick="navigate('md-command')" data-route="md-command">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        Command
+      </button>
+    </div>
+
+    <!-- HR & People -->
+    <div class="tnav-group" data-internal="true" data-role-section-hide="site">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        HR & People
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="hr-dashboard" onclick="navigate('hr-dashboard')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          HR Dashboard<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="personal" onclick="navigate('personal')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Personal Dashboard<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="my-profile" onclick="navigate('my-profile')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+          My Profile<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="onboarding" onclick="navigate('onboarding')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
+          Onboarding<span class="tnav-item-badge dev">Dev</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="policies" onclick="navigate('policies')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Policies Hub<span class="tnav-item-badge live">Live</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Site Operations -->
+    <div class="tnav-group" data-internal="true" data-roles="all">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Site Ops
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="site-manager" onclick="navigate('site-manager')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          Site Manager<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="safety" onclick="navigate('safety')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Safety Module<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="equipment" onclick="navigate('equipment')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4"/><path d="M14 12h4"/><circle cx="12" cy="12" r="2"/></svg>
+          Equipment<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="store" onclick="navigate('store')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="9" y1="22" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="22"/></svg>
+          Site Store<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="plant" onclick="navigate('plant')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4m4 0h4M12 6v12"/></svg>
+          Plant &amp; Machinery<span class="tnav-item-badge live">Live</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Procurement -->
+    <div class="tnav-group" data-internal="true" data-role-section-hide="site">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        Procurement
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="scm" onclick="navigate('scm')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+          Purchase Dashboard<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="mrs" onclick="navigate('mrs')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+          MRS<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="stores" onclick="navigate('stores')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 8h14M5 8a2 2 0 1 0-4 0v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8m-4-4H7"/></svg>
+          Stores<span class="tnav-item-badge live">Live</span>
+        </div>
+
+        <div class="tnav-item" data-status="live" data-route="vendor" onclick="navigate('vendor')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          Vendor Portal<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="dev" data-route="subcontractor" onclick="navigate('subcontractor')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+          Subcontractor<span class="tnav-item-badge dev">Dev</span>
+        </div>
+        <div class="tnav-item" data-status="dev" data-route="tendering" onclick="navigate('tendering')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Tendering<span class="tnav-item-badge dev">Dev</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Finance -->
+    <div class="tnav-group" data-internal="true" data-role-section-hide="site">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        Finance
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="accounts" onclick="navigate('accounts')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Accounts<span class="tnav-item-badge ext">AppSheet</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Planning -->
+    <div class="tnav-group" data-internal="true" data-role-section-hide="site">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Planning
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="budgeting" onclick="navigate('budgeting')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Budgeting<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="execution" onclick="navigate('execution')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Execution<span class="tnav-item-badge live">Live</span>
+        </div>
+      </div>
+    </div>
+
+
+
+    <!-- Plant & Machinery -->
+    <div class="tnav-group" data-internal="true" data-roles="all">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4"/><path d="M14 12h4"/><circle cx="12" cy="12" r="2"/></svg>
+        Plant &amp; Machinery
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="plant-log" onclick="navigate('plant-log')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
+          Log Entry<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="plant-verify" onclick="navigate('plant-verify')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          Asset Verification<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="plant-maintenance" onclick="navigate('plant-maintenance')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          Maintenance<span class="tnav-item-badge live">Live</span>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- Reports -->
+    <div class="tnav-group" data-internal="true" id="tnav-reports-group">
+      <button class="tnav-btn solo" onclick="navigate('reports')" data-route="reports">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Reports
+      </button>
+    </div>
+
+    <!-- Quick Access -->
+    <div class="tnav-group" data-internal="true" data-roles="all">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        Quick Access
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="rewards" onclick="navigate('rewards')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          Rewards &amp; Wall<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="apps" onclick="navigate('apps')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Apps<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="sheets" onclick="navigate('sheets')" id="tnav-sheets-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          Sheets <span style="font-size:.58rem;padding:1px 5px;border-radius:4px;background:rgba(220,38,38,.15);color:#dc2626;font-weight:700;margin-left:2px">Admin</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tnav-spacer"></div>
+
+    <!-- Admin (MD only) -->
+    <div class="tnav-group" data-internal="true" id="tnav-devmode-group" style="display:none">
+      <button class="tnav-btn solo" onclick="navigate('dev-mode')" data-route="dev-mode">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        Config
+        <span id="tnavDevBadge" style="font-size:.6rem;padding:1px 6px;border-radius:4px;background:rgba(240,165,0,.2);color:var(--gold);font-weight:700;margin-left:2px">OFF</span>
+      </button>
+    </div>
+
+  </nav>
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-left">
+      <button class="hamburger" id="hamburger" onclick="toggleSidebar()">
+        <span></span><span></span><span></span>
+      </button>
+      <img class="header-logo" src="data:image/jpeg;base64,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" alt="EG"/>
+      <span class="header-site-badge" id="roleBadge">MD</span>
+    </div>
+    <div class="header-center">
+      <div class="header-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" placeholder="Search modules, people, sites…" id="globalSearch"/>
+      </div>
+    </div>
+    <div class="header-right">
+      <!-- DEV MODE TOGGLE — md/admin only, injected by applyDevModeUI() -->
+      <button id="devModeToggleBtn" class="h-icon-btn dev-mode-toggle-btn" title="Toggle Dev Mode" onclick="toggleDevMode()" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      </button>
+      <button class="h-icon-btn" title="WhatsApp Alerts">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+      </button>
+      <button class="h-icon-btn" title="AI Assistant" onclick="toggleAIChat()" id="aiChatBtn" style="position:relative">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><circle cx="9" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
+        <span style="position:absolute;top:5px;right:5px;width:8px;height:8px;background:linear-gradient(135deg,#22c55e,#16a34a);border-radius:50%;border:2px solid #fff"></span>
+      </button>
+      <button class="h-icon-btn" title="Notifications" onclick="toggleNotifPanel()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span class="notif-dot"></span>
+      </button>
+      <div class="user-pill" onclick="toggleUserMenu()">
+        <div class="user-avatar" id="userAvatar">EG</div>
+        <div class="user-info">
+          <div class="u-name" id="userName">Demo User</div>
+          <div class="u-role" id="userRoleLabel">MD / Director</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- LAYOUT -->
+  <div class="layout">
+
+    <!-- SIDEBAR -->
+    <nav class="sidebar" id="sidebar">
+      <!-- VENDOR / SC ONLY — shown when role is vendor or sc -->
+      <div class="sidebar-section" id="nav-vendor-section" style="display:none">
+        <div class="sidebar-label">My Portal</div>
+        <div class="nav-item active" onclick="navigate('my-portal')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          My Dashboard
+        </div>
+        <div class="nav-item" onclick="navigate('my-orders')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Purchase Orders
+        </div>
+        <div class="nav-item" onclick="navigate('my-invoices')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Invoices & Payments
+        </div>
+        <div class="nav-item" onclick="navigate('my-documents')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          My Documents
+        </div>
+      </div>
+
+      <!-- INTERNAL STAFF SECTIONS — hidden for vendor/sc -->
+      <div class="sidebar-section" data-internal="true" data-roles="all">
+        <div class="sidebar-label">Main</div>
+        <div class="nav-item active" data-status="live" onclick="navigate('dashboard')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Dashboard
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" onclick="navigate('md-command')" id="nav-md-command">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          MD Command Center
+          <span class="ni-badge gold">5</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section" data-internal="true" data-roles="all">
+        <div class="sidebar-label">HR & People</div>
+        <div class="nav-item" data-status="live" data-role-hide="site" onclick="navigate('onboarding')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+          Onboarding
+        </div>
+        <div class="nav-item" data-status="live" data-role-hide="site" onclick="navigate('hr-dashboard')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          HR Dashboard
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" data-role-hide="site" onclick="navigate('personal')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+          My Dashboard
+          <span class="ni-ext">AppSheet</span>
+        </div>
+        <div class="nav-item" data-status="live" onclick="navigate('my-profile')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+          My Profile
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" onclick="navigate('policies')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Policies Hub
+        </div>
+      </div>
+
+      <div class="sidebar-section" data-internal="true" data-roles="all">
+        <div class="sidebar-label">Site Operations</div>
+        <div class="nav-item" data-status="live" onclick="navigate('site-manager')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Site Manager
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" onclick="navigate('safety')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Safety Module
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" data-role-hide="site" onclick="navigate('equipment')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+          Equipment & Machinery
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" data-role-hide="site" onclick="navigate('store')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="9" y1="22" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="22"/></svg>
+          Site Store
+          <span class="ni-live">Live</span>
+        
+        <div class="nav-item" data-status="live" onclick="navigate('plant')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4m4 0h4M12 6v12"/></svg>
+          Plant &amp; Machinery
+          <span class="ni-live">Live</span>
+        </div></div>
+      </div>
+
+      <div class="sidebar-section" data-internal="true" data-role-section-hide="site">
+        <div class="sidebar-label">Procurement</div>
+        <div class="nav-item" data-status="live" onclick="navigate('scm')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+          Purchase Dashboard
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" onclick="navigate('mrs')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
+          MRS
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" onclick="navigate('stores')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 8h14M5 8a2 2 0 1 0-4 0v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8m-4-4H7m0-2h10"/><path d="M10 12h4M10 16h2"/></svg>
+          Stores
+          <span class="ni-live">Live</span>
+        </div>
+
+        <div class="nav-item" data-status="live" onclick="navigate('vendor')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          Vendor Portal
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="dev" onclick="navigate('subcontractor')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>
+          Subcontractor Portal
+        </div>
+        <div class="nav-item" data-status="dev" onclick="navigate('tendering')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Tendering
+        </div>
+      </div>
+
+      <div class="sidebar-section" data-internal="true" data-role-section-hide="site">
+        <div class="sidebar-label">Planning</div>
+        <div class="nav-item" data-status="live" onclick="navigate('planning')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Overview
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" onclick="navigate('project-setup')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M4.93 19.07l1.41-1.41M19.07 19.07l-1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
+          Project Setup
+          <span class="ni-live">Live</span>
+        </div>
+
+      </div>
+
+
+
+      <div class="sidebar-section" data-internal="true" data-role-section-hide="site">
+        <div class="sidebar-label">Finance</div>
+        <div class="nav-item" data-status="live" onclick="navigate('accounts')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Accounts
+          <span class="ni-ext">AppSheet</span>
+        </div>
+      </div>
+
+
+
+      <div class="sidebar-section" data-internal="true" id="nav-reports-section">
+        <div class="sidebar-label">Reports</div>
+        <div class="nav-item" onclick="navigate('reports')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+          Reports
+          <span class="ni-live">Live</span>
+        </div>
+      </div>
+
+
+
+      <!-- PLANT & MACHINERY -->
+      <div class="sidebar-section" data-internal="true" data-roles="all">
+        <div class="sidebar-label">Plant &amp; Machinery</div>
+        <div class="nav-item" data-status="live" onclick="navigate('plant-log')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+          Log Entry
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" onclick="navigate('plant-verify')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          Asset Verification
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" onclick="navigate('plant-maintenance')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          Maintenance
+          <span class="ni-live">Live</span>
+        </div>
+      </div>
+
+      <!-- APPS HUB -->
+      <div class="sidebar-section" data-internal="true" data-roles="all">
+        <div class="sidebar-label">Quick Access</div>
+        <div class="nav-item" data-status="live" onclick="navigate('rewards')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          Rewards & Wall
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" onclick="navigate('apps')">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Apps
+          <span class="ni-live">Live</span>
+        </div>
+        <div class="nav-item" data-status="live" onclick="navigate('sheets')" id="nav-sheets-item">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          Sheets
+          <span style="font-size:.58rem;padding:1px 5px;border-radius:4px;background:rgba(220,38,38,.12);color:#dc2626;font-weight:700;margin-left:auto">Admin</span>
+        </div>
+
+      </div>
+
+      <!-- DEV MODE PAGE -- shown only to md role via applyRoleNavRestrictions -->
+      <div class="sidebar-section" data-internal="true" id="nav-devmode-section" style="display:none">
+        <div class="sidebar-label">Admin</div>
+        <div class="nav-item" data-status="live" onclick="navigate('dev-mode')" id="nav-devmode-item">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          Configuration
+          <span style="margin-left:auto;font-size:.6rem;padding:2px 6px;border-radius:4px;background:rgba(240,165,0,.2);color:var(--gold);font-weight:700" id="devModeSidebarBadge">OFF</span>
+        </div>
+        <div class="nav-item" data-status="live" onclick="navigate('settings')" id="nav-settings-item">
+          <svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Settings
+          <span style="margin-left:auto;font-size:.6rem;padding:2px 6px;border-radius:4px;background:rgba(76,175,80,.18);color:#7fdc8f;font-weight:700">NEW</span>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <strong>EVGCPL Intranet v1.0</strong>
+        © 2025 Evergreen Enterprises<br/>
+        Namakkal, Tamil Nadu
+      </div>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content" id="mainContent">
+      <!-- Content rendered by JS -->
+    </main>
+
+  </div><!-- /layout -->
+
+  <!-- NOTIFICATION PANEL -->
+  <div id="notifPanel">
+    <div class="notif-head">
+      <h3>🔔 Notifications</h3>
+      <button onclick="toggleNotifPanel()" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--txt3)">✕</button>
+    </div>
+    <div class="notif-list" id="notifListContainer">
+      <div style="text-align:center;color:var(--txt3);padding:2rem;font-size:.82rem">&#128276; Live notifications coming soon.<br>PO approvals &amp; payment alerts will appear here.</div>
+    </div>
+  </div>
+
+  <!-- AI CHAT PANEL -->
+  <div id="aiChatPanel">
+    <div class="ai-chat-head">
+      <div class="ai-chat-head-icon">🤖</div>
+      <div class="ai-chat-head-info">
+        <strong>EG Assistant</strong>
+        <span>Powered by Groq · Llama 3.3 · Free · Evergreen Enterprises</span>
+      </div>
+      <button class="ai-chat-close" onclick="toggleAIChat()">✕</button>
+    </div>
+    <div class="ai-chat-context" id="aiCtxBar">
+      <span class="ai-ctx-dot"></span>
+      <span id="aiCtxText">Connected to portal data</span>
+    </div>
+    <div class="ai-domain-bar" id="aiDomainBar" style="display:flex;flex-wrap:wrap;gap:.35rem;padding:.45rem .75rem;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)">
+      <span style="font-size:.65rem;color:rgba(255,255,255,.5);font-weight:600;letter-spacing:.05em;text-transform:uppercase;align-self:center;margin-right:.3rem">Ask about:</span>
+      <button class="ai-domain-btn active" data-domain="all"      onclick="aiSetDomain(this,&#39;all&#39;)">All</button>
+      <button class="ai-domain-btn"        data-domain="accounts" onclick="aiSetDomain(this,&#39;accounts&#39;)">Accounts</button>
+      <button class="ai-domain-btn"        data-domain="purchase" onclick="aiSetDomain(this,&#39;purchase&#39;)">Purchase</button>
+      <button class="ai-domain-btn"        data-domain="stores"   onclick="aiSetDomain(this,&#39;stores&#39;)">Stores</button>
+      <button class="ai-domain-btn"        data-domain="site"     onclick="aiSetDomain(this,&#39;site&#39;)">Site</button>
+      <button class="ai-domain-btn"        data-domain="hr"       onclick="aiSetDomain(this,&#39;hr&#39;)">HR</button>
+      <button class="ai-domain-btn"        data-domain="safety"   onclick="aiSetDomain(this,&#39;safety&#39;)">Safety</button>
+    </div>
+    <div class="ai-chat-msgs" id="aiChatMsgs"></div>
+    <div class="ai-suggestions" id="aiSuggestions">
+      <button class="ai-sugg" onclick="aiSendSuggestion(this)">How many active sites?</button>
+      <button class="ai-sugg" onclick="aiSendSuggestion(this)">Total employees</button>
+      <button class="ai-sugg" onclick="aiSendSuggestion(this)">Pending payments</button>
+      <button class="ai-sugg" onclick="aiSendSuggestion(this)">Open safety incidents</button>
+      <button class="ai-sugg" onclick="aiSendSuggestion(this)">Top vendors</button>
+      <button class="ai-sugg" onclick="aiSendSuggestion(this)">Equipment summary</button>
+    </div>
+    <div class="ai-chat-input-row">
+      <textarea id="aiChatInput" placeholder="Ask anything about EVGCPL operations…" rows="1"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();aiSend()}"
+        oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'"></textarea>
+      <button id="aiSendBtn" onclick="aiSend()" title="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- AI CHAT PANEL -->
+  <!-- MOBILE BOTTOM NAV -->
+  <nav class="mobile-nav">
+    <div class="mobile-nav-inner">
+      <div class="mob-nav-item active" onclick="navigate('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Home
+      </div>
+      <div class="mob-nav-item" onclick="navigate('md-command')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        Command
+      </div>
+      <div class="mob-nav-item" onclick="navigate('safety')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Safety
+        <span class="mob-dot"></span>
+      </div>
+      <div class="mob-nav-item" onclick="toggleNotifPanel()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        Alerts
+      </div>
+      <div class="mob-nav-item" onclick="toggleSidebar()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        Menu
+      </div>
+    </div>
+  </nav>
+
+</div><!-- /app -->
+
+<script src="assets/js/portal-bundle.js"></script>
+<script src="assets/js/multi-page-bootstrap.js"></script>
+</body>
+</html>
