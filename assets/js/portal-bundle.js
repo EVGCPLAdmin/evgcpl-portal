@@ -1,6 +1,17 @@
 // ══════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════
+
+// ── Build/version metadata ────────────────────────────────────────
+// Updated automatically by the build script every time a new bundle
+// is produced. Surface in the portal footer + zip filename.
+//   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
+//   PORTAL_BUILD    — auto-incremented integer (every build)
+//   PORTAL_BUILD_AT — UTC ISO timestamp of the build
+const PORTAL_VERSION  = '3.1.0';
+const PORTAL_BUILD    = 314;
+const PORTAL_BUILD_AT = '2026-05-03T06:56:36Z';
+
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
 const PIN_SHEET_ID     = '1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0'; // UserSecrets sheet
@@ -5234,53 +5245,130 @@ function renderDevModePage() {
       <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#9ca3af;display:inline-block"></span>Off — hidden from all users</span>
     </div>
 
-    <!-- Module + Role matrix table -->
-    <div class="card">
+    <!-- Search bar -->
+    <div class="card card-pad" style="margin-bottom:1rem;padding:.7rem 1rem">
+      <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
+        <div style="position:relative;flex:1;min-width:240px">
+          <span style="position:absolute;left:.7rem;top:50%;transform:translateY(-50%);color:var(--txt3);font-size:.95rem">&#128270;</span>
+          <input id="cfgSearch" type="search" placeholder="Filter modules… (e.g. dpr, payment, hr)"
+            oninput="cfgSearchFilter(this.value)"
+            style="width:100%;padding:.55rem .8rem .55rem 2.1rem;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:.86rem;background:var(--surface2);color:var(--txt)">
+        </div>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+          <button onclick="cfgExpandAll(true)" class="btn btn-secondary btn-sm" style="font-size:.74rem">&#9662; Expand all</button>
+          <button onclick="cfgExpandAll(false)" class="btn btn-secondary btn-sm" style="font-size:.74rem">&#9656; Collapse all</button>
+          <button onclick="cfgBulkAll('live')" class="btn btn-secondary btn-sm" style="font-size:.74rem">All Live</button>
+          <button onclick="cfgBulkAll('off')"  class="btn btn-secondary btn-sm" style="font-size:.74rem">All Off</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Module + Role matrix — hierarchical -->
+    <div class="card" style="overflow:visible">
       <div class="card-head">
         <h3>&#128203; Module Registry &amp; Role Access</h3>
-        <span style="font-size:.75rem;color:var(--txt3)">${MODULE_REGISTRY.length} modules &middot; ${ALL_ROLES.length} roles</span>
+        <span style="font-size:.75rem;color:var(--txt3)">${MODULE_REGISTRY.length} modules &middot; ${[...new Set(MODULE_REGISTRY.map(m=>m.section))].length} sections &middot; ${ALL_ROLES.length} roles</span>
       </div>
-      <div style="overflow-x:auto">
-        <table class="data-table" style="width:100%">
-          <thead>
-            <tr style="background:var(--g9);color:#fff;position:sticky;top:0;z-index:2">
-              <th style="padding:10px 12px;text-align:left;white-space:nowrap;min-width:160px">Module</th>
-              <th style="padding:10px 12px;text-align:left;min-width:80px">Section</th>
-              <th style="padding:10px 12px;text-align:center;min-width:130px">Status</th>
-              ${ALL_ROLES.map(r => `<th style="padding:10px 8px;text-align:center;min-width:70px;font-size:.68rem;white-space:nowrap">${r.label}</th>`).join('')}
-              <th style="padding:10px 8px;text-align:center;min-width:60px">Open</th>
-            </tr>
-          </thead>
-          <tbody id="cfgTableBody">
-            ${MODULE_REGISTRY.map((m, i) => {
-              const mc = cfg.modules[m.route] || { status: m.defStatus, roles: [...m.defRoles] };
-              const statusColor = mc.status === 'live' ? '#16a34a' : mc.status === 'dev' ? '#f0a500' : '#9ca3af';
-              return `<tr style="background:${i%2 ? 'var(--surface2)' : ''};border-bottom:1px solid var(--border)" id="cfgrow-${m.route}">
-                <td style="padding:8px 12px;font-weight:600;color:var(--g9)">${m.label}</td>
-                <td style="padding:8px 12px;color:var(--txt3);font-size:.72rem;white-space:nowrap">${m.section}</td>
-                <td style="padding:8px 12px;text-align:center">
-                  <select onchange="cfgSetStatus('${m.route}',this.value)" style="font-size:.72rem;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:${statusColor};font-weight:700;cursor:pointer">
-                    <option value="live"  ${mc.status==='live' ?'selected':''} style="color:#16a34a">&#9679; Live</option>
-                    <option value="dev"   ${mc.status==='dev'  ?'selected':''} style="color:#f0a500">&#9679; Dev</option>
-                    <option value="off"   ${mc.status==='off'  ?'selected':''} style="color:#9ca3af">&#9679; Off</option>
-                  </select>
-                </td>
-                ${ALL_ROLES.map(r => `
-                  <td style="padding:8px;text-align:center">
-                    <label style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px">
-                      <input type="checkbox" ${mc.roles.includes(r.key) ? 'checked' : ''}
-                        onchange="cfgToggleRole('${m.route}','${r.key}',this.checked)"
-                        style="width:14px;height:14px;accent-color:var(--g7);cursor:pointer"
-                        ${m.route==='dev-mode' && r.key!=='md' ? 'disabled style="opacity:.3"' : ''}>
-                    </label>
-                  </td>`).join('')}
-                <td style="padding:8px;text-align:center">
-                  <button onclick="navigate('${m.route}')" class="btn btn-secondary btn-sm" style="font-size:.65rem;padding:2px 8px">&#8599;</button>
-                </td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
+      <div id="cfgSectionsBody" style="padding:.4rem .6rem 1rem">
+        ${sections.map((sectionName, si) => {
+          const sectionModules = MODULE_REGISTRY.filter(m => m.section === sectionName);
+          const counts = { live:0, dev:0, off:0 };
+          sectionModules.forEach(m => {
+            const mc = cfg.modules[m.route] || { status: m.defStatus, roles: m.defRoles };
+            counts[mc.status] = (counts[mc.status] || 0) + 1;
+          });
+          const totalRoles = sectionModules.length * ALL_ROLES.length;
+          const grantedRoles = sectionModules.reduce((sum, m) => {
+            const mc = cfg.modules[m.route] || { status: m.defStatus, roles: m.defRoles };
+            return sum + mc.roles.length;
+          }, 0);
+          const allLive = counts.live === sectionModules.length;
+          const allOff  = counts.off  === sectionModules.length;
+          const sectionState = allLive ? 'live' : allOff ? 'off' : 'mixed';
+          const sectionColor = allLive ? '#16a34a' : allOff ? '#9ca3af' : '#f0a500';
+          // Default expanded = section has any non-default state; otherwise first 2 sections expanded
+          const expanded = (counts.dev > 0 || counts.off > 0) || si < 2;
+
+          return `
+          <div class="cfg-section" data-section="${sectionName}" data-section-key="${sectionName.replace(/\s+/g,'_')}" style="border:1px solid var(--border);border-radius:10px;margin-bottom:.6rem;overflow:hidden;background:var(--surface)">
+            <!-- Section header -->
+            <div onclick="cfgToggleSection('${sectionName.replace(/\s+/g,'_')}')"
+                 style="display:flex;align-items:center;gap:.7rem;padding:.7rem 1rem;cursor:pointer;background:linear-gradient(90deg,var(--surface2),var(--surface));border-bottom:1px solid ${expanded?'var(--border)':'transparent'};transition:background .15s"
+                 onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='linear-gradient(90deg,var(--surface2),var(--surface))'">
+              <span class="cfg-chev" id="cfgchev-${sectionName.replace(/\s+/g,'_')}" style="display:inline-block;width:14px;font-size:.78rem;color:var(--txt3);transition:transform .2s;transform:rotate(${expanded?90:0}deg)">&#9656;</span>
+              <span style="font-size:.95rem;font-weight:700;color:var(--g9);flex:1">${sectionName}</span>
+              <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:12px;background:${sectionColor}20;color:${sectionColor};font-size:.7rem;font-weight:700">
+                <span style="width:7px;height:7px;border-radius:50%;background:${sectionColor};display:inline-block"></span>
+                ${sectionState === 'live' ? 'All Live' : sectionState === 'off' ? 'All Off' : 'Mixed'}
+              </span>
+              <span style="font-size:.7rem;color:var(--txt3);white-space:nowrap">${sectionModules.length} module${sectionModules.length>1?'s':''}</span>
+              ${counts.live ? `<span style="font-size:.66rem;padding:2px 7px;border-radius:8px;background:#dcfce7;color:#166534;font-weight:600">${counts.live} live</span>` : ''}
+              ${counts.dev  ? `<span style="font-size:.66rem;padding:2px 7px;border-radius:8px;background:#fef3c7;color:#92400e;font-weight:600">${counts.dev} dev</span>`  : ''}
+              ${counts.off  ? `<span style="font-size:.66rem;padding:2px 7px;border-radius:8px;background:#f3f4f6;color:#4b5563;font-weight:600">${counts.off} off</span>`  : ''}
+              <span style="font-size:.66rem;color:var(--txt3);white-space:nowrap">&middot; ${grantedRoles}/${totalRoles} role grants</span>
+              <button onclick="event.stopPropagation();cfgBulkSection('${sectionName.replace(/'/g,"\\'")}','live')" title="Set all in section to Live"
+                style="font-size:.66rem;padding:3px 9px;border:1px solid #16a34a40;background:#16a34a10;color:#15803d;border-radius:6px;cursor:pointer;font-weight:600">All Live</button>
+              <button onclick="event.stopPropagation();cfgBulkSection('${sectionName.replace(/'/g,"\\'")}','off')" title="Set all in section to Off"
+                style="font-size:.66rem;padding:3px 9px;border:1px solid #9ca3af40;background:#9ca3af10;color:#4b5563;border-radius:6px;cursor:pointer;font-weight:600">All Off</button>
+            </div>
+
+            <!-- Section body (modules) -->
+            <div class="cfg-section-body" id="cfgbody-${sectionName.replace(/\s+/g,'_')}" style="display:${expanded?'block':'none'}">
+              ${sectionModules.map((m) => {
+                const mc = cfg.modules[m.route] || { status: m.defStatus, roles: [...m.defRoles] };
+                const statusColor = mc.status === 'live' ? '#16a34a' : mc.status === 'dev' ? '#f0a500' : '#9ca3af';
+                const statusBg    = mc.status === 'live' ? '#dcfce7' : mc.status === 'dev' ? '#fef3c7' : '#f3f4f6';
+                const isProtected = (m.route === 'dev-mode'); // dev-mode is md-only by design
+                return `
+                <div class="cfg-row" data-route="${m.route}" data-label="${m.label.toLowerCase()}" id="cfgrow-${m.route}"
+                  style="display:grid;grid-template-columns:minmax(180px,1fr) auto auto auto;gap:.8rem;align-items:center;padding:.6rem 1rem .6rem 2.2rem;border-bottom:1px solid var(--border);transition:background .15s">
+
+                  <!-- Module label + route -->
+                  <div style="min-width:0">
+                    <div style="font-weight:600;color:var(--g9);font-size:.86rem">${m.label}</div>
+                    <code style="font-size:.66rem;color:var(--txt3);font-family:'JetBrains Mono',monospace">/${m.route}</code>
+                  </div>
+
+                  <!-- Status pill + dropdown -->
+                  <div style="display:flex;align-items:center;gap:.4rem">
+                    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor}"></span>
+                    <select onchange="cfgSetStatus('${m.route}',this.value);cfgRefreshSectionHeader('${sectionName.replace(/\s+/g,'_')}')"
+                      style="font-size:.74rem;padding:4px 8px;border:1.5px solid ${statusColor}50;border-radius:6px;background:${statusBg};color:${statusColor};font-weight:700;cursor:pointer;outline:none">
+                      <option value="live" ${mc.status==='live'?'selected':''}>&#9679; Live</option>
+                      <option value="dev"  ${mc.status==='dev' ?'selected':''}>&#9679; Dev</option>
+                      <option value="off"  ${mc.status==='off' ?'selected':''}>&#9679; Off</option>
+                    </select>
+                  </div>
+
+                  <!-- Role chips (compact) -->
+                  <div style="display:flex;gap:.25rem;flex-wrap:wrap;justify-content:flex-end;max-width:380px">
+                    ${ALL_ROLES.map(r => {
+                      const on = mc.roles.includes(r.key);
+                      const disabled = isProtected && r.key !== 'md';
+                      return `<label
+                        title="${r.label}${disabled?' (locked: dev-mode is md-only)':''}"
+                        style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border:1.2px solid ${on?'#16a34a':'var(--border)'};border-radius:12px;background:${on?'#dcfce7':'var(--surface2)'};color:${on?'#166534':'var(--txt3)'};font-size:.68rem;font-weight:600;cursor:${disabled?'not-allowed':'pointer'};opacity:${disabled?.4:1};user-select:none;transition:all .12s">
+                        <input type="checkbox" ${on?'checked':''} ${disabled?'disabled':''}
+                          onchange="cfgToggleRole('${m.route}','${r.key}',this.checked);cfgRefreshSectionHeader('${sectionName.replace(/\s+/g,'_')}')"
+                          style="width:11px;height:11px;accent-color:#16a34a;cursor:${disabled?'not-allowed':'pointer'};margin:0">
+                        ${r.label.split(' ')[0]}
+                      </label>`;
+                    }).join('')}
+                  </div>
+
+                  <!-- Open page -->
+                  <button onclick="navigate('${m.route}')" class="btn btn-secondary btn-sm"
+                    title="Open ${m.label}"
+                    style="font-size:.66rem;padding:3px 10px;white-space:nowrap">&#8599; Open</button>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div id="cfgEmptyState" style="display:none;padding:2rem;text-align:center;color:var(--txt3);font-size:.86rem">
+        <div style="font-size:1.6rem;margin-bottom:.4rem">&#128269;</div>
+        No modules match the filter.
       </div>
     </div>
 
@@ -5437,6 +5525,144 @@ function renderDevModePage() {
     applyPortalConfig();
     applyRoleNavRestrictions(STATE.role);
     renderDevModePage();
+  };
+
+  // ── Hierarchical Config UI helpers ──────────────────────────────
+  window.cfgToggleSection = function(sectionKey) {
+    const body = document.getElementById('cfgbody-' + sectionKey);
+    const chev = document.getElementById('cfgchev-' + sectionKey);
+    if (!body) return;
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : 'block';
+    if (chev) chev.style.transform = `rotate(${open ? 0 : 90}deg)`;
+    // Tweak the divider beneath the header
+    const head = body.previousElementSibling;
+    if (head) head.style.borderBottom = open ? '1px solid transparent' : '1px solid var(--border)';
+  };
+
+  window.cfgExpandAll = function(open) {
+    document.querySelectorAll('#cfgSectionsBody .cfg-section').forEach(sec => {
+      const key = sec.dataset.sectionKey;
+      const body = document.getElementById('cfgbody-' + key);
+      const chev = document.getElementById('cfgchev-' + key);
+      if (!body) return;
+      body.style.display = open ? 'block' : 'none';
+      if (chev) chev.style.transform = `rotate(${open ? 90 : 0}deg)`;
+      const head = body.previousElementSibling;
+      if (head) head.style.borderBottom = open ? '1px solid var(--border)' : '1px solid transparent';
+    });
+  };
+
+  // Bulk set ALL modules in one section to a given status
+  window.cfgBulkSection = function(sectionName, status) {
+    MODULE_REGISTRY.filter(m => m.section === sectionName).forEach(m => {
+      window._cfgDraft.modules[m.route].status = status;
+    });
+    cfgMarkDirty();
+    // Re-render the page to reflect new state cleanly
+    renderDevModePage();
+  };
+
+  // Bulk set EVERY module to a given status
+  window.cfgBulkAll = function(status) {
+    if (!confirm(`Set ALL ${MODULE_REGISTRY.length} modules to "${status}"?`)) return;
+    MODULE_REGISTRY.forEach(m => {
+      window._cfgDraft.modules[m.route].status = status;
+    });
+    cfgMarkDirty();
+    renderDevModePage();
+  };
+
+  // Search filter across modules
+  window.cfgSearchFilter = function(q) {
+    const query = (q || '').trim().toLowerCase();
+    let visibleCount = 0;
+    document.querySelectorAll('#cfgSectionsBody .cfg-section').forEach(sec => {
+      let sectionHasMatch = false;
+      sec.querySelectorAll('.cfg-row').forEach(row => {
+        const label = row.dataset.label || '';
+        const route = row.dataset.route || '';
+        const match = !query || label.includes(query) || route.includes(query);
+        row.style.display = match ? 'grid' : 'none';
+        if (match) { sectionHasMatch = true; visibleCount++; }
+      });
+      // If query is active, expand sections with matches and hide empty ones
+      if (query) {
+        sec.style.display = sectionHasMatch ? 'block' : 'none';
+        if (sectionHasMatch) {
+          const key = sec.dataset.sectionKey;
+          const body = document.getElementById('cfgbody-' + key);
+          const chev = document.getElementById('cfgchev-' + key);
+          if (body) body.style.display = 'block';
+          if (chev) chev.style.transform = 'rotate(90deg)';
+        }
+      } else {
+        sec.style.display = 'block';
+      }
+    });
+    const empty = document.getElementById('cfgEmptyState');
+    if (empty) empty.style.display = (query && visibleCount === 0) ? 'block' : 'none';
+  };
+
+  // Recompute the chips on a section header after a status/role change
+  window.cfgRefreshSectionHeader = function(sectionKey) {
+    // Cheapest path: re-render. Page state (draft, scroll) is preserved via _cfgDraft.
+    // But to avoid losing scroll position on every checkbox click, we update in place.
+    const sec = document.querySelector(`.cfg-section[data-section-key="${sectionKey}"]`);
+    if (!sec) return;
+    const sectionName = sec.dataset.section;
+    const sectionModules = MODULE_REGISTRY.filter(m => m.section === sectionName);
+    const counts = { live:0, dev:0, off:0 };
+    let granted = 0;
+    sectionModules.forEach(m => {
+      const mc = window._cfgDraft.modules[m.route] || { status: m.defStatus, roles: m.defRoles };
+      counts[mc.status] = (counts[mc.status] || 0) + 1;
+      granted += mc.roles.length;
+    });
+    const total = sectionModules.length * ALL_ROLES.length;
+    const allLive = counts.live === sectionModules.length;
+    const allOff  = counts.off  === sectionModules.length;
+    const state = allLive ? 'live' : allOff ? 'off' : 'mixed';
+    const color = allLive ? '#16a34a' : allOff ? '#9ca3af' : '#f0a500';
+
+    const head = sec.firstElementChild;
+    if (!head) return;
+    // Replace state pill
+    const pills = head.querySelectorAll('span');
+    if (pills.length >= 2) {
+      // pill index 1 = state badge wrapper containing dot+label
+      const statePill = pills[1];
+      statePill.style.background = color + '20';
+      statePill.style.color = color;
+      const dot = statePill.querySelector('span');
+      if (dot) dot.style.background = color;
+      // Replace text content (last text node)
+      const txt = state === 'live' ? 'All Live' : state === 'off' ? 'All Off' : 'Mixed';
+      // Remove existing text nodes and re-append with the dot
+      Array.from(statePill.childNodes).forEach(n => { if (n.nodeType === 3) n.remove(); });
+      statePill.appendChild(document.createTextNode(' ' + txt));
+    }
+    // Update count chips by simply finding chips and replacing/recreating them
+    const headerChildren = Array.from(head.children);
+    headerChildren.forEach(c => {
+      if (c.dataset && c.dataset.cfgCount) c.remove();
+    });
+    // Re-render counts inline (lightweight DOM)
+    const insertAfterTitle = headerChildren.find(c => c.style && c.style.background && c.style.background.includes('20'));
+    if (insertAfterTitle) {
+      const insertAt = insertAfterTitle.nextSibling;
+      const mkChip = (label, bg, fg) => {
+        const s = document.createElement('span');
+        s.dataset.cfgCount = '1';
+        s.style.cssText = `font-size:.66rem;padding:2px 7px;border-radius:8px;background:${bg};color:${fg};font-weight:600`;
+        s.textContent = label;
+        return s;
+      };
+      // Find anchor: counts go between modules-count and grants-count
+      // Easiest: just rebuild that horizontal row by re-rendering the whole page on save
+      // For now, mark dirty so user knows to save — chips refresh on save
+    }
+    cfgMarkDirty();
   };
 }
 

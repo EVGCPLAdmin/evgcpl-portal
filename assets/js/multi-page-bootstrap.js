@@ -290,6 +290,44 @@
       catch (e) { console.error('renderPage failed for route:', route, e); }
     }
     tryRender();
+
+    // Render the version footer once the app shell is up
+    setTimeout(injectPortalFooter, 200);
+  }
+
+  // ── Portal footer with version info — appears on every page ──────
+  function injectPortalFooter() {
+    if (document.getElementById('portalVersionFooter')) return; // already injected
+    const ver   = (typeof PORTAL_VERSION  !== 'undefined') ? PORTAL_VERSION  : '?.?.?';
+    const build = (typeof PORTAL_BUILD    !== 'undefined') ? PORTAL_BUILD    : '—';
+    const at    = (typeof PORTAL_BUILD_AT !== 'undefined') ? PORTAL_BUILD_AT : '';
+
+    // Format build date (YYYY-MM-DD)
+    let dateLabel = '';
+    if (at) {
+      try {
+        const d = new Date(at);
+        if (!isNaN(d.getTime())) {
+          dateLabel = d.toISOString().slice(0, 10);
+        }
+      } catch (_) {}
+    }
+
+    const footer = document.createElement('footer');
+    footer.id = 'portalVersionFooter';
+    footer.setAttribute('aria-label', 'Portal version');
+    footer.innerHTML = `
+      <div class="pvf-inner">
+        <span class="pvf-brand">EVGCPL Portal</span>
+        <span class="pvf-sep">·</span>
+        <span class="pvf-ver" title="Semantic version">v${ver}</span>
+        <span class="pvf-sep">·</span>
+        <span class="pvf-build" title="Build number — auto-incremented every package">build ${build}</span>
+        ${dateLabel ? `<span class="pvf-sep">·</span><span class="pvf-date" title="Build date (UTC)">${dateLabel}</span>` : ''}
+        <span class="pvf-fill"></span>
+        <span class="pvf-tail">© ${new Date().getFullYear()} Evergreen Enterprises</span>
+      </div>`;
+    document.body.appendChild(footer);
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {

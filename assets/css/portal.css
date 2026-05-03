@@ -1020,3 +1020,46 @@ body.dev-mode .tnav-item[data-status="dev"] { display:flex; }
 #tnav-md-command,
 #nav-md-command,
 .mob-nav-item[onclick*="md-command"] { display: none !important; }
+
+/* ── Portal version footer (every page) ─────────────────────────── */
+#portalVersionFooter {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.9) 30%, rgba(255,255,255,0.97) 100%);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-top: 1px solid rgba(26,96,56,.08);
+  pointer-events: none; /* let clicks pass through to underlying content */
+}
+#portalVersionFooter .pvf-inner {
+  max-width: 100%;
+  padding: 4px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--txt3, #6b7280);
+  font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+  pointer-events: auto;
+  user-select: none;
+}
+#portalVersionFooter .pvf-brand { font-weight: 700; color: var(--g8, #1a6038); letter-spacing: .01em; }
+#portalVersionFooter .pvf-ver   { font-weight: 600; color: var(--g7, #2a7a48); font-variant-numeric: tabular-nums; }
+#portalVersionFooter .pvf-build { color: var(--gold, #b8892e); font-weight: 600; font-variant-numeric: tabular-nums; font-family: 'DM Mono', 'Consolas', monospace; font-size: 10.5px; }
+#portalVersionFooter .pvf-date  { color: var(--txt3, #6b7280); font-variant-numeric: tabular-nums; font-family: 'DM Mono', 'Consolas', monospace; font-size: 10.5px; }
+#portalVersionFooter .pvf-sep   { color: var(--border, #d4dde0); }
+#portalVersionFooter .pvf-fill  { flex: 1; }
+#portalVersionFooter .pvf-tail  { color: var(--txt3, #6b7280); font-size: 10.5px; }
+
+/* Reserve space at page bottom so footer doesn't cover content */
+.layout, .main-content, body[data-page] #app { padding-bottom: 28px; }
+
+/* Mobile compaction */
+@media (max-width: 600px) {
+  #portalVersionFooter .pvf-tail,
+  #portalVersionFooter .pvf-date { display: none; }
+  #portalVersionFooter .pvf-inner { padding: 3px 10px; gap: 6px; font-size: 10px; }
+}
