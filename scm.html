@@ -38,7 +38,7 @@
         Dashboard
       </button>
     </div>
-    <div class="tnav-group" id="tnav-md-command" data-internal="true" data-roles="md">
+    <div class="tnav-group" id="tnav-md-command" data-internal="true" data-roles="md" style="display:none">
       <button class="tnav-btn solo" onclick="navigate('md-command')" data-route="md-command">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
         Command
@@ -166,15 +166,14 @@
         <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="tnav-dropdown">
-        <div class="tnav-item" data-status="live" data-route="planning" onclick="navigate('planning')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-          Overview<span class="tnav-item-badge live">Live</span>
+        <div class="tnav-item" data-status="live" data-route="budgeting" onclick="navigate('budgeting')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Budgeting<span class="tnav-item-badge live">Live</span>
         </div>
-        <div class="tnav-item" data-status="live" data-route="project-setup" onclick="navigate('project-setup')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M4.93 19.07l1.41-1.41M19.07 19.07l-1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
-          Project Setup<span class="tnav-item-badge live">Live</span>
+        <div class="tnav-item" data-status="live" data-route="execution" onclick="navigate('execution')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Execution<span class="tnav-item-badge live">Live</span>
         </div>
-
       </div>
     </div>
 
@@ -552,6 +551,16 @@
     <div class="ai-chat-context" id="aiCtxBar">
       <span class="ai-ctx-dot"></span>
       <span id="aiCtxText">Connected to portal data</span>
+    </div>
+    <div class="ai-domain-bar" id="aiDomainBar" style="display:flex;flex-wrap:wrap;gap:.35rem;padding:.45rem .75rem;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)">
+      <span style="font-size:.65rem;color:rgba(255,255,255,.5);font-weight:600;letter-spacing:.05em;text-transform:uppercase;align-self:center;margin-right:.3rem">Ask about:</span>
+      <button class="ai-domain-btn active" data-domain="all"      onclick="aiSetDomain(this,&#39;all&#39;)">All</button>
+      <button class="ai-domain-btn"        data-domain="accounts" onclick="aiSetDomain(this,&#39;accounts&#39;)">Accounts</button>
+      <button class="ai-domain-btn"        data-domain="purchase" onclick="aiSetDomain(this,&#39;purchase&#39;)">Purchase</button>
+      <button class="ai-domain-btn"        data-domain="stores"   onclick="aiSetDomain(this,&#39;stores&#39;)">Stores</button>
+      <button class="ai-domain-btn"        data-domain="site"     onclick="aiSetDomain(this,&#39;site&#39;)">Site</button>
+      <button class="ai-domain-btn"        data-domain="hr"       onclick="aiSetDomain(this,&#39;hr&#39;)">HR</button>
+      <button class="ai-domain-btn"        data-domain="safety"   onclick="aiSetDomain(this,&#39;safety&#39;)">Safety</button>
     </div>
     <div class="ai-chat-msgs" id="aiChatMsgs"></div>
     <div class="ai-suggestions" id="aiSuggestions">

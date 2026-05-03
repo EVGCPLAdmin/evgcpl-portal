@@ -1321,12 +1321,12 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','hr-dashboard','personal','my-profile','policies','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance']),
-  hr:        new Set(['dashboard','hr-dashboard','personal','my-profile','policies','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance']),
-  site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance']),
-  purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance']),
-  accounts:  new Set(['dashboard','my-profile','accounts','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance']),
-  employee:  new Set(['dashboard','my-profile','my-documents','accounts','policies','rewards','apps','wall','planning-overview','execution','planning-setup','plant','plant-log','plant-verify','plant-maintenance']),
+  md:        new Set(['dashboard','md-command','hr-dashboard','personal','my-profile','policies','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  hr:        new Set(['dashboard','hr-dashboard','personal','my-profile','policies','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
+  purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  accounts:  new Set(['dashboard','my-profile','accounts','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  employee:  new Set(['dashboard','my-profile','my-documents','accounts','policies','rewards','apps','wall','planning-overview','execution','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   dept_head: null,   // built dynamically from DEPT_HEAD_ROUTES below
   vendor:    new Set(['my-portal','my-orders','my-invoices','my-documents']),
   sc:        new Set(['my-portal','my-orders','my-invoices','my-documents']),
@@ -1337,9 +1337,9 @@ const DEPT_HEAD_ROUTES = {
   'hr':                        new Set(['dashboard','hr-dashboard','my-profile','policies','rewards','reports','my-documents','apps']),
   'human resources':           new Set(['dashboard','hr-dashboard','my-profile','policies','rewards','reports','my-documents','apps']),
   // Finance / Accounts
-  'finance':                   new Set(['dashboard','accounts','my-profile','reports','my-documents','wall','rewards']),
-  'accounts':                  new Set(['dashboard','accounts','my-profile','reports','my-documents','wall','rewards']),
-  'finance & accounts':        new Set(['dashboard','accounts','my-profile','reports','my-documents']),
+  'finance':                   new Set(['dashboard','accounts','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
+  'accounts':                  new Set(['dashboard','accounts','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
+  'finance & accounts':        new Set(['dashboard','accounts','my-profile','reports','my-documents','budgeting','execution']),
   // SCM / Purchase / Procurement
   'supply chain management':   new Set(['dashboard','scm','mrs','stores','vendor','accounts','my-profile','reports','my-documents','apps','rewards','wall']),
   'scm':                       new Set(['dashboard','scm','mrs','stores','vendor','accounts','my-profile','reports','my-documents','apps','rewards','wall']),
@@ -1347,16 +1347,16 @@ const DEPT_HEAD_ROUTES = {
   'purchase':                  new Set(['dashboard','scm','mrs','stores','vendor','accounts','my-profile','reports','my-documents','apps','rewards','wall']),
   'supply chain':              new Set(['dashboard','scm','mrs','stores','vendor','accounts','my-profile','reports','my-documents','apps','rewards','wall']),
   // Site / Operations / Civil
-  'operations':                new Set(['dashboard','site-manager','safety','equipment','store','scm','mrs','my-profile','reports','my-documents','wall','rewards']),
-  'site':                      new Set(['dashboard','site-manager','safety','equipment','store','scm','mrs','my-profile','reports','my-documents','wall','rewards']),
-  'civil':                     new Set(['dashboard','site-manager','safety','equipment','store','scm','mrs','my-profile','reports','my-documents','wall','rewards']),
-  'project':                   new Set(['dashboard','site-manager','safety','equipment','store','scm','mrs','my-profile','reports','my-documents','wall','rewards']),
+  'operations':                new Set(['dashboard','site-manager','safety','equipment','store','scm','mrs','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
+  'site':                      new Set(['dashboard','site-manager','safety','equipment','store','scm','mrs','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
+  'civil':                     new Set(['dashboard','site-manager','safety','equipment','store','scm','mrs','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
+  'project':                   new Set(['dashboard','site-manager','safety','equipment','store','scm','mrs','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
   // Safety / HSE
   'safety':                    new Set(['dashboard','safety','site-manager','my-profile','reports','my-documents','wall','rewards']),
   'hse':                       new Set(['dashboard','safety','site-manager','my-profile','reports','my-documents','wall','rewards']),
   // Planning / Engineering
-  'planning':                  new Set(['dashboard','planning','scm','mrs','my-profile','reports','my-documents','wall','rewards']),
-  'engineering':               new Set(['dashboard','site-manager','planning','scm','my-profile','reports','my-documents','wall','rewards']),
+  'planning':                  new Set(['dashboard','planning','scm','mrs','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
+  'engineering':               new Set(['dashboard','site-manager','planning','scm','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
   // Admin / IT / Other
   'administration':            new Set(['dashboard','hr-dashboard','my-profile','policies','reports','my-documents','wall','rewards']),
   'admin':                     new Set(['dashboard','hr-dashboard','my-profile','policies','reports','my-documents','wall','rewards']),
@@ -1420,7 +1420,7 @@ function applyRoleNavRestrictions(role) {
   if (isExternal) return;
 
   const tnavCmd = document.getElementById('tnav-md-command');
-  if (tnavCmd) tnavCmd.style.display = isMd ? '' : 'none';
+  if (tnavCmd) tnavCmd.style.display = 'none'; // merged into Dashboard for MD
   const tnavDev = document.getElementById('tnav-devmode-group');
   if (tnavDev) tnavDev.style.display = isMd ? '' : 'none';
   const tnavDevBadge = document.getElementById('tnavDevBadge');
@@ -1515,14 +1515,15 @@ function renderPage(page) {
     'subcontractor':  () => renderPlaceholder('🤝','Subcontractor Portal (Internal)','SC management for procurement team','Coming in Phase 8'),
     'tendering':      () => renderPlaceholder('📜','Tendering','Client bid management, BOQ uploads & tender register','Coming in Phase 4'),
     'accounts':       renderAccountsModule,
-    'planning':          renderPlanningModule,
-    'planning-overview': () => renderProjectsPage('overview'),
-    'planning-setup':    () => renderProjectsPage('setup'),
-    'execution':         () => renderProjectsPage('execution'),
+    'planning':          () => navigate('budgeting'),
+    'planning-overview': () => navigate('budgeting'),
+    'planning-setup':    () => navigate('budgeting'),
+    'execution':         () => renderExecutionPage(),
     // Planning section sub-routes
-    'budget':            renderPlanningModule,
-    'project-setup':     () => { renderPlanningModule(); setTimeout(()=>window.planningSetTab&&planningSetTab('setup'),200); },
-    'boq-planning':      renderPlanningModule,
+    'budget':            () => navigate('budgeting'),
+    'project-setup':     () => navigate('budgeting'),
+    'boq-planning':      () => navigate('budgeting'),
+    'budgeting':         renderBudgetingPage,
     // Plant & Machinery section sub-routes
     'plant':             renderPlantMachineryPage,
     'plant-log':         () => renderPlantPage('log'),
@@ -2129,6 +2130,10 @@ function fmtCr(amt) {
 }
 
 function renderDashboard() {
+  // ── Merge: for MD role, Dashboard IS the Command Center ──────────
+  if (STATE.role === 'md') {
+    return renderMDCommand();
+  }
   const el = document.getElementById('mainContent');
   const now = new Date();
   const hour = now.getHours();
@@ -2374,12 +2379,12 @@ function renderMDCommand() {
       <div class="breadcrumb">
         <span>Home</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        <span>MD Command Center</span>
+        <span>Dashboard &middot; Command Center</span>
       </div>
       <div class="page-header-row">
         <div>
-          <h1>Command Center</h1>
-          <p id="mdCommandSubtitle">Real-time overview · live from sheets</p>
+          <h1>Dashboard</h1>
+          <p id="mdCommandSubtitle">Command Center &middot; real-time overview &middot; live from sheets</p>
         </div>
         <div style="display:flex;gap:.7rem;flex-wrap:wrap">
           <button class="btn btn-secondary btn-sm" onclick="STATE.mastersLoaded=false;loadAllMasters().then(()=>{updateAllMasterUI();renderMDCommand();})">↻ Refresh</button>
@@ -4832,6 +4837,19 @@ const APPS_SCRIPTS = [
       'uploadPolicyFile — Policy Hub upload',
       'sendReportTest — manual report email trigger',
       'getScheduleLog — Reports module recent send log',
+    ],
+  },
+  {
+    name: 'AI Proxy (Groq + Gemini)',
+    file: 'apps-script/AiProxy.gs',
+    execUrl: '— same as Portal Backend —',
+    purpose: 'AI Chat panel — answers questions using portal data',
+    actions: [
+      'aiProxy — routes Q&A to Groq (preferred) or Gemini (fallback)',
+      'Set GROQ_API_KEY in Script Properties → console.groq.com',
+      'Domain selector in chat: All / Accounts / Purchase / Stores / Site / HR / Safety',
+      'Each domain attaches relevant CSV rows to the prompt automatically',
+      'Model: llama-3.3-70b-versatile · 128K context · ~500 tok/sec',
     ],
   },
   {
@@ -10819,6 +10837,8 @@ const SHEET_ID           = '1B2wb38KhNwlLoZnsAGWQkO0FdEGFFfsh3ycRRurigq4'; // Ma
 const BUDGET_SHEET_ID    = ''; // IC Budget -- paste Drive sheet ID here after upload
 const V2_MASTER_SHEET_ID = '1fhSO4WBYp0LNXPxe9I9zr5qsIPs9CIDFpUixBogPnsM'; // v2_Master
 const EMP_SHEET_ID = '1HWKZPhKRhcuvxBgyyN8zRt8p-SzYmKjJWiOdCgykBHs'; // Employee Register
+const DPR_SHEET_ID = '139deMPqCXVZLSw5gFdzhN1heV-hynkYqIjsVpO1oXSc'; // Daily Progress Report sheet
+const DPR_TAB      = 'DPR'; // Tab inside the DPR sheet
 const SHEET_GID    = '944085465'; // Site Master GID (kept for direct URL fallback)
 
 const MASTER_SHEETS = {
@@ -12282,6 +12302,231 @@ function renderProjectsPage(subPage) {
 // ════════════════════════════════════════════════════════════════
 //  EXECUTION — DPR Entries sub-page
 // ════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+//  BUDGETING — embeds the Project Cost Control (PCC) multipage app
+// ════════════════════════════════════════════════════════════════
+function renderBudgetingPage() {
+  const el = document.getElementById('mainContent');
+  // PCC lives at /<base>/pcc/. Resolve relative to current page.
+  const pccBase = window.location.pathname.replace(/\/[^/]*$/, '/') + 'pcc/';
+
+  el.innerHTML = `
+    <div class="page-header" style="margin-bottom:.8rem">
+      <div class="breadcrumb">
+        <span>Home</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        <span>Planning</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        <span>Budgeting</span>
+      </div>
+      <div class="page-header-row">
+        <div>
+          <h1>💰 Budgeting</h1>
+          <p>Project Cost Control &middot; setup, BOQ, WBS, workplan, resources &middot; variations</p>
+        </div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+          <a href="${pccBase}index.html" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">↗ Open in new tab</a>
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('pccFrame').src=document.getElementById('pccFrame').src">↻ Refresh</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="overflow:hidden;border-radius:12px">
+      <iframe id="pccFrame" name="pccFrame" src="${pccBase}index.html"
+        style="width:100%;height:calc(100vh - 220px);min-height:560px;border:0;display:block;background:#f4f6f4"
+        title="Project Cost Control"></iframe>
+    </div>
+
+    <div style="margin-top:1rem;display:flex;gap:.4rem;flex-wrap:wrap">
+      <a href="${pccBase}setup.html"      target="pccFrame" class="btn btn-secondary btn-sm">1. Setup</a>
+      <a href="${pccBase}boq.html"        target="pccFrame" class="btn btn-secondary btn-sm">2. BOQ</a>
+      <a href="${pccBase}wbs.html"        target="pccFrame" class="btn btn-secondary btn-sm">3. WBS</a>
+      <a href="${pccBase}workplan.html"   target="pccFrame" class="btn btn-secondary btn-sm">4. Workplan</a>
+      <a href="${pccBase}manpower.html"   target="pccFrame" class="btn btn-secondary btn-sm">5A. Manpower</a>
+      <a href="${pccBase}machinery.html"  target="pccFrame" class="btn btn-secondary btn-sm">5B. Machinery</a>
+      <a href="${pccBase}materials.html"  target="pccFrame" class="btn btn-secondary btn-sm">5C. Materials</a>
+      <a href="${pccBase}overheads.html"  target="pccFrame" class="btn btn-secondary btn-sm">Overheads</a>
+      <a href="${pccBase}summary.html"    target="pccFrame" class="btn btn-secondary btn-sm">6+7. Summary</a>
+      <a href="${pccBase}variations.html" target="pccFrame" class="btn btn-secondary btn-sm">8. Variations</a>
+    </div>
+  `;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  EXECUTION — DPR Entries + KPI strip + site dashboards
+// ════════════════════════════════════════════════════════════════
+async function loadDPRsFromSheet() {
+  const url = `https://docs.google.com/spreadsheets/d/${DPR_SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(DPR_TAB)}`;
+  try {
+    const res = await fetch(url);
+    const txt = await res.text();
+    const m = txt.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?$/);
+    if (!m) throw new Error('Bad gviz response');
+    const data = JSON.parse(m[1]);
+    if (!data.table || !data.table.cols) throw new Error('No table');
+
+    const cols = data.table.cols.map(c => (c.label || c.id || '').toString().trim());
+    const idxOf = (...names) => {
+      for (const n of names) {
+        const i = cols.findIndex(c => c.toLowerCase().replace(/[^a-z0-9]/g,'') === n.toLowerCase().replace(/[^a-z0-9]/g,''));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const iDate     = idxOf('Date','DPR Date','Report Date','Timestamp','Start Date');
+    const iSite     = idxOf('Site','Site Name','Project','Project Code');
+    const iActivity = idxOf('Activity','Work Done','Description','Type of Work','Scope');
+    const iManpower = idxOf('Manpower','Workers','Men','Labour','Headcount');
+    const iEqHrs    = idxOf('Equipment Hrs','Eq Hrs','Machine Hours','Machinery','Equipment Hours');
+    const iRemarks  = idxOf('Remarks','Issues','Notes','Final Status');
+
+    const normalizeDate = (cell) => {
+      if (!cell) return '';
+      if (cell.f) return cell.f;
+      const v = (cell.v || '').toString();
+      const m2 = v.match(/^Date\((\d+),(\d+),(\d+)/);
+      if (m2) {
+        const d = new Date(+m2[1], +m2[2], +m2[3]);
+        return d.toISOString().slice(0,10);
+      }
+      return v;
+    };
+
+    const rows = (data.table.rows || []).map(r => {
+      const cells = r.c || [];
+      const get = (i) => i < 0 ? '' : (cells[i]?.f ?? cells[i]?.v ?? '').toString();
+      return {
+        date:      iDate >= 0 ? normalizeDate(cells[iDate]) : '',
+        site:      get(iSite),
+        activity:  get(iActivity),
+        manpower:  parseFloat(get(iManpower)) || 0,
+        equipHrs:  parseFloat(get(iEqHrs)) || 0,
+        remarks:   get(iRemarks),
+      };
+    }).filter(e => e.date || e.site);
+
+    STATE.dprCache = { entries: rows, loadedAt: Date.now() };
+    return rows;
+  } catch (err) {
+    console.warn('[DPR] sheet load failed:', err.message);
+    STATE.dprCache = { entries: [], loadedAt: Date.now(), error: err.message };
+    return [];
+  }
+}
+
+function hydrateExecKPIs() {
+  const entries = (STATE.dprCache?.entries) || [];
+  const today = new Date().toISOString().slice(0,10);
+  const weekAgo = new Date(Date.now() - 7*24*3600*1000).toISOString().slice(0,10);
+  const thisMonth = today.slice(0,7);
+
+  const todays    = entries.filter(e => (e.date||'').slice(0,10) === today);
+  const thisWeek  = entries.filter(e => (e.date||'').slice(0,10) >= weekAgo);
+  const issueRe   = /(delay|issue|stop|hold|block|problem|defect|fail)/i;
+  const openIssues = thisWeek.filter(e => issueRe.test(e.remarks || '')).length;
+
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  const activeSites = (STATE.masters?.sites || []).filter(s => (s.status||'').toUpperCase()==='ACTIVE').length;
+  set('exKpi-sites',    activeSites);
+  set('exKpi-dprToday', todays.length);
+  set('exKpi-mp',       todays.reduce((a,e)=>a+(e.manpower||0),0).toLocaleString());
+  set('exKpi-eq',       todays.reduce((a,e)=>a+(e.equipHrs||0),0).toLocaleString());
+  set('exKpi-issues',   openIssues);
+  set('exKpi-week',     thisWeek.length);
+
+  // Productivity by Site (this month)
+  const bySite = {};
+  entries.filter(e => (e.date||'').slice(0,7) === thisMonth).forEach(e => {
+    const s = (e.site || '—').slice(0, 30);
+    bySite[s] = bySite[s] || { mp:0, eq:0, n:0 };
+    bySite[s].mp += e.manpower || 0;
+    bySite[s].eq += e.equipHrs || 0;
+    bySite[s].n  += 1;
+  });
+  const prodEl = document.getElementById('execProductivity');
+  if (prodEl) {
+    const list = Object.entries(bySite).sort((a,b)=>b[1].n-a[1].n).slice(0,8);
+    prodEl.innerHTML = list.length === 0
+      ? `<div style="text-align:center;color:var(--txt3);padding:1.5rem;font-size:.85rem">No DPRs this month yet.</div>`
+      : `<table style="width:100%;font-size:.82rem;border-collapse:collapse">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:.4rem .5rem;color:var(--txt3);font-weight:600">Site</th>
+            <th style="text-align:right;padding:.4rem .5rem;color:var(--txt3);font-weight:600">DPRs</th>
+            <th style="text-align:right;padding:.4rem .5rem;color:var(--txt3);font-weight:600">Manpower</th>
+            <th style="text-align:right;padding:.4rem .5rem;color:var(--txt3);font-weight:600">Eq Hrs</th>
+          </tr></thead>
+          <tbody>${list.map(([site, d]) => `
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:.4rem .5rem">${site}</td>
+              <td style="padding:.4rem .5rem;text-align:right;font-variant-numeric:tabular-nums">${d.n}</td>
+              <td style="padding:.4rem .5rem;text-align:right;font-variant-numeric:tabular-nums">${d.mp.toLocaleString()}</td>
+              <td style="padding:.4rem .5rem;text-align:right;font-variant-numeric:tabular-nums">${d.eq.toLocaleString()}</td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+  }
+
+  // Site activity last 7d
+  const actEl = document.getElementById('execActivity7d');
+  if (actEl) {
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i*24*3600*1000).toISOString().slice(0,10);
+      days.push({ d, n: entries.filter(e => (e.date||'').slice(0,10) === d).length });
+    }
+    const max = Math.max(1, ...days.map(x => x.n));
+    actEl.innerHTML = `
+      <div style="display:flex;align-items:flex-end;gap:.4rem;height:100px;padding:.5rem 0">
+        ${days.map(x => `
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:.3rem">
+            <div style="font-size:.7rem;color:var(--txt3);font-weight:600">${x.n}</div>
+            <div style="width:100%;height:${(x.n/max)*70+5}px;background:linear-gradient(180deg,var(--g7),var(--g9));border-radius:4px 4px 0 0"></div>
+            <div style="font-size:.65rem;color:var(--txt3)">${x.d.slice(5)}</div>
+          </div>`).join('')}
+      </div>`;
+  }
+}
+
+function populateDPRRecentList() {
+  const list = document.getElementById('dprRecentList');
+  if (!list) return;
+  const entries = (STATE.dprCache?.entries) || [];
+  const err = STATE.dprCache?.error;
+
+  if (err) {
+    list.innerHTML = `<div style="text-align:center;padding:1.5rem;color:#dc2626;font-size:.82rem">
+      <div style="font-size:1.6rem;margin-bottom:.4rem">⚠️</div>
+      Could not load DPR sheet: ${err}<br>
+      <span style="font-size:.74rem;color:var(--txt3)">Make sure the DPR sheet is shared "Anyone with the link"</span>
+    </div>`;
+    return;
+  }
+  if (!entries.length) {
+    list.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--txt3)">
+      <div style="font-size:1.8rem;margin-bottom:.5rem">📋</div>
+      <div>No DPR entries yet.</div>
+      <div style="font-size:.74rem;margin-top:.3rem;color:var(--txt4)">Submit one using the form on the left.</div>
+    </div>`;
+    return;
+  }
+  const recent = entries.slice().reverse().slice(0, 25);
+  const issueRe = /(delay|issue|stop|hold|block|problem|defect|fail)/i;
+  list.innerHTML = recent.map(e => {
+    const isIssue = issueRe.test(e.remarks || '');
+    return `<div style="padding:.55rem .7rem;border-bottom:1px solid var(--border);display:grid;grid-template-columns:80px 1fr auto;gap:.6rem;align-items:start;font-size:.78rem">
+      <div style="color:var(--txt3);font-variant-numeric:tabular-nums">${(e.date||'').slice(0,10)}</div>
+      <div>
+        <div style="font-weight:600;color:var(--g9)">${e.site || '—'}</div>
+        <div style="color:var(--txt2);margin-top:.15rem;line-height:1.3">${(e.activity||'').slice(0,120)}${(e.activity||'').length>120?'…':''}</div>
+        ${e.remarks ? `<div style="color:${isIssue?'#dc2626':'var(--txt3)'};margin-top:.2rem;font-size:.74rem">${isIssue?'⚠️ ':''}${e.remarks.slice(0,80)}</div>` : ''}
+      </div>
+      <div style="text-align:right;color:var(--txt3);font-size:.72rem;line-height:1.3">
+        ${e.manpower ? `<div>${e.manpower} mp</div>` : ''}
+        ${e.equipHrs ? `<div>${e.equipHrs} hrs</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
 function renderExecutionPage(subPage) {
   const el = document.getElementById('mainContent');
   const current = subPage || 'dpr';
@@ -12296,21 +12541,53 @@ function renderExecutionPage(subPage) {
 
   el.innerHTML = `
     <div class="page-header" style="margin-bottom:1rem">
+      <div class="breadcrumb">
+        <span>Home</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        <span>Planning</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        <span>Execution</span>
+      </div>
       <div class="page-header-row">
         <div>
           <h1>📝 Execution</h1>
-          <p>Daily Progress Reports &middot; Site activity logging</p>
+          <p>Daily Progress Reports &middot; Site activity logging &middot; live from DPR sheet</p>
+        </div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="loadDPRsFromSheet().then(()=>{hydrateExecKPIs();populateDPRRecentList();})">↻ Refresh</button>
         </div>
       </div>
-      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-top:.6rem">
-        ${subNav('dpr', 'DPR Entries', '📋')}
-      </div>
-    </div>`;
+    </div>
 
-  // DPR entry form
-  el.innerHTML += `
+    <!-- KPI strip -->
+    <div class="kpi-grid" style="margin-bottom:1.2rem">
+      <div class="kpi-card"><div class="kpi-icon" style="background:#e6f7eb">🏗️</div><div class="kpi-body"><div class="kpi-label">Active Sites</div><div class="kpi-value" id="exKpi-sites">—</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#fef9c3">📋</div><div class="kpi-body"><div class="kpi-label">DPRs Today</div><div class="kpi-value" id="exKpi-dprToday">—</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#dbeafe">👷</div><div class="kpi-body"><div class="kpi-label">Manpower Today</div><div class="kpi-value" id="exKpi-mp">—</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#fce7f3">🚜</div><div class="kpi-body"><div class="kpi-label">Equipment Hrs Today</div><div class="kpi-value" id="exKpi-eq">—</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#fee2e2">⚠️</div><div class="kpi-body"><div class="kpi-label">Open Issues (7d)</div><div class="kpi-value" id="exKpi-issues">—</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#e0e7ff">📅</div><div class="kpi-body"><div class="kpi-label">DPRs This Week</div><div class="kpi-value" id="exKpi-week">—</div></div></div>
+    </div>
+
+    <!-- Sub-nav -->
+    <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:1rem">
+      ${subNav('dpr', 'DPR Entries', '📋')}
+    </div>
+
+    <!-- Dashboards row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.2rem">
+      <div class="card card-pad">
+        <h3 style="font-size:.86rem;font-weight:700;margin-bottom:.4rem;color:var(--g9)">📊 Site Activity (Last 7 days)</h3>
+        <div id="execActivity7d"><div style="text-align:center;color:var(--txt3);padding:1.5rem;font-size:.85rem">Loading…</div></div>
+      </div>
+      <div class="card card-pad">
+        <h3 style="font-size:.86rem;font-weight:700;margin-bottom:.4rem;color:var(--g9)">🏆 Productivity by Site (This Month)</h3>
+        <div id="execProductivity"><div style="text-align:center;color:var(--txt3);padding:1.5rem;font-size:.85rem">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- DPR entry + recent -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem">
-      <!-- Entry form -->
       <div class="card card-pad">
         <h3 style="font-size:.9rem;font-weight:700;margin-bottom:1rem;color:var(--g9)">📋 New DPR Entry</h3>
         <div style="display:flex;flex-direction:column;gap:.75rem">
@@ -12352,19 +12629,27 @@ function renderExecutionPage(subPage) {
           <button onclick="dprSubmit()" class="btn btn-gold">📤 Submit DPR</button>
         </div>
       </div>
-
-      <!-- Recent entries placeholder -->
-      <div class="card card-pad">
-        <h3 style="font-size:.9rem;font-weight:700;margin-bottom:.8rem;color:var(--g9)">📂 Recent DPR Entries</h3>
-        <div id="dprRecentList" style="font-size:.82rem;color:var(--txt3)">
+      <div class="card card-pad" style="display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem">
+          <h3 style="font-size:.9rem;font-weight:700;color:var(--g9)">📂 Recent DPR Entries</h3>
+          <span style="font-size:.72rem;color:var(--txt3)" id="dprCount"></span>
+        </div>
+        <div id="dprRecentList" style="font-size:.82rem;color:var(--txt3);max-height:520px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
           <div style="text-align:center;padding:2rem;color:var(--txt3)">
-            <div style="font-size:1.8rem;margin-bottom:.5rem">📋</div>
-            <div>DPR entries will appear here once connected to a sheet.</div>
-            <div style="font-size:.74rem;margin-top:.3rem;color:var(--txt4)">Coming soon — connect to a DPR Google Sheet to persist entries.</div>
+            <div style="font-size:1.8rem;margin-bottom:.5rem">⏳</div>
+            <div>Loading DPRs from sheet…</div>
           </div>
         </div>
       </div>
     </div>`;
+
+  // Load DPRs and populate KPIs + list
+  loadDPRsFromSheet().then(() => {
+    hydrateExecKPIs();
+    populateDPRRecentList();
+    const cnt = document.getElementById('dprCount');
+    if (cnt) cnt.textContent = `${(STATE.dprCache?.entries||[]).length} total`;
+  });
 
   window.dprSubmit = function() {
     const site     = document.getElementById('dprSite')?.value?.trim();
@@ -12386,15 +12671,21 @@ function renderExecutionPage(subPage) {
 
     fetch(APPS_SCRIPT_URL, {
       method:'POST', headers:{'Content-Type':'text/plain'},
-      body: JSON.stringify({ action:'appendRow', sheetId: SHEET_ID, tab:'DPR', row })
+      body: JSON.stringify({ action:'appendRow', sheetId: DPR_SHEET_ID, tab: DPR_TAB, row })
     })
     .then(r => r.json())
     .then(res => {
       if (!res.success) throw new Error(res.message||'Failed');
       showMsg('✓ DPR submitted successfully!', true);
       ['dprActivity','dprRemarks'].forEach(id => { const e=document.getElementById(id); if(e) e.value=''; });
-      document.getElementById('dprManpower').value='';
-      document.getElementById('dprEquipHrs').value='';
+      const mp=document.getElementById('dprManpower'); if (mp) mp.value='';
+      const eq=document.getElementById('dprEquipHrs'); if (eq) eq.value='';
+      // Push the new entry locally and re-render
+      const cache = STATE.dprCache || { entries: [] };
+      cache.entries.push({ date, site, activity, manpower:+manpower||0, equipHrs:+equipHrs||0, remarks });
+      STATE.dprCache = cache;
+      hydrateExecKPIs();
+      populateDPRRecentList();
     })
     .catch(err => showMsg('Error: '+err.message, false));
   };
@@ -12983,7 +13274,7 @@ function _renderProjExecution() {
     // Save to DPR sheet via Apps Script
     fetch(APPS_SCRIPT_URL, {
       method:'POST', headers:{'Content-Type':'text/plain'},
-      body: JSON.stringify({ action:'appendRow', sheetId: V2_MASTER_SHEET_ID || SHEET_ID, tab:'DPR', row }),
+      body: JSON.stringify({ action:'appendRow', sheetId: DPR_SHEET_ID, tab: DPR_TAB, row }),
     }).catch(()=>{});
 
     // Local log

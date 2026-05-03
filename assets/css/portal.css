@@ -674,6 +674,20 @@ body.demo-active #aiChatPanel { top:calc(var(--header-h) + 32px); height:calc(10
 }
 .ai-sugg:hover { background:#e8f5ee;border-color:var(--g5);color:var(--g7); }
 
+/* Domain selector pills (Ask about: All / Accounts / Purchase / ...) */
+.ai-domain-btn {
+  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12);
+  color:rgba(255,255,255,.7); font-family:inherit;
+  font-size:.68rem; font-weight:600; padding:.22rem .6rem;
+  border-radius:99px; cursor:pointer; letter-spacing:.02em;
+  transition:all .15s;
+}
+.ai-domain-btn:hover { background:rgba(255,255,255,.14); color:#fff; }
+.ai-domain-btn.active {
+  background:rgba(127,220,143,.18); border-color:rgba(127,220,143,.4);
+  color:#7fdc8f;
+}
+
 .ai-chat-input-row {
   padding:.75rem 1rem;border-top:1px solid var(--border);
   display:flex;gap:.5rem;align-items:flex-end;flex-shrink:0;background:#fff;
@@ -1001,3 +1015,8 @@ body.dev-mode .tnav-item[data-status="dev"] { display:flex; }
     body.demo-active .sidebar{top:calc(var(--header-h) + 32px)}
     body.demo-active .layout{padding-top:calc(var(--header-h) + 32px)}
     body.demo-active #notifPanel{top:calc(var(--header-h) + 32px)}
+
+/* ── Dashboard absorbs Command Center for MD — hide every legacy entry ── */
+#tnav-md-command,
+#nav-md-command,
+.mob-nav-item[onclick*="md-command"] { display: none !important; }

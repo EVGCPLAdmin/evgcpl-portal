@@ -309,4 +309,147 @@
       }
     }
   });
+
+  // ──────────────────────────────────────────────────────────────────
+  //  AI ASSISTANT — Domain-aware data injection
+  //
+  //  The v88 bundle's aiSend() sends only summary statistics. We extend
+  //  it so users can pick a domain (Accounts / Purchase / Stores / Site /
+  //  HR / Safety / All), and the matching CSV rows get attached to the
+  //  prompt as context. The Apps Script aiProxy passes this through to
+  //  Groq (or Gemini) and returns the answer.
+  // ──────────────────────────────────────────────────────────────────
+  window.AI_DOMAIN = 'all';
+
+  window.aiSetDomain = function(btnEl, domain) {
+    AI_DOMAIN = domain;
+    document.querySelectorAll('.ai-domain-btn').forEach(b => b.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+    const ctx = document.getElementById('aiCtxText');
+    if (ctx) ctx.textContent = domain === 'all'
+      ? 'Connected to portal data'
+      : 'Scoped to: ' + domain.charAt(0).toUpperCase() + domain.slice(1);
+  };
+
+  // ── Domain → sheet bindings ──────────────────────────────────────
+  // Each domain knows which sheet+tab to fetch and which columns matter.
+  // Caps row count per domain so prompts stay under Groq's token limit.
+  const DOMAIN_SOURCES = {
+    accounts: {
+      label: 'Accounts & Payments',
+      sheetIdConst: 'PAYMENT_SHEET_ID',
+      tab: 'PaymentRequest',
+      maxRows: 300,
+      hint: 'Each row = one payment request. Status column tells you pending/in-progress/paid. Use Vendor + PO# + Amount + Status to answer queries.',
+    },
+    purchase: {
+      label: 'Purchase / SCM',
+      sheetIdConst: 'PO_SHEET_ID',
+      tab: 'PO',
+      maxRows: 300,
+      hint: 'Each row = one purchase order. Use PO# + Vendor + Status + Amount + Date to answer.',
+    },
+    stores: {
+      label: 'Stores / Inventory',
+      sheetIdConst: 'STORES_SHEET_ID',
+      tab: 'StockIN',
+      maxRows: 300,
+      hint: 'Each row = one stock-in entry. GRN# + Material + Qty + Site.',
+    },
+    site: {
+      label: 'Site Operations / DPR',
+      sheetIdConst: 'V2_MASTER_SHEET_ID',
+      tab: 'DPR',
+      maxRows: 300,
+      hint: 'Daily Progress Report rows. Site + Date + Activity + Quantity + Manpower.',
+    },
+    hr: {
+      label: 'HR / Employees',
+      sheetIdConst: 'EMP_SHEET_ID',
+      tab: '0_EmployeeRegister_Live',
+      maxRows: 400,
+      hint: 'Each row = one employee. Name + EmpCode + Designation + Department + Site + Mail ID.',
+    },
+    safety: {
+      label: 'Safety Incidents',
+      sheetIdConst: 'SAFETY_SHEET_ID',
+      tab: 'Incidents',
+      maxRows: 200,
+      hint: 'Each row = one incident. Date + Site + Type + Severity + Status + Description.',
+    },
+  };
+
+  // Resolve a sheet ID const name to its current value (honoring overrides)
+  function resolveSheetId(constName) {
+    if (typeof window[constName] !== 'undefined' && window[constName]) return window[constName];
+    // fallback: pull from Settings overrides
+    try {
+      const ov = JSON.parse(localStorage.getItem('evgcpl_settings_overrides') || '{}');
+      const map = { PAYMENT_SHEET_ID:'PAYMENT', PO_SHEET_ID:'PO', STORES_SHEET_ID:'STORES',
+                    V2_MASTER_SHEET_ID:'V2', EMP_SHEET_ID:'EMP', SAFETY_SHEET_ID:'SAFETY' };
+      if (ov.sheets && map[constName] && ov.sheets[map[constName]]) return ov.sheets[map[constName]];
+    } catch(_) {}
+    return null;
+  }
+
+  // Fetch domain-specific rows as a CSV string for the AI prompt
+  async function fetchDomainData(domain) {
+    if (domain === 'all' || !DOMAIN_SOURCES[domain]) return '';
+    const src = DOMAIN_SOURCES[domain];
+    const sid = resolveSheetId(src.sheetIdConst);
+    if (!sid) return '\n[' + src.label + ' — sheet ID not set]\n';
+    try {
+      const rows = await fetchSheet(src.tab, null, sid);
+      if (!rows || !rows.length) return '\n[' + src.label + ' — no rows]\n';
+      const trimmed = rows.slice(0, src.maxRows);
+      // Build a compact CSV: take headers from first row's keys
+      const cols = Object.keys(trimmed[0]);
+      const head = cols.join(',');
+      const body = trimmed.map(r => cols.map(c => {
+        const v = (r[c] ?? '').toString().replace(/"/g, '""').replace(/\n/g, ' ');
+        return v.includes(',') || v.includes('"') ? '"' + v + '"' : v;
+      }).join(',')).join('\n');
+      return `\n## ${src.label} (${trimmed.length} of ${rows.length} rows shown)\n${src.hint}\n\n\`\`\`csv\n${head}\n${body}\n\`\`\`\n`;
+    } catch (err) {
+      return '\n[' + src.label + ' — fetch failed: ' + err.message + ']\n';
+    }
+  }
+
+  // ── Override aiSend() to attach domain data ──────────────────────
+  // Wait until the bundle has defined aiSend, then wrap it.
+  function patchAiSend() {
+    if (typeof window.aiSend !== 'function' || typeof window.aiSystemPrompt !== 'function') {
+      return setTimeout(patchAiSend, 50);
+    }
+    if (window._aiSendPatched) return;
+    window._aiSendPatched = true;
+
+    // We replace aiSystemPrompt by wrapping it: original output + domain CSV
+    const origSystemPrompt = window.aiSystemPrompt;
+    window._aiDomainContext = '';
+    window.aiSystemPrompt = function() {
+      const base = origSystemPrompt();
+      const extra = window._aiDomainContext || '';
+      return base + (extra ? '\n\n# DOMAIN DATA\n' + extra : '') +
+        '\n\nIMPORTANT: When the user asks for status of a specific PO/MRS/payment/employee, scan the rows above and quote the matching record exactly. If no match is found, say so explicitly — do not invent data.';
+    };
+
+    // Also wrap aiSend to fetch domain data first
+    const origAiSend = window.aiSend;
+    window.aiSend = async function() {
+      const domain = window.AI_DOMAIN || 'all';
+      if (domain !== 'all') {
+        try {
+          window._aiDomainContext = await fetchDomainData(domain);
+        } catch(e) {
+          window._aiDomainContext = '\n[Domain fetch error: ' + e.message + ']\n';
+        }
+      } else {
+        window._aiDomainContext = '';
+      }
+      return origAiSend();
+    };
+  }
+  patchAiSend();
+
 })();
