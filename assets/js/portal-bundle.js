@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.1.0';
-const PORTAL_BUILD    = 314;
-const PORTAL_BUILD_AT = '2026-05-03T06:56:36Z';
+const PORTAL_VERSION  = '3.2.2';
+const PORTAL_BUILD    = 317;
+const PORTAL_BUILD_AT = '2026-05-04T17:24:23Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -11087,6 +11087,22 @@ const V2_MASTER_SHEET_ID = '1fhSO4WBYp0LNXPxe9I9zr5qsIPs9CIDFpUixBogPnsM'; // v2
 const EMP_SHEET_ID = '1HWKZPhKRhcuvxBgyyN8zRt8p-SzYmKjJWiOdCgykBHs'; // Employee Register
 const DPR_SHEET_ID = '139deMPqCXVZLSw5gFdzhN1heV-hynkYqIjsVpO1oXSc'; // Daily Progress Report sheet
 const DPR_TAB      = 'DPR'; // Tab inside the DPR sheet
+
+// PCC (Project Cost Control) backing sheet — hosts setup, BOQ, WBS, workplan, etc.
+// All Activity / Nature-of-Work / Type-of-Work masters live in this sheet.
+const PCC_SHEET_ID = '1dQow9nD4e0qVOSfpwEWQmPTuhF3FW_8r1oK5dMjJlRE'; // ProjectSetup_v1
+const PCC_TABS = {
+  projectSetup: 'Project_Master',     // Per-project setup rows
+  boq:          'M_PL_2_BOQ',         // Bill of Quantities
+  wbs:          'M_PL_3_WBS',         // Work Breakdown Structure (Nature of Work level)
+  activities:   'M_PL_1_Activities',  // ACTIVITY MASTER — Nature of Work + Type of Work
+  workplan:     'M_PL_4_Workplan',    // Monthly workplan rows
+  workplanDtl:  'M_PL_4_WorkplanDtl', // Workplan month-by-month qty/value (long-form)
+};
+// Backwards-compat alias for older code that referenced WORKPLAN_SHEET_ID directly
+const WORKPLAN_SHEET_ID = PCC_SHEET_ID;
+const ACTIVITY_MASTER_TAB = PCC_TABS.activities;
+
 const SHEET_GID    = '944085465'; // Site Master GID (kept for direct URL fallback)
 
 const MASTER_SHEETS = {
@@ -12599,6 +12615,134 @@ function renderBudgetingPage() {
     </div>
   `;
 }
+
+// ════════════════════════════════════════════════════════════════
+//  ACTIVITY MASTER — Nature of Work + Type of Work (cascading)
+//  Source: PCC sheet → M_PL_1_Activities tab
+//  Used by: WBS (Nature of Work), Workplan (Activity), DPR forms
+// ════════════════════════════════════════════════════════════════
+//
+//  Expected columns in M_PL_1_Activities (case + spacing tolerant):
+//    - Nature of Work     (parent / cost package)
+//    - Type of Work       (child / activity / cost center)
+//    - UOM                (unit of measure)             [optional]
+//    - Depends On         (predecessor activity)        [optional]
+//    - Measurement Basis  (formula / how qty is derived)[optional]
+//    - Active             (TRUE/FALSE — filter)         [optional]
+//
+//  Cached on STATE.activitiesCache to avoid repeated fetches.
+//  Call invalidateActivityMaster() to force a refresh.
+async function loadActivityMaster(force) {
+  if (!force && STATE.activitiesCache && STATE.activitiesCache.rows && (Date.now() - STATE.activitiesCache.loadedAt) < 5*60*1000) {
+    return STATE.activitiesCache.rows;
+  }
+  const url = `https://docs.google.com/spreadsheets/d/${PCC_SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(ACTIVITY_MASTER_TAB)}`;
+  try {
+    const res = await fetch(url);
+    const txt = await res.text();
+    const m = txt.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?$/);
+    if (!m) throw new Error('Bad gviz response');
+    const data = JSON.parse(m[1]);
+    if (!data.table || !data.table.cols) throw new Error('No table');
+
+    const cols = data.table.cols.map(c => (c.label || c.id || '').toString().trim());
+    const norm = s => s.toLowerCase().replace(/[^a-z0-9]/g,'');
+    const idxOf = (...names) => {
+      for (const n of names) {
+        const i = cols.findIndex(c => norm(c) === norm(n));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const iNature  = idxOf('Nature of Work','NatureOfWork','Cost Package','Package');
+    const iType    = idxOf('Type of Work','TypeOfWork','Activity','Cost Center','CostCenter');
+    const iUOM     = idxOf('UOM','Unit','Unit of Measure');
+    const iDeps    = idxOf('Depends On','DependsOn','Predecessor','Dependency');
+    const iBasis   = idxOf('Measurement Basis','Formula','Basis');
+    const iActive  = idxOf('Active','Status','Enabled');
+
+    const get = (cells, i) => i < 0 ? '' : (cells[i]?.f ?? cells[i]?.v ?? '').toString().trim();
+
+    const rows = (data.table.rows || []).map(r => {
+      const c = r.c || [];
+      const active = iActive >= 0 ? get(c, iActive) : '';
+      const isActive = !active || /^(true|yes|y|1|active|on)$/i.test(active);
+      return {
+        natureOfWork:     get(c, iNature),
+        typeOfWork:       get(c, iType),
+        uom:              get(c, iUOM),
+        dependsOn:        get(c, iDeps),
+        measurementBasis: get(c, iBasis),
+        active:           isActive,
+      };
+    }).filter(x => x.natureOfWork && x.typeOfWork && x.active);
+
+    STATE.activitiesCache = { rows, loadedAt: Date.now() };
+    return rows;
+  } catch (err) {
+    console.warn('[ActivityMaster] load failed:', err.message);
+    STATE.activitiesCache = { rows: [], loadedAt: Date.now(), error: err.message };
+    return [];
+  }
+}
+
+function invalidateActivityMaster() { STATE.activitiesCache = null; }
+
+// Get unique list of Nature of Work values (for WBS dropdown / filter)
+function getNaturesOfWork() {
+  const rows = (STATE.activitiesCache?.rows) || [];
+  return [...new Set(rows.map(r => r.natureOfWork))].sort();
+}
+
+// Get Types of Work for a given Nature of Work (for cascading Activity dropdown)
+function getTypesOfWork(natureOfWork) {
+  if (!natureOfWork) return [];
+  const rows = (STATE.activitiesCache?.rows) || [];
+  return rows
+    .filter(r => r.natureOfWork.toLowerCase() === natureOfWork.toLowerCase())
+    .map(r => ({ typeOfWork: r.typeOfWork, uom: r.uom, dependsOn: r.dependsOn, basis: r.measurementBasis }))
+    .sort((a, b) => a.typeOfWork.localeCompare(b.typeOfWork));
+}
+
+// Wire a pair of <select> elements as cascading Nature → Type dropdowns.
+// Usage: bindActivityCascade(natureSelectId, typeSelectId, { onChange })
+async function bindActivityCascade(natureId, typeId, opts) {
+  opts = opts || {};
+  await loadActivityMaster();
+  const natureSel = document.getElementById(natureId);
+  const typeSel   = document.getElementById(typeId);
+  if (!natureSel || !typeSel) return;
+
+  const natures = getNaturesOfWork();
+  natureSel.innerHTML = `<option value="">— Nature of Work —</option>` +
+    natures.map(n => `<option value="${n.replace(/"/g,'&quot;')}">${n}</option>`).join('');
+
+  const populateTypes = (n) => {
+    const types = getTypesOfWork(n);
+    typeSel.innerHTML = `<option value="">— Type of Work —</option>` +
+      types.map(t => {
+        const label = t.uom ? `${t.typeOfWork} (${t.uom})` : t.typeOfWork;
+        return `<option value="${t.typeOfWork.replace(/"/g,'&quot;')}" data-uom="${t.uom||''}" data-deps="${t.dependsOn||''}">${label}</option>`;
+      }).join('');
+    typeSel.disabled = types.length === 0;
+  };
+  populateTypes(natureSel.value);
+
+  natureSel.addEventListener('change', () => {
+    populateTypes(natureSel.value);
+    if (opts.onChange) opts.onChange({ nature: natureSel.value, type: '' });
+  });
+  typeSel.addEventListener('change', () => {
+    if (opts.onChange) opts.onChange({ nature: natureSel.value, type: typeSel.value });
+  });
+}
+
+// Expose globally (PCC iframe pages and inline DPR forms both call these)
+window.loadActivityMaster      = loadActivityMaster;
+window.invalidateActivityMaster = invalidateActivityMaster;
+window.getNaturesOfWork        = getNaturesOfWork;
+window.getTypesOfWork          = getTypesOfWork;
+window.bindActivityCascade     = bindActivityCascade;
 
 // ════════════════════════════════════════════════════════════════
 //  EXECUTION — DPR Entries + KPI strip + site dashboards

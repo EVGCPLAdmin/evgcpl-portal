@@ -31,7 +31,30 @@ window.CONFIG = {
     OVERHEADS:  'Overheads',
     VARIATIONS: 'Variations',
     APPROVALS:  'BudgetApprovals',
+
+    // Master / lookup tabs (cached at load, used to build dropdowns)
+    M_ACTIVITIES: 'M_PL_1_Activities',  // Nature of Work → Type of Work
   },
+
+  // Workplan schema — one row per activity (per-project, per-WBS-row).
+  // Kept in sync with saveWorkplan in AppsScript_Handlers.gs.
+  WORKPLAN_HEADERS: [
+    'Project Code',
+    'WBS Code',
+    'Nature of Work',
+    'Activity',
+    'UoM',
+    'Qty',
+    'Start',          // YYYY-MM-DD
+    'End',            // YYYY-MM-DD
+    'Duration',       // days, auto-computed from Start..End
+    '% Weight',       // 0-100, should sum to 100 across project
+    'Responsibility', // employee name (or free text)
+    'Master UUID',    // FK to M_PL_1_Activities.UUID
+    'Task Code',      // human-readable copy
+    'CheckSum',       // FK to M_PL_1_Activities.CheckSum (links to parent WBS UUID)
+    'Updated At',     // server-stamped ISO timestamp
+  ],
 
   // Master tabs
   MASTER_TABS: {

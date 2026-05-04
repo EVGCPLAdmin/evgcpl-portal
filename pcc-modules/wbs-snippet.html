@@ -1,0 +1,125 @@
+<!-- ═════════════════════════════════════════════════════════════════
+     PCC — WBS page (Nature of Work picker for WBS Level 2)
+     Drop into:  /pcc/wbs.html  (or merge into existing file)
+
+     The Nature of Work column is the 2nd-level WBS — each unique
+     Nature of Work from M_PL_1_Activities becomes a WBS node.
+     ───────────────────────────────────────────────────────────── -->
+
+<section style="padding:1.5rem;font-family:'DM Sans',system-ui,sans-serif">
+  <h2 style="font-family:Syne,serif;color:#1e8035;margin-bottom:1rem">
+    Work Breakdown Structure (WBS)
+  </h2>
+
+  <!-- Add new WBS node -->
+  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1rem;margin-bottom:1rem">
+    <h3 style="color:#a06c10;font-size:.95rem;margin-bottom:.8rem">
+      ➕ Add WBS Node
+    </h3>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.8rem">
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">
+          WBS Level
+        </label>
+        <select id="wbsLevel" style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px">
+          <option value="2">Level 2 — Nature of Work (Cost Package)</option>
+          <option value="3">Level 3 — Type of Work (Activity)</option>
+        </select>
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">
+          Nature of Work *
+        </label>
+        <select id="wbsNature" style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px"></select>
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">
+          Type of Work
+          <span style="color:#999;font-weight:400">(only for Level 3)</span>
+        </label>
+        <select id="wbsType" disabled style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px"></select>
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">
+          UOM
+        </label>
+        <input id="wbsUom" readonly placeholder="auto-filled"
+               style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px;background:#f9f9f9">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:.5rem;margin-top:1rem">
+      <button onclick="wbsAddNode()" style="background:#1e8035;color:#fff;border:none;padding:.6rem 1.2rem;border-radius:8px;font-weight:600;cursor:pointer">
+        ➕ Add to WBS
+      </button>
+      <button onclick="ActivityMaster.invalidate(); ActivityMaster.load(true).then(() => ActivityMaster.bindCascade('wbsNature','wbsType',{uomFieldId:'wbsUom'}))"
+              style="background:transparent;color:#555;border:1px solid #e5e7eb;padding:.6rem 1.2rem;border-radius:8px;cursor:pointer">
+        ↻ Refresh master
+      </button>
+    </div>
+  </div>
+
+  <!-- WBS tree -->
+  <div id="wbsTree" style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1rem">
+    <div style="text-align:center;color:#888;padding:2rem">⏳ Loading WBS tree…</div>
+  </div>
+</section>
+
+<!-- ── Wiring ──────────────────────────────────────────────────── -->
+<script src="/pcc/assets/js/activities-master.js"></script>
+<script>
+  // Bind the cascade when the page loads
+  document.addEventListener('DOMContentLoaded', () => {
+    ActivityMaster.bindCascade('wbsNature', 'wbsType', {
+      uomFieldId: 'wbsUom',
+      onChange: ({ nature, type, uom }) => {
+        console.log('[WBS] picked', { nature, type, uom });
+      },
+    });
+  });
+
+  // When WBS Level changes, gray out the Type of Work dropdown for Level 2
+  document.getElementById('wbsLevel').addEventListener('change', (e) => {
+    const isLevel3  = e.target.value === '3';
+    const typeSel   = document.getElementById('wbsType');
+    typeSel.disabled = !isLevel3 || !document.getElementById('wbsNature').value;
+  });
+
+  // Save handler
+  async function wbsAddNode() {
+    const level   = +document.getElementById('wbsLevel').value;
+    const nature  = document.getElementById('wbsNature').value;
+    const type    = document.getElementById('wbsType').value;
+    const uom     = document.getElementById('wbsUom').value;
+
+    if (!nature)              return alert('Select a Nature of Work');
+    if (level === 3 && !type) return alert('Level 3 needs a Type of Work');
+
+    const row = {
+      ProjectCode:   window.PCC_PROJECT_CODE || 'P00000',
+      WBSLevel:      level,
+      NatureOfWork:  nature,
+      TypeOfWork:    level === 3 ? type : '',
+      Description:   level === 3 ? type : nature,
+      UOM:           uom,
+      Status:        'NOT_STARTED',
+    };
+
+    const res = await fetch(window.APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'wbs.save', row }),
+    }).then(r => r.json());
+
+    if (res.success) {
+      alert('WBS node added: ' + (res.wbsCode || 'OK'));
+      // Refresh tree...
+    } else {
+      alert('Save failed: ' + (res.message || 'unknown'));
+    }
+  }
+</script>

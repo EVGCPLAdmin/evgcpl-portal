@@ -1,0 +1,222 @@
+<!-- ═════════════════════════════════════════════════════════════════
+     PCC — Workplan page (cascading dropdowns + write to backend)
+     Drop into:  /pcc/workplan.html  (or merge into existing file)
+     ───────────────────────────────────────────────────────────── -->
+
+<section style="padding:1.5rem;font-family:'DM Sans',system-ui,sans-serif">
+  <h2 style="font-family:Syne,serif;color:#1e8035;margin-bottom:1rem">
+    📋 Work Plan
+  </h2>
+
+  <!-- New workplan row -->
+  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1rem;margin-bottom:1.2rem">
+    <h3 style="color:#a06c10;font-size:.95rem;margin-bottom:.8rem">
+      ➕ Add Workplan Activity
+    </h3>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.8rem">
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">Site *</label>
+        <select id="wpSite" style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px">
+          <option value="">— Select Site —</option>
+          <!-- populated from sites loader -->
+        </select>
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">
+          Nature of Work *
+        </label>
+        <select id="wpNature" style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px"></select>
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">
+          Type of Work *
+          <span style="color:#999;font-weight:400;font-size:.7rem">cascading</span>
+        </label>
+        <select id="wpType" disabled style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px"></select>
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">UOM</label>
+        <input id="wpUom" readonly style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px;background:#f9f9f9">
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">Planned Qty *</label>
+        <input id="wpQty" type="number" min="0" step="any" oninput="wpRecalcValue()"
+               style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px">
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">Rate (per UOM)</label>
+        <input id="wpRate" type="number" min="0" step="any" oninput="wpRecalcValue()"
+               style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px">
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">Planned Value</label>
+        <input id="wpValue" readonly placeholder="Qty × Rate"
+               style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px;background:#f9f9f9;font-weight:600;color:#1e8035">
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">Start Date *</label>
+        <input id="wpStart" type="date" style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px">
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">End Date *</label>
+        <input id="wpEnd" type="date" oninput="wpRecalcDuration()" style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px">
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">Duration (days)</label>
+        <input id="wpDuration" readonly style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px;background:#f9f9f9">
+      </div>
+
+      <div style="grid-column:1/-1">
+        <label style="font-size:.78rem;color:#555;font-weight:600;display:block;margin-bottom:.25rem">Notes</label>
+        <textarea id="wpNotes" rows="2" style="width:100%;padding:.55rem;border:1.5px solid #e5e7eb;border-radius:8px;font-family:inherit"></textarea>
+      </div>
+    </div>
+
+    <div id="wpMsg" style="display:none;margin-top:.8rem;padding:.5rem .8rem;border-radius:8px;font-size:.85rem"></div>
+
+    <div style="display:flex;gap:.5rem;margin-top:1rem">
+      <button onclick="wpSave()"   style="background:#1e8035;color:#fff;border:none;padding:.6rem 1.4rem;border-radius:8px;font-weight:600;cursor:pointer">
+        💾 Save Workplan Row
+      </button>
+      <button onclick="wpReset()"  style="background:transparent;color:#555;border:1px solid #e5e7eb;padding:.6rem 1.2rem;border-radius:8px;cursor:pointer">
+        ↻ Reset
+      </button>
+    </div>
+  </div>
+
+  <!-- Existing workplan rows -->
+  <div id="wpList" style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1rem">
+    <div style="text-align:center;color:#888;padding:2rem">⏳ Loading workplan…</div>
+  </div>
+</section>
+
+<script src="/pcc/assets/js/activities-master.js"></script>
+<script>
+  const APPS_SCRIPT_URL = window.APPS_SCRIPT_URL
+    || 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec';
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    // Wire the Nature → Type cascade with auto-UOM
+    await ActivityMaster.bindCascade('wpNature', 'wpType', { uomFieldId: 'wpUom' });
+
+    // Load existing workplan rows
+    wpRefreshList();
+  });
+
+  function wpRecalcValue() {
+    const q = parseFloat(document.getElementById('wpQty').value)  || 0;
+    const r = parseFloat(document.getElementById('wpRate').value) || 0;
+    document.getElementById('wpValue').value = (q * r).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+
+  function wpRecalcDuration() {
+    const s = document.getElementById('wpStart').value;
+    const e = document.getElementById('wpEnd').value;
+    if (s && e) {
+      const days = Math.ceil((new Date(e) - new Date(s)) / 86400000) + 1;
+      document.getElementById('wpDuration').value = days > 0 ? days : '';
+    }
+  }
+
+  function wpShowMsg(text, ok) {
+    const el = document.getElementById('wpMsg');
+    el.style.display    = 'block';
+    el.style.background = ok ? '#f0fdf4' : '#fef2f2';
+    el.style.color      = ok ? '#15803d' : '#b91c1c';
+    el.textContent      = text;
+  }
+
+  async function wpSave() {
+    const row = {
+      ProjectCode:  window.PCC_PROJECT_CODE || 'P00000',
+      SiteName:     document.getElementById('wpSite').value,
+      NatureOfWork: document.getElementById('wpNature').value,
+      TypeOfWork:   document.getElementById('wpType').value,
+      UOM:          document.getElementById('wpUom').value,
+      PlannedQty:   parseFloat(document.getElementById('wpQty').value)  || 0,
+      PlannedRate:  parseFloat(document.getElementById('wpRate').value) || 0,
+      StartDate:    document.getElementById('wpStart').value,
+      EndDate:      document.getElementById('wpEnd').value,
+      DurationDays: parseInt(document.getElementById('wpDuration').value, 10) || 0,
+      Notes:        document.getElementById('wpNotes').value,
+    };
+
+    if (!row.SiteName)     return wpShowMsg('Select a site', false);
+    if (!row.NatureOfWork) return wpShowMsg('Select Nature of Work', false);
+    if (!row.TypeOfWork)   return wpShowMsg('Select Type of Work', false);
+    if (!row.PlannedQty)   return wpShowMsg('Planned Qty must be > 0', false);
+    if (!row.StartDate || !row.EndDate) return wpShowMsg('Start and End dates required', false);
+
+    wpShowMsg('Saving…', true);
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'workplan.save', row, user: window.PCC_USER || {} }),
+    }).then(r => r.json()).catch(e => ({ success: false, message: e.message }));
+
+    if (res.success) {
+      wpShowMsg('✓ Saved as ' + res.workplanID, true);
+      wpReset();
+      wpRefreshList();
+    } else {
+      wpShowMsg('Failed: ' + (res.message || 'unknown'), false);
+    }
+  }
+
+  function wpReset() {
+    ['wpQty','wpRate','wpValue','wpStart','wpEnd','wpDuration','wpNotes'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+  }
+
+  async function wpRefreshList() {
+    const list = document.getElementById('wpList');
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'workplan.list', projectCode: window.PCC_PROJECT_CODE || '' }),
+    }).then(r => r.json()).catch(() => ({ success: false, rows: [] }));
+
+    if (!res.success || !res.rows.length) {
+      list.innerHTML = '<div style="text-align:center;padding:2rem;color:#888"><div style="font-size:1.6rem;margin-bottom:.4rem">📋</div>No workplan rows yet.</div>';
+      return;
+    }
+
+    list.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:.84rem">
+        <thead>
+          <tr style="background:#1e8035;color:#fff">
+            <th style="padding:.55rem .7rem;text-align:left">ID</th>
+            <th style="padding:.55rem .7rem;text-align:left">Site</th>
+            <th style="padding:.55rem .7rem;text-align:left">Nature → Type</th>
+            <th style="padding:.55rem .7rem;text-align:right">Qty</th>
+            <th style="padding:.55rem .7rem;text-align:right">Value</th>
+            <th style="padding:.55rem .7rem;text-align:left">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${res.rows.map(r => `
+            <tr style="border-bottom:1px solid #f0f0f0">
+              <td style="padding:.5rem .7rem;font-family:monospace;font-size:.78rem">${r.WorkplanID}</td>
+              <td style="padding:.5rem .7rem">${r.SiteName || ''}</td>
+              <td style="padding:.5rem .7rem"><strong>${r.NatureOfWork}</strong> → ${r.TypeOfWork} ${r.UOM ? `<span style="color:#888">(${r.UOM})</span>` : ''}</td>
+              <td style="padding:.5rem .7rem;text-align:right;font-variant-numeric:tabular-nums">${(r.PlannedQty||0).toLocaleString()}</td>
+              <td style="padding:.5rem .7rem;text-align:right;font-variant-numeric:tabular-nums">${(r.PlannedValue||0).toLocaleString()}</td>
+              <td style="padding:.5rem .7rem"><span style="padding:2px 8px;border-radius:10px;background:#e8f4e5;color:#1e8035;font-size:.72rem;font-weight:600">${r.Status||'PLANNED'}</span></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+</script>

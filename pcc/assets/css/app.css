@@ -893,3 +893,136 @@ td.empty-cell, .empty-cell {
   outline: none;
   box-shadow: 0 0 0 2px rgba(30,128,53,.1);
 }
+
+/* ── WBS tree inline Nature dropdown ─────────────────────────── */
+.wbs-node {
+  display: grid;
+  grid-template-columns: 80px 1fr 180px auto;
+  gap: 10px;
+  align-items: center;
+}
+.wbs-nature {
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: rgba(30, 128, 53, 0.04);
+  color: var(--green);
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 180px;
+}
+.wbs-nature:hover { border-color: var(--green); }
+
+/* ── Stale Type-of-Work indicator ───────────────────────────── */
+.unit-select.stale {
+  border-color: var(--gold);
+  background: rgba(160, 108, 16, 0.08);
+  color: var(--gold);
+}
+
+/* ── Master Activity Picker modal ────────────────────────────── */
+.m-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 30, 24, 0.55);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  backdrop-filter: blur(2px);
+}
+.m-modal {
+  background: #fff;
+  border-radius: 12px;
+  width: min(960px, 100%);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.m-modal .m-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(30, 128, 53, 0.04), transparent);
+}
+.m-modal .m-head h3 { margin: 0; font-family: 'Syne', sans-serif; font-size: 18px; color: var(--green); }
+.m-modal .m-head .m-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 4px; }
+.m-modal .m-head .btn-icon {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 32px; height: 32px;
+  font-size: 18px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.m-modal .m-head .btn-icon:hover { background: rgba(0, 0, 0, 0.04); color: var(--text); }
+
+.m-modal .m-filters {
+  display: flex;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.m-modal .m-filters input,
+.m-modal .m-filters select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  background: #fff;
+}
+.m-modal .m-filters input { flex: 1; min-width: 180px; }
+.m-modal .m-filters select { min-width: 140px; }
+
+.m-modal .m-table-wrap {
+  overflow: auto;
+  flex: 1;
+}
+.m-modal .m-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.m-modal .m-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.m-modal .m-table tbody tr {
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.m-modal .m-table tbody tr:hover { background: rgba(30, 128, 53, 0.04); }
+.m-modal .m-table tbody tr.sel  { background: rgba(30, 128, 53, 0.10); }
+.m-modal .m-table td { padding: 8px 12px; vertical-align: middle; }
+.m-modal .m-table .empty-cell {
+  padding: 32px; text-align: center; color: var(--text-faint);
+}
+
+.m-modal .m-foot {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: rgba(30, 128, 53, 0.02);
+}
+.m-modal .m-foot .m-fnote { font-size: 11.5px; color: var(--text-dim); font-weight: 600; }

@@ -77,10 +77,35 @@ function _replaceProjectRows(tabName, headers, projectCode, rows) {
 
 // ─── 1. WORKPLAN ───
 function saveWorkplan(p) {
+  // Schema: one row per activity (NOT per month).
+  // WBS Code · Nature of Work · Activity · UoM · Qty · Start · End · Duration · % Weight · Responsibility
+  // Plus provenance fields linking back to M_PL_1_Activities (Master UUID, Task Code, CheckSum)
+  // and a server-stamped Updated At.
+  var nowIso = new Date().toISOString();
+  var rows = (p.rows || []).map(function(r) {
+    return {
+      'Project Code':   p.projectCode,
+      'WBS Code':       r.wbsCode || '',
+      'Nature of Work': r.natureOfWork || '',
+      'Activity':       r.activity || '',
+      'UoM':            r.unit || '',
+      'Qty':            r.qty != null ? Number(r.qty) || 0 : 0,
+      'Start':          r.start || '',
+      'End':            r.end || '',
+      'Duration':       r.duration != null ? Number(r.duration) || 0 : 0,
+      '% Weight':       r.weight   != null ? Number(r.weight)   || 0 : 0,
+      'Responsibility': r.responsibility || '',
+      'Master UUID':    r.masterUuid || '',
+      'Task Code':      r.taskCode   || '',
+      'CheckSum':       r.checkSum   || '',
+      'Updated At':     nowIso,
+    };
+  });
   return _replaceProjectRows('Workplan', [
-    'Project Code', 'Activity Code', 'Description', 'Unit',
-    'BOQ Qty', 'Month', 'Planned Qty',
-  ], p.projectCode, p.rows);
+    'Project Code', 'WBS Code', 'Nature of Work', 'Activity',
+    'UoM', 'Qty', 'Start', 'End', 'Duration', '% Weight', 'Responsibility',
+    'Master UUID', 'Task Code', 'CheckSum', 'Updated At',
+  ], p.projectCode, rows);
 }
 
 // ─── 2. MANPOWER ───
@@ -238,28 +263,36 @@ function saveBOQ(p) {
 
 // ─── 3. WBS ─── (replaces both WBS nodes & Activities for the project)
 function saveWBS(p) {
-  // Save WBS nodes
+  // Save WBS nodes — Nature of Work is part of the WBS row schema
   var nodesResp = _replaceProjectRows('WBS', [
-    'Project Code', 'WBS Code', 'WBS Name',
+    'Project Code', 'WBS Code', 'WBS Name', 'Nature of Work',
   ], p.projectCode, (p.nodes || []).map(function(n) {
     return {
-      'Project Code': p.projectCode,
-      'WBS Code':     n.wbsCode,
-      'WBS Name':     n.wbsName,
+      'Project Code':   p.projectCode,
+      'WBS Code':       n.wbsCode,
+      'WBS Name':       n.wbsName,
+      'Nature of Work': n.natureOfWork || '',
     };
   }));
 
-  // Save Activities
+  // Save Activities — Type of Work column added (filtered by parent WBS Nature)
+  // Master link fields preserve traceability back to M_PL_1_Activities.
   _replaceProjectRows('Activities', [
-    'Project Code', 'Activity', 'WBS Code', 'Cost Code', 'Unit', 'BOQ Qty',
+    'Project Code', 'Activity', 'WBS Code', 'Cost Code',
+    'Type of Work', 'Unit', 'BOQ Qty',
+    'Master UUID', 'Task Code', 'CheckSum',
   ], p.projectCode, (p.activities || []).map(function(a) {
     return {
       'Project Code': p.projectCode,
       'Activity':     a.name,
       'WBS Code':     a.wbsCode,
       'Cost Code':    a.costCode,
+      'Type of Work': a.typeOfWork || '',
       'Unit':         a.unit,
       'BOQ Qty':      a.boqQty,
+      'Master UUID':  a.masterUuid || '',
+      'Task Code':    a.taskCode   || '',
+      'CheckSum':     a.checkSum   || '',
     };
   }));
 
