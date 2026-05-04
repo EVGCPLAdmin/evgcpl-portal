@@ -30,13 +30,21 @@
     <div class="kpi gold"><div class="kpi-label">Max Depth</div><div class="kpi-val" id="kWbsDepth">0</div><div class="kpi-sub">levels</div></div>
   </div>
 
+  <!-- Strict-master enforcement banner -->
+  <div class="strict-banner">
+    <span class="sb-icon">🔒</span>
+    <div>
+      <strong>Strict Master Mode.</strong> WBS Codes &amp; Activities can only be picked from <code>M_PL_1_Activities</code>. Free typing is disabled — Save is blocked until every row matches a master entry.
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-head">
       <div class="ch-l">
         <div class="ch-icon green">&#127795;</div>
         <div>
           <div class="ch-title">WBS Tree</div>
-          <div class="ch-sub">Loaded from <code>WBS</code> tab &middot; uses indent-by-code (1, 1.1, 1.1.1)</div>
+          <div class="ch-sub">Each WBS node is picked from <code>DISTINCT(M_PL_1_Activities.WBS Code)</code> &middot; Nature auto-fills from master</div>
         </div>
       </div>
       <span class="pill pill-green" id="wbsStatus">Idle</span>
@@ -45,10 +53,10 @@
       <div class="boq-toolbar">
         <div class="left">
           <span style="font-size:12px;color:var(--text-faint)">Filter:</span>
-          <input type="text" id="wbsFilter" placeholder="Search code or name&hellip;" style="width:280px" oninput="PAGE.filter(this.value)" />
+          <input type="text" id="wbsFilter" placeholder="Search code, name, or nature&hellip;" style="width:280px" oninput="PAGE.filter(this.value)" />
         </div>
         <div class="right">
-          <button class="btn btn-secondary" onclick="PAGE.addNode()">+ Add Node</button>
+          <button class="btn btn-primary" onclick="PAGE.openWbsPicker()" title="Browse M_PL_1_Activities for available WBS Codes">📚 Pick WBS from master&hellip;</button>
         </div>
       </div>
       <div class="wbs-tree" id="wbsTree">
@@ -63,7 +71,7 @@
         <div class="ch-icon gold">&#9881;&#65039;</div>
         <div>
           <div class="ch-title">Activities</div>
-          <div class="ch-sub">Leaf-level work items &middot; mapped to a cost code &amp; a WBS node</div>
+          <div class="ch-sub">Leaf-level work items &middot; only Cost Code and BOQ Qty are editable &middot; everything else flows from master</div>
         </div>
       </div>
     </div>
@@ -73,12 +81,12 @@
           <thead>
             <tr>
               <th style="width:60px">#</th>
-              <th>Activity</th>
-              <th style="width:120px">WBS Code</th>
-              <th style="width:140px;color:var(--green);font-weight:600" title="Inherited from the WBS row">Nature of Work</th>
-              <th style="width:160px" title="Filtered by the WBS row's Nature of Work">Type of Work</th>
-              <th style="width:140px">Cost Code</th>
-              <th style="width:80px">Unit</th>
+              <th>Activity 🔒</th>
+              <th style="width:110px">WBS Code 🔒</th>
+              <th style="width:140px;color:var(--green);font-weight:600">Nature 🔒</th>
+              <th style="width:160px">Type of Work 🔒</th>
+              <th style="width:160px">Cost Code</th>
+              <th style="width:80px">Unit 🔒</th>
               <th style="width:140px;text-align:right">BOQ Qty</th>
               <th style="width:40px"></th>
             </tr>
@@ -88,13 +96,9 @@
           </tbody>
         </table>
       </div>
-      <div class="boq-add-row" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center">
-        <input type="text" class="boq-add-input" id="quickActInput" style="flex:1 1 240px;min-width:240px"
-          placeholder="Type new activity &amp; press Enter to add&hellip;"
-          onkeydown="if(event.key==='Enter')PAGE.quickAddActivity()" />
-        <button class="btn btn-primary" onclick="PAGE.quickAddActivity()">+ Add new</button>
-        <span style="color:var(--text-faint);font-size:11px;padding:0 4px">— or —</span>
-        <button class="btn btn-secondary" onclick="PAGE.openMasterPicker()" title="Browse the M_PL_1_Activities master and pick one">📚 Pick from master&hellip;</button>
+      <div class="boq-add-row" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;justify-content:flex-end">
+        <span style="color:var(--text-faint);font-size:11.5px">Activities are added from the master only.</span>
+        <button class="btn btn-primary" onclick="PAGE.openMasterPicker()" title="Browse M_PL_1_Activities and pick activities">📚 Pick activities from master&hellip;</button>
       </div>
     </div>
   </div>
@@ -105,25 +109,68 @@
   </div>
 </main>
 
-<!-- Master Activity Picker (M_PL_1_Activities) -->
+<!-- WBS Picker (DISTINCT WBS Codes from M_PL_1_Activities) -->
+<div id="wbsPickerOverlay" class="m-overlay" style="display:none" onclick="if(event.target===this)PAGE.closeWbsPicker()">
+  <div class="m-modal" role="dialog" aria-labelledby="wpkTitle">
+    <div class="m-head">
+      <div>
+        <h3 id="wpkTitle">📚 Pick WBS from Master</h3>
+        <div class="m-sub">Showing <code>DISTINCT(WBS Code)</code> from <code>M_PL_1_Activities</code> &middot; Nature is auto-derived from the most common pairing</div>
+      </div>
+      <button class="btn-icon" onclick="PAGE.closeWbsPicker()" title="Close">&times;</button>
+    </div>
+    <div class="m-filters">
+      <input type="search" id="wpkSearch" placeholder="Search WBS code or name…" oninput="PAGE.renderWbsPickerNow()" />
+      <select id="wpkNatureFilter" onchange="PAGE.renderWbsPickerNow()">
+        <option value="">All Natures</option>
+      </select>
+      <span id="wpkCount" class="pill pill-green">0</span>
+    </div>
+    <div class="m-table-wrap">
+      <table class="m-table">
+        <thead>
+          <tr>
+            <th style="width:32px"></th>
+            <th style="width:120px">WBS Code</th>
+            <th>Description</th>
+            <th>Nature of Work</th>
+            <th style="width:100px;text-align:right">Activities</th>
+          </tr>
+        </thead>
+        <tbody id="wpkTbody"><tr><td colspan="5" class="empty-cell">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="m-foot">
+      <span id="wpkSelectedCount" class="m-fnote">0 selected</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-secondary" onclick="PAGE.closeWbsPicker()">Cancel</button>
+      <button class="btn btn-primary" onclick="PAGE.confirmWbsPick()">Add selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Master Activity Picker (M_PL_1_Activities) — STRICT, scoped to project's WBS nodes -->
 <div id="masterPickerOverlay" class="m-overlay" style="display:none" onclick="if(event.target===this)PAGE.closeMasterPicker()">
   <div class="m-modal" role="dialog" aria-labelledby="mpTitle">
     <div class="m-head">
       <div>
-        <h3 id="mpTitle">📚 Master Activities</h3>
-        <div class="m-sub">Pick one or more activities from <code>M_PL_1_Activities</code> · they are linked back to master via <code>CheckSum / UUID</code></div>
+        <h3 id="mpTitle">📚 Pick Activities from Master</h3>
+        <div class="m-sub">Only activities under the WBS nodes in this project are shown &middot; <code>CheckSum</code> links each pick back to master</div>
       </div>
       <button class="btn-icon" onclick="PAGE.closeMasterPicker()" title="Close">&times;</button>
     </div>
     <div class="m-filters">
-      <input type="search" id="mpSearch" placeholder="Search activities, type, nature…" oninput="PAGE.filterMaster()" />
+      <input type="search" id="mpSearch" placeholder="Search activity, type, code…" oninput="PAGE.filterMaster()" />
+      <select id="mpWbsFilter" onchange="PAGE.filterMaster()">
+        <option value="">All project WBS</option>
+      </select>
       <select id="mpNatureFilter" onchange="PAGE.filterMaster()">
         <option value="">All Natures</option>
       </select>
       <select id="mpTypeFilter" onchange="PAGE.filterMaster()">
         <option value="">All Types</option>
       </select>
-      <span id="mpCount" class="pill pill-green">0 shown</span>
+      <span id="mpCount" class="pill pill-green">0</span>
     </div>
     <div class="m-table-wrap">
       <table class="m-table">
@@ -131,11 +178,11 @@
           <tr>
             <th style="width:32px"></th>
             <th>Activity</th>
-            <th>Nature of Work</th>
-            <th>Type of Work</th>
-            <th>Unit</th>
-            <th>Task Code</th>
-            <th>Project</th>
+            <th style="width:110px">WBS Code</th>
+            <th style="width:140px">Nature of Work</th>
+            <th style="width:160px">Type of Work</th>
+            <th style="width:80px">Unit</th>
+            <th style="width:120px">Task Code</th>
           </tr>
         </thead>
         <tbody id="mpTbody"><tr><td colspan="7" class="empty-cell">Loading…</td></tr></tbody>
