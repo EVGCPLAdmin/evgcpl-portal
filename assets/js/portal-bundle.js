@@ -8,14 +8,63 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.3.0';
-const PORTAL_BUILD    = 318;
-const PORTAL_BUILD_AT = '2026-05-04T17:37:09Z';
+const PORTAL_VERSION  = '3.4.1';
+const PORTAL_BUILD    = 322;
+const PORTAL_BUILD_AT = '2026-05-05T12:07:01Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
 const PIN_SHEET_ID     = '1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0'; // UserSecrets sheet
-const PIN_API_URL      = 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec'; // v2_PINReset
+// ── Apps Script Endpoint Registry ─────────────────────────────────
+// All Apps Script /exec URLs are managed here. Override at runtime
+// from Config → 🔗 Apps Script Endpoints (saved to localStorage).
+// Adding a new endpoint:
+//   1. Add a new key here with a description and a defaultUrl
+//   2. Use it in code as: getExec('myKey')
+const EXEC_REGISTRY_DEFAULTS = {
+  main:        { label: 'Main Backend (default)', desc: 'Most portal POSTs (DPR, Safety, PCC, Onboarding, Reports). Default for getExec().', defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
+  pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet.',                                          defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
+  aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
+  diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
+  pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
+};
+const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
+
+// Returns the exec URL for a given key. Looks up localStorage overrides first,
+// then falls back to the default. Unknown keys fall through to 'main'.
+function getExec(key) {
+  try {
+    const overrides = JSON.parse(localStorage.getItem(EXEC_LS_KEY) || '{}');
+    if (overrides[key] && /^https:\/\/script\.google\.com\/macros\//.test(overrides[key])) {
+      return overrides[key];
+    }
+    if (key !== 'main' && !EXEC_REGISTRY_DEFAULTS[key]) {
+      // Unknown key — fall back to main override or default
+      if (overrides.main) return overrides.main;
+      return EXEC_REGISTRY_DEFAULTS.main.defaultUrl;
+    }
+    if (overrides.main && (!EXEC_REGISTRY_DEFAULTS[key] || !overrides[key])) {
+      // Resolved key has no override but main does; only use main as fallback if asked
+      // for main explicitly; otherwise return the registered default.
+    }
+  } catch (e) { /* ignore */ }
+  return (EXEC_REGISTRY_DEFAULTS[key] || EXEC_REGISTRY_DEFAULTS.main).defaultUrl;
+}
+
+// Save overrides (called from the Config → Endpoints page)
+function setExecOverrides(map) {
+  try { localStorage.setItem(EXEC_LS_KEY, JSON.stringify(map || {})); }
+  catch (e) { console.warn('[EXEC] could not persist overrides:', e); }
+}
+function getExecOverrides() {
+  try { return JSON.parse(localStorage.getItem(EXEC_LS_KEY) || '{}'); }
+  catch (e) { return {}; }
+}
+
+// Backwards-compatible globals — these still exist so older code keeps working
+// even though all NEW writes should use getExec(key).
+const PIN_API_URL     = getExec('pinReset');
+const APPS_SCRIPT_URL = getExec('main');
 const HR_DOCS_FOLDER_ID = '1I1ESOw_0EncSMt3nLZV2P7I106aniLY-'; // HR_Documents root
 const HR_DOCS_TYPES = [ // folder name → display label → icon
   { folder:'Photo',                 label:'Photo',               icon:'📸', accept:'image/*' },
@@ -28,8 +77,8 @@ const HR_DOCS_TYPES = [ // folder name → display label → icon
   { folder:'Onboarding Documents',  label:'Onboarding Docs',      icon:'📁', accept:'.pdf,.doc,.docx,.jpg,.png' },
 ];
 
-// ── Apps Script backend for photo storage ──
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec';
+// ── Apps Script backend — see EXEC_REGISTRY_DEFAULTS above for managed URLs ──
+// (APPS_SCRIPT_URL and PIN_API_URL declared earlier via getExec()) 
 
 const STATE = {
   user: null,
@@ -1858,7 +1907,7 @@ async function empLoadDeptData(isSCM, isHR, isFinance, isOps, deptDisp, emp, myC
       }
 
       const [poRows, mrsRows, storeRows] = await Promise.all([
-        fetchSheet('PO', 'SELECT A,E,F,G,R,S,AF,AG,AP,AQ', PO_SHEET_ID).catch(()=>[]),
+        fetchSheet(PO_TAB, 'SELECT A,E,F,G,R,S,AF,AG,AP,AQ', PO_SHEET_ID).catch(()=>[]),
         fetchSheet('MRS', 'SELECT D,E,F,G,I,J,K,L,N,O,P,U,Y', PO_SHEET_ID).catch(()=>[]),
         fetchSheet('StockIN', 'SELECT A,B,C,D,E,F,G,H,K,N,O', STORES_SHEET_ID).catch(()=>[]),
       ]);
@@ -2317,7 +2366,7 @@ function renderDashboard() {
   }).catch(() => {});
 
   // ── Load live POs ──
-  fetchSheet('PO', 'SELECT A,E,F,G,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
+  fetchSheet(PO_TAB, 'SELECT A,E,F,G,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
     const pending = rawRows
       .filter(r => r['PO No'] && r['PO No'] !== 'Dummy' &&
         (r['PO Approval Status'] || r['AG'] || '').toUpperCase() !== 'REJECTED' &&
@@ -2565,7 +2614,7 @@ function renderMDCommand() {
   };
 
   // ── Load POs ──
-  fetchSheet('PO', 'SELECT A,E,F,G,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
+  fetchSheet(PO_TAB, 'SELECT A,E,F,G,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
     const rows = rawRows
       .filter(r => r['PO No'] && r['PO No'] !== 'Dummy')
       .map(r => ({
@@ -2725,6 +2774,7 @@ function renderAppSheetEmbed(title, desc, appKey) {
 //  SCM DASHBOARD — Purchase Orders
 // ══════════════════════════════════════════════════
 const PO_SHEET_ID      = '1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c';
+const PO_TAB           = 'PO_Actual'; // gid 1458467853 — replaces legacy 'PO' tab as of v3.4.0
 const PAYMENT_SHEET_ID = '1mLddxLRf719EaXE9XSET9gT8l0a8Cxns362yIbHo63g'; // Account View – PaymentRequest tab
 const STORES_SHEET_ID  = '1iMQxgqGilUh2_3NCZl5D-EMt-NC8FwugX83q2fWb8fE'; // v2_Stores – StockIN / GRN_No tabs
 
@@ -3626,7 +3676,7 @@ function renderPurchaseDashboard() {
       </div>
     </div>`;
 
-  fetchSheet('PO', 'SELECT A,E,F,G,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
+  fetchSheet(PO_TAB, 'SELECT A,E,F,G,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
     window._pdRows = rawRows
       .filter(r => r['PO No'] && r['PO No'] !== 'Dummy')
       .map(r => ({
@@ -4844,7 +4894,7 @@ const SETTINGS_LS_KEY = 'evgcpl_settings_overrides';
 const SHEETS_DIRECTORY = [
   { key:'PIN',     label:'UserSecrets / PIN store',  defaultId:'1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0', tabs:['UserSecrets','ReportConfig','ReportSchedules'], notes:'Login PIN authentication' },
   { key:'EMP',     label:'Employee Register',         defaultId:'1HWKZPhKRhcuvxBgyyN8zRt8p-SzYmKjJWiOdCgykBHs', tabs:['0_EmployeeRegister_Live'], notes:'333 employees' },
-  { key:'PO',      label:'Purchase / Master',         defaultId:'1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c', tabs:['MRS','PO','SiteMaster','VendorMaster'], notes:'SCM dashboard data' },
+  { key:'PO',      label:'Purchase / Master',         defaultId:'1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c', tabs:['MRS','PO_Actual','SiteMaster','VendorMaster'], notes:'SCM dashboard data — primary PO tab is now PO_Actual (gid 1458467853)' },
   { key:'PAYMENT', label:'Account View / Payments',   defaultId:'1mLddxLRf719EaXE9XSET9gT8l0a8Cxns362yIbHo63g', tabs:['PaymentRequest'], notes:'42-column PaymentRequest schema' },
   { key:'STORES',  label:'v2_Stores',                 defaultId:'1iMQxgqGilUh2_3NCZl5D-EMt-NC8FwugX83q2fWb8fE', tabs:['StockIN','GRN_No','StockLevels'], notes:'Stores & GRN' },
   { key:'V2',      label:'v2_Master',                 defaultId:'1fhSO4WBYp0LNXPxe9I9zr5qsIPs9CIDFpUixBogPnsM', tabs:['DPR','LogSheet','Maintenance','Verification'], notes:'Site DPR & plant data' },
@@ -4860,7 +4910,7 @@ const APPS_SCRIPTS = [
   {
     name: 'EVGCPL Portal Backend',
     file: 'apps-script/SafetyHandlers.gs',
-    execUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec',
+    execUrl: getExec('main'),
     purpose: 'Primary write-back endpoint',
     actions: [
       'appendRow      — adds rows to any sheet/tab (used by Safety, Reports, DPR)',
@@ -4888,7 +4938,7 @@ const APPS_SCRIPTS = [
   {
     name: 'PIN Reset (v2_PINReset)',
     file: '— external project —',
-    execUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec',
+    execUrl: getExec('main'),
     purpose: 'Standalone PIN-set/reset flow (also linked from login page)',
     actions: [
       'Hosted at evgcpladmin.github.io/password/',
@@ -5200,6 +5250,159 @@ window.settingsRunDoctor = function() {
 };
 
 
+// ── Apps Script Endpoints sub-page ─────────────────────────────
+// Renders the card inline inside Configuration. Saves overrides via
+// setExecOverrides(); reads via getExecOverrides() / getExec(key).
+function renderExecEndpointsCard() {
+  const overrides = getExecOverrides();
+  const keys = Object.keys(EXEC_REGISTRY_DEFAULTS);
+  const editedCount = keys.filter(k => overrides[k] && overrides[k] !== EXEC_REGISTRY_DEFAULTS[k].defaultUrl).length;
+
+  const rows = keys.map(k => {
+    const meta = EXEC_REGISTRY_DEFAULTS[k];
+    const current = overrides[k] || meta.defaultUrl;
+    const overridden = !!(overrides[k] && overrides[k] !== meta.defaultUrl);
+    return `
+      <div class="exec-row" data-key="${k}" style="display:grid;grid-template-columns:170px 1fr auto auto;gap:.7rem;align-items:center;padding:.55rem .9rem;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-weight:700;font-size:.86rem;color:var(--g9)">${meta.label}</div>
+          <code style="font-size:.66rem;color:var(--txt3)">${k}</code>
+        </div>
+        <div style="min-width:0">
+          <input type="url" id="execIn-${k}" value="${current.replace(/"/g,'&quot;')}"
+            placeholder="https://script.google.com/macros/s/.../exec"
+            spellcheck="false"
+            style="width:100%;padding:.45rem .7rem;font-family:'Consolas','JetBrains Mono',monospace;font-size:11px;border:1.5px solid ${overridden ? '#f0a500' : 'var(--border)'};border-radius:6px;background:var(--surface2);color:var(--txt)">
+          <div style="font-size:.7rem;color:var(--txt3);margin-top:.25rem">${meta.desc}</div>
+        </div>
+        <span id="execStatus-${k}" style="font-size:.66rem;padding:3px 9px;border-radius:8px;background:var(--surface2);color:var(--txt3);font-weight:600;white-space:nowrap">unknown</span>
+        <div style="display:flex;gap:.3rem">
+          <button onclick="execTestOne('${k}')" class="btn btn-secondary btn-sm" title="Ping with action: __ping__" style="font-size:.7rem;padding:4px 10px">▶︎ Test</button>
+          <button onclick="execResetOne('${k}')" class="btn btn-secondary btn-sm" title="Reset to default" style="font-size:.7rem;padding:4px 8px">↻</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="card" style="margin-bottom:1.2rem;border-left:4px solid #6366f1">
+      <div class="card-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
+        <div>
+          <h3 style="margin:0;font-size:1rem">&#128279; Apps Script Endpoints</h3>
+          <div style="font-size:.74rem;color:var(--txt3);margin-top:.15rem">
+            All <code>/exec</code> URLs in one place. Paste a new deployment URL and Save &amp; Apply &mdash; no code changes needed.
+            ${editedCount ? `<span style="color:#f0a500;font-weight:700">&middot; ${editedCount} override${editedCount===1?'':'s'} active</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+          <button onclick="execTestAll()" class="btn btn-secondary btn-sm" style="font-size:.74rem">▶︎ Test all</button>
+          <button onclick="execResetAll()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset all</button>
+          <button onclick="execSaveAll()" class="btn btn-primary btn-sm" id="execSaveBtn" style="font-size:.74rem">&#10003; Save endpoints</button>
+        </div>
+      </div>
+      <div style="padding:.2rem 0">
+        ${rows}
+      </div>
+      <div style="padding:.55rem 1rem;font-size:.7rem;color:var(--txt3);background:var(--surface2);border-top:1px solid var(--border);display:flex;align-items:center;gap:.5rem">
+        <span>&#128161;</span>
+        <span><strong>How to deploy a new version:</strong> Apps Script Editor &rarr; Deploy &rarr; Manage Deployments &rarr; ✏️ on the active deployment &rarr; New version &rarr; Deploy. The exec URL stays the same; only redeploy is needed for the new code to be live.</span>
+      </div>
+    </div>`;
+}
+
+// Save the input values to localStorage and refresh the runtime values.
+window.execSaveAll = function() {
+  const map = {};
+  Object.keys(EXEC_REGISTRY_DEFAULTS).forEach(k => {
+    const inp = document.getElementById('execIn-' + k);
+    if (!inp) return;
+    const v = inp.value.trim();
+    // Only persist if it differs from default and looks like an exec URL
+    if (v && v !== EXEC_REGISTRY_DEFAULTS[k].defaultUrl) {
+      if (!/^https:\/\/script\.google\.com\/macros\//.test(v)) {
+        alert(`"${k}" doesn't look like a Google Apps Script exec URL. Skipping.`);
+        return;
+      }
+      map[k] = v;
+    }
+  });
+  setExecOverrides(map);
+  // Update runtime globals so subsequent calls see the new URLs without reload
+  try {
+    /* eslint-disable */
+    eval('PIN_API_URL = getExec(\'pinReset\')');
+    eval('APPS_SCRIPT_URL = getExec(\'main\')');
+    /* eslint-enable */
+  } catch(e) { /* const reassignment will fail in strict mode — that's OK, the next page-load will pick up new values */ }
+  const btn = document.getElementById('execSaveBtn');
+  if (btn) {
+    btn.innerHTML = '&#10003; Saved! Reload to apply';
+    btn.style.background = '#16a34a';
+    setTimeout(() => { renderDevModePage(); }, 900);
+  }
+};
+
+window.execResetOne = function(key) {
+  const def = EXEC_REGISTRY_DEFAULTS[key]?.defaultUrl;
+  const inp = document.getElementById('execIn-' + key);
+  if (inp && def) {
+    inp.value = def;
+    inp.style.borderColor = 'var(--border)';
+  }
+};
+
+window.execResetAll = function() {
+  if (!confirm('Reset ALL endpoint URLs to their compiled-in defaults?')) return;
+  setExecOverrides({});
+  renderDevModePage();
+};
+
+// Ping an endpoint with action: '__ping__' and update its status pill.
+window.execTestOne = async function(key) {
+  const inp = document.getElementById('execIn-' + key);
+  const statusEl = document.getElementById('execStatus-' + key);
+  if (!inp || !statusEl) return;
+  const url = inp.value.trim();
+  if (!/^https:\/\/script\.google\.com\/macros\//.test(url)) {
+    statusEl.textContent = 'invalid url';
+    statusEl.style.background = '#fef2f2';
+    statusEl.style.color = '#dc2626';
+    return;
+  }
+  statusEl.textContent = 'testing…';
+  statusEl.style.background = '#fef9c3';
+  statusEl.style.color = '#92400e';
+  const t0 = performance.now();
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: '__ping__' })
+    });
+    const ms = Math.round(performance.now() - t0);
+    if (res.ok) {
+      // Even an "Unknown POST action" body is a green ping — it proves the deployment is live.
+      statusEl.textContent = `✓ ${ms}ms`;
+      statusEl.style.background = '#dcfce7';
+      statusEl.style.color = '#166534';
+    } else {
+      statusEl.textContent = `✗ HTTP ${res.status}`;
+      statusEl.style.background = '#fef2f2';
+      statusEl.style.color = '#dc2626';
+    }
+  } catch (e) {
+    statusEl.textContent = '✗ network';
+    statusEl.style.background = '#fef2f2';
+    statusEl.style.color = '#dc2626';
+  }
+};
+
+window.execTestAll = async function() {
+  for (const k of Object.keys(EXEC_REGISTRY_DEFAULTS)) {
+    await execTestOne(k);
+  }
+};
+
+
 function renderDevModePage() {
   const el = document.getElementById('mainContent');
   const cfg = loadPortalConfig();
@@ -5236,6 +5439,9 @@ function renderDevModePage() {
         </button>
       </div>
     </div>
+
+    <!-- Apps Script Endpoints — runtime override of all /exec URLs -->
+    ${renderExecEndpointsCard()}
 
     <!-- Legend -->
     <div style="display:flex;gap:.8rem;flex-wrap:wrap;margin-bottom:1rem;font-size:.75rem;color:var(--txt3)">
@@ -5701,7 +5907,7 @@ async function loadNotifications() {
 
   // ── 2. Pending POs ──
   try {
-    const pos = await fetchSheet('PO', 'SELECT A,E,F,R,S,AG', PO_SHEET_ID);
+    const pos = await fetchSheet(PO_TAB, 'SELECT A,E,F,R,S,AG', PO_SHEET_ID);
     pos.filter(r => {
       const status = (r['PO Approval Status'] || r['AG'] || '').toLowerCase();
       return r['PO No'] && r['PO No'] !== 'Dummy' &&
@@ -5952,7 +6158,7 @@ function renderSCMDashboard() {
 
 // ── LOAD DATA ────────────────────────────────────────────
 function loadPOData() {
-  fetchSheet('PO', 'SELECT A,E,F,G,J,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
+  fetchSheet(PO_TAB, 'SELECT A,E,F,G,J,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
     if (!rawRows || rawRows.length === 0) {
       document.getElementById('scm-pending-table').innerHTML =
         `<div style="padding:2rem;text-align:center;color:#c62828">
@@ -7728,7 +7934,7 @@ function renderSiteManager() {
     if (_smOpsTab === 'po') {
       if (_smOpsData.po) { smRenderPO(el); return; }
       el.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--txt3)">⏳ Loading POs for ${siteName}…</div>`;
-      fetchSheet('PO', 'SELECT A,E,F,G,J,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rows => {
+      fetchSheet(PO_TAB, 'SELECT A,E,F,G,J,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rows => {
         _smOpsData.po = rows.filter(r => {
           const s = (r['Site Name']||r['S']||'').trim();
           const p = (r['PO No']||r['E']||'').trim();
@@ -9049,7 +9255,7 @@ window.rptRun = async function() {
     // ── PO TRACKER ─────────────────────────────────────────
     else if (id === 'po_tracker') {
       if (!_rptRawData.po) {
-        const raw = await fetchSheet('PO','SELECT A,E,F,G,R,S,AF,AG,AP,AQ',PO_SHEET_ID);
+        const raw = await fetchSheet(PO_TAB,'SELECT A,E,F,G,R,S,AF,AG,AP,AQ',PO_SHEET_ID);
         _rptRawData.po = raw.filter(r=>{const p=(r['PO No']||r['E']||'').trim();return p&&p.toLowerCase()!=='dummy';})
           .map(r=>({uuid:r['UUID']||r['A']||'',poNo:r['PO No']||r['E']||'',poDate:r['PO Date']||r['F']||'',prepBy:r['Prepared By']||r['G']||'',vendor:r['Vendor Name']||r['R']||'',site:r['Site Name']||r['S']||'',approver:r['Approver Name']||r['AF']||'',status:r['PO Approval Status']||r['AG']||'',amount:parseFloat((r['Net Amount']||r['AP']||'0').toString().replace(/,/g,''))||0,lock:r['Lock']||r['AQ']||'',fyKey:getFYKey(parsePODate(r['PO Date']||r['F']||''))}));
       }
@@ -9069,7 +9275,7 @@ window.rptRun = async function() {
     // ── VENDOR SPEND ───────────────────────────────────────
     else if (id === 'vendor_spend') {
       if (!_rptRawData.po) {
-        const raw = await fetchSheet('PO','SELECT A,E,F,G,R,S,AF,AG,AP,AQ',PO_SHEET_ID);
+        const raw = await fetchSheet(PO_TAB,'SELECT A,E,F,G,R,S,AF,AG,AP,AQ',PO_SHEET_ID);
         _rptRawData.po = raw.filter(r=>{const p=(r['PO No']||r['E']||'').trim();return p&&p.toLowerCase()!=='dummy';})
           .map(r=>({poNo:r['PO No']||r['E']||'',vendor:r['Vendor Name']||r['R']||'',site:r['Site Name']||r['S']||'',status:r['PO Approval Status']||r['AG']||'',amount:parseFloat((r['Net Amount']||r['AP']||'0').toString().replace(/,/g,''))||0,fyKey:getFYKey(parsePODate(r['PO Date']||r['F']||''))}));
       }
@@ -10578,7 +10784,7 @@ function renderVendorPOTracker() {
     return;
   }
 
-  fetchSheet('PO', 'SELECT A,E,F,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
+  fetchSheet(PO_TAB, 'SELECT A,E,F,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
     const today = new Date(); today.setHours(0,0,0,0);
     _vpoAllRows = rawRows
       .filter(r => {
@@ -11955,7 +12161,7 @@ function renderSheetsHub() {
       group: 'Developer & Admin', icon: '🔧',
       apps: [
         { name: 'Apps Script API',    desc: 'Backend proxy — AI, file uploads, PIN, appendRow',
-          url: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec',
+          url: getExec('main'),
           tag: 'Dev', color: '#6b7280' },
         { name: 'Groq Console',       desc: 'AI API key management — free 14,400 req/day',
           url: 'https://console.groq.com',

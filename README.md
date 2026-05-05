@@ -1,100 +1,110 @@
-# EVGCPL Intranet Portal — Multi-page (v2.0)
+# EVGCPL Portal — Complete Package
 
-This build is a **multi-page split** of the canonical `index__88_.html`
-(byte-identical to v87). The UI/UX is **preserved exactly** — same CSS,
-same render functions, same layout, same vector graphics. Only the
-**routing layer** is changed: instead of one giant single-page file,
-the bundle is loaded by 11 page templates that each request the right
-route at boot.
+**Build:** v3.4.1 · build 321 · 2026-05-05
 
-## Architecture
+This is the complete deliverable: portal frontend, Apps Script backend, and project documentation in one zip. Everything you need to deploy or audit the portal.
+
+## What's in this package
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  Each *.html page                                            │
-│     <link href="assets/css/portal.css">     ← v88 CSS verbatim│
-│     <body data-page="dashboard">                             │
-│       <!-- v88 main-app shell: topnav + sidebar + main -->   │
-│     <script src="assets/js/portal-bundle.js">  ← v88 JS       │
-│     <script src="assets/js/multi-page-bootstrap.js">          │
-│                                                              │
-│  Bootstrap reads body.dataset.page and calls renderPage(...)  │
-└──────────────────────────────────────────────────────────────┘
+.
+├── README.md                              ← you are here
+├── BUILD.md                               ← build script reference
+├── version.json                           ← canonical version state
+├── build-portal.js                        ← run to make a new build
+├── EVGCPL_Portal_ProjectDocument_v6.docx  ← project doc (Word format)
+├── EVGCPL_Portal_ProjectDocument_v6.pdf   ← project doc (PDF format)
+│
+├── Frontend (HTML pages)
+│   ├── index.html (login)
+│   ├── dashboard.html
+│   ├── hr.html · scm.html · site-ops.html · planning.html
+│   ├── accounts.html · reports.html · apps.html · plant.html
+│   ├── config.html · external.html · sharing-doctor.html
+│   └── assets/
+│       ├── js/portal-bundle.js          ← main shared bundle (821KB)
+│       ├── js/multi-page-bootstrap.js
+│       ├── css/portal.css
+│       └── img/EG.jpg
+│
+├── pcc/                                   ← Project Cost Control subapp
+│   ├── 11 HTML pages (Setup, BOQ, WBS, Workplan, Manpower, etc.)
+│   ├── assets/                            ← own JS + CSS
+│   ├── AppsScript_Handlers.gs             ← copy in apps-script/PCCHandlers.gs
+│   └── README.md
+│
+└── apps-script/                           ← server-side .gs files
+    ├── Router.gs                          ← doPost/doGet entry + dispatch
+    ├── SafetyHandlers.gs                  ← appendRow, updateCell, batchUpdate
+    ├── ScheduledReports.gs                ← time-driven email triggers
+    ├── AIChat.gs                          ← Groq chat proxy
+    ├── AiProxy.gs                         ← generic LLM proxy w/ Gemini fallback
+    ├── SheetDiagnostic.gs                 ← sharing diagnostics
+    ├── PCCHandlers.gs                     ← 10 PCC actions
+    ├── WorkplanHandlers.gs                ← optional workplan-specific helpers
+    ├── WORKPLAN_SCHEMA.md                 ← schema reference
+    └── README.md                          ← install + deploy instructions
 ```
 
-- **`assets/css/portal.css`** — 1,003 lines, lifted verbatim from
-  v88's `<style>` block. Zero modifications.
-- **`assets/js/portal-bundle.js`** — 13,371 lines, lifted verbatim
-  from v88's main `<script>` block. All 218 render functions, all
-  Apps Script calls, all sheet IDs preserved.
-- **`assets/js/multi-page-bootstrap.js`** — 188 lines, the ONLY new
-  code. It maps every route to its owning HTML page, intercepts
-  `navigate()` for cross-page redirects, and hands off to
-  `renderPage()` on each page load.
+## Quick deploy (3 steps)
 
-## Pages
+### 1. Push the frontend to GitHub Pages
 
-| File | data-page | Owns routes |
-|---|---|---|
-| `index.html` | `index` | Login + role selector + vendor modal |
-| `dashboard.html` | `dashboard` | `dashboard`, `md-command`, `dev-mode` |
-| `hr.html` | `hr` | `hr-dashboard`, `my-profile`, `personal`, `onboarding`, `rewards`, `wall`, `policies` |
-| `scm.html` | `scm` | `scm`, `mrs`, `purchase`, `stores`, `vendor`, `subcontractor` |
-| `site-ops.html` | `site-ops` | `site-manager`, `safety`, `equipment`, `store` |
-| `accounts.html` | `accounts` | `accounts` |
-| `reports.html` | `reports` | `reports` |
-| `planning.html` | `planning` | `planning`, `tendering`, `budget`, `project-setup`, `boq-planning`, `execution`, `planning-overview`, `planning-setup` |
-| `plant.html` | `plant` | `plant`, `plant-log`, `plant-verify`, `plant-maintenance`, `log-entry`, `asset-verification`, `asset-maintenance` |
-| `apps.html` | `apps` | `apps` (v88 Apps hub) |
-| `external.html` | `external` | `my-portal`, `my-orders`, `my-invoices`, `my-documents` (vendor/SC) |
+```powershell
+cd C:\Users\1234\Downloads\Portal2\EVGCPL_Deploy
+git pull origin main
 
-## Admin Config Pages (NEW — added on top of v87/v88)
+# Extract this zip's CONTENTS (no portal_v3 wrapper)
+Expand-Archive -Path "$env:USERPROFILE\Downloads\EVGCPL_Portal_v3.4.1_build321_20260505.zip" -DestinationPath "$env:TEMP\evgcpl_v341" -Force
+Copy-Item -Path "$env:TEMP\evgcpl_v341\*" -Destination . -Recurse -Force
 
-These are not in the v87/v88 baseline. They were built earlier to give
-admins UI-level control over portal data sources:
-
-| File | Purpose |
-|---|---|
-| `config.html` | 5 tabs: Sheet IDs · Sheets directory · Tab & Query bindings · App Links · Diagnostics |
-| `sharing-doctor.html` | Server-side reachability check for every binding |
-| `apps-script/SheetDiagnostic.gs` | Sharing Doctor backend |
-| `apps-script/SafetyHandlers.gs` | `appendRow`, `updateCell`, `listHRDocs`, `listPolicyFiles`, `uploadPolicyFile`, `sendReportTest` reference |
-| `apps-script/ScheduledReports.gs` | Time-driven trigger + setup helpers (run once after deploying) |
-
-## What did NOT change
-
-- The login screen 2-column layout with embedded base64 logo
-- The animated floating green-glow circles
-- The dark green `var(--g7)/var(--g8)/var(--g9)` palette
-- The DM Serif Display + DM Sans typography
-- The sidebar with all role-gated nav items
-- The top nav with all dropdowns
-- The header with user avatar and avatar menu
-- The `#mainContent` rendering and all 218 `render*` functions
-- Apps Script URL (already deployed and working)
-- Google OAuth client ID
-- All sheet IDs and tab names
-
-## Deployment
-
-```bash
-cd ~/path/to/evgcpl-portal
-find . -maxdepth 1 ! -name '.git' ! -name '.' -exec rm -rf {} +
-unzip ~/Downloads/EVGCPL_Portal_v2.0.zip -d .
 git add -A
-git commit -m "Deploy EVGCPL Portal v2.0 — multi-page split of v88 baseline"
+git commit -m "v3.4.1 build 321: Endpoint Registry + PO_Actual + comprehensive package"
 git push origin main
 ```
 
-## Verification after deployment
+GitHub Pages picks it up in ~60 seconds.
 
-1. Visit `index.html` — confirm the v88 login layout is intact
-2. Sign in with Google or PIN — should redirect to `dashboard.html`
-3. Click any sidebar item — URL should change to that page's HTML file
-4. Within a section (e.g. site-ops.html), sidebar items in the same
-   section change route via hash — no full page reload
-5. Cross-section clicks trigger a full-page navigation
-6. Visit `config.html` — admin Sheet IDs / bindings / app-links UI
+### 2. Deploy the Apps Script backend
 
-If any page shows a blank `#mainContent`, it means the bootstrap couldn't
-resolve the default route. Check browser console — should say what failed.
+Open the Google Apps Script project bound to your master spreadsheet:
+1. **Extensions → Apps Script** from the master sheet
+2. For each `.gs` file in `apps-script/`, click **+ → Script** in the editor and paste in the contents (name files the same as their source filenames)
+3. **Deploy → Manage deployments → ✏️ → New version → Deploy**
+4. Copy the `/exec` URL
+
+See `apps-script/README.md` for full deploy details.
+
+### 3. Verify
+
+1. Open the portal, hard-refresh
+2. Go to **Config → 🔗 Apps Script Endpoints**
+3. Click **▶︎ Test all** — all 5 endpoints should turn green
+4. Open **Planning → Budgeting** and try saving a project — should succeed
+
+## Documentation
+
+- **EVGCPL_Portal_ProjectDocument_v6.docx** — full project document (11 sections)
+- **apps-script/README.md** — server-side install/deploy guide
+- **BUILD.md** — how to bump versions and produce new builds
+- **pcc/README.md** — Project Cost Control specifics
+
+## Versioning
+
+Run from this folder:
+
+```bash
+node build-portal.js              # auto-bump build only
+node build-portal.js --patch      # 3.4.1 → 3.4.2, build++
+node build-portal.js --minor      # 3.4.1 → 3.5.0, build++
+node build-portal.js --major      # 3.4.1 → 4.0.0, build++
+```
+
+Each build:
+- Increments `PORTAL_BUILD` (monotonic integer)
+- Updates `PORTAL_BUILD_AT` timestamp
+- Patches `portal-bundle.js` constants
+- Validates JS syntax
+- Creates a versioned zip: `EVGCPL_Portal_v{semver}_build{n}_{YYYYMMDD}.zip`
+
+The version stamps appear in the footer of every page in the portal.
