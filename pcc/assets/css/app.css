@@ -1114,3 +1114,34 @@ tr.row-stale .locked-cell::before { background: var(--red); }
   background: rgba(0, 0, 0, 0.02);
 }
 .m-modal .m-table tbody tr.disabled:hover { background: rgba(0, 0, 0, 0.02); }
+
+/* ── Z12 model — editable WBS row inputs ─────────────────────── */
+.wbs-node {
+  display: grid !important;
+  grid-template-columns: 110px 1fr 200px 90px 28px;
+  gap: 10px;
+  align-items: center;
+}
+.wbs-code-edit, .wbs-name-edit {
+  font-size: 12px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface, #fff);
+  color: var(--text);
+  font-family: inherit;
+}
+.wbs-code-edit {
+  font-family: 'Consolas', 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: var(--green);
+  width: 100%;
+}
+.wbs-name-edit { width: 100%; }
+.wbs-code-edit:focus, .wbs-name-edit:focus {
+  border-color: var(--green);
+  outline: none;
+}
+.wbs-node.lvl-1 .wbs-code-edit { padding-left: 16px; }
+.wbs-node.lvl-2 .wbs-code-edit { padding-left: 24px; }
+.wbs-node.lvl-3 .wbs-code-edit { padding-left: 32px; }

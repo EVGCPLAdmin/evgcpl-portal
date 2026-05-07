@@ -33,8 +33,15 @@ window.CONFIG = {
     APPROVALS:  'BudgetApprovals',
 
     // Master / lookup tabs (cached at load, used to build dropdowns)
-    M_ACTIVITIES: 'M_PL_1_Activities',  // Nature of Work → Type of Work
+    // Master / lookup tabs (cached at load, used to build dropdowns)
+    M_ACTIVITIES: 'M_PL_1_Activities',  // Activity catalog (cross-project)
+    Z12_NATURE:   'M12_Nature of Work', // Nature/Type/UOM master tab (on V2_MASTER sheet)
   },
+
+  // The Z12 master sheet is V2_MASTER, not the PCC sheet.
+  // Tab name is M12_Nature of Work (mapped from AppSheet table Z12.Nature of Work).
+  Z12_SHEET_ID: '1fhSO4WBYp0LNXPxe9I9zr5qsIPs9CIDFpUixBogPnsM',
+  Z12_TAB:      'M12_Nature of Work',
 
   // Workplan schema — one row per activity (per-project, per-WBS-row).
   // Kept in sync with saveWorkplan in AppsScript_Handlers.gs.

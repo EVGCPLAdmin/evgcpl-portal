@@ -15,18 +15,29 @@ window.PAGE = (function() {
 
   // ── State ──
   let nodes      = [];   // [{wbsCode, wbsName, natureOfWork, level, _stale}]
-  let activities = [];   // [{name, wbsCode, costCode, unit, boqQty, typeOfWork, masterUuid, checkSum, taskCode, _stale}]
+  let activities = [];   // [{name, wbsCode, costCode, unit, boqQty, typeOfWork, natureOfWork, masterUuid, checkSum, taskCode, _stale}]
   let costCodes  = [];
 
-  // Master indices — built once on load
-  let masterRows         = [];    // raw rows of M_PL_1_Activities
-  let masterByCheckSum   = {};    // checkSum → master row
-  let masterByUuid       = {};    // UUID → master row
-  let masterWbsList      = [];    // [{wbsCode, wbsName, natureOfWork, count}]   (deduplicated)
-  let masterWbsByCode    = {};    // wbsCode → masterWbsList entry
-  let natureMap          = {};    // Nature → [Type, …] (DISTINCT)
-  let validWbsCodes      = new Set();
-  let validCheckSums     = new Set();
+  // ── Master indices ──
+  // Z12 (M12_Nature of Work, on V2_MASTER) is the AUTHORITATIVE source for
+  // Nature of Work / Type of Work / UOM. M_PL_1_Activities is a secondary
+  // catalog used only by the Master Activity Picker.
+  let natureMap        = {};        // Nature → [Type, …] (sorted, from Z12)
+  let validNatures     = new Set(); // Set<Nature> for validation
+  let natureUomHint    = {};        // Nature → UOM (first Z12 row with that Nature)
+  let typeUomHint      = {};        // 'Nature::Type' → UOM (Z12-row-level)
+
+  // M_PL_1_Activities — kept for the Master Activity Picker
+  let masterRows       = [];
+  let masterByCheckSum = {};
+  let masterByUuid     = {};
+  let validCheckSums   = new Set();
+
+  // Legacy (retained for compatibility with WBS picker code that's no longer
+  // the primary path — kept as empty so existing references don't crash)
+  let masterWbsList    = [];
+  let masterWbsByCode  = {};
+  let validWbsCodes    = new Set();
 
   async function load() {
     const ap = window.STATE.activeProject;
@@ -38,50 +49,61 @@ window.PAGE = (function() {
     const code = ap['Project Code'];
 
     try {
-      const [w, a, cc, mAct] = await Promise.all([
+      // Fetch Z12 master from V2_MASTER sheet (separate from PCC sheet) for
+      // the Nature/Type dropdowns. M_PL_1_Activities is still loaded so the
+      // Master Activity Picker has something to browse, but the strict
+      // Nature/Type vocabulary now comes from Z12 (matching AppSheet).
+      const [w, a, cc, mAct, z12] = await Promise.all([
         API.gviz(window.CONFIG.TABS.WBS),
         API.gviz(window.CONFIG.TABS.ACTIVITIES),
         API.gviz(window.CONFIG.TABS.COSTCODE),
         API.gviz(window.CONFIG.TABS.M_ACTIVITIES).catch(() => []),
+        API.gviz(window.CONFIG.Z12_TAB, window.CONFIG.Z12_SHEET_ID).catch(() => []),
       ]);
 
-      buildMasterIndices(mAct || []);
+      buildMasterIndices({ mAct: mAct || [], z12: z12 || [] });
 
-      // ── Load saved per-project nodes, mark stale if not in master ──
+      // ── Load saved per-project nodes, mark stale if Nature unknown ──
+      // (Stale = Nature isn't in Z12 master.)
       nodes = (w || [])
         .filter(r => (r['Project Code'] || r['ProjectCode']) === code)
         .map(r => {
           const wbsCode = String(r['WBS Code'] || r['Code'] || '').trim();
-          const masterEntry = masterWbsByCode[wbsCode];
-          const stale = !masterEntry;
-          // If valid in master, prefer master's Nature (canonical) over saved value
-          const nature = masterEntry ? masterEntry.natureOfWork
-                                     : String(r['Nature of Work'] || '').trim();
-          const wbsName = masterEntry ? masterEntry.wbsName
-                                      : (r['WBS Name'] || r['Name'] || '');
+          const wbsName = String(r['WBS Name'] || r['Name']  || r['Description'] || '').trim();
+          const nature  = String(r['Nature of Work'] || '').trim();
+          const stale   = !!(nature && !validNatures.has(nature));
           return { wbsCode, wbsName, natureOfWork: nature, _stale: stale };
         })
         .filter(n => n.wbsCode);
 
-      // ── Load saved per-project activities, mark stale if no master link ──
+      // ── Load saved per-project activities ──
       activities = (a || [])
         .filter(r => (r['Project Code'] || r['ProjectCode']) === code)
         .map(r => {
           const checkSum   = String(r['CheckSum']   || '').trim();
           const masterUuid = String(r['Master UUID'] || r['UUID'] || '').trim();
-          // Resolve via CheckSum first (preferred), then UUID
           const m = masterByCheckSum[checkSum] || masterByUuid[masterUuid] || null;
-          const stale = !m;
+
+          // Nature/Type can come from saved row OR from master link
+          const nature = String((m && m['Nature of Work']) || r['Nature of Work'] || '').trim();
+          const type   = String((m && m['Type of Work'])   || r['Type of Work']   || '').trim();
+
+          // Stale if Nature isn't in Z12 master, OR if Type isn't valid for that Nature
+          const validTypesForNat = nature ? (natureMap[nature] || []) : [];
+          const stale = (!!nature && !validNatures.has(nature)) ||
+                        (!!type && !!nature && validTypesForNat.length > 0 && !validTypesForNat.includes(type));
+
           return {
-            name:        m ? (m['Activity'] || '')      : (r['Activity'] || r['Activity Name'] || r['Name'] || ''),
-            wbsCode:     m ? (m['WBS Code'] || '')      : (r['WBS Code'] || ''),
-            costCode:    r['Cost Code'] || r['CostCode'] || '',           // editable, not from master
-            unit:        m ? (m['Unit'] || 'CUM')       : (r['Unit'] || 'CUM'),
-            boqQty:      Number(r['BOQ Qty'] || r['Quantity'] || 0),       // editable, not from master
-            typeOfWork:  m ? (m['Type of Work'] || '')  : String(r['Type of Work'] || '').trim(),
-            masterUuid:  m ? (m['UUID']     || '')      : masterUuid,
-            checkSum:    m ? (m['CheckSum'] || '')      : checkSum,
-            taskCode:    m ? (m['Task Code']|| '')      : (r['Task Code'] || ''),
+            name:        m ? (m['Activity'] || '') : (r['Activity'] || r['Activity Name'] || r['Name'] || ''),
+            wbsCode:     m ? (m['WBS Code'] || '') : (r['WBS Code'] || ''),
+            costCode:    r['Cost Code'] || r['CostCode'] || '',
+            unit:        m ? (m['Unit'] || 'CUM') : (r['Unit'] || 'CUM'),
+            boqQty:      Number(r['BOQ Qty'] || r['Quantity'] || 0),
+            typeOfWork:  type,
+            natureOfWork: nature,                                // explicitly stored
+            masterUuid:  m ? (m['UUID']     || '') : masterUuid,
+            checkSum:    m ? (m['CheckSum'] || '') : checkSum,
+            taskCode:    m ? (m['Task Code']|| '') : (r['Task Code'] || ''),
             _stale: stale,
           };
         })
@@ -114,70 +136,60 @@ window.PAGE = (function() {
     }
   }
 
-  // ── Build master indices (one-time per load) ──────────────────
-  function buildMasterIndices(rows) {
-    masterRows = rows;
+  // ── Build master indices ──────────────────────────────────────
+  // Z12 (M12_Nature of Work) is the authoritative source for Nature/Type/UOM.
+  // M_PL_1_Activities is kept as a secondary catalog for the Activity Picker.
+  function buildMasterIndices({ mAct, z12 }) {
+    masterRows = mAct;
     masterByCheckSum = {};
     masterByUuid     = {};
     natureMap        = {};
-    validWbsCodes    = new Set();
+    validNatures     = new Set();
+    natureUomHint    = {};        // Nature → UOM (when unique across Z12 rows)
+    typeUomHint      = {};        // 'Nature::Type' → UOM (most specific)
     validCheckSums   = new Set();
 
-    // Aggregator for WBS → most common Nature pairing
-    const wbsAgg = {}; // wbsCode → { wbsName, natureCounts: {nature: count}, count }
+    // ── Z12: build Nature → [Type, …] map ──
+    z12.forEach(r => {
+      const active = String(r['Active/Inactive?'] || '').toLowerCase();
+      // Skip explicitly inactive rows
+      if (active === 'inactive' || active === 'no' || active === 'false') return;
 
-    rows.forEach(r => {
+      const nat = String(r['Nature of Work'] || '').trim();
+      const typ = String(r['Type of Work']   || '').trim();
+      const uom = String(r['UOM']            || '').trim();
+      if (!nat) return;
+
+      validNatures.add(nat);
+      if (!natureMap[nat]) natureMap[nat] = new Set();
+      if (typ) natureMap[nat].add(typ);
+      if (uom) {
+        if (typ) typeUomHint[nat + '::' + typ] = uom;
+        // Nature-level UOM hint: use first non-empty seen
+        if (!natureUomHint[nat]) natureUomHint[nat] = uom;
+      }
+    });
+    // Sort Type lists alphabetically
+    Object.keys(natureMap).forEach(k => {
+      natureMap[k] = [...natureMap[k]].sort();
+    });
+
+    // ── M_PL_1_Activities: index by CheckSum/UUID for the Activity Picker ──
+    mAct.forEach(r => {
       const cs   = String(r['CheckSum'] || '').trim();
       const uuid = String(r['UUID']     || '').trim();
       if (cs)   masterByCheckSum[cs]   = r;
       if (uuid) masterByUuid[uuid]     = r;
       if (cs)   validCheckSums.add(cs);
-
-      const wbs    = String(r['WBS Code']        || '').trim();
-      const nat    = String(r['Nature of Work']  || '').trim();
-      const typ    = String(r['Type of Work']    || '').trim();
-
-      if (wbs) {
-        validWbsCodes.add(wbs);
-        if (!wbsAgg[wbs]) wbsAgg[wbs] = { wbsName: '', natureCounts: {}, count: 0 };
-        wbsAgg[wbs].count += 1;
-        if (nat) wbsAgg[wbs].natureCounts[nat] = (wbsAgg[wbs].natureCounts[nat] || 0) + 1;
-      }
-
-      if (nat) {
-        if (!natureMap[nat]) natureMap[nat] = new Set();
-        if (typ) natureMap[nat].add(typ);
-      }
     });
 
-    // For each WBS Code, pick the Nature with highest count (ties → first seen)
-    masterWbsList = Object.entries(wbsAgg)
-      .map(([wbsCode, agg]) => {
-        let topNat = '';
-        let topCnt = -1;
-        Object.entries(agg.natureCounts).forEach(([n, c]) => {
-          if (c > topCnt) { topCnt = c; topNat = n; }
-        });
-        return {
-          wbsCode,
-          wbsName: agg.wbsName || wbsCode, // master has no separate WBS Name column; reuse code
-          natureOfWork: topNat,
-          count: agg.count,
-        };
-      })
-      .sort((a, b) => natCmp(a.wbsCode, b.wbsCode));
-
+    // Convenience: a flat sorted list of the Z12-derived natures for dropdowns
+    masterWbsList = []; // not used in Z12 model
     masterWbsByCode = {};
-    masterWbsList.forEach(m => { masterWbsByCode[m.wbsCode] = m; });
 
-    // Convert nature → set into nature → sorted array
-    Object.keys(natureMap).forEach(k => {
-      natureMap[k] = [...natureMap[k]].sort();
-    });
-
-    window.STATE.masterActivities = rows;
+    window.STATE.masterActivities = mAct;
     window.STATE.natureMap        = natureMap;
-    window.STATE.masterWbsList    = masterWbsList;
+    window.STATE.z12Nature        = z12; // raw rows for downstream pages
   }
 
   function setStatus(msg, color) {
@@ -187,7 +199,7 @@ window.PAGE = (function() {
     el.className = 'pill pill-' + (color || 'green');
   }
 
-  // ─── WBS tree (read-only after pick) ───────────────────────────
+  // ─── WBS tree (editable; Nature dropdown sourced from Z12) ─────
   function renderTree(filter) {
     const c = document.getElementById('wbsTree');
     if (!c) return;
@@ -201,10 +213,11 @@ window.PAGE = (function() {
       );
     }
     if (!list.length) {
-      c.innerHTML = '<div class="plp-empty">No WBS nodes yet. Click <strong>+ Pick WBS from master</strong> to start.</div>';
+      c.innerHTML = '<div class="plp-empty">No WBS nodes yet. Click <strong>+ Add WBS Node</strong> to start.</div>';
       return;
     }
     list = list.slice().sort((a, b) => natCmp(a.wbsCode, b.wbsCode));
+    const natureOpts = buildNatureOptions();
 
     c.innerHTML = list.map(n => {
       const lvl = Math.min(n.level || 0, 3);
@@ -213,16 +226,43 @@ window.PAGE = (function() {
         a.wbsCode === n.wbsCode || String(a.wbsCode).startsWith(n.wbsCode + '.')
       ).length;
       const staleCls = n._stale ? ' wbs-stale' : '';
-      const staleTip = n._stale ? ' title="⚠ This WBS Code is not in M_PL_1_Activities — re-pick from master before saving"' : '';
+      const staleTip = n._stale
+        ? ' title="⚠ This Nature is not in Z12 master — pick a valid one before saving"'
+        : '';
+      // Mark the saved Nature as selected even if "stale" so the user sees it
+      const natureSelected = natureOpts.replace(
+        `value="${Utils.esc(n.natureOfWork)}"`,
+        `value="${Utils.esc(n.natureOfWork)}" selected`
+      );
 
       return `<div class="wbs-node lvl-${lvl}${staleCls}"${staleTip}>
-        <span class="wbs-code">${Utils.esc(n.wbsCode)}</span>
-        <span class="wbs-name">${Utils.esc(n.wbsName)}</span>
-        <span class="wbs-nature-readonly" title="Nature inherited from master">${Utils.esc(n.natureOfWork || '—')}</span>
+        <input class="wbs-code-edit mono" value="${Utils.esc(n.wbsCode)}"
+          onchange="PAGE.editNode(${idx},'wbsCode',this.value);PAGE.refresh()"
+          placeholder="1.2.3" title="WBS Code (hierarchical, e.g. 1, 1.2)" />
+        <input class="wbs-name-edit" value="${Utils.esc(n.wbsName)}"
+          onchange="PAGE.editNode(${idx},'wbsName',this.value)"
+          placeholder="Description of this WBS scope" />
+        <select class="wbs-nature unit-select" onchange="PAGE.editNode(${idx},'natureOfWork',this.value);PAGE.refresh()" title="Nature of Work — sourced from Z12 master (M12_Nature of Work)">
+          ${natureSelected}
+        </select>
         <span class="wbs-meta">${actCount} ${actCount === 1 ? 'activity' : 'activities'}</span>
         <button class="btn-icon danger" onclick="PAGE.removeNode(${idx})" title="Remove">&times;</button>
       </div>`;
     }).join('');
+  }
+
+  // Helper: build <option> list of Z12 Natures
+  function buildNatureOptions() {
+    const natures = Object.keys(natureMap).sort();
+    return '<option value="">— pick Nature —</option>' +
+      natures.map(n => `<option value="${Utils.esc(n)}">${Utils.esc(n)}</option>`).join('');
+  }
+
+  // Public refresh hook called from inline onchanges
+  function refresh() {
+    renderTree();
+    renderActivities();
+    updateKPIs();
   }
 
   // ─── Activities table (locked except Cost Code + BOQ Qty) ─────
@@ -230,30 +270,51 @@ window.PAGE = (function() {
     const t = document.getElementById('actTbody');
     if (!t) return;
     if (!activities.length) {
-      t.innerHTML = '<tr><td colspan="9" class="empty-cell">No activities yet — use <strong>📚 Pick from master</strong> below.</td></tr>';
+      t.innerHTML = '<tr><td colspan="9" class="empty-cell">No activities yet. Click <strong>+ Add activity</strong> below or <strong>📚 Pick from master</strong> to import from M_PL_1_Activities.</td></tr>';
       return;
     }
     const ccOpts = ['<option value="">— CC —</option>'].concat(
       costCodes.map(c => `<option value="${Utils.esc(c.code)}">${Utils.esc(c.code)} · ${Utils.esc(c.name)}</option>`)
     ).join('');
+    const wbsOpts = ['<option value="">— pick WBS —</option>']
+      .concat(nodes.slice().sort((a, b) => natCmp(a.wbsCode, b.wbsCode))
+        .map(n => `<option value="${Utils.esc(n.wbsCode)}" data-nature="${Utils.esc(n.natureOfWork||'')}">${Utils.esc(n.wbsCode)} · ${Utils.esc(n.wbsName).slice(0,40)}</option>`))
+      .join('');
 
     t.innerHTML = activities.map((a, i) => {
+      // Inherit Nature from parent WBS row (canonical) — overrides activity-level Nature
       const parentNode = nodes.find(n => n.wbsCode === a.wbsCode);
-      const nature = (parentNode && parentNode.natureOfWork) || '';
+      const nature = (parentNode && parentNode.natureOfWork) || a.natureOfWork || '';
+      // Type-of-Work options from Z12 filtered by parent Nature
+      const typeChoices = nature ? (natureMap[nature] || []) : [];
+      const typeOpts = typeChoices.length
+        ? '<option value="">— pick Type —</option>' +
+          typeChoices.map(t => `<option value="${Utils.esc(t)}">${Utils.esc(t)}</option>`).join('')
+        : `<option value="">${nature ? '(no Types in Z12 for this Nature)' : '(pick a WBS first)'}</option>`;
+      // If saved typeOfWork doesn't match any current option, surface it as stale
+      const staleType = a.typeOfWork && nature && typeChoices.length && !typeChoices.includes(a.typeOfWork);
+      const finalTypeOpts = staleType
+        ? `<option value="${Utils.esc(a.typeOfWork)}" selected>⚠ ${Utils.esc(a.typeOfWork)} (not in Z12)</option>` + typeOpts
+        : typeOpts.replace(`value="${Utils.esc(a.typeOfWork)}"`, `value="${Utils.esc(a.typeOfWork)}" selected`);
+
+      const wbsSelected = wbsOpts.replace(`value="${Utils.esc(a.wbsCode)}"`, `value="${Utils.esc(a.wbsCode)}" selected`);
+      const ccSelected  = ccOpts.replace(`value="${Utils.esc(a.costCode)}"`,  `value="${Utils.esc(a.costCode)}" selected`);
+
       const staleCls = a._stale ? ' row-stale' : '';
       const staleTag = a._stale
-        ? `<span class="stale-tag" title="No matching master row — re-pick">⚠ stale</span>`
+        ? `<span class="stale-tag" title="Nature/Type not in Z12 master — fix before saving">⚠</span>`
         : '';
 
       return `
       <tr class="${staleCls}" data-idx="${i}">
         <td class="mono">${i + 1}${staleTag}</td>
-        <td class="locked-cell" title="Locked from master">${Utils.esc(a.name)}</td>
-        <td class="locked-cell mono" style="font-size:11px;color:var(--green);font-weight:600" title="Locked from master">${Utils.esc(a.wbsCode || '—')}</td>
-        <td class="locked-cell" style="color:var(--green);font-weight:600" title="Inherited from WBS">${Utils.esc(nature || '—')}</td>
-        <td class="locked-cell" title="Locked from master">${Utils.esc(a.typeOfWork || '—')}</td>
-        <td><select class="unit-select" onchange="PAGE.editAct(${i},'costCode',this.value)">${ccOpts.replace(`value="${Utils.esc(a.costCode)}"`, `value="${Utils.esc(a.costCode)}" selected`)}</select></td>
-        <td class="locked-cell mono" title="Locked from master">${Utils.esc(a.unit)}</td>
+        <td><input class="inline-edit desc" value="${Utils.esc(a.name)}"
+            oninput="PAGE.editAct(${i},'name',this.value)" placeholder="Activity description" /></td>
+        <td><select class="unit-select wbs-pick" onchange="PAGE.editAct(${i},'wbsCode',this.value);PAGE.refresh()" title="Pick parent WBS row — Nature auto-fills">${wbsSelected}</select></td>
+        <td style="color:var(--green);font-weight:600;font-size:11px" title="Inherited from WBS row">${Utils.esc(nature || '—')}</td>
+        <td><select class="unit-select" onchange="PAGE.editAct(${i},'typeOfWork',this.value);PAGE.refresh()" ${typeChoices.length ? '' : 'disabled'} title="Type of Work — filtered by parent WBS Nature, from Z12 master">${finalTypeOpts}</select></td>
+        <td><select class="unit-select" onchange="PAGE.editAct(${i},'costCode',this.value)">${ccSelected}</select></td>
+        <td><input class="inline-edit mono" value="${Utils.esc(a.unit)}" oninput="PAGE.editAct(${i},'unit',this.value)" placeholder="UoM" title="Auto-fills from Z12 when Type is picked — editable" style="width:64px" /></td>
         <td><input class="inline-edit num" type="number" step="0.01" min="0" value="${a.boqQty}" oninput="PAGE.editAct(${i},'boqQty',this.value)" /></td>
         <td><button class="btn-icon danger" onclick="PAGE.removeActivity(${i})" title="Remove">&times;</button></td>
       </tr>
@@ -280,110 +341,7 @@ window.PAGE = (function() {
 
   function filter(q) { renderTree(q); }
 
-  // ─── WBS picker (DISTINCT WBS Codes from master) ──────────────
-  let _wbsPickerSelected = new Set();
-
-  function openWbsPicker() {
-    const overlay = document.getElementById('wbsPickerOverlay');
-    if (!overlay) {
-      Utils.toast('WBS picker not available — refresh page', 'err');
-      return;
-    }
-    if (!masterWbsList.length) {
-      Utils.toast('Master M_PL_1_Activities is empty or not shared publicly', 'err');
-      return;
-    }
-    _wbsPickerSelected = new Set();
-    populateWbsPickerFilters();
-    renderWbsPicker();
-    overlay.style.display = 'flex';
-    setTimeout(() => document.getElementById('wpkSearch')?.focus(), 60);
-  }
-
-  function closeWbsPicker() {
-    const overlay = document.getElementById('wbsPickerOverlay');
-    if (overlay) overlay.style.display = 'none';
-  }
-
-  function renderWbsPicker() {
-    const tbody = document.getElementById('wpkTbody');
-    const search = (document.getElementById('wpkSearch')?.value || '').toLowerCase().trim();
-    const fNat   = document.getElementById('wpkNatureFilter')?.value || '';
-    if (!tbody) return;
-
-    // Already-added WBS Codes (so we can disable them)
-    const existing = new Set(nodes.map(n => n.wbsCode));
-
-    let filtered = masterWbsList;
-    if (fNat) filtered = filtered.filter(m => m.natureOfWork === fNat);
-    if (search) {
-      filtered = filtered.filter(m => {
-        const hay = (m.wbsCode + ' ' + m.wbsName + ' ' + m.natureOfWork).toLowerCase();
-        return hay.includes(search);
-      });
-    }
-
-    document.getElementById('wpkCount').textContent = `${filtered.length.toLocaleString()} of ${masterWbsList.length}`;
-
-    if (!filtered.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">No WBS codes match the filters.</td></tr>';
-      return;
-    }
-
-    tbody.innerHTML = filtered.slice(0, 500).map(m => {
-      const sel = _wbsPickerSelected.has(m.wbsCode);
-      const already = existing.has(m.wbsCode);
-      return `<tr class="${sel ? 'sel' : ''}${already ? ' disabled' : ''}" onclick="${already ? '' : `PAGE.toggleWbsRow('${Utils.esc(m.wbsCode)}')`}">
-        <td><input type="checkbox" ${sel ? 'checked' : ''} ${already ? 'disabled title="Already added"' : ''} onclick="event.stopPropagation();PAGE.toggleWbsRow('${Utils.esc(m.wbsCode)}')"></td>
-        <td class="mono" style="color:var(--green);font-weight:700">${Utils.esc(m.wbsCode)}</td>
-        <td>${Utils.esc(m.wbsName)}</td>
-        <td style="color:var(--green);font-weight:600">${Utils.esc(m.natureOfWork || '—')}</td>
-        <td class="mono" style="text-align:right;font-size:10.5px;color:var(--text-faint)">${m.count} act${m.count === 1 ? '' : 's'}${already ? ' · <span style="color:var(--gold)">already added</span>' : ''}</td>
-      </tr>`;
-    }).join('') + (filtered.length > 500
-      ? `<tr><td colspan="5" style="text-align:center;color:var(--text-faint);padding:10px">… ${filtered.length - 500} more — refine filters</td></tr>`
-      : '');
-
-    document.getElementById('wpkSelectedCount').textContent = `${_wbsPickerSelected.size} selected`;
-  }
-
-  function toggleWbsRow(wbsCode) {
-    if (_wbsPickerSelected.has(wbsCode)) _wbsPickerSelected.delete(wbsCode);
-    else _wbsPickerSelected.add(wbsCode);
-    renderWbsPicker();
-  }
-
-  function confirmWbsPick() {
-    let added = 0;
-    _wbsPickerSelected.forEach(wbsCode => {
-      const m = masterWbsByCode[wbsCode];
-      if (!m) return;
-      // Skip if already exists
-      if (nodes.some(n => n.wbsCode === wbsCode)) return;
-      nodes.push({
-        wbsCode:      m.wbsCode,
-        wbsName:      m.wbsName,
-        natureOfWork: m.natureOfWork,
-        level:        (m.wbsCode.match(/\./g) || []).length,
-      });
-      added++;
-    });
-    closeWbsPicker();
-    renderTree();
-    renderActivities();
-    updateKPIs();
-    Utils.toast(`Added ${added} WBS node${added === 1 ? '' : 's'}`, 'ok');
-  }
-
-  function populateWbsPickerFilters() {
-    const natSel = document.getElementById('wpkNatureFilter');
-    if (!natSel) return;
-    const natures = [...new Set(masterWbsList.map(m => m.natureOfWork).filter(Boolean))].sort();
-    natSel.innerHTML = '<option value="">All Natures</option>' +
-      natures.map(n => `<option value="${Utils.esc(n)}">${Utils.esc(n)}</option>`).join('');
-  }
-
-  // ─── Activity master picker (existing — locked schema) ────────
+  // ─── Activity master picker (browses M_PL_1_Activities) ───────
   let _pickerSelected = new Set();
 
   function openMasterPicker() {
@@ -391,10 +349,6 @@ window.PAGE = (function() {
     if (!overlay) return;
     if (!masterRows.length) {
       Utils.toast('Master M_PL_1_Activities is empty or not shared publicly', 'err');
-      return;
-    }
-    if (!nodes.length) {
-      Utils.toast('Add at least one WBS node first (top of page)', 'err');
       return;
     }
     _pickerSelected = new Set();
@@ -415,11 +369,12 @@ window.PAGE = (function() {
     const wbsSel = document.getElementById('mpWbsFilter');
     if (!natSel) return;
 
-    // WBS filter restricted to WBS codes already added to this project (strict)
-    const projectWbsCodes = nodes.map(n => n.wbsCode).sort(natCmp);
+    // WBS filter shows ALL distinct WBS codes from the master catalog
+    // (sorted hierarchically). User can narrow down without project gating.
+    const allMasterWbs = [...new Set(masterRows.map(r => String(r['WBS Code'] || '').trim()).filter(Boolean))].sort(natCmp);
     if (wbsSel) {
-      wbsSel.innerHTML = '<option value="">All project WBS</option>' +
-        projectWbsCodes.map(c => `<option value="${Utils.esc(c)}">${Utils.esc(c)}</option>`).join('');
+      wbsSel.innerHTML = '<option value="">All WBS Codes</option>' +
+        allMasterWbs.map(c => `<option value="${Utils.esc(c)}">${Utils.esc(c)}</option>`).join('');
     }
 
     const natures = Object.keys(natureMap).sort();
@@ -446,16 +401,14 @@ window.PAGE = (function() {
     const fWbs   = document.getElementById('mpWbsFilter')?.value || '';
     if (!tbody) return;
 
-    // STRICT: only show master rows whose WBS Code is among the project's WBS nodes
-    const projectWbsCodes = new Set(nodes.map(n => n.wbsCode));
+    // Track already-added activities (by CheckSum) to disable them
     const existing = new Set(activities.map(a => a.checkSum).filter(Boolean));
 
     let filtered = masterRows.filter(r => {
       const wbs = String(r['WBS Code'] || '').trim();
-      // STRICT: WBS Code MUST be in the project. If no nodes yet, show nothing.
-      if (!projectWbsCodes.has(wbs)) return false;
       const nat = String(r['Nature of Work'] || '');
       const typ = String(r['Type of Work']   || '');
+      // Optional WBS filter (when user picked one) — does NOT enforce project membership
       if (fWbs && wbs !== fWbs) return false;
       if (fNat && nat !== fNat) return false;
       if (fTyp && typ !== fTyp) return false;
@@ -466,13 +419,10 @@ window.PAGE = (function() {
       return true;
     });
 
-    document.getElementById('mpCount').textContent = `${filtered.length.toLocaleString()} of ${projectWbsCodes.size ? masterRows.filter(r => projectWbsCodes.has(String(r['WBS Code']||'').trim())).length : 0}`;
+    document.getElementById('mpCount').textContent = `${filtered.length.toLocaleString()} of ${masterRows.length}`;
 
     if (!filtered.length) {
-      const msg = !projectWbsCodes.size
-        ? 'Add WBS nodes first — activities can only be picked under those codes.'
-        : 'No activities match the filters.';
-      tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">${msg}</td></tr>`;
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">No activities match the filters.</td></tr>';
       return;
     }
 
@@ -509,34 +459,106 @@ window.PAGE = (function() {
       if (!r) { skipped++; return; }
       // Skip duplicates
       if (activities.some(a => a.checkSum === cs)) { skipped++; return; }
+      const nat = String(r['Nature of Work'] || '').trim();
+      const typ = String(r['Type of Work']   || '').trim();
+      // Find a project WBS row with the same Nature; if found, link there
+      const matchWbs = nodes.find(n => n.natureOfWork === nat);
       activities.push({
-        name:        r['Activity']        || '',
-        wbsCode:     r['WBS Code']        || '',
-        costCode:    '',                                  // editable
-        unit:        r['Unit']            || 'CUM',      // locked from master
-        boqQty:      0,                                  // editable
-        typeOfWork:  r['Type of Work']    || '',         // locked from master
-        masterUuid:  r['UUID']            || '',
-        checkSum:    r['CheckSum']        || '',
-        taskCode:    r['Task Code']       || '',
+        name:         r['Activity']        || '',
+        wbsCode:      matchWbs ? matchWbs.wbsCode : '',
+        costCode:     '',
+        unit:         r['Unit']            || (typeUomHint[nat + '::' + typ] || natureUomHint[nat] || ''),
+        boqQty:       0,
+        typeOfWork:   typ,
+        natureOfWork: nat,
+        masterUuid:   r['UUID']            || '',
+        checkSum:     r['CheckSum']        || '',
+        taskCode:     r['Task Code']       || '',
+        _stale:       !!nat && !validNatures.has(nat),
       });
       added++;
     });
     closeMasterPicker();
     renderActivities();
     updateKPIs();
-    Utils.toast(`Added ${added} activit${added === 1 ? 'y' : 'ies'}${skipped ? ` · ${skipped} skipped (duplicates)` : ''}`, 'ok');
+    const note = matchedHint(activities);
+    Utils.toast(`Added ${added} activit${added === 1 ? 'y' : 'ies'}${skipped ? ` · ${skipped} skipped (duplicate)` : ''}${note ? ' · ' + note : ''}`, 'ok');
+  }
+
+  function matchedHint(activities) {
+    const unmapped = activities.filter(a => !a.wbsCode).length;
+    return unmapped ? `${unmapped} need a WBS row` : '';
   }
 
   function editAct(i, key, val) {
     if (!activities[i]) return;
-    // STRICT: only Cost Code + BOQ Qty are editable
-    if (key !== 'costCode' && key !== 'boqQty') {
-      Utils.toast(`${key} is locked — re-pick from master to change`, 'err');
-      renderActivities();
-      return;
+    if (key === 'boqQty') val = Number(val) || 0;
+    activities[i][key] = val;
+
+    // When WBS Code changes → re-derive Nature, possibly invalidate Type
+    if (key === 'wbsCode') {
+      const parent = nodes.find(n => n.wbsCode === val);
+      const newNature = (parent && parent.natureOfWork) || '';
+      activities[i].natureOfWork = newNature;
+      // If saved Type isn't valid for the new Nature, clear it
+      const valid = newNature ? (natureMap[newNature] || []) : [];
+      if (activities[i].typeOfWork && !valid.includes(activities[i].typeOfWork)) {
+        activities[i].typeOfWork = '';
+      }
+      activities[i]._stale = !!newNature && !validNatures.has(newNature);
     }
-    activities[i][key] = (key === 'boqQty') ? Number(val) : val;
+
+    // When Type changes → auto-fill UOM from Z12 if available, refresh stale flag
+    if (key === 'typeOfWork') {
+      const nat = activities[i].natureOfWork || '';
+      const hint = typeUomHint[nat + '::' + val] || natureUomHint[nat];
+      if (hint && (!activities[i].unit || activities[i].unit === 'CUM')) {
+        activities[i].unit = hint;
+      }
+      const validForNat = nat ? (natureMap[nat] || []) : [];
+      activities[i]._stale = (!!nat && !validNatures.has(nat)) ||
+                             (!!val && validForNat.length > 0 && !validForNat.includes(val));
+    }
+  }
+
+  function editNode(i, key, val) {
+    if (!nodes[i]) return;
+    nodes[i][key] = val;
+    if (key === 'wbsCode') {
+      nodes[i].level = (String(val).match(/\./g) || []).length;
+    }
+    if (key === 'natureOfWork') {
+      nodes[i]._stale = !!val && !validNatures.has(val);
+    }
+  }
+
+  function addNode() {
+    // Suggest the next sequential code
+    const existingCodes = nodes.map(n => n.wbsCode).sort(natCmp);
+    let next = '1';
+    for (let i = 1; i <= 99; i++) {
+      if (!existingCodes.includes(String(i))) { next = String(i); break; }
+    }
+    nodes.push({ wbsCode: next, wbsName: '', natureOfWork: '', level: 0, _stale: false });
+    renderTree();
+    renderActivities();
+    updateKPIs();
+  }
+
+  function quickAddActivity() {
+    activities.push({
+      name: '', wbsCode: '', costCode: '', unit: '', boqQty: 0,
+      typeOfWork: '', natureOfWork: '',
+      masterUuid: '', checkSum: '', taskCode: '',
+      _stale: false,
+    });
+    renderActivities();
+    updateKPIs();
+    // Focus the new row's Activity name
+    setTimeout(() => {
+      const rows = document.querySelectorAll('#actTbody tr input.desc');
+      if (rows.length) rows[rows.length - 1].focus();
+    }, 50);
   }
 
   function removeActivity(i) {
@@ -576,23 +598,49 @@ window.PAGE = (function() {
     function q(s) { return /[",\n]/.test(s) ? `"${String(s).replace(/"/g, '""')}"` : s; }
   }
 
-  // ─── Save with strict validation ──────────────────────────────
+  // ─── Save with Z12 validation ─────────────────────────────────
   async function save() {
     const ap = window.STATE.activeProject;
     if (!ap) { Utils.toast('Select a project first', 'err'); return; }
 
-    // STRICT: validate every row against master before saving.
-    const badNodes = nodes.filter(n => !validWbsCodes.has(n.wbsCode));
-    const badActs  = activities.filter(a => !a.checkSum || !validCheckSums.has(a.checkSum));
+    // Validation rules:
+    //  • Every WBS node must have a non-empty WBS Code and a Nature in Z12
+    //  • Every Activity must have a non-empty name, a parent WBS that exists,
+    //    and (if Type is set) the Type must be in Z12 for that Nature
+    //  • Activities don't strictly require a Type, but Save warns if missing
+    const badNodeNoCode   = nodes.filter(n => !String(n.wbsCode).trim());
+    const badNodeNoNature = nodes.filter(n => String(n.wbsCode).trim() && !n.natureOfWork);
+    const badNodeBadNat   = nodes.filter(n => n.natureOfWork && !validNatures.has(n.natureOfWork));
 
-    if (badNodes.length || badActs.length) {
-      const msg = [
-        badNodes.length ? `${badNodes.length} WBS node(s) not in master: ${badNodes.slice(0,3).map(n=>n.wbsCode).join(', ')}${badNodes.length>3?'…':''}` : '',
-        badActs.length  ? `${badActs.length} activit${badActs.length===1?'y':'ies'} missing master link: ${badActs.slice(0,3).map(a=>a.name).join(', ')}${badActs.length>3?'…':''}` : '',
-      ].filter(Boolean).join('\n');
-      alert('🚫 Save blocked — fix these strict-master violations first:\n\n' + msg + '\n\nRemove the offending rows or re-pick them from the master.');
-      Utils.toast('Save blocked — stale rows present', 'err');
+    const wbsSet = new Set(nodes.map(n => n.wbsCode));
+    const badActNoName    = activities.filter(a => !String(a.name).trim());
+    const badActNoWBS     = activities.filter(a => a.name && !wbsSet.has(a.wbsCode));
+    const badActBadType   = activities.filter(a => {
+      if (!a.typeOfWork) return false;
+      const parent = nodes.find(n => n.wbsCode === a.wbsCode);
+      const nature = (parent && parent.natureOfWork) || a.natureOfWork || '';
+      const valid = nature ? (natureMap[nature] || []) : [];
+      return valid.length > 0 && !valid.includes(a.typeOfWork);
+    });
+    const actsNoType = activities.filter(a => a.name && !a.typeOfWork);
+
+    const errors = [];
+    if (badNodeNoCode.length)   errors.push(`${badNodeNoCode.length} WBS node(s) missing a Code`);
+    if (badNodeNoNature.length) errors.push(`${badNodeNoNature.length} WBS node(s) missing Nature: ${badNodeNoNature.slice(0,3).map(n=>n.wbsCode).join(', ')}${badNodeNoNature.length>3?'…':''}`);
+    if (badNodeBadNat.length)   errors.push(`${badNodeBadNat.length} WBS node(s) with Nature not in Z12: ${badNodeBadNat.slice(0,3).map(n=>n.natureOfWork).join(', ')}${badNodeBadNat.length>3?'…':''}`);
+    if (badActNoName.length)    errors.push(`${badActNoName.length} activit${badActNoName.length===1?'y':'ies'} missing a name`);
+    if (badActNoWBS.length)     errors.push(`${badActNoWBS.length} activit${badActNoWBS.length===1?'y':'ies'} pointing to a WBS Code that doesn't exist`);
+    if (badActBadType.length)   errors.push(`${badActBadType.length} activit${badActBadType.length===1?'y':'ies'} with Type not in Z12 for its Nature`);
+
+    if (errors.length) {
+      alert('🚫 Save blocked — fix these issues first:\n\n• ' + errors.join('\n• '));
+      Utils.toast('Save blocked — see issues', 'err');
       return;
+    }
+
+    if (actsNoType.length) {
+      const ok = confirm(`${actsNoType.length} activit${actsNoType.length===1?'y':'ies'} have no Type of Work. Save anyway?`);
+      if (!ok) return;
     }
 
     const btn = document.getElementById('saveBtn');
@@ -605,17 +653,23 @@ window.PAGE = (function() {
           wbsName:      n.wbsName,
           natureOfWork: n.natureOfWork || '',
         })),
-        activities: activities.map(a => ({
-          name:        a.name,
-          wbsCode:     a.wbsCode,
-          costCode:    a.costCode,
-          unit:        a.unit,
-          boqQty:      Number(a.boqQty) || 0,
-          typeOfWork:  a.typeOfWork || '',
-          masterUuid:  a.masterUuid || '',
-          checkSum:    a.checkSum   || '',
-          taskCode:    a.taskCode   || '',
-        })),
+        activities: activities.map(a => {
+          // Re-derive nature from parent WBS to ensure consistency
+          const parent = nodes.find(n => n.wbsCode === a.wbsCode);
+          const nature = (parent && parent.natureOfWork) || a.natureOfWork || '';
+          return {
+            name:         a.name,
+            wbsCode:      a.wbsCode,
+            costCode:     a.costCode,
+            unit:         a.unit,
+            boqQty:       Number(a.boqQty) || 0,
+            natureOfWork: nature,
+            typeOfWork:   a.typeOfWork || '',
+            masterUuid:   a.masterUuid || '',
+            checkSum:     a.checkSum   || '',
+            taskCode:     a.taskCode   || '',
+          };
+        }),
       });
       if (r && r.success) Utils.toast(`Saved ${nodes.length} nodes and ${activities.length} activities`, 'ok');
       else Utils.toast((r && r.message) || 'Save failed', 'err');
@@ -628,20 +682,13 @@ window.PAGE = (function() {
 
   function onProjectChange() { load(); }
 
-  // Public method called by the WBS picker filter inputs
-  function renderWbsPickerNow() {
-    populateWbsPickerFilters();
-    renderWbsPicker();
-  }
-
   return {
-    load, save, exportCSV, filter,
+    load, save, exportCSV, filter, refresh,
     // Tree
-    removeNode,
+    addNode, editNode, removeNode,
     // Activities
-    editAct, removeActivity,
-    // Pickers
-    openWbsPicker, closeWbsPicker, toggleWbsRow, confirmWbsPick, renderWbsPickerNow,
+    quickAddActivity, editAct, removeActivity,
+    // Master picker (for browsing M_PL_1_Activities)
     openMasterPicker, closeMasterPicker, filterMaster, toggleMasterRow, confirmMasterPick,
     onProjectChange,
   };
