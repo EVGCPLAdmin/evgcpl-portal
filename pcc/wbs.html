@@ -34,10 +34,9 @@
     <span class="sb-icon">🔒</span>
     <div>
       <strong>Master-only fields:</strong>
-      <strong>Activity</strong> is picked from <code>M_PL_1_Activities</code> &middot;
-      <strong>Nature of Work</strong> is a dropdown from <code>Z12</code> (on WBS row) &middot;
-      <strong>Type of Work</strong> and <strong>UoM</strong> flow from Z12 through the master pick &mdash; all locked after selection.
-      Only <strong>WBS Code / Name</strong>, <strong>Cost Code</strong>, and <strong>BOQ Qty</strong> are editable.
+      <strong>Activity</strong> · <strong>Nature</strong> · <strong>Type of Work</strong> · <strong>UoM</strong> are filled from <code>M_PL_1_Activities</code> — locked after selection.
+      WBS Codes can be typed or picked from <code>M_PL_1_Activities</code>.
+      Only <strong>WBS Name</strong>, <strong>Cost Code</strong>, and <strong>BOQ Qty</strong> are free-editable.
     </div>
   </div>
 
@@ -55,10 +54,10 @@
     <div class="card-pad">
       <div class="boq-toolbar">
         <div class="left">
-          <span style="font-size:12px;color:var(--text-faint)">Filter:</span>
-          <input type="text" id="wbsFilter" placeholder="Search code, name, or nature&hellip;" style="width:280px" oninput="PAGE.filter(this.value)" />
+          <input type="text" id="wbsFilter" placeholder="Filter WBS…" style="width:220px" oninput="PAGE.filter(this.value)" />
         </div>
-        <div class="right">
+        <div class="right" style="display:flex;gap:.4rem">
+          <button class="btn btn-secondary" onclick="PAGE.openWbsPicker()" title="Pick WBS codes from M_PL_1_Activities master">📚 Pick WBS from master&hellip;</button>
           <button class="btn btn-primary" onclick="PAGE.addNode()">+ Add WBS Node</button>
         </div>
       </div>
@@ -111,6 +110,42 @@
     <a class="btn btn-primary" href="workplan.html">Continue to Workplan &rarr;</a>
   </div>
 </main>
+
+<!-- WBS Picker — DISTINCT WBS Codes from M_PL_1_Activities -->
+<div id="wbsPickerOverlay" class="m-overlay" style="display:none" onclick="if(event.target===this)PAGE.closeWbsPicker()">
+  <div class="m-modal" role="dialog">
+    <div class="m-head">
+      <div>
+        <h3>📚 Pick WBS from Master</h3>
+        <div class="m-sub">DISTINCT WBS Codes from <code>M_PL_1_Activities</code> &middot; WBS Name stays editable after adding</div>
+      </div>
+      <button class="btn-icon" onclick="PAGE.closeWbsPicker()">&times;</button>
+    </div>
+    <div class="m-filters">
+      <input type="search" id="wpkSearch" placeholder="Search WBS code…" oninput="PAGE.renderWbsPickerTable()" />
+      <span id="wpkCount" class="pill pill-green">0</span>
+    </div>
+    <div class="m-table-wrap">
+      <table class="m-table">
+        <thead>
+          <tr>
+            <th style="width:32px"></th>
+            <th style="width:130px">WBS Code</th>
+            <th>Natures in master</th>
+            <th style="width:90px;text-align:right">Activities</th>
+          </tr>
+        </thead>
+        <tbody id="wpkTbody"><tr><td colspan="4" class="empty-cell">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="m-foot">
+      <span id="wpkSelectedCount" class="m-fnote">0 selected</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-secondary" onclick="PAGE.closeWbsPicker()">Cancel</button>
+      <button class="btn btn-primary" onclick="PAGE.confirmWbsPick()">Add selected</button>
+    </div>
+  </div>
+</div>
 
 <!-- Master Activity Picker (M_PL_1_Activities) — for browsing the full activity catalog -->
 <div id="masterPickerOverlay" class="m-overlay" style="display:none" onclick="if(event.target===this)PAGE.closeMasterPicker()">

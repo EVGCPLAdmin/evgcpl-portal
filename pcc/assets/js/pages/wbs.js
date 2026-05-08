@@ -199,7 +199,9 @@ window.PAGE = (function() {
     el.className = 'pill pill-' + (color || 'green');
   }
 
-  // ─── WBS tree (editable; Nature dropdown sourced from Z12) ─────
+  // ─── WBS tree ─────────────────────────────────────────────────
+  // WBS rows = Code + Name only. Nature belongs to Activities via master.
+  // Can be typed manually OR picked from M_PL_1_Activities DISTINCT WBS Codes.
   function renderTree(filter) {
     const c = document.getElementById('wbsTree');
     if (!c) return;
@@ -208,16 +210,14 @@ window.PAGE = (function() {
       const ql = filter.toLowerCase();
       list = nodes.filter(n =>
         n.wbsCode.toLowerCase().includes(ql) ||
-        String(n.wbsName).toLowerCase().includes(ql) ||
-        String(n.natureOfWork).toLowerCase().includes(ql)
+        String(n.wbsName).toLowerCase().includes(ql)
       );
     }
     if (!list.length) {
-      c.innerHTML = '<div class="plp-empty">No WBS nodes yet. Click <strong>+ Add WBS Node</strong> to start.</div>';
+      c.innerHTML = '<div class="plp-empty">No WBS nodes yet. Click <strong>+ Add WBS Node</strong> or <strong>📚 Pick WBS from master</strong>.</div>';
       return;
     }
     list = list.slice().sort((a, b) => natCmp(a.wbsCode, b.wbsCode));
-    const natureOpts = buildNatureOptions();
 
     c.innerHTML = list.map(n => {
       const lvl = Math.min(n.level || 0, 3);
@@ -225,37 +225,104 @@ window.PAGE = (function() {
       const actCount = activities.filter(a =>
         a.wbsCode === n.wbsCode || String(a.wbsCode).startsWith(n.wbsCode + '.')
       ).length;
-      const staleCls = n._stale ? ' wbs-stale' : '';
-      const staleTip = n._stale
-        ? ' title="⚠ This Nature is not in Z12 master — pick a valid one before saving"'
-        : '';
-      // Mark the saved Nature as selected even if "stale" so the user sees it
-      const natureSelected = natureOpts.replace(
-        `value="${Utils.esc(n.natureOfWork)}"`,
-        `value="${Utils.esc(n.natureOfWork)}" selected`
-      );
 
-      return `<div class="wbs-node lvl-${lvl}${staleCls}"${staleTip}>
+      return `<div class="wbs-node lvl-${lvl}">
         <input class="wbs-code-edit mono" value="${Utils.esc(n.wbsCode)}"
           onchange="PAGE.editNode(${idx},'wbsCode',this.value);PAGE.refresh()"
-          placeholder="1.2.3" title="WBS Code (hierarchical, e.g. 1, 1.2)" />
+          placeholder="1.2.3" title="WBS Code (e.g. 1, 1.2, 1.2.3)" />
         <input class="wbs-name-edit" value="${Utils.esc(n.wbsName)}"
           onchange="PAGE.editNode(${idx},'wbsName',this.value)"
-          placeholder="Description of this WBS scope" />
-        <select class="wbs-nature unit-select" onchange="PAGE.editNode(${idx},'natureOfWork',this.value);PAGE.refresh()" title="Nature of Work — sourced from Z12 master (M12_Nature of Work)">
-          ${natureSelected}
-        </select>
+          placeholder="Description of this WBS item" style="flex:1" />
         <span class="wbs-meta">${actCount} ${actCount === 1 ? 'activity' : 'activities'}</span>
         <button class="btn-icon danger" onclick="PAGE.removeNode(${idx})" title="Remove">&times;</button>
       </div>`;
     }).join('');
   }
 
-  // Helper: build <option> list of Z12 Natures
-  function buildNatureOptions() {
-    const natures = Object.keys(natureMap).sort();
-    return '<option value="">— pick Nature —</option>' +
-      natures.map(n => `<option value="${Utils.esc(n)}">${Utils.esc(n)}</option>`).join('');
+  // ─── WBS Picker (DISTINCT WBS Codes from M_PL_1_Activities) ──
+  let _wbsPickerSelected = new Set();
+
+  function openWbsPicker() {
+    if (!masterRows.length) {
+      Utils.toast('M_PL_1_Activities is empty or not shared publicly', 'err');
+      return;
+    }
+    const overlay = document.getElementById('wbsPickerOverlay');
+    if (!overlay) return;
+    _wbsPickerSelected = new Set();
+    renderWbsPickerTable();
+    overlay.style.display = 'flex';
+    setTimeout(() => document.getElementById('wpkSearch')?.focus(), 60);
+  }
+
+  function closeWbsPicker() {
+    const overlay = document.getElementById('wbsPickerOverlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  function renderWbsPickerTable() {
+    const tbody  = document.getElementById('wpkTbody');
+    const search = (document.getElementById('wpkSearch')?.value || '').toLowerCase().trim();
+    if (!tbody) return;
+
+    // Build DISTINCT list of (WBS Code, description-from-Activity) from master
+    const wbsMap = new Map(); // wbsCode → { wbsCode, actCount, natures }
+    masterRows.forEach(r => {
+      const wbs = String(r['WBS Code'] || '').trim();
+      if (!wbs) return;
+      if (!wbsMap.has(wbs)) wbsMap.set(wbs, { wbsCode: wbs, actCount: 0, natures: new Set() });
+      const e = wbsMap.get(wbs);
+      e.actCount++;
+      const nat = String(r['Nature of Work'] || '').trim();
+      if (nat) e.natures.add(nat);
+    });
+    let wbsList = [...wbsMap.values()].sort((a, b) => natCmp(a.wbsCode, b.wbsCode));
+    if (search) wbsList = wbsList.filter(w => w.wbsCode.toLowerCase().includes(search));
+    const existing = new Set(nodes.map(n => n.wbsCode));
+
+    document.getElementById('wpkCount').textContent = `${wbsList.length} of ${wbsMap.size}`;
+
+    if (!wbsList.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty-cell">No WBS codes match.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = wbsList.map(w => {
+      const sel = _wbsPickerSelected.has(w.wbsCode);
+      const already = existing.has(w.wbsCode);
+      const natLabels = [...w.natures].sort().join(', ');
+      return `<tr class="${sel?'sel':''}${already?' disabled':''}"
+          onclick="${already ? '' : `PAGE.toggleWbsRow('${Utils.esc(w.wbsCode)}')`}"
+          style="cursor:${already?'default':'pointer'}">
+        <td><input type="checkbox" ${sel?'checked':''} ${already?'disabled title="Already added"':''}
+          onclick="event.stopPropagation();${already?'':` PAGE.toggleWbsRow('${Utils.esc(w.wbsCode)}')`}"></td>
+        <td class="mono" style="color:var(--green);font-weight:700">${Utils.esc(w.wbsCode)}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${Utils.esc(natLabels||'—')}</td>
+        <td class="mono" style="text-align:right;font-size:10.5px;color:var(--text-faint)">${w.actCount} act${w.actCount===1?'':'s'}${already?' · <span style="color:var(--gold)">added</span>':''}</td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('wpkSelectedCount').textContent = `${_wbsPickerSelected.size} selected`;
+  }
+
+  function toggleWbsRow(wbsCode) {
+    if (_wbsPickerSelected.has(wbsCode)) _wbsPickerSelected.delete(wbsCode);
+    else _wbsPickerSelected.add(wbsCode);
+    renderWbsPickerTable();
+  }
+
+  function confirmWbsPick() {
+    let added = 0;
+    _wbsPickerSelected.forEach(wbsCode => {
+      if (nodes.some(n => n.wbsCode === wbsCode)) return; // skip duplicate
+      nodes.push({ wbsCode, wbsName: '', level: (wbsCode.match(/\./g)||[]).length, _stale: false });
+      added++;
+    });
+    closeWbsPicker();
+    renderTree();
+    renderActivities();
+    updateKPIs();
+    Utils.toast(`Added ${added} WBS node${added===1?'':'s'}`, 'ok');
   }
 
   // Public refresh hook called from inline onchanges
@@ -355,7 +422,8 @@ window.PAGE = (function() {
   function filter(q) { renderTree(q); }
 
   // ─── Activity master picker (browses M_PL_1_Activities) ───────
-  let _pickerSelected = new Set();
+  let _pickerSelected = new Map(); // compositeKey → master row object
+  let _rowKeyMap      = new Map(); // compositeKey → master row (rebuilt on each render)
 
   function openMasterPicker() {
     const overlay = document.getElementById('masterPickerOverlay');
@@ -364,7 +432,8 @@ window.PAGE = (function() {
       Utils.toast('Master M_PL_1_Activities is empty or not shared publicly', 'err');
       return;
     }
-    _pickerSelected = new Set();
+    _pickerSelected = new Map();
+    _rowKeyMap      = new Map();
     populateMasterFilters();
     renderMasterTable();
     overlay.style.display = 'flex';
@@ -439,12 +508,23 @@ window.PAGE = (function() {
       return;
     }
 
-    tbody.innerHTML = filtered.slice(0, 500).map(r => {
-      const cs = String(r['CheckSum'] || '');
+    // Build a key→row lookup used by toggleMasterRow (survives across re-renders
+    // because it's rebuilt every time renderMasterTable runs)
+    _rowKeyMap = new Map();
+    tbody.innerHTML = filtered.slice(0, 500).map((r, rowIdx) => {
+      const rawCs = String(r['CheckSum'] || r['UUID'] || '').trim();
+      const cs = rawCs || `_row_${rowIdx}_${String(r['Activity']||'').slice(0,20)}_${String(r['WBS Code']||'').slice(0,10)}`;
+      _rowKeyMap.set(cs, r); // register for toggleMasterRow lookup
       const sel = _pickerSelected.has(cs);
-      const already = existing.has(cs);
-      return `<tr class="${sel ? 'sel' : ''}${already ? ' disabled' : ''}" onclick="${already ? '' : `PAGE.toggleMasterRow('${Utils.esc(cs)}')`}">
-        <td><input type="checkbox" ${sel ? 'checked' : ''} ${already ? 'disabled title="Already added"' : ''} onclick="event.stopPropagation();PAGE.toggleMasterRow('${Utils.esc(cs)}')"></td>
+      const already = activities.some(a =>
+        // Duplicate check: same CheckSum (if both have one) OR same Activity+WBS combo
+        (rawCs && a.checkSum && a.checkSum === rawCs) ||
+        (!rawCs && a.name === (r['Activity']||'') && a.wbsCode === (r['WBS Code']||''))
+      );
+      // Escape the key for use in onclick attr — apostrophes must be escaped
+      const csAttr = cs.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      return `<tr class="${sel ? 'sel' : ''}${already ? ' disabled' : ''}" onclick="${already ? '' : `PAGE.toggleMasterRow('${csAttr}')`}" style="cursor:${already?'default':'pointer'}">
+        <td><input type="checkbox" ${sel ? 'checked' : ''} ${already ? 'disabled title="Already added"' : ''} onclick="event.stopPropagation();${already?'':` PAGE.toggleMasterRow('${csAttr}')`}"></td>
         <td><strong>${Utils.esc(r['Activity'] || '')}</strong>${already ? ' <span style="color:var(--gold);font-size:10.5px">· already added</span>' : ''}</td>
         <td class="mono" style="color:var(--green);font-weight:600">${Utils.esc(r['WBS Code'] || '')}</td>
         <td style="color:var(--green);font-weight:600">${Utils.esc(r['Nature of Work'] || '')}</td>
@@ -459,47 +539,65 @@ window.PAGE = (function() {
     document.getElementById('mpSelectedCount').textContent = `${_pickerSelected.size} selected`;
   }
 
-  function toggleMasterRow(checkSum) {
-    if (_pickerSelected.has(checkSum)) _pickerSelected.delete(checkSum);
-    else _pickerSelected.add(checkSum);
+  function toggleMasterRow(key) {
+    if (_pickerSelected.has(key)) {
+      _pickerSelected.delete(key);
+    } else {
+      // The key was generated inside renderMasterTable using the filtered-slice rowIdx.
+      // We can't reconstruct the exact row from the key alone, so we stored the row
+      // in a temporary lookup map built alongside the tbody render.
+      const row = _rowKeyMap.get(key);
+      if (row) _pickerSelected.set(key, row);
+    }
     renderMasterTable();
   }
 
   function confirmMasterPick() {
     let added = 0, skipped = 0;
-    _pickerSelected.forEach(cs => {
-      const r = masterByCheckSum[cs];
+    _pickerSelected.forEach((r) => {
       if (!r) { skipped++; return; }
-      // Skip duplicates
-      if (activities.some(a => a.checkSum === cs)) { skipped++; return; }
-      const nat = String(r['Nature of Work'] || '').trim();
-      const typ = String(r['Type of Work']   || '').trim();
-      // Find a project WBS row with the same Nature; if found, link there
-      const matchWbs = nodes.find(n => n.natureOfWork === nat);
+      const rawCs  = String(r['CheckSum'] || r['UUID'] || '').trim();
+      const nat    = String(r['Nature of Work'] || '').trim();
+      const typ    = String(r['Type of Work']   || '').trim();
+      const wbsKey = String(r['WBS Code']       || '').trim();
+      // Duplicate check
+      const isDup = activities.some(a =>
+        (rawCs && a.checkSum === rawCs) ||
+        (!rawCs && a.name === (r['Activity']||'') && a.wbsCode === wbsKey)
+      );
+      if (isDup) { skipped++; return; }
+      const uom = typeUomHint[nat + '::' + typ] || natureUomHint[nat] || String(r['Unit'] || '').trim();
+      // Link to matching project WBS row; fall back to master WBS Code as placeholder
+      const matchWbs = nodes.find(n => n.wbsCode === wbsKey);
       activities.push({
-        name:         r['Activity']        || '',
-        wbsCode:      matchWbs ? matchWbs.wbsCode : '',
+        name:         r['Activity']  || '',
+        wbsCode:      matchWbs ? matchWbs.wbsCode : wbsKey,
         costCode:     '',
-        unit:         r['Unit']            || (typeUomHint[nat + '::' + typ] || natureUomHint[nat] || ''),
+        unit:         uom,
         boqQty:       0,
         typeOfWork:   typ,
         natureOfWork: nat,
-        masterUuid:   r['UUID']            || '',
-        checkSum:     r['CheckSum']        || '',
-        taskCode:     r['Task Code']       || '',
-        _stale:       !!nat && !validNatures.has(nat),
+        masterUuid:   r['UUID']      || '',
+        checkSum:     rawCs,
+        taskCode:     r['Task Code'] || '',
+        _stale:       false,
       });
       added++;
     });
     closeMasterPicker();
     renderActivities();
     updateKPIs();
-    const note = matchedHint(activities);
-    Utils.toast(`Added ${added} activit${added === 1 ? 'y' : 'ies'}${skipped ? ` · ${skipped} skipped (duplicate)` : ''}${note ? ' · ' + note : ''}`, 'ok');
+    const unmapped = activities.filter(a => !nodes.some(n => n.wbsCode === a.wbsCode)).length;
+    Utils.toast(
+      `Added ${added} activit${added===1?'y':'ies'}` +
+      (skipped  ? ` · ${skipped} skipped` : '') +
+      (unmapped ? ` · ${unmapped} need a WBS row — assign below` : ''),
+      'ok'
+    );
   }
 
-  function matchedHint(activities) {
-    const unmapped = activities.filter(a => !a.wbsCode).length;
+  function matchedHint(acts) {
+    const unmapped = acts.filter(a => !a.wbsCode).length;
     return unmapped ? `${unmapped} need a WBS row` : '';
   }
 
@@ -704,11 +802,9 @@ window.PAGE = (function() {
 
   return {
     load, save, exportCSV, filter, refresh,
-    // Tree
     addNode, editNode, removeNode,
-    // Activities — picker only, no quickAdd
     editAct, removeActivity,
-    // Master picker (M_PL_1_Activities)
+    openWbsPicker, closeWbsPicker, toggleWbsRow, confirmWbsPick, renderWbsPickerTable,
     openMasterPicker, closeMasterPicker, filterMaster, toggleMasterRow, confirmMasterPick,
     onProjectChange,
   };

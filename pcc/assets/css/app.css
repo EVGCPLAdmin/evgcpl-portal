@@ -1169,3 +1169,8 @@ td.locked-cell::before {
   border-radius: 2px;
   background: rgba(30,128,56,.25);
 }
+
+/* ── WBS node — Nature removed, 3-col layout ────────────────── */
+.wbs-node {
+  grid-template-columns: 110px 1fr 80px 28px !important;
+}
