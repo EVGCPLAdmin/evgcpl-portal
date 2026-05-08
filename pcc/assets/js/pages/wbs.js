@@ -63,16 +63,19 @@ window.PAGE = (function() {
 
       buildMasterIndices({ mAct: mAct || [], z12: z12 || [] });
 
-      // ── Load saved per-project nodes, mark stale if Nature unknown ──
-      // (Stale = Nature isn't in Z12 master.)
+      // ── Load saved per-project WBS nodes ──
+      // WBS nodes are project-specific (no stale check — Nature has been removed
+      // from WBS rows; it lives on Activities via the master pick).
       nodes = (w || [])
         .filter(r => (r['Project Code'] || r['ProjectCode']) === code)
         .map(r => {
           const wbsCode = String(r['WBS Code'] || r['Code'] || '').trim();
-          const wbsName = String(r['WBS Name'] || r['Name']  || r['Description'] || '').trim();
-          const nature  = String(r['Nature of Work'] || '').trim();
-          const stale   = !!(nature && !validNatures.has(nature));
-          return { wbsCode, wbsName, natureOfWork: nature, _stale: stale };
+          const wbsName = String(r['WBS Name'] || r['Name'] || r['Description'] || '').trim();
+          return {
+            wbsCode,
+            wbsName,
+            level: (wbsCode.match(/\./g) || []).length,
+          };
         })
         .filter(n => n.wbsCode);
 
@@ -109,9 +112,6 @@ window.PAGE = (function() {
         })
         .filter(x => x.name);
 
-      // Derive level from dot count for tree indenting
-      nodes.forEach(n => { n.level = (n.wbsCode.match(/\./g) || []).length; });
-
       costCodes = (cc || []).map(r => ({
         code: r['Cost Code'] || r['Code'] || '',
         name: r['Description'] || r['Name'] || '',
@@ -121,13 +121,12 @@ window.PAGE = (function() {
       renderActivities();
       updateKPIs();
 
-      const staleNodes = nodes.filter(n => n._stale).length;
-      const staleActs  = activities.filter(a => a._stale).length;
-      if (staleNodes || staleActs) {
-        setStatus(`⚠ ${staleNodes + staleActs} stale rows`, 'red');
-        Utils.toast(`${staleNodes + staleActs} row(s) not in master — fix before saving`, 'err');
+      const staleActs = activities.filter(a => a._stale).length;
+      if (staleActs) {
+        setStatus(`⚠ ${staleActs} stale activit${staleActs === 1 ? 'y' : 'ies'}`, 'red');
+        Utils.toast(`${staleActs} activit${staleActs === 1 ? 'y' : 'ies'} with Nature/Type not in Z12 — reassign WBS to fix`, 'err');
       } else {
-        setStatus(nodes.length ? 'Loaded · master-valid' : 'Empty', nodes.length ? 'green' : 'gold');
+        setStatus(nodes.length ? `${nodes.length} node${nodes.length===1?'':'s'} · ${activities.length} activit${activities.length===1?'y':'ies'}` : 'Empty', nodes.length ? 'green' : 'gold');
       }
     } catch (e) {
       console.error(e);
@@ -349,22 +348,23 @@ window.PAGE = (function() {
       .join('');
 
     t.innerHTML = activities.map((a, i) => {
-      const parentNode = nodes.find(n => n.wbsCode === a.wbsCode);
-      const nature = (parentNode && parentNode.natureOfWork) || a.natureOfWork || '';
+      // Nature comes from the activity's master pick — NOT from the parent WBS node
+      // (WBS nodes no longer carry Nature)
+      const nature = String(a.natureOfWork || '').trim();
       const wbsSelected = wbsOpts.replace(`value="${Utils.esc(a.wbsCode)}"`, `value="${Utils.esc(a.wbsCode)}" selected`);
       const ccSelected  = ccOpts.replace(`value="${Utils.esc(a.costCode)}"`,  `value="${Utils.esc(a.costCode)}" selected`);
 
-      // Stale: Nature not in Z12, or Type not valid for that Nature
+      // Stale: Type not valid for the activity's Nature in Z12
       const typeChoices = nature ? (natureMap[nature] || []) : [];
       const staleType = a.typeOfWork && nature && typeChoices.length && !typeChoices.includes(a.typeOfWork);
-      const staleCls = (a._stale || staleType) ? ' row-stale' : '';
-      const staleTag = (a._stale || staleType)
-        ? `<span class="stale-tag" title="${staleType ? 'Type not in Z12 for this Nature' : 'Nature/Type not in Z12 master'}">⚠</span>`
+      const staleCls = staleType ? ' row-stale' : '';
+      const staleTag = staleType
+        ? `<span class="stale-tag" title="Type not in Z12 for Nature: ${Utils.esc(nature)}">⚠</span>`
         : '';
       const typeDisplay = staleType
         ? `<span class="locked-val stale-val" title="Not in Z12 for Nature: ${Utils.esc(nature)}">⚠ ${Utils.esc(a.typeOfWork)}</span>`
         : `<span class="locked-val">${Utils.esc(a.typeOfWork || '—')}</span>`;
-      const uomDisplay  = `<span class="locked-val">${Utils.esc(a.unit || '—')}</span>`;
+      const uomDisplay = `<span class="locked-val">${Utils.esc(a.unit || '—')}</span>`;
 
       return `
       <tr class="${staleCls}" data-idx="${i}">
@@ -603,34 +603,15 @@ window.PAGE = (function() {
 
   function editAct(i, key, val) {
     if (!activities[i]) return;
+    // LOCKED fields — sourced from master, cannot be changed after pick
+    const LOCKED = ['name', 'typeOfWork', 'unit', 'natureOfWork', 'masterUuid', 'checkSum', 'taskCode'];
+    if (LOCKED.includes(key)) return;
     if (key === 'boqQty') val = Number(val) || 0;
     activities[i][key] = val;
-
-    // When WBS Code changes → re-derive Nature, possibly invalidate Type
-    if (key === 'wbsCode') {
-      const parent = nodes.find(n => n.wbsCode === val);
-      const newNature = (parent && parent.natureOfWork) || '';
-      activities[i].natureOfWork = newNature;
-      // If saved Type isn't valid for the new Nature, clear it
-      const valid = newNature ? (natureMap[newNature] || []) : [];
-      if (activities[i].typeOfWork && !valid.includes(activities[i].typeOfWork)) {
-        activities[i].typeOfWork = '';
-      }
-      activities[i]._stale = !!newNature && !validNatures.has(newNature);
-    }
-
-    // When Type changes → auto-fill UOM from Z12 if available, refresh stale flag
-    if (key === 'typeOfWork') {
-      const nat = activities[i].natureOfWork || '';
-      const hint = typeUomHint[nat + '::' + val] || natureUomHint[nat];
-      if (hint && (!activities[i].unit || activities[i].unit === 'CUM')) {
-        activities[i].unit = hint;
-      }
-      const validForNat = nat ? (natureMap[nat] || []) : [];
-      activities[i]._stale = (!!nat && !validNatures.has(nat)) ||
-                             (!!val && validForNat.length > 0 && !validForNat.includes(val));
-    }
+    // Nature is carried on the Activity from the master pick — no WBS-derived Nature
   }
+
+  // quickAddActivity intentionally removed — activities must come from master picker
 
   function editNode(i, key, val) {
     if (!nodes[i]) return;
@@ -638,46 +619,20 @@ window.PAGE = (function() {
     if (key === 'wbsCode') {
       nodes[i].level = (String(val).match(/\./g) || []).length;
     }
-    if (key === 'natureOfWork') {
-      nodes[i]._stale = !!val && !validNatures.has(val);
-    }
+    // natureOfWork removed from WBS nodes — no stale check
   }
 
   function addNode() {
-    // Suggest the next sequential code
     const existingCodes = nodes.map(n => n.wbsCode).sort(natCmp);
     let next = '1';
     for (let i = 1; i <= 99; i++) {
       if (!existingCodes.includes(String(i))) { next = String(i); break; }
     }
-    nodes.push({ wbsCode: next, wbsName: '', natureOfWork: '', level: 0, _stale: false });
+    nodes.push({ wbsCode: next, wbsName: '', level: 0 });
     renderTree();
     renderActivities();
     updateKPIs();
   }
-
-  function editAct(i, key, val) {
-    if (!activities[i]) return;
-    // LOCKED fields — sourced from master, cannot be changed after pick
-    const LOCKED = ['name', 'typeOfWork', 'unit', 'natureOfWork', 'masterUuid', 'checkSum', 'taskCode'];
-    if (LOCKED.includes(key)) return; // silently ignore; UI shows locked cells, no input exists
-    // Editable fields: wbsCode, costCode, boqQty
-    if (key === 'boqQty') val = Number(val) || 0;
-    activities[i][key] = val;
-    // When WBS Code changes → re-derive Nature + validate Type against Z12
-    if (key === 'wbsCode') {
-      const parent = nodes.find(n => n.wbsCode === val);
-      const newNature = (parent && parent.natureOfWork) || '';
-      activities[i].natureOfWork = newNature;
-      // Mark stale if saved Type isn't valid for the new Nature
-      const valid = newNature ? (natureMap[newNature] || []) : [];
-      const typ = activities[i].typeOfWork;
-      activities[i]._stale = (!!newNature && !validNatures.has(newNature)) ||
-                             (!!typ && valid.length > 0 && !valid.includes(typ));
-    }
-  }
-
-  // quickAddActivity intentionally removed — activities must come from master picker
 
   function removeActivity(i) {
     if (!confirm(`Remove "${activities[i]?.name || 'this activity'}" from project?`)) return;
@@ -721,37 +676,29 @@ window.PAGE = (function() {
     const ap = window.STATE.activeProject;
     if (!ap) { Utils.toast('Select a project first', 'err'); return; }
 
-    // Validation rules:
-    //  • Every WBS node must have a non-empty WBS Code and a Nature in Z12
-    //  • Every Activity must have a non-empty name, a parent WBS that exists,
-    //    and (if Type is set) the Type must be in Z12 for that Nature
-    //  • Activities don't strictly require a Type, but Save warns if missing
-    const badNodeNoCode   = nodes.filter(n => !String(n.wbsCode).trim());
-    const badNodeNoNature = nodes.filter(n => String(n.wbsCode).trim() && !n.natureOfWork);
-    const badNodeBadNat   = nodes.filter(n => n.natureOfWork && !validNatures.has(n.natureOfWork));
-
-    const wbsSet = new Set(nodes.map(n => n.wbsCode));
-    const badActNoName    = activities.filter(a => !String(a.name).trim());
-    const badActNoWBS     = activities.filter(a => a.name && !wbsSet.has(a.wbsCode));
-    const badActBadType   = activities.filter(a => {
-      if (!a.typeOfWork) return false;
-      const parent = nodes.find(n => n.wbsCode === a.wbsCode);
-      const nature = (parent && parent.natureOfWork) || a.natureOfWork || '';
-      const valid = nature ? (natureMap[nature] || []) : [];
+    // Validation:
+    //  • WBS nodes need a non-empty Code
+    //  • Activities need a name and a valid parent WBS Code
+    //  • If Activity has a Type, it must be valid for its Nature in Z12 (warn only)
+    const badNodeNoCode = nodes.filter(n => !String(n.wbsCode).trim());
+    const wbsSet        = new Set(nodes.map(n => n.wbsCode));
+    const badActNoName  = activities.filter(a => !String(a.name).trim());
+    const badActNoWBS   = activities.filter(a => a.name && a.wbsCode && !wbsSet.has(a.wbsCode));
+    const badActBadType = activities.filter(a => {
+      if (!a.typeOfWork || !a.natureOfWork) return false;
+      const valid = natureMap[a.natureOfWork] || [];
       return valid.length > 0 && !valid.includes(a.typeOfWork);
     });
     const actsNoType = activities.filter(a => a.name && !a.typeOfWork);
 
     const errors = [];
-    if (badNodeNoCode.length)   errors.push(`${badNodeNoCode.length} WBS node(s) missing a Code`);
-    if (badNodeNoNature.length) errors.push(`${badNodeNoNature.length} WBS node(s) missing Nature: ${badNodeNoNature.slice(0,3).map(n=>n.wbsCode).join(', ')}${badNodeNoNature.length>3?'…':''}`);
-    if (badNodeBadNat.length)   errors.push(`${badNodeBadNat.length} WBS node(s) with Nature not in Z12: ${badNodeBadNat.slice(0,3).map(n=>n.natureOfWork).join(', ')}${badNodeBadNat.length>3?'…':''}`);
-    if (badActNoName.length)    errors.push(`${badActNoName.length} activit${badActNoName.length===1?'y':'ies'} missing a name`);
-    if (badActNoWBS.length)     errors.push(`${badActNoWBS.length} activit${badActNoWBS.length===1?'y':'ies'} pointing to a WBS Code that doesn't exist`);
-    if (badActBadType.length)   errors.push(`${badActBadType.length} activit${badActBadType.length===1?'y':'ies'} with Type not in Z12 for its Nature`);
+    if (badNodeNoCode.length) errors.push(`${badNodeNoCode.length} WBS node(s) missing a Code`);
+    if (badActNoName.length)  errors.push(`${badActNoName.length} activit${badActNoName.length===1?'y':'ies'} missing a name`);
+    if (badActNoWBS.length)   errors.push(`${badActNoWBS.length} activit${badActNoWBS.length===1?'y':'ies'} assigned to a WBS Code that doesn't exist in this project`);
+    if (badActBadType.length) errors.push(`${badActBadType.length} activit${badActBadType.length===1?'y':'ies'} with Type not in Z12 for its Nature`);
 
     if (errors.length) {
-      alert('🚫 Save blocked — fix these issues first:\n\n• ' + errors.join('\n• '));
+      alert('🚫 Save blocked:\n\n• ' + errors.join('\n• '));
       Utils.toast('Save blocked — see issues', 'err');
       return;
     }
@@ -766,28 +713,22 @@ window.PAGE = (function() {
     try {
       const r = await API.scriptCall('saveWBS', {
         projectCode: ap['Project Code'],
-        nodes:      nodes.map(n => ({
-          wbsCode:      n.wbsCode,
-          wbsName:      n.wbsName,
-          natureOfWork: n.natureOfWork || '',
+        nodes: nodes.map(n => ({
+          wbsCode:  n.wbsCode,
+          wbsName:  n.wbsName,
         })),
-        activities: activities.map(a => {
-          // Re-derive nature from parent WBS to ensure consistency
-          const parent = nodes.find(n => n.wbsCode === a.wbsCode);
-          const nature = (parent && parent.natureOfWork) || a.natureOfWork || '';
-          return {
-            name:         a.name,
-            wbsCode:      a.wbsCode,
-            costCode:     a.costCode,
-            unit:         a.unit,
-            boqQty:       Number(a.boqQty) || 0,
-            natureOfWork: nature,
-            typeOfWork:   a.typeOfWork || '',
-            masterUuid:   a.masterUuid || '',
-            checkSum:     a.checkSum   || '',
-            taskCode:     a.taskCode   || '',
-          };
-        }),
+        activities: activities.map(a => ({
+          name:         a.name,
+          wbsCode:      a.wbsCode,
+          costCode:     a.costCode,
+          unit:         a.unit,
+          boqQty:       Number(a.boqQty) || 0,
+          natureOfWork: a.natureOfWork || '',
+          typeOfWork:   a.typeOfWork   || '',
+          masterUuid:   a.masterUuid   || '',
+          checkSum:     a.checkSum     || '',
+          taskCode:     a.taskCode     || '',
+        })),
       });
       if (r && r.success) Utils.toast(`Saved ${nodes.length} nodes and ${activities.length} activities`, 'ok');
       else Utils.toast((r && r.message) || 'Save failed', 'err');
