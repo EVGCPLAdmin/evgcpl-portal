@@ -270,7 +270,7 @@ window.PAGE = (function() {
     const t = document.getElementById('actTbody');
     if (!t) return;
     if (!activities.length) {
-      t.innerHTML = '<tr><td colspan="9" class="empty-cell">No activities yet. Click <strong>+ Add activity</strong> below or <strong>📚 Pick from master</strong> to import from M_PL_1_Activities.</td></tr>';
+      t.innerHTML = '<tr><td colspan="9" class="empty-cell">No activities yet — use <strong>📚 Pick from master</strong> to add from M_PL_1_Activities.</td></tr>';
       return;
     }
     const ccOpts = ['<option value="">— CC —</option>'].concat(
@@ -282,40 +282,53 @@ window.PAGE = (function() {
       .join('');
 
     t.innerHTML = activities.map((a, i) => {
-      // Inherit Nature from parent WBS row (canonical) — overrides activity-level Nature
       const parentNode = nodes.find(n => n.wbsCode === a.wbsCode);
       const nature = (parentNode && parentNode.natureOfWork) || a.natureOfWork || '';
-      // Type-of-Work options from Z12 filtered by parent Nature
-      const typeChoices = nature ? (natureMap[nature] || []) : [];
-      const typeOpts = typeChoices.length
-        ? '<option value="">— pick Type —</option>' +
-          typeChoices.map(t => `<option value="${Utils.esc(t)}">${Utils.esc(t)}</option>`).join('')
-        : `<option value="">${nature ? '(no Types in Z12 for this Nature)' : '(pick a WBS first)'}</option>`;
-      // If saved typeOfWork doesn't match any current option, surface it as stale
-      const staleType = a.typeOfWork && nature && typeChoices.length && !typeChoices.includes(a.typeOfWork);
-      const finalTypeOpts = staleType
-        ? `<option value="${Utils.esc(a.typeOfWork)}" selected>⚠ ${Utils.esc(a.typeOfWork)} (not in Z12)</option>` + typeOpts
-        : typeOpts.replace(`value="${Utils.esc(a.typeOfWork)}"`, `value="${Utils.esc(a.typeOfWork)}" selected`);
-
       const wbsSelected = wbsOpts.replace(`value="${Utils.esc(a.wbsCode)}"`, `value="${Utils.esc(a.wbsCode)}" selected`);
       const ccSelected  = ccOpts.replace(`value="${Utils.esc(a.costCode)}"`,  `value="${Utils.esc(a.costCode)}" selected`);
 
-      const staleCls = a._stale ? ' row-stale' : '';
-      const staleTag = a._stale
-        ? `<span class="stale-tag" title="Nature/Type not in Z12 master — fix before saving">⚠</span>`
+      // Stale: Nature not in Z12, or Type not valid for that Nature
+      const typeChoices = nature ? (natureMap[nature] || []) : [];
+      const staleType = a.typeOfWork && nature && typeChoices.length && !typeChoices.includes(a.typeOfWork);
+      const staleCls = (a._stale || staleType) ? ' row-stale' : '';
+      const staleTag = (a._stale || staleType)
+        ? `<span class="stale-tag" title="${staleType ? 'Type not in Z12 for this Nature' : 'Nature/Type not in Z12 master'}">⚠</span>`
         : '';
+      const typeDisplay = staleType
+        ? `<span class="locked-val stale-val" title="Not in Z12 for Nature: ${Utils.esc(nature)}">⚠ ${Utils.esc(a.typeOfWork)}</span>`
+        : `<span class="locked-val">${Utils.esc(a.typeOfWork || '—')}</span>`;
+      const uomDisplay  = `<span class="locked-val">${Utils.esc(a.unit || '—')}</span>`;
 
       return `
       <tr class="${staleCls}" data-idx="${i}">
-        <td class="mono">${i + 1}${staleTag}</td>
-        <td><input class="inline-edit desc" value="${Utils.esc(a.name)}"
-            oninput="PAGE.editAct(${i},'name',this.value)" placeholder="Activity description" /></td>
-        <td><select class="unit-select wbs-pick" onchange="PAGE.editAct(${i},'wbsCode',this.value);PAGE.refresh()" title="Pick parent WBS row — Nature auto-fills">${wbsSelected}</select></td>
-        <td style="color:var(--green);font-weight:600;font-size:11px" title="Inherited from WBS row">${Utils.esc(nature || '—')}</td>
-        <td><select class="unit-select" onchange="PAGE.editAct(${i},'typeOfWork',this.value);PAGE.refresh()" ${typeChoices.length ? '' : 'disabled'} title="Type of Work — filtered by parent WBS Nature, from Z12 master">${finalTypeOpts}</select></td>
+        <td class="mono" style="white-space:nowrap">${i + 1}${staleTag}</td>
+
+        <!-- Activity name — LOCKED from M_PL_1_Activities picker -->
+        <td class="locked-cell" title="Locked — picked from M_PL_1_Activities master">${Utils.esc(a.name)}
+          ${a.taskCode ? `<div style="font-size:9.5px;color:var(--text-faint);font-family:monospace">${Utils.esc(a.taskCode)}</div>` : ''}
+        </td>
+
+        <!-- WBS Code — editable dropdown of project's WBS rows -->
+        <td><select class="unit-select wbs-pick" onchange="PAGE.editAct(${i},'wbsCode',this.value);PAGE.refresh()"
+            title="Pick parent WBS row — Nature auto-fills">${wbsSelected}</select></td>
+
+        <!-- Nature — read-only, inherited from parent WBS -->
+        <td class="locked-cell" style="color:var(--green);font-weight:600;font-size:11px"
+            title="Inherited from parent WBS row's Nature">${Utils.esc(nature || '—')}</td>
+
+        <!-- Type of Work — LOCKED from Z12 via master pick -->
+        <td class="locked-cell" title="Locked — sourced from Z12 master via M_PL_1_Activities">${typeDisplay}</td>
+
+        <!-- Cost Code — editable -->
         <td><select class="unit-select" onchange="PAGE.editAct(${i},'costCode',this.value)">${ccSelected}</select></td>
-        <td><input class="inline-edit mono" value="${Utils.esc(a.unit)}" oninput="PAGE.editAct(${i},'unit',this.value)" placeholder="UoM" title="Auto-fills from Z12 when Type is picked — editable" style="width:64px" /></td>
-        <td><input class="inline-edit num" type="number" step="0.01" min="0" value="${a.boqQty}" oninput="PAGE.editAct(${i},'boqQty',this.value)" /></td>
+
+        <!-- UoM — LOCKED from Z12 auto-fill -->
+        <td class="locked-cell" style="text-align:center" title="Locked — auto-filled from Z12 when activity was picked">${uomDisplay}</td>
+
+        <!-- BOQ Qty — editable -->
+        <td><input class="inline-edit num" type="number" step="0.01" min="0" value="${a.boqQty}"
+            oninput="PAGE.editAct(${i},'boqQty',this.value)" /></td>
+
         <td><button class="btn-icon danger" onclick="PAGE.removeActivity(${i})" title="Remove">&times;</button></td>
       </tr>
     `;
@@ -545,21 +558,28 @@ window.PAGE = (function() {
     updateKPIs();
   }
 
-  function quickAddActivity() {
-    activities.push({
-      name: '', wbsCode: '', costCode: '', unit: '', boqQty: 0,
-      typeOfWork: '', natureOfWork: '',
-      masterUuid: '', checkSum: '', taskCode: '',
-      _stale: false,
-    });
-    renderActivities();
-    updateKPIs();
-    // Focus the new row's Activity name
-    setTimeout(() => {
-      const rows = document.querySelectorAll('#actTbody tr input.desc');
-      if (rows.length) rows[rows.length - 1].focus();
-    }, 50);
+  function editAct(i, key, val) {
+    if (!activities[i]) return;
+    // LOCKED fields — sourced from master, cannot be changed after pick
+    const LOCKED = ['name', 'typeOfWork', 'unit', 'natureOfWork', 'masterUuid', 'checkSum', 'taskCode'];
+    if (LOCKED.includes(key)) return; // silently ignore; UI shows locked cells, no input exists
+    // Editable fields: wbsCode, costCode, boqQty
+    if (key === 'boqQty') val = Number(val) || 0;
+    activities[i][key] = val;
+    // When WBS Code changes → re-derive Nature + validate Type against Z12
+    if (key === 'wbsCode') {
+      const parent = nodes.find(n => n.wbsCode === val);
+      const newNature = (parent && parent.natureOfWork) || '';
+      activities[i].natureOfWork = newNature;
+      // Mark stale if saved Type isn't valid for the new Nature
+      const valid = newNature ? (natureMap[newNature] || []) : [];
+      const typ = activities[i].typeOfWork;
+      activities[i]._stale = (!!newNature && !validNatures.has(newNature)) ||
+                             (!!typ && valid.length > 0 && !valid.includes(typ));
+    }
   }
+
+  // quickAddActivity intentionally removed — activities must come from master picker
 
   function removeActivity(i) {
     if (!confirm(`Remove "${activities[i]?.name || 'this activity'}" from project?`)) return;
@@ -686,9 +706,9 @@ window.PAGE = (function() {
     load, save, exportCSV, filter, refresh,
     // Tree
     addNode, editNode, removeNode,
-    // Activities
-    quickAddActivity, editAct, removeActivity,
-    // Master picker (for browsing M_PL_1_Activities)
+    // Activities — picker only, no quickAdd
+    editAct, removeActivity,
+    // Master picker (M_PL_1_Activities)
     openMasterPicker, closeMasterPicker, filterMaster, toggleMasterRow, confirmMasterPick,
     onProjectChange,
   };

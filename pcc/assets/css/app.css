@@ -1145,3 +1145,27 @@ tr.row-stale .locked-cell::before { background: var(--red); }
 .wbs-node.lvl-1 .wbs-code-edit { padding-left: 16px; }
 .wbs-node.lvl-2 .wbs-code-edit { padding-left: 24px; }
 .wbs-node.lvl-3 .wbs-code-edit { padding-left: 32px; }
+
+/* ── Master-only locked value display ───────────────────────── */
+.locked-val {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--text);
+}
+.stale-val {
+  color: var(--gold);
+  font-weight: 600;
+}
+/* Tighten locked-cell left bar to match locked rows */
+td.locked-cell {
+  background: rgba(30,128,56,.03);
+  position: relative;
+}
+td.locked-cell::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 2px; bottom: 2px;
+  width: 2px;
+  border-radius: 2px;
+  background: rgba(30,128,56,.25);
+}

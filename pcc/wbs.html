@@ -30,14 +30,14 @@
     <div class="kpi gold"><div class="kpi-label">Max Depth</div><div class="kpi-val" id="kWbsDepth">0</div><div class="kpi-sub">levels</div></div>
   </div>
 
-  <!-- Z12 master enforcement banner -->
   <div class="strict-banner">
-    <span class="sb-icon">🌿</span>
+    <span class="sb-icon">🔒</span>
     <div>
-      <strong>Z12 Master Mode.</strong>
-      <code>Nature of Work</code> and <code>Type of Work</code> dropdowns are sourced from
-      <code>Z12.Nature of Work</code> (tab <code>M12_Nature of Work</code> on the v2Master sheet).
-      <code>Type of Work</code> filters by the parent WBS row's Nature. <code>UoM</code> auto-fills from Z12 when Type is picked.
+      <strong>Master-only fields:</strong>
+      <strong>Activity</strong> is picked from <code>M_PL_1_Activities</code> &middot;
+      <strong>Nature of Work</strong> is a dropdown from <code>Z12</code> (on WBS row) &middot;
+      <strong>Type of Work</strong> and <strong>UoM</strong> flow from Z12 through the master pick &mdash; all locked after selection.
+      Only <strong>WBS Code / Name</strong>, <strong>Cost Code</strong>, and <strong>BOQ Qty</strong> are editable.
     </div>
   </div>
 
@@ -100,9 +100,8 @@
         </table>
       </div>
       <div class="boq-add-row" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;justify-content:flex-end">
-        <span style="color:var(--text-faint);font-size:11.5px">Add a blank row, or import from M_PL_1_Activities catalog.</span>
-        <button class="btn btn-primary" onclick="PAGE.quickAddActivity()">+ Add activity</button>
-        <button class="btn btn-secondary" onclick="PAGE.openMasterPicker()" title="Browse M_PL_1_Activities and import">📚 Pick from master&hellip;</button>
+        <span style="color:var(--text-faint);font-size:11.5px">🔒 Activity · Nature · Type · UoM are filled from master only.</span>
+        <button class="btn btn-primary" onclick="PAGE.openMasterPicker()" title="Browse M_PL_1_Activities and import">📚 Pick from master&hellip;</button>
       </div>
     </div>
   </div>
