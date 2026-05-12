@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.6.2';
-const PORTAL_BUILD    = 334;
-const PORTAL_BUILD_AT = '2026-05-12T07:19:15Z';
+const PORTAL_VERSION  = '3.6.3';
+const PORTAL_BUILD    = 335;
+const PORTAL_BUILD_AT = '2026-05-12T07:37:19Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5295,6 +5295,7 @@ function renderExecEndpointsCard() {
         </div>
         <div style="display:flex;gap:.4rem;flex-wrap:wrap">
           <button onclick="execTestAll()" class="btn btn-secondary btn-sm" style="font-size:.74rem">▶︎ Test all</button>
+          <button onclick="execCopyDiagnostics()" class="btn btn-secondary btn-sm" style="font-size:.74rem" title="After Test all, copy detailed diagnostics for sharing">📋 Copy diag</button>
           <button onclick="execResetAll()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset all</button>
           <button onclick="execSaveAll()" class="btn btn-primary btn-sm" id="execSaveBtn" style="font-size:.74rem">&#10003; Save endpoints</button>
         </div>
@@ -5362,42 +5363,111 @@ window.execResetAll = function() {
 };
 
 // Ping an endpoint with action: '__ping__' and update its status pill.
+// Surfaces detailed diagnostics on failure so deployment issues are visible.
 window.execTestOne = async function(key) {
   const inp = document.getElementById('execIn-' + key);
   const statusEl = document.getElementById('execStatus-' + key);
   if (!inp || !statusEl) return;
   const url = inp.value.trim();
   if (!/^https:\/\/script\.google\.com\/macros\//.test(url)) {
-    statusEl.textContent = 'invalid url';
-    statusEl.style.background = '#fef2f2';
-    statusEl.style.color = '#dc2626';
+    setStatus('invalid url', '#fef2f2', '#dc2626');
+    statusEl.title = `URL must match: https://script.google.com/macros/s/.../exec\nGot: ${url}`;
     return;
   }
-  statusEl.textContent = 'testing…';
-  statusEl.style.background = '#fef9c3';
-  statusEl.style.color = '#92400e';
+  setStatus('testing…', '#fef9c3', '#92400e');
   const t0 = performance.now();
+  let resInfo = { url, ms: 0 };
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: '__ping__' })
+      body: JSON.stringify({ action: '__ping__' }),
+      redirect: 'follow',
     });
-    const ms = Math.round(performance.now() - t0);
+    resInfo.ms = Math.round(performance.now() - t0);
+    resInfo.status = res.status;
+    resInfo.statusText = res.statusText;
+    resInfo.contentType = res.headers.get('content-type') || '';
+    resInfo.finalUrl = res.url;
+    // Read body
+    const body = await res.text();
+    resInfo.bodySnippet = body.slice(0, 200);
     if (res.ok) {
-      // Even an "Unknown POST action" body is a green ping — it proves the deployment is live.
-      statusEl.textContent = `✓ ${ms}ms`;
-      statusEl.style.background = '#dcfce7';
-      statusEl.style.color = '#166534';
+      // Differentiate green (real JSON response) vs amber (HTML — likely auth wall)
+      if (resInfo.contentType.includes('json') || /^[\s]*[{\[]/.test(body)) {
+        setStatus(`✓ ${resInfo.ms}ms`, '#dcfce7', '#166534');
+        statusEl.title = `OK — JSON response\n${body.slice(0, 150)}`;
+      } else if (resInfo.contentType.includes('html')) {
+        // Apps Script returned an HTML page — usually means redirected to auth or "Page not found"
+        const looksLikeAuth = /sign in|accounts\.google\.com|authentic/i.test(body);
+        const looksLikeNotFound = /not found|doesn't exist/i.test(body);
+        if (looksLikeAuth) {
+          setStatus('✗ needs auth', '#fef2f2', '#dc2626');
+          statusEl.title = `Deployment requires Google sign-in.\nFix: Apps Script → Deploy → Manage Deployments → ✏️ → Who has access: "Anyone"\n\nURL: ${url}`;
+        } else if (looksLikeNotFound) {
+          setStatus('✗ not found', '#fef2f2', '#dc2626');
+          statusEl.title = `Apps Script returned "not found" — wrong URL or deployment removed.\n\nURL: ${url}`;
+        } else {
+          setStatus(`⚠ HTML ${resInfo.ms}ms`, '#fef9c3', '#92400e');
+          statusEl.title = `Got HTML response (expected JSON).\nDeployment may exist but doPost isn't returning JSON.\n\nBody: ${body.slice(0, 200)}`;
+        }
+      } else {
+        setStatus(`✓ ${resInfo.ms}ms`, '#dcfce7', '#166534');
+        statusEl.title = `OK\n${body.slice(0, 150)}`;
+      }
     } else {
-      statusEl.textContent = `✗ HTTP ${res.status}`;
-      statusEl.style.background = '#fef2f2';
-      statusEl.style.color = '#dc2626';
+      setStatus(`✗ HTTP ${res.status}`, '#fef2f2', '#dc2626');
+      statusEl.title = `${res.status} ${res.statusText}\n\nBody: ${body.slice(0, 200)}\n\nURL: ${url}`;
     }
   } catch (e) {
-    statusEl.textContent = '✗ network';
-    statusEl.style.background = '#fef2f2';
-    statusEl.style.color = '#dc2626';
+    resInfo.ms = Math.round(performance.now() - t0);
+    resInfo.error = e.message || String(e);
+    // CORS or DNS or refused connection lands here
+    setStatus('✗ network', '#fef2f2', '#dc2626');
+    statusEl.title = `Network error: ${resInfo.error}\n\nCommon causes:\n• Deployment "Who has access" not set to "Anyone"\n• URL typo / deployment was deleted\n• CORS pre-flight failed (server returns >302)\n\nURL: ${url}`;
+  }
+  // Stash diagnostics for the copy-diag button
+  statusEl.dataset.diag = JSON.stringify(resInfo, null, 2);
+
+  function setStatus(text, bg, fg) {
+    statusEl.textContent = text;
+    statusEl.style.background = bg;
+    statusEl.style.color = fg;
+    statusEl.style.cursor = 'help';
+  }
+};
+
+// Copy diagnostics to clipboard for sharing
+window.execCopyDiagnostics = async function() {
+  const lines = ['EVGCPL Endpoint Test Diagnostics\n' + new Date().toISOString() + '\n'];
+  Object.keys(EXEC_REGISTRY_DEFAULTS).forEach(k => {
+    const inp = document.getElementById('execIn-' + k);
+    const statusEl = document.getElementById('execStatus-' + k);
+    if (!inp || !statusEl) return;
+    lines.push(`── ${k} ──`);
+    lines.push(`URL: ${inp.value.trim()}`);
+    lines.push(`Status: ${statusEl.textContent}`);
+    if (statusEl.dataset.diag) {
+      try {
+        const d = JSON.parse(statusEl.dataset.diag);
+        if (d.status)       lines.push(`HTTP: ${d.status} ${d.statusText || ''}`);
+        if (d.contentType)  lines.push(`Content-Type: ${d.contentType}`);
+        if (d.finalUrl && d.finalUrl !== d.url) lines.push(`Redirected to: ${d.finalUrl}`);
+        if (d.error)        lines.push(`Error: ${d.error}`);
+        if (d.bodySnippet)  lines.push(`Body (first 200 chars): ${d.bodySnippet}`);
+      } catch (e) {}
+    }
+    lines.push('');
+  });
+  const text = lines.join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('Diagnostics copied to clipboard — paste into chat to share.');
+  } catch (e) {
+    // Fallback: show in a textarea so user can copy manually
+    const w = window.open('', '_blank', 'width=700,height=500');
+    w.document.write('<pre style="font-family:monospace;font-size:11px;padding:20px;white-space:pre-wrap">' +
+      text.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])) + '</pre>');
   }
 };
 
