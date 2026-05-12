@@ -1,85 +1,80 @@
 /**
  * ════════════════════════════════════════════════════════════════
- *  EVGCPL Portal — Apps Script Router (doPost / doGet)
- *  Build target: v3.4.1+
- * ────────────────────────────────────────────────────────────────
- *  This file goes into the bound Apps Script project at:
- *    https://script.google.com/macros/s/AKfycb…/exec
+ *  EVGCPL Portal — Apps Script Router  (canonical doPost/doGet)
+ *  ────────────────────────────────────────────────────────────────
+ *  This is the ONLY doPost/doGet that should exist in the bound
+ *  Apps Script project. If you have another Code.gs with doPost,
+ *  DELETE its doPost function before deploying this.
  *
- *  Every POST from the portal arrives here. The router parses the
- *  JSON body, reads `action`, and calls the matching handler defined
- *  in the sibling .gs files in this folder.
- *
- *  IMPORTANT — when you add a new handler:
- *    1. Add the function in its appropriate file (or a new .gs file)
- *    2. Add the route below in the if-chain
- *    3. Deploy → Manage Deployments → ✏️ → New Version → Deploy
- *       (the exec URL doesn't change; only redeploy makes new code live)
- * ════════════════════════════════════════════════════════════════
- */
+ *  Add a new action:
+ *    1. Add the handler function in any .gs file in this project
+ *    2. Register it below in the action map
+ *    3. Deploy → New version (exec URL stays the same)
+ * ═══════════════════════════════════════════════════════════════ */
 
 // ════════════════════════════════════════════════════════════════
 // doPost — main entry point for portal writes
 // ════════════════════════════════════════════════════════════════
 function doPost(e) {
-  // CORS-safe parsing: portal sends Content-Type: text/plain with a JSON body
-  let body;
+  // Parse the request body. Frontend sends Content-Type: text/plain with
+  // a JSON body so the browser doesn't issue a CORS preflight.
+  var body;
   try {
-    body = JSON.parse(e.postData && e.postData.contents || '{}');
-  } catch (parseErr) {
-    return _jsonErr('Invalid JSON body: ' + parseErr.message);
+    var raw = (e && e.postData && e.postData.contents) || '{}';
+    body = JSON.parse(raw);
+  } catch (err) {
+    return _err('Invalid JSON body: ' + err.message);
   }
+  if (!body || typeof body !== 'object') body = {};
 
-  const action = String(body.action || '').trim();
-  if (!action) return _jsonErr('Missing action');
+  var action = String(body.action || '').trim();
+  if (!action) return _err('Missing action');
 
   try {
-    // ── Diagnostics / health check ─────────────────────────────
-    if (action === '__ping__') {
-      return _jsonOk({ message: 'pong', deploymentTime: new Date().toISOString() });
-    }
+    // ── Diagnostics ─────────────────────────────────────────────
+    if (action === '__ping__')                 return _ok({ message: 'pong', at: new Date().toISOString() });
 
-    // ── Generic write helpers (in SafetyHandlers.gs) ───────────
-    if (action === 'appendRow')           return appendRow(body);
-    if (action === 'updateCell')          return updateCell(body);
-    if (action === 'batchUpdate')         return batchUpdate(body);
+    // ── Generic writes (SafetyHandlers.gs) ─────────────────────
+    if (action === 'appendRow')                return appendRow(body);
+    if (action === 'updateCell')               return updateCell(body);
+    if (action === 'batchUpdate')              return batchUpdate(body);
+    if (action === 'closeSafetyIncident')      return closeSafetyIncident(body);
 
-    // ── Safety module (in SafetyHandlers.gs) ───────────────────
-    if (action === 'closeSafetyIncident') return closeSafetyIncident(body);
+    // ── Scheduled reports (ScheduledReports.gs) ────────────────
+    if (action === 'saveScheduledReport')      return saveScheduledReport(body);
+    if (action === 'deleteScheduledReport')    return deleteScheduledReport(body);
+    if (action === 'runReportNow')             return runReportNow(body);
 
-    // ── Scheduled email reports (in ScheduledReports.gs) ───────
-    if (action === 'saveScheduledReport') return saveScheduledReport(body);
-    if (action === 'deleteScheduledReport') return deleteScheduledReport(body);
-    if (action === 'runReportNow')        return runReportNow(body);
+    // ── AI (AIChat.gs / AiProxy.gs) ────────────────────────────
+    if (action === 'aiChat')                   return aiChat(body);
+    if (action === 'aiProxy')                  return aiProxy(body);
 
-    // ── AI proxy (in AIChat.gs / AiProxy.gs) ───────────────────
-    if (action === 'aiChat')              return aiChat(body);
-    if (action === 'aiProxy')             return aiProxy(body);
+    // ── Sheet diagnostic (SheetDiagnostic.gs) ──────────────────
+    if (action === 'diagnoseSheet')            return diagnoseSheet(body);
 
-    // ── Sheet sharing diagnostic (in SheetDiagnostic.gs) ───────
-    if (action === 'diagnoseSheet')       return diagnoseSheet(body);
+    // ── PCC handlers (PCCHandlers.gs) ──────────────────────────
+    // Pass the full body. The handlers normalize with _norm() so they
+    // tolerate undefined, top-level fields, OR a legacy { payload: {...} } wrapper.
+    if (action === 'saveProjectSetup')         return _wrap(saveProjectSetup(body));
+    if (action === 'saveBOQ')                  return _wrap(saveBOQ(body));
+    if (action === 'saveWBS')                  return saveWBS(body);   // returns its own response
+    if (action === 'saveWorkplan')             return _wrap(saveWorkplan(body));
+    if (action === 'saveManpower')             return _wrap(saveManpower(body));
+    if (action === 'saveMachinery')            return _wrap(saveMachinery(body));
+    if (action === 'saveMaterials')            return _wrap(saveMaterials(body));
+    if (action === 'saveOverheads')            return _wrap(saveOverheads(body));
+    if (action === 'saveVariations')           return _wrap(saveVariations(body));
+    if (action === 'submitBudgetApproval')     return _wrap(submitBudgetApproval(body));
 
-    // ── PCC — Project Cost Control (in PCCHandlers.gs) ─────────
-    if (action === 'saveProjectSetup')     return _wrap(saveProjectSetup(body));
-    if (action === 'saveBOQ')              return _wrap(saveBOQ(body));
-    if (action === 'saveWBS')              return saveWBS(body);  // returns ContentService directly
-    if (action === 'saveWorkplan')         return _wrap(saveWorkplan(body));
-    if (action === 'saveManpower')         return _wrap(saveManpower(body));
-    if (action === 'saveMachinery')        return _wrap(saveMachinery(body));
-    if (action === 'saveMaterials')        return _wrap(saveMaterials(body));
-    if (action === 'saveOverheads')        return _wrap(saveOverheads(body));
-    if (action === 'saveVariations')       return _wrap(saveVariations(body));
-    if (action === 'submitBudgetApproval') return _wrap(submitBudgetApproval(body));
+    // ── PIN ops (separate PIN.gs if present) ───────────────────
+    if (action === 'verifyPin')                return verifyPin(body);
+    if (action === 'resetPin')                 return resetPin(body);
 
-    // ── PIN reset (lives in this file or a separate PIN.gs) ────
-    if (action === 'verifyPin')           return verifyPin(body);
-    if (action === 'resetPin')            return resetPin(body);
-
-    return _jsonErr('Unknown POST action: ' + action);
+    return _err('Unknown POST action: ' + action);
 
   } catch (err) {
-    Logger.log('doPost error in action=' + action + ': ' + err);
-    return _jsonErr('Server error in ' + action + ': ' + err.message);
+    Logger.log('[doPost] action=' + action + ' error: ' + err);
+    return _err('Server error in ' + action + ': ' + err.message);
   }
 }
 
@@ -87,50 +82,45 @@ function doPost(e) {
 // doGet — read-only entry point
 // ════════════════════════════════════════════════════════════════
 function doGet(e) {
-  const action = (e.parameter && e.parameter.action) || '';
-
-  if (action === '__ping__' || !action) {
-    return _jsonOk({ message: 'EVGCPL Portal Apps Script · alive', deploymentTime: new Date().toISOString() });
+  var action = (e && e.parameter && e.parameter.action) || '';
+  if (!action || action === '__ping__') {
+    return _ok({ message: 'EVGCPL Portal API alive', at: new Date().toISOString() });
   }
-
-  // ── Diagnostic GETs (in SheetDiagnostic.gs) ──────────────────
-  if (action === 'diagnoseSheet')       return diagnoseSheet(e.parameter);
-  if (action === 'listShares')          return listShares(e.parameter);
-
-  return _jsonErr('Unknown GET action: ' + action);
+  if (action === 'diagnoseSheet')              return diagnoseSheet(e.parameter);
+  if (action === 'listShares')                 return listShares(e.parameter);
+  return _err('Unknown GET action: ' + action);
 }
 
 // ════════════════════════════════════════════════════════════════
-//  Response helpers
+// Response helpers
 // ════════════════════════════════════════════════════════════════
 
-// Build a {success:true, …} JSON ContentService response
-function _jsonOk(payload) {
-  return ContentService.createTextOutput(
-    JSON.stringify(Object.assign({ success: true }, payload || {}))
-  ).setMimeType(ContentService.MimeType.JSON);
+// Build a {success:true, ...payload} JSON response
+function _ok(payload) {
+  var out = { success: true };
+  if (payload) Object.keys(payload).forEach(function(k) { out[k] = payload[k]; });
+  return ContentService.createTextOutput(JSON.stringify(out))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
-// Build a {success:false, message:…} JSON ContentService response
-function _jsonErr(message, extra) {
-  return ContentService.createTextOutput(
-    JSON.stringify(Object.assign({ success: false, message: String(message || 'error') }, extra || {}))
-  ).setMimeType(ContentService.MimeType.JSON);
+// Build a {success:false, message} JSON response
+function _err(message) {
+  return ContentService.createTextOutput(JSON.stringify({
+    success: false, message: String(message || 'error')
+  })).setMimeType(ContentService.MimeType.JSON);
 }
 
-// Wrap a count-returning handler in the standard {success, message} response.
-// Used for handlers that return a number (count of rows written) rather than
-// constructing their own ContentService response.
+// Wrap handlers that return a raw value (count, object, or already-built ContentService response)
 function _wrap(result) {
-  if (typeof result === 'number') {
-    return _jsonOk({ message: 'Saved ' + result + ' rows', count: result });
-  }
-  // If the handler already returned a ContentService response, pass it through
+  // Already a ContentService response → pass through
   if (result && typeof result.getContent === 'function') return result;
-  // If it returned a plain object, normalize
+  // Number → "Saved N rows"
+  if (typeof result === 'number') return _ok({ message: 'Saved ' + result + ' rows', count: result });
+  // Object → if has success field, return as-is; else wrap as ok
   if (result && typeof result === 'object') {
-    if (result.success !== undefined) return _jsonOk(result);
-    return _jsonOk(result);
+    if (result.success !== undefined) return _ok(result);
+    return _ok(result);
   }
-  return _jsonOk({ message: 'OK' });
+  // Anything else (undefined, null, string) → generic OK
+  return _ok({ message: 'OK' });
 }

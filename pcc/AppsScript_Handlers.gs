@@ -1,33 +1,47 @@
 /**
  * ════════════════════════════════════════════════════════════════
  *  Project Cost Control — Multi-page Backend Handlers
- *  Add these 7 actions into the EXISTING doPost switch in your
- *  Apps Script project (the one bound to sheet
- *  1dQow9nD4e0qVOSfpwEWQmPTuhF3FW_8r1oK5dMjJlRE).
+ *  ────────────────────────────────────────────────────────────────
+ *  Deploy alongside Router.gs. Router.gs receives the POST, parses
+ *  the JSON body, and dispatches to one of these handlers with the
+ *  full body object as `p`.
  *
- *  Existing doPost pattern (DON'T duplicate):
- *    function doPost(e) {
- *      var data = JSON.parse(e.postData.contents);
- *      var action = data.action;
- *      switch(action) {
- *        case 'saveProjectSetup': ...
- *        case 'saveBOQ':          ...
- *        case 'saveWBS':          ...
- *        case 'saveActivities':   ...
- *
- *        // ──── ADD THESE 7 BELOW ────
- *        case 'saveWorkplan':         return saveWorkplan(data.payload);
- *        case 'saveManpower':         return saveManpower(data.payload);
- *        case 'saveMachinery':        return saveMachinery(data.payload);
- *        case 'saveMaterials':        return saveMaterials(data.payload);
- *        case 'saveOverheads':        return saveOverheads(data.payload);
- *        case 'saveVariations':       return saveVariations(data.payload);
- *        case 'submitBudgetApproval': return submitBudgetApproval(data.payload);
- *      }
+ *  Frontend POST body shape (sent by API.scriptCall in /pcc/api.js):
+ *    {
+ *      action: 'saveProjectSetup',
+ *      'Project Code': '...',           ← fields spread at top level
+ *      'Project Name': '...',
+ *      ...
  *    }
+ *
+ *  In Router.gs:
+ *    case 'saveProjectSetup':   return saveProjectSetup(body);
+ *    case 'saveBOQ':            return saveBOQ(body);
+ *    case 'saveWBS':            return saveWBS(body);
+ *    ...
+ *
+ *  These handlers are defensive:
+ *    • p = p || {}  → never crashes on undefined
+ *    • Auto-unwraps legacy { payload: {...} } shape if someone's
+ *      old doPost still calls saveXxx(data.payload)
  * ═══════════════════════════════════════════════════════════════ */
 
 var PCC_SHEET_ID = '1dQow9nD4e0qVOSfpwEWQmPTuhF3FW_8r1oK5dMjJlRE';
+
+// Normalizer used at the top of every handler:
+//   • Returns {} if p is null/undefined (no crash)
+//   • Auto-unwraps p.payload if a legacy doPost wrapped the call
+function _norm(p) {
+  if (!p) return {};
+  if (p.payload && typeof p.payload === 'object' && !Array.isArray(p.payload)) {
+    // Merge top-level + payload, with payload winning. Preserves action/projectCode at top.
+    var merged = {};
+    Object.keys(p).forEach(function(k) { if (k !== 'payload') merged[k] = p[k]; });
+    Object.keys(p.payload).forEach(function(k) { merged[k] = p.payload[k]; });
+    return merged;
+  }
+  return p;
+}
 
 /**
  * Generic per-project replace pattern.
@@ -35,6 +49,7 @@ var PCC_SHEET_ID = '1dQow9nD4e0qVOSfpwEWQmPTuhF3FW_8r1oK5dMjJlRE';
  * Auto-creates tab with header row on first save.
  */
 function _replaceProjectRows(tabName, headers, projectCode, rows) {
+  rows = rows || [];
   var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
   var sh = ss.getSheetByName(tabName);
   if (!sh) {
@@ -77,6 +92,7 @@ function _replaceProjectRows(tabName, headers, projectCode, rows) {
 
 // ─── 1. WORKPLAN ───
 function saveWorkplan(p) {
+  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
   // Schema: one row per activity (NOT per month).
   // WBS Code · Nature of Work · Activity · UoM · Qty · Start · End · Duration · % Weight · Responsibility
   // Plus provenance fields linking back to M_PL_1_Activities (Master UUID, Task Code, CheckSum)
@@ -110,6 +126,7 @@ function saveWorkplan(p) {
 
 // ─── 2. MANPOWER ───
 function saveManpower(p) {
+  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
   return _replaceProjectRows('Manpower_Plan', [
     'Project Code', 'Activity Code', 'Type',
     'Workers', 'Days', 'Daily Rate', 'Productivity',
@@ -119,6 +136,7 @@ function saveManpower(p) {
 
 // ─── 3. MACHINERY ───
 function saveMachinery(p) {
+  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
   return _replaceProjectRows('Machinery_Plan', [
     'Project Code', 'Activity Code', 'Equipment', 'Mode',
     'Hrs/Day', 'Days', 'Rate', 'Diesel Cost', 'Mob Demob', 'Idle %',
@@ -127,6 +145,7 @@ function saveMachinery(p) {
 
 // ─── 4. MATERIALS ───
 function saveMaterials(p) {
+  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
   return _replaceProjectRows('Material_Plan', [
     'Project Code', 'Activity Code', 'Material', 'Unit',
     'BOQ Qty', 'Wastage %', 'Unit Rate', 'Procurement %',
@@ -135,6 +154,7 @@ function saveMaterials(p) {
 
 // ─── 5. OVERHEADS ───
 function saveOverheads(p) {
+  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
   return _replaceProjectRows('Overheads', [
     'Project Code', 'Type', 'Category', 'Description',
     'Monthly Cost', 'Months',
@@ -143,6 +163,7 @@ function saveOverheads(p) {
 
 // ─── 6. VARIATIONS ───
 function saveVariations(p) {
+  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
   // Variations tab uses V-ID as primary key; project-scoped replace works.
   return _replaceProjectRows('Variations', [
     'Project Code', 'V-ID', 'Date', 'Description', 'Type',
@@ -153,6 +174,7 @@ function saveVariations(p) {
 
 // ─── 7. BUDGET APPROVAL ───
 function submitBudgetApproval(p) {
+  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
   var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
   var sh = ss.getSheetByName('BudgetApprovals');
   if (!sh) {
@@ -187,6 +209,7 @@ function submitBudgetApproval(p) {
 // Single-row upsert. Generates Project Code if missing using formula
 // EG{YY}{G/P}{NNNN} where G=Gov, P=Pvt. Series increments based on existing rows.
 function saveProjectSetup(p) {
+  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
   var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
   var sh = ss.getSheetByName('Project');
   if (!sh) {
@@ -246,6 +269,7 @@ function saveProjectSetup(p) {
 
 // ─── 2. BOQ ───
 function saveBOQ(p) {
+  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
   return _replaceProjectRows('BOQ', [
     'Project Code', 'S No', 'Description', 'Unit', 'Qty', 'Rate', 'Amount',
   ], p.projectCode, (p.rows || []).map(function(r) {
@@ -263,6 +287,7 @@ function saveBOQ(p) {
 
 // ─── 3. WBS ─── (replaces both WBS nodes & Activities for the project)
 function saveWBS(p) {
+  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
   // ════════════════════════════════════════════════════════════
   // WBS save with auto-generated UUIDs + WBS Codes + tempId resolution
   // ────────────────────────────────────────────────────────────
