@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Project Dashboard · Project Cost Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/app.css" />
+<!-- Chart.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<style>
+/* ── Dashboard-specific ──────────────────────────────────────── */
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width:1100px) { .dash-grid { grid-template-columns: 1fr; } }
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+@media (max-width:900px) { .kpi-grid { grid-template-columns: repeat(2,1fr); } }
+
+.kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--kpi-accent, var(--green));
+  border-radius: 10px 10px 0 0;
+}
+.kpi-card.gold   { --kpi-accent: var(--gold); }
+.kpi-card.blue   { --kpi-accent: #3b82f6; }
+.kpi-card.red    { --kpi-accent: #ef4444; }
+.kpi-card.purple { --kpi-accent: #8b5cf6; }
+
+.kc-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); margin-bottom: 6px; }
+.kc-val   { font-size: 20px; font-weight: 800; color: var(--text); font-family: 'DM Mono', monospace; line-height: 1.2; }
+.kc-sub   { font-size: 11px; color: var(--text-faint); margin-top: 4px; }
+.kc-icon  { position: absolute; top: 12px; right: 14px; font-size: 20px; opacity: .15; }
+
+/* Progress bar */
+.prog-bar-wrap { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin-top: 8px; }
+.prog-bar      { height: 100%; border-radius: 3px; background: var(--green); transition: width .6s ease; }
+.prog-bar.gold { background: var(--gold); }
+.prog-bar.red  { background: #ef4444; }
+
+/* Section headers */
+.sec-header {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sec-header::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Performance index cards */
+.perf-grid {
+  display: grid;
+  grid-template-columns: repeat(4,1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+@media (max-width:900px) { .perf-grid { grid-template-columns: repeat(2,1fr); } }
+
+.perf-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+}
+.pc-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); margin-bottom: 4px; }
+.pc-val   { font-size: 22px; font-weight: 800; font-family: 'DM Mono', monospace; }
+.pc-desc  { font-size: 10px; color: var(--text-faint); margin-top: 3px; line-height: 1.3; }
+
+/* Chart containers */
+.chart-wrap { position: relative; height: 280px; }
+
+/* Status badge */
+.status-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 11px; font-weight: 700;
+}
+.sb-green  { background:#dcfce7; color:#166534; }
+.sb-gold   { background:#fef9c3; color:#854d0e; }
+.sb-red    { background:#fee2e2; color:#991b1b; }
+.sb-grey   { background:rgba(0,0,0,.05); color:#6b7280; }
+
+/* Placeholder note */
+.placeholder-note {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border-radius: 8px;
+  background: rgba(99,102,241,.06);
+  border: 1px dashed rgba(99,102,241,.3);
+  font-size: 11.5px; color: #4338ca;
+  margin-bottom: 16px;
+}
+</style>
+</head>
+<body>
+<main class="app-main">
+
+  <!-- Page head -->
+  <div class="page-head">
+    <div>
+      <h1>📊 Project Dashboard</h1>
+      <div class="ph-sub">
+        <strong id="dProjCode">—</strong> · <span id="dProjName">—</span>
+        &nbsp;·&nbsp; Timeline &amp; Cost Progress Monitor
+      </div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-secondary" onclick="PAGE.refresh()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- Placeholder notice -->
+  <div class="placeholder-note">
+    💡 <strong>Actual progress &amp; cost</strong> data will be connected when DPR / actuals are wired.
+    All <em>Actual</em> and <em>Trend</em> indicators below show <strong>planned values only</strong> until then.
+  </div>
+
+  <div id="dashContent">
+
+    <!-- ─── Project Info strip ─── -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kc-icon">🏗️</div>
+        <div class="kc-label">Contract Value</div>
+        <div class="kc-val" id="dContract">₹—</div>
+      </div>
+      <div class="kpi-card gold">
+        <div class="kc-icon">📅</div>
+        <div class="kc-label">Start → End</div>
+        <div class="kc-val" style="font-size:13px" id="dDateRange">
+          <span id="dStartDate">—</span><br><span id="dEndDate">—</span>
+        </div>
+      </div>
+      <div class="kpi-card blue">
+        <div class="kc-icon">⏱</div>
+        <div class="kc-label">Total Duration</div>
+        <div class="kc-val" id="dTotalDays">—</div>
+        <div class="kc-sub"><span id="dElapsedDays">—</span> elapsed · <span id="dRemainDays">—</span> left</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kc-icon">💰</div>
+        <div class="kc-label">Budgeted Cost</div>
+        <div class="kc-val" id="dBudgetedCost">₹—</div>
+        <div class="kc-sub">Variations: <span id="dVariations">₹0</span></div>
+      </div>
+    </div>
+
+    <!-- ─── Timeline progress ─── -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-pad">
+        <div class="sec-header">⏰ Timeline Progress</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+              <span style="font-weight:600">Time Elapsed</span>
+              <span class="mono" style="font-weight:700;color:var(--green)" id="dPctTime">—</span>
+            </div>
+            <div class="prog-bar-wrap"><div class="prog-bar" id="barTime" style="width:0%"></div></div>
+            <div style="font-size:10.5px;color:var(--text-faint);margin-top:4px">Planned timeline progress</div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+              <span style="font-weight:600">Actual Progress</span>
+              <span class="mono" style="font-weight:700;color:var(--gold)" id="dPctActual">—</span>
+            </div>
+            <div class="prog-bar-wrap"><div class="prog-bar gold" id="barActual" style="width:0%"></div></div>
+            <div style="font-size:10.5px;color:var(--text-faint);margin-top:4px">Planned at this date: <span id="dPctPlan">—</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Performance Indices ─── -->
+    <div class="perf-grid">
+      <div class="perf-card">
+        <div class="pc-label">SPI · Schedule Performance</div>
+        <div class="pc-val" id="dSPI">—</div>
+        <div class="pc-desc">≥ 1.0 = ahead · &lt; 1.0 = behind</div>
+      </div>
+      <div class="perf-card">
+        <div class="pc-label">CPI · Cost Performance</div>
+        <div class="pc-val" id="dCPI">—</div>
+        <div class="pc-desc">≥ 1.0 = under budget · &lt; 1.0 = over</div>
+      </div>
+      <div class="perf-card">
+        <div class="pc-label">Actual Cost to Date</div>
+        <div class="pc-val" style="font-size:15px" id="dActualCost">—</div>
+        <div class="pc-desc">Connect DPR actuals to update</div>
+      </div>
+      <div class="perf-card">
+        <div class="pc-label">EAC · Est. at Completion</div>
+        <div class="pc-val" style="font-size:15px" id="dEAC">—</div>
+        <div class="pc-desc">Projected final cost at current CPI</div>
+      </div>
+    </div>
+
+    <!-- ─── Deviation Alerts ─── -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-pad">
+        <div class="sec-header">🚦 Deviation Alerts</div>
+        <div id="deviationAlerts">
+          <div class="tree-empty">Loading alerts…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Charts row ─── -->
+    <div class="dash-grid" style="margin-bottom:16px">
+      <!-- S-Curve -->
+      <div class="card">
+        <div class="card-pad">
+          <div class="sec-header">📈 S-Curve · Planned vs Actual Progress</div>
+          <div style="font-size:10.5px;color:var(--text-faint);margin-bottom:10px;display:flex;gap:14px;flex-wrap:wrap">
+            <span>🟢 Planned (from Workplan % weights)</span>
+            <span>🟡 Actual (placeholder)</span>
+            <span>🔴 Trend projection</span>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="sCurveChart"></canvas>
+          </div>
+        </div>
+      </div>
+      <!-- Cost burn -->
+      <div class="card">
+        <div class="card-pad">
+          <div class="sec-header">💸 Cost Burn · Planned vs Actual</div>
+          <div style="font-size:10.5px;color:var(--text-faint);margin-bottom:10px;display:flex;gap:14px;flex-wrap:wrap">
+            <span>🟢 Planned burn (linear)</span>
+            <span>🟡 Actual spend (placeholder)</span>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="costBurnChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── BOQ + WBS row ─── -->
+    <div class="dash-grid">
+      <div class="card">
+        <div class="card-pad">
+          <div class="sec-header">📋 BOQ Breakdown by Value</div>
+          <div id="boqBreakdown"><div class="tree-empty">Loading…</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-pad">
+          <div class="sec-header">🌳 WBS Planned Weight Distribution</div>
+          <div id="wbsProgress"><div class="tree-empty">Loading…</div></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /dashContent -->
+
+  <div style="margin-top:18px">
+    <a class="btn btn-secondary" href="index.html">← Back to Home</a>
+  </div>
+
+</main>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/state.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/pages/project-dashboard.js"></script>
+<script>
+(async function() {
+  await Shell.init({ pageId: 'project-dashboard' });
+  await PAGE.load();
+})();
+</script>
+</body>
+</html>

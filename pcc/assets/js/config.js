@@ -93,7 +93,8 @@ window.CONFIG = {
 
   // Page metadata — drives the nav and dashboard
   PAGES: [
-    { id: 'project-tree', file: 'project-tree.html', step: '·', title: 'Project Tree', icon: '🌲', desc: 'Full hierarchy: Project → BOQ → WBS → Activities linked via UUID/CheckSum', status: 'live' },
+    { id: 'project-dashboard', file: 'project-dashboard.html', step: '·', title: 'Dashboard',    icon: '📊', desc: 'Timeline & Cost progress · S-curve · Trend · Deviations', status: 'live' },
+    { id: 'project-tree',      file: 'project-tree.html',      step: '·', title: 'Project Tree',  icon: '🌲', desc: 'Full project hierarchy: BOQ → WBS → Activities',          status: 'live' },
     { id: 'home',       file: 'index.html',       step: '·', title: 'Home',          icon: '🏠', desc: 'Project switcher and module dashboard',                  status: 'live'    },
     { id: 'setup',      file: 'setup.html',       step: 1,  title: 'Project Setup',  icon: '🏗️', desc: 'Project identity · client · site · billing · team',     status: 'live'    },
     { id: 'boq',        file: 'boq.html',         step: 2,  title: 'BOQ',            icon: '📋', desc: 'Bill of quantities · AI assistant · CSV import',         status: 'live'    },
