@@ -1174,3 +1174,134 @@ td.locked-cell::before {
 .wbs-node {
   grid-template-columns: 110px 1fr 80px 28px !important;
 }
+
+/* ── WBS tree v2 — collapsible cards ──────────────────────── */
+.wbs-tree { display: flex; flex-direction: column; gap: 8px; }
+
+.wbs-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+  transition: border-color .15s;
+}
+.wbs-card.wbs-new {
+  border-color: var(--gold);
+  background: rgba(160, 108, 16, 0.03);
+}
+
+.wbs-card-head {
+  display: grid;
+  grid-template-columns: 28px 110px 1fr 100px auto 28px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(30, 128, 56, 0.04);
+  border-bottom: 1px solid transparent;
+}
+.wbs-card.wbs-new .wbs-card-head { background: rgba(160, 108, 16, 0.06); }
+.wbs-card-head:hover { background: rgba(30, 128, 56, 0.07); }
+
+.wbs-toggle {
+  background: none;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--green);
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: background .12s;
+}
+.wbs-toggle:hover { background: rgba(30, 128, 56, 0.12); }
+
+.wbs-code-display {
+  font-family: 'Consolas', 'JetBrains Mono', monospace;
+  font-weight: 700;
+  color: var(--green);
+  font-size: 11.5px;
+  letter-spacing: .02em;
+}
+.wbs-new .wbs-code-display {
+  color: var(--gold);
+  font-style: italic;
+  font-weight: 500;
+}
+
+.wbs-name-edit {
+  width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+}
+.wbs-name-edit:focus {
+  border-color: var(--green);
+  outline: none;
+  background: #fff;
+}
+
+.wbs-act-count {
+  text-align: center;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.pill-grey {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-faint);
+}
+
+.wbs-card-body {
+  padding: 8px 12px 12px 46px;  /* indent to align under toggle/code */
+  background: var(--surface);
+}
+
+.empty-acts {
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-faint);
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+
+.acts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.acts-table thead th {
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  border-bottom: 1px solid var(--border);
+}
+.acts-table tbody td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.acts-table tbody tr:last-child td { border-bottom: none; }
+.acts-table .task-code-sub {
+  font-size: 9.5px;
+  color: var(--text-faint);
+  font-family: monospace;
+  margin-top: 1px;
+}
+
+/* Slimmer locked-cell stripe for nested activities */
+.acts-table td.locked-cell {
+  background: rgba(30, 128, 56, 0.02);
+}
+.acts-table td.locked-cell::before {
+  top: 6px;
+  bottom: 6px;
+}

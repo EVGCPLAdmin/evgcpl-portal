@@ -263,41 +263,134 @@ function saveBOQ(p) {
 
 // ─── 3. WBS ─── (replaces both WBS nodes & Activities for the project)
 function saveWBS(p) {
-  // Save WBS nodes — Nature of Work is part of the WBS row schema
-  var nodesResp = _replaceProjectRows('WBS', [
-    'Project Code', 'WBS Code', 'WBS Name', 'Nature of Work',
-  ], p.projectCode, (p.nodes || []).map(function(n) {
-    return {
-      'Project Code':   p.projectCode,
-      'WBS Code':       n.wbsCode,
-      'WBS Name':       n.wbsName,
-      'Nature of Work': n.natureOfWork || '',
-    };
-  }));
+  // ════════════════════════════════════════════════════════════
+  // WBS save with auto-generated UUIDs + WBS Codes + tempId resolution
+  // ────────────────────────────────────────────────────────────
+  // Frontend sends:
+  //   nodes:      [{ uuid?, tempId?, wbsCode?, wbsName }]
+  //   activities: [{ parentRef, name, natureOfWork, typeOfWork,
+  //                  unit, costCode, boqQty, masterUuid, taskCode }]
+  //
+  // This handler:
+  //   1. For each node without UUID → generates a new UUID + WBS Code
+  //   2. Builds a tempId/oldUUID → finalUUID map
+  //   3. Writes WBS rows with full schema
+  //   4. Replaces activity.parentRef → final UUID → writes as CheckSum
+  //   5. Returns assignedNodes[] so frontend can update its local state
+  // ════════════════════════════════════════════════════════════
 
-  // Save Activities — Type of Work column added (filtered by parent WBS Nature)
-  // Master link fields preserve traceability back to M_PL_1_Activities.
-  _replaceProjectRows('Activities', [
-    'Project Code', 'Activity', 'WBS Code', 'Cost Code',
-    'Type of Work', 'Unit', 'BOQ Qty',
-    'Master UUID', 'Task Code', 'CheckSum',
-  ], p.projectCode, (p.activities || []).map(function(a) {
+  var projectCode = String(p.projectCode || '').trim();
+  if (!projectCode) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false, message: 'Missing projectCode'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var nowIso = new Date().toISOString();
+  var nextCodeNum = _getNextWbsCodeNum(projectCode);
+
+  // Build refMap: tempId → finalUUID, AND existingUUID → existingUUID (passthrough)
+  var refMap = {};
+  var assignedNodes = [];
+
+  var wbsHeaders = [
+    'Project Code', 'UUID', 'WBS Code', 'WBS Name', 'Updated At'
+  ];
+
+  var wbsRows = (p.nodes || []).map(function(n) {
+    var finalUuid = (n.uuid && String(n.uuid).trim()) || Utilities.getUuid();
+    var finalCode = (n.wbsCode && String(n.wbsCode).trim()) ||
+                    _formatWbsCode(projectCode, nextCodeNum++);
+    // Register both tempId and uuid → finalUuid in the refMap so activities can resolve either
+    if (n.tempId) refMap[String(n.tempId).trim()] = finalUuid;
+    if (n.uuid)   refMap[String(n.uuid).trim()]   = finalUuid;
+    assignedNodes.push({
+      tempId:  n.tempId || '',
+      uuid:    finalUuid,
+      wbsCode: finalCode,
+      wbsName: n.wbsName || '',
+    });
     return {
-      'Project Code': p.projectCode,
-      'Activity':     a.name,
-      'WBS Code':     a.wbsCode,
-      'Cost Code':    a.costCode,
-      'Type of Work': a.typeOfWork || '',
-      'Unit':         a.unit,
-      'BOQ Qty':      a.boqQty,
-      'Master UUID':  a.masterUuid || '',
-      'Task Code':    a.taskCode   || '',
-      'CheckSum':     a.checkSum   || '',
+      'Project Code': projectCode,
+      'UUID':         finalUuid,
+      'WBS Code':     finalCode,
+      'WBS Name':     n.wbsName || '',
+      'Updated At':   nowIso,
     };
-  }));
+  });
+
+  _replaceProjectRows('WBS', wbsHeaders, projectCode, wbsRows);
+
+  // Now Activities — resolve parentRef → real UUID via refMap
+  var actHeaders = [
+    'Project Code', 'Activity', 'WBS Code', 'CheckSum',
+    'Nature of Work', 'Type of Work', 'Unit', 'Cost Code',
+    'BOQ Qty', 'Master UUID', 'Task Code', 'Updated At'
+  ];
+
+  var actRows = (p.activities || []).map(function(a) {
+    var parentRef = String(a.parentRef || '').trim();
+    var resolvedUuid = refMap[parentRef] || parentRef; // fall back to raw if not in map
+    // Find the WBS Code for this resolved UUID (from the rows we just built)
+    var parent = wbsRows.filter(function(r) { return r['UUID'] === resolvedUuid; })[0];
+    var wbsCode = parent ? parent['WBS Code'] : '';
+    return {
+      'Project Code':   projectCode,
+      'Activity':       a.name || '',
+      'WBS Code':       wbsCode,
+      'CheckSum':       resolvedUuid,      // = parent WBS.UUID
+      'Nature of Work': a.natureOfWork || '',
+      'Type of Work':   a.typeOfWork   || '',
+      'Unit':           a.unit         || '',
+      'Cost Code':      a.costCode     || '',
+      'BOQ Qty':        Number(a.boqQty) || 0,
+      'Master UUID':    a.masterUuid   || '',
+      'Task Code':      a.taskCode     || '',
+      'Updated At':     nowIso,
+    };
+  });
+
+  _replaceProjectRows('Activities', actHeaders, projectCode, actRows);
 
   return ContentService.createTextOutput(JSON.stringify({
     success: true,
-    message: 'Saved ' + (p.nodes || []).length + ' WBS nodes and ' + (p.activities || []).length + ' activities',
+    message: 'Saved ' + wbsRows.length + ' WBS rows and ' + actRows.length + ' activities',
+    assignedNodes: assignedNodes,   // [{ tempId, uuid, wbsCode, wbsName }] — frontend uses to update local state
   })).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── Helpers for saveWBS ─────────────────────────────────────────
+
+// Find the next available WBS Code number for a project.
+// Scans existing rows on the WBS tab and picks max+1.
+function _getNextWbsCodeNum(projectCode) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('WBS');
+    if (!sheet || sheet.getLastRow() < 2) return 1;
+    var data = sheet.getDataRange().getValues();
+    var headers = data[0];
+    var pcIdx   = headers.indexOf('Project Code');
+    var codeIdx = headers.indexOf('WBS Code');
+    if (pcIdx < 0 || codeIdx < 0) return 1;
+    var max = 0;
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][pcIdx]) === projectCode) {
+        var code = String(data[i][codeIdx] || '');
+        var m = code.match(/(\d+)/);
+        if (m) max = Math.max(max, parseInt(m[1], 10));
+      }
+    }
+    return max + 1;
+  } catch (e) {
+    return 1;
+  }
+}
+
+// Format a WBS Code: e.g. "WBS-001", "WBS-002"
+// Project Code prefix is omitted — codes are scoped per-project via the Project Code column.
+function _formatWbsCode(projectCode, num) {
+  var n = String(num);
+  while (n.length < 3) n = '0' + n;
+  return 'WBS-' + n;
 }

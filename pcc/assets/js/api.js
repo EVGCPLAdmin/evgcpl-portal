@@ -45,10 +45,12 @@ window.API = (function() {
       return { success: true, message: 'Demo mode — not saved' };
     }
     try {
+      // Spread payload at top level alongside action so Apps Script handlers
+      // can read p.projectCode, p.nodes, etc. directly (no wrapper object).
       const r = await fetch(window.CONFIG.SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action, payload }),
+        body: JSON.stringify({ action, ...(payload || {}) }),
       });
       return await r.json();
     } catch (e) {
