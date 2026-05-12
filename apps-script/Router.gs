@@ -66,6 +66,9 @@ function doPost(e) {
     if (action === 'saveVariations')           return _wrap(saveVariations(body));
     if (action === 'submitBudgetApproval')     return _wrap(submitBudgetApproval(body));
 
+    // ── Diagnostics / schema inspection ────────────────────────
+    if (action === 'getSheetHeaders')          return getSheetHeaders(body);
+
     // ── PIN ops (separate PIN.gs if present) ───────────────────
     if (action === 'verifyPin')                return verifyPin(body);
     if (action === 'resetPin')                 return resetPin(body);

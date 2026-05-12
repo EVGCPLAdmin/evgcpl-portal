@@ -59,7 +59,26 @@
     <div class="kpi"><div class="kpi-label">Total Projects</div><div class="kpi-val" id="kpiHomeProjs">0</div><div class="kpi-sub">in backing sheet</div></div>
   </div>
 
-  <div class="card">
+  <div class="card" style="margin-top:18px;border-left:4px solid var(--green)">
+    <div class="card-head">
+      <div class="ch-l">
+        <div class="ch-icon green">🌲</div>
+        <div>
+          <div class="ch-title">Project Tree</div>
+          <div class="ch-sub">Full 4-level hierarchy &middot; Project → BOQ → WBS → Activities &middot; linked via UUID/CheckSum</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-pad" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+      <div style="font-size:12.5px;color:var(--text-faint);line-height:1.7">
+        Collapsible read-only view of the full cost structure.<br>
+        Unlinked items (missing UUID/CheckSum) are highlighted so you know what to fix.
+      </div>
+      <a href="project-tree.html" class="btn btn-primary" style="white-space:nowrap">Open Project Tree →</a>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
     <div class="card-head">
       <div class="ch-l">
         <div class="ch-icon green">&#128203;</div>

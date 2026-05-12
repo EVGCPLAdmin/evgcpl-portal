@@ -45,49 +45,74 @@ function _norm(p) {
 
 /**
  * Generic per-project replace pattern.
- * Clears all rows where col A = projectCode, then appends new rows.
- * Auto-creates tab with header row on first save.
+ * ────────────────────────────────────────────────────────────────
+ * RULES:
+ *   1. NEVER overwrite row 1 (headers). Headers are owned by the sheet.
+ *   2. If the sheet doesn't exist yet → create it with the supplied headers.
+ *   3. If the sheet exists → read its actual headers and map data by column name.
+ *      Any column in the sheet that we don't have a value for → left blank.
+ *      Any field we have that the sheet doesn't have a column for → silently skipped.
+ *   4. Clears only rows where col A = projectCode (never touches other projects).
  */
-function _replaceProjectRows(tabName, headers, projectCode, rows) {
+function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
   rows = rows || [];
   var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
   var sh = ss.getSheetByName(tabName);
+
+  // ── Create tab if it doesn't exist ──────────────────────────
   if (!sh) {
     sh = ss.insertSheet(tabName);
-    sh.getRange(1, 1, 1, headers.length).setValues([headers])
-      .setBackground('#1e8035').setFontColor('#ffffff').setFontWeight('bold');
+    sh.getRange(1, 1, 1, defaultHeaders.length)
+      .setValues([defaultHeaders])
+      .setBackground('#1e8035')
+      .setFontColor('#ffffff')
+      .setFontWeight('bold');
     sh.setFrozenRows(1);
-  }
-  // Ensure headers match (in case sheet existed but with old headers)
-  var existingHeaders = sh.getRange(1, 1, 1, Math.max(headers.length, sh.getLastColumn() || 1)).getValues()[0];
-  var headersDiffer = headers.some(function(h, i) { return existingHeaders[i] !== h; });
-  if (headersDiffer) {
-    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    Logger.log('[_replaceProjectRows] Created new tab: ' + tabName);
   }
 
-  // Clear rows for this project (col A)
+  // ── Read EXISTING headers — never overwrite them ─────────────
+  var lastCol = Math.max(sh.getLastColumn(), 1);
+  var existingHeaders = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  // Build column-name → 0-based-index map from whatever is in row 1
+  var colIndex = {};
+  existingHeaders.forEach(function(h, i) {
+    if (h && String(h).trim()) colIndex[String(h).trim()] = i;
+  });
+
+  // ── Clear rows for this project (col A = projectCode) ────────
   var lastRow = sh.getLastRow();
   if (lastRow > 1) {
     var codes = sh.getRange(2, 1, lastRow - 1, 1).getValues();
-    var rowsToDelete = [];
+    var toDelete = [];
     for (var i = 0; i < codes.length; i++) {
-      if (String(codes[i][0]) === String(projectCode)) rowsToDelete.push(i + 2);
+      if (String(codes[i][0]).trim() === String(projectCode).trim()) {
+        toDelete.push(i + 2);
+      }
     }
-    rowsToDelete.reverse().forEach(function(r) { sh.deleteRow(r); });
+    // Delete from bottom up so row numbers stay valid
+    toDelete.reverse().forEach(function(r) { sh.deleteRow(r); });
   }
 
-  // Append fresh rows
-  if (rows && rows.length) {
-    var data = rows.map(function(r) {
-      return headers.map(function(h) { return r[h] != null ? r[h] : ''; });
+  // ── Append fresh rows, mapped to existing column positions ───
+  if (rows.length > 0) {
+    var numCols = existingHeaders.length;
+    var data = rows.map(function(rowObj) {
+      var out = new Array(numCols).fill('');
+      Object.keys(rowObj).forEach(function(field) {
+        var idx = colIndex[field];
+        if (idx !== undefined) {
+          var v = rowObj[field];
+          out[idx] = (v === null || v === undefined) ? '' : v;
+        }
+        // Fields not in the sheet are silently skipped — never adds a column
+      });
+      return out;
     });
-    sh.getRange(sh.getLastRow() + 1, 1, data.length, headers.length).setValues(data);
+    sh.getRange(sh.getLastRow() + 1, 1, data.length, numCols).setValues(data);
   }
-  return ContentService.createTextOutput(JSON.stringify({
-    success: true,
-    message: 'Saved ' + (rows ? rows.length : 0) + ' rows to ' + tabName,
-    rowCount: rows ? rows.length : 0,
-  })).setMimeType(ContentService.MimeType.JSON);
+
+  return rows.length;  // caller wraps in _wrap() for the response
 }
 
 // ─── 1. WORKPLAN ───
@@ -418,4 +443,35 @@ function _formatWbsCode(projectCode, num) {
   var n = String(num);
   while (n.length < 3) n = '0' + n;
   return 'WBS-' + n;
+}
+
+// ─── DIAGNOSTIC: Read sheet headers ────────────────────────────
+// Call with action: 'getSheetHeaders' to see exactly what columns
+// exist on each tab — used to map saveWBS / Activities correctly.
+// Returns: { WBS: [...headers], Activities: [...headers], ... }
+function getSheetHeaders(p) {
+  p = _norm(p);
+  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var tabs = (p.tabs && p.tabs.length) ? p.tabs
+    : ['Project', 'BOQ', 'WBS', 'Activities', 'Workplan',
+       'Manpower_Plan', 'Machinery_Plan', 'Material_Plan',
+       'Overheads', 'Variations', 'CostCode', 'M_PL_1_Activities'];
+  var result = {};
+  tabs.forEach(function(tabName) {
+    var sh = ss.getSheetByName(tabName);
+    if (!sh) { result[tabName] = null; return; }
+    var lastCol = sh.getLastColumn();
+    if (lastCol < 1) { result[tabName] = []; return; }
+    result[tabName] = sh.getRange(1, 1, 1, lastCol).getValues()[0]
+      .map(function(h) { return String(h || '').trim(); })
+      .filter(function(h, i, arr) {
+        // include all up to last non-empty
+        return arr.slice(i).some(function(x) { return x !== ''; });
+      });
+  });
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true,
+    headers: result,
+    sheetId: PCC_SHEET_ID,
+  })).setMimeType(ContentService.MimeType.JSON);
 }
