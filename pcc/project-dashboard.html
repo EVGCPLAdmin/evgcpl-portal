@@ -7,9 +7,20 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="assets/css/app.css" />
-<!-- Chart.js -->
+<!-- Chart.js (CDN with fallback notice) -->
+<script>
+  // Load Chart.js; if CDN unavailable, charts show "CDN unavailable" instead of crashing
+  window._chartJsTimeout = setTimeout(function() {
+    if (typeof Chart === 'undefined') {
+      document.querySelectorAll('.chart-wrap').forEach(function(el) {
+        el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:12px;text-align:center">Chart.js CDN unavailable<br>Check network access to cdnjs.cloudflare.com</div>';
+      });
+    }
+  }, 5000);
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"
-        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        crossorigin="anonymous" referrerpolicy="no-referrer"
+        onload="clearTimeout(window._chartJsTimeout)"></script>
 <style>
 /* ── Dashboard-specific ──────────────────────────────────────── */
 .dash-grid {

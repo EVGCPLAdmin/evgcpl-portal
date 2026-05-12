@@ -99,6 +99,17 @@ if (!ok) process.exit(1);
 fs.writeFileSync(BUNDLE, src);
 console.log(`✓ Patched portal-bundle.js (${before} → ${src.length} bytes)`);
 
+// ── Patch PCC config.js (same version constants) ──
+const PCC_CONFIG = path.join(ROOT, 'pcc', 'assets', 'js', 'config.js');
+if (fs.existsSync(PCC_CONFIG)) {
+  let pccSrc = fs.readFileSync(PCC_CONFIG, 'utf8');
+  pccSrc = pccSrc.replace(/const\s+PCC_VERSION\s*=\s*'[^']*'\s*;/, `const PCC_VERSION  = '${v.semver}';`);
+  pccSrc = pccSrc.replace(/const\s+PCC_BUILD\s*=\s*\d+\s*;/,        `const PCC_BUILD    = ${v.build};`);
+  pccSrc = pccSrc.replace(/const\s+PCC_BUILD_AT\s*=\s*'[^']*'\s*;/, `const PCC_BUILD_AT = '${v.builtAt}';`);
+  fs.writeFileSync(PCC_CONFIG, pccSrc);
+  console.log(`✓ Patched pcc/config.js (PCC_VERSION=${v.semver}, PCC_BUILD=${v.build})`);
+}
+
 // ── Validate JS ──
 try {
   execSync(`node --check "${BUNDLE}"`, { stdio: 'pipe' });

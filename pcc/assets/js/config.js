@@ -2,6 +2,11 @@
    CONFIG · Sheet IDs, Apps Script URL, Tab names
 ═══════════════════════════════════════════════════════════════ */
 
+// ── Build constants — patched by build-portal.js at build time ──
+const PCC_VERSION  = '3.11.2';
+const PCC_BUILD    = 346;
+const PCC_BUILD_AT = '2026-05-12T11:48:48Z';
+
 // ── Apps Script URL: read parent portal's endpoint registry ──
 // The PCC subapp loads in an iframe on the same origin. Its parent stores
 // per-endpoint URL overrides in localStorage under 'evgcpl_exec_registry_v1'.

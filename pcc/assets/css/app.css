@@ -1458,3 +1458,25 @@ td.locked-cell::before {
   .snav-link { justify-content: center; padding: 10px 0; }
   .snav-step { width: 32px; height: 32px; font-size: 12px; }
 }
+
+/* ── Portal footer pvf-* classes (matches main portal exactly) ── */
+#portalVersionFooter .pvf-inner {
+  max-width: 100%; padding: 4px 16px;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: #6b7280;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  height: 100%;
+}
+#portalVersionFooter .pvf-brand { font-weight: 700; color: #1a6038; letter-spacing: .01em; }
+#portalVersionFooter .pvf-ver   { font-weight: 600; color: #2a7a48; }
+#portalVersionFooter .pvf-build {
+  color: #b8892e; font-weight: 600;
+  font-family: 'DM Mono', 'Consolas', monospace; font-size: 10.5px;
+}
+#portalVersionFooter .pvf-date  {
+  color: #6b7280;
+  font-family: 'DM Mono', 'Consolas', monospace; font-size: 10.5px;
+}
+#portalVersionFooter .pvf-sep   { color: #d4dde0; }
+#portalVersionFooter .pvf-fill  { flex: 1; }
+#portalVersionFooter .pvf-tail  { color: #6b7280; font-size: 10.5px; }

@@ -44,10 +44,13 @@ window.Shell = (function () {
 
   // ── Left Sidebar Nav ──────────────────────────────────────────
   function buildSidebar(currentPageId) {
-    const navItems = (C.PAGES || []).filter(p => p.id !== 'home' && p.id !== 'project-tree');
-    const currentIdx = navItems.findIndex(p => p.id === currentPageId);
+    // Steps only (exclude home, project-tree, project-dashboard — handled separately)
+    const stepItems = (C.PAGES || []).filter(p =>
+      p.id !== 'home' && p.id !== 'project-tree' && p.id !== 'project-dashboard'
+    );
+    const currentIdx = stepItems.findIndex(p => p.id === currentPageId);
 
-    const navLinks = navItems.map((p, i) => {
+    const stepLinks = stepItems.map((p, i) => {
       const isActive = p.id === currentPageId;
       const isDone   = currentIdx > i;
       const cls      = isActive ? 'active' : (isDone ? 'done' : '');
@@ -60,20 +63,30 @@ window.Shell = (function () {
       </a>`;
     }).join('');
 
-    // Project tree link (outside the steps)
+    const dashActive = currentPageId === 'project-dashboard';
     const treeActive = currentPageId === 'project-tree';
 
     return `
     <aside class="pcc-sidebar">
-      <div class="snav-section-label">Steps</div>
-      <nav class="snav">${navLinks}</nav>
+      <!-- Dashboard — prominent, not a step -->
+      <div style="padding:6px 10px 2px">
+        <a class="snav-link ${dashActive ? 'active' : ''}" href="project-dashboard.html" title="Project Progress Dashboard">
+          <span class="snav-step" style="${dashActive ? '' : 'background:rgba(30,128,56,.08);border-color:transparent;color:var(--green)'}">📊</span>
+          <span class="snav-title" style="font-weight:700">Dashboard</span>
+          ${dashActive ? '<span class="snav-active-bar"></span>' : ''}
+        </a>
+      </div>
       <div class="snav-divider"></div>
+      <div class="snav-section-label">Steps</div>
+      <nav class="snav">${stepLinks}</nav>
+      <div class="snav-divider"></div>
+      <!-- Project Tree -->
       <a class="snav-link ${treeActive ? 'active' : ''}" href="project-tree.html" title="Full project hierarchy">
         <span class="snav-step">🌲</span>
         <span class="snav-title">Project Tree</span>
         ${treeActive ? '<span class="snav-active-bar"></span>' : ''}
       </a>
-      <!-- Last updated timestamp -->
+      <!-- Last loaded timestamp -->
       <div class="snav-footer">
         <div class="snav-updated" id="snavLastUpdated" title="Last data load time">
           <span class="snav-upd-label">Last loaded</span>
@@ -83,40 +96,50 @@ window.Shell = (function () {
     </aside>`;
   }
 
-  // ── Portal-style footer ───────────────────────────────────────
-  // Matches the main portal footer injected by injectPortalFooter()
+  // ── Portal-style footer — reads local build constants injected at build time ──
   function buildFooter() {
-    // Try to read PORTAL_VERSION from parent window (same-origin iframe context)
-    let ver = '—', build = '—', dateLabel = '';
-    try {
-      const pw = window.parent;
-      if (pw && pw.PORTAL_VERSION) {
-        ver   = pw.PORTAL_VERSION;
-        build = pw.PORTAL_BUILD   || '—';
-        const at = pw.PORTAL_BUILD_AT || '';
-        if (at) {
-          const d = new Date(at);
-          if (!isNaN(d.getTime())) dateLabel = d.toISOString().slice(0, 10);
+    // PCC_VERSION / PCC_BUILD / PCC_BUILD_AT are injected into config.js by build-portal.js
+    // This is reliable regardless of iframe/standalone context.
+    let ver   = (typeof PCC_VERSION  !== 'undefined') ? PCC_VERSION  : '—';
+    let build = (typeof PCC_BUILD    !== 'undefined') ? String(PCC_BUILD) : '—';
+    let at    = (typeof PCC_BUILD_AT !== 'undefined') ? PCC_BUILD_AT : '';
+
+    // Fallback: try reading from parent portal window (same-origin iframe)
+    if (ver === '—') {
+      try {
+        const pw = window.parent;
+        if (pw && pw !== window && pw.PORTAL_VERSION) {
+          ver   = pw.PORTAL_VERSION;
+          build = String(pw.PORTAL_BUILD || '—');
+          at    = pw.PORTAL_BUILD_AT || '';
         }
-      }
-    } catch (_) { /* cross-origin guard */ }
+      } catch (_) { /* cross-origin — skip */ }
+    }
+
+    let dateLabel = '';
+    if (at) {
+      try {
+        const d = new Date(at);
+        if (!isNaN(d.getTime())) dateLabel = d.toISOString().slice(0, 10);
+      } catch (_) {}
+    }
 
     return `
     <footer id="portalVersionFooter" style="
       position:fixed;bottom:0;left:0;right:0;z-index:900;
-      height:32px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);
-      border-top:1px solid var(--border);display:flex;align-items:center;
-      padding:0 18px;gap:8px;font-size:11px;color:var(--text-dim);
-      pointer-events:none;
+      height:28px;background:rgba(255,255,255,.96);backdrop-filter:blur(8px);
+      border-top:1px solid var(--border);
     ">
-      <span style="font-weight:700;color:var(--green)">EVGCPL Portal</span>
-      <span style="opacity:.4">·</span>
-      <span>PCC</span>
-      ${ver !== '—' ? `<span style="opacity:.4">·</span><span>v${ver}</span>` : ''}
-      ${build !== '—' ? `<span style="opacity:.4">·</span><span>build ${build}</span>` : ''}
-      ${dateLabel ? `<span style="opacity:.4">·</span><span>${dateLabel}</span>` : ''}
-      <span style="flex:1"></span>
-      <span>© ${new Date().getFullYear()} Evergreen Enterprises</span>
+      <div class="pvf-inner">
+        <span class="pvf-brand">EVGCPL Portal</span>
+        <span class="pvf-sep">·</span>
+        <span class="pvf-ver">PCC</span>
+        ${ver !== '—' ? `<span class="pvf-sep">·</span><span class="pvf-ver">v${ver}</span>` : ''}
+        ${build !== '—' ? `<span class="pvf-sep">·</span><span class="pvf-build">build ${build}</span>` : ''}
+        ${dateLabel ? `<span class="pvf-sep">·</span><span class="pvf-date">${dateLabel}</span>` : ''}
+        <span class="pvf-fill"></span>
+        <span class="pvf-tail">© ${new Date().getFullYear()} Evergreen Enterprises</span>
+      </div>
     </footer>`;
   }
 
