@@ -1,134 +1,209 @@
 /* ════════════════════════════════════════════════════════════════
-   SHELL · Header, navigation, project switcher
-   Each page calls Shell.init({pageId: 'workplan'}) on load.
+   SHELL · Header · Left Sidebar Nav · Footer · Project Switcher
 ═══════════════════════════════════════════════════════════════ */
 
-window.Shell = (function() {
+window.Shell = (function () {
 
   const C = window.CONFIG;
 
+  // ── Header ────────────────────────────────────────────────────
   function buildHeader(currentPageId) {
-    const ap = window.STATE.activeProject;
-    const code = ap ? (ap['Project Code'] || '—') : '—';
-    const name = ap ? (ap['Project Name'] || '(no name)') : 'No project';
-
+    const ap       = window.STATE.activeProject;
+    const code     = ap ? (ap['Project Code'] || '—') : '—';
+    const name     = ap ? (ap['Project Name'] || '(no name)') : 'No project';
     const pageMeta = (C.PAGES || []).find(p => p.id === currentPageId);
-    const pageStep = pageMeta && pageMeta.step !== '·' ? `Step ${pageMeta.step}` : 'Module';
+    const pageTitle = pageMeta ? pageMeta.title : 'PCC';
 
     return `
-      <header class="app-header">
-        <div class="ah-l">
-          <a href="index.html" style="display:flex;align-items:center;gap:14px">
-            <img src="assets/img/EG.jpg" class="ah-logo" alt="EG"
-                 onerror="this.style.display='none'" />
-          </a>
-          <div class="ah-divider"></div>
-          <div class="ah-brand">
-            <span class="b1">Project Cost Control</span>
-            <span class="b2">${pageStep} · ${pageMeta ? pageMeta.title : 'Page'}</span>
-          </div>
+    <header class="app-header">
+      <div class="ah-l">
+        <a href="index.html" style="display:flex;align-items:center;gap:12px;text-decoration:none">
+          <img src="assets/img/EG.jpg" class="ah-logo" alt="EG"
+               onerror="this.style.display='none'" />
+        </a>
+        <div class="ah-divider"></div>
+        <div class="ah-brand">
+          <span class="b1">Project Cost Control</span>
+          <span class="b2">${Utils.esc(pageTitle)}</span>
         </div>
-        <div class="ah-r">
-          <div class="proj-pill" onclick="Shell.openProjectSwitcher()" title="Change project">
-            <div class="pp-dot"></div>
-            <span class="pp-code">${Utils.esc(code)}</span>
-            <span class="pp-name">${Utils.esc(name)}</span>
-            <span class="pp-arr">▾</span>
-          </div>
-          <button class="btn-icon" onclick="Shell.refresh()" title="Refresh data">↻</button>
-          <a class="btn-icon"
-             href="https://docs.google.com/spreadsheets/d/${C.SHEET_ID}/edit"
-             target="_blank" rel="noopener" title="Open backing sheet">📊</a>
+      </div>
+      <div class="ah-r">
+        <div class="proj-pill" onclick="Shell.openProjectSwitcher()" title="Switch project">
+          <div class="pp-dot"></div>
+          <span class="pp-code">${Utils.esc(code)}</span>
+          <span class="pp-name">${Utils.esc(name)}</span>
+          <span class="pp-arr">▾</span>
         </div>
-      </header>
-    `;
+        <button class="btn-icon" onclick="Shell.refresh()" title="Refresh data">↻</button>
+        <a class="btn-icon"
+           href="https://docs.google.com/spreadsheets/d/${C.SHEET_ID}/edit"
+           target="_blank" rel="noopener" title="Open backing sheet">📊</a>
+      </div>
+    </header>`;
   }
 
-  function buildNav(currentPageId) {
-    // The nav row shows Steps 1–8 + Variations + Summary; Home/index isn't shown
-    const navItems = (C.PAGES || []).filter(p => p.id !== 'home');
-    const idx = navItems.findIndex(p => p.id === currentPageId);
+  // ── Left Sidebar Nav ──────────────────────────────────────────
+  function buildSidebar(currentPageId) {
+    const navItems = (C.PAGES || []).filter(p => p.id !== 'home' && p.id !== 'project-tree');
+    const currentIdx = navItems.findIndex(p => p.id === currentPageId);
+
+    const navLinks = navItems.map((p, i) => {
+      const isActive = p.id === currentPageId;
+      const isDone   = currentIdx > i;
+      const cls      = isActive ? 'active' : (isDone ? 'done' : '');
+      const stepNum  = (p.step === '·' || !p.step) ? '' : p.step;
+      return `
+      <a class="snav-link ${cls}" href="${p.file}" title="${Utils.esc(p.desc)}">
+        <span class="snav-step">${stepNum ? stepNum : p.icon}</span>
+        <span class="snav-title">${Utils.esc(p.title)}</span>
+        ${isActive ? '<span class="snav-active-bar"></span>' : ''}
+      </a>`;
+    }).join('');
+
+    // Project tree link (outside the steps)
+    const treeActive = currentPageId === 'project-tree';
 
     return `
-      <nav class="app-nav">
-        ${navItems.map((p, i) => {
-          const isActive = p.id === currentPageId;
-          const isDone = idx > i; // earlier steps marked done when on later step
-          const cls = isActive ? 'active' : (isDone ? 'done' : '');
-          const stepNum = (p.step === '·' || !p.step) ? p.icon : p.step;
-          return `<a class="nav-link ${cls}" href="${p.file}" title="${Utils.esc(p.desc)}">
-            <span class="step-num">${stepNum}</span>
-            <span>${Utils.esc(p.title)}</span>
-          </a>`;
-        }).join('')}
-      </nav>
-    `;
+    <aside class="pcc-sidebar">
+      <div class="snav-section-label">Steps</div>
+      <nav class="snav">${navLinks}</nav>
+      <div class="snav-divider"></div>
+      <a class="snav-link ${treeActive ? 'active' : ''}" href="project-tree.html" title="Full project hierarchy">
+        <span class="snav-step">🌲</span>
+        <span class="snav-title">Project Tree</span>
+        ${treeActive ? '<span class="snav-active-bar"></span>' : ''}
+      </a>
+      <!-- Last updated timestamp -->
+      <div class="snav-footer">
+        <div class="snav-updated" id="snavLastUpdated" title="Last data load time">
+          <span class="snav-upd-label">Last loaded</span>
+          <span class="snav-upd-time" id="snavUpdTime">—</span>
+        </div>
+      </div>
+    </aside>`;
   }
 
+  // ── Portal-style footer ───────────────────────────────────────
+  // Matches the main portal footer injected by injectPortalFooter()
   function buildFooter() {
+    // Try to read PORTAL_VERSION from parent window (same-origin iframe context)
+    let ver = '—', build = '—', dateLabel = '';
+    try {
+      const pw = window.parent;
+      if (pw && pw.PORTAL_VERSION) {
+        ver   = pw.PORTAL_VERSION;
+        build = pw.PORTAL_BUILD   || '—';
+        const at = pw.PORTAL_BUILD_AT || '';
+        if (at) {
+          const d = new Date(at);
+          if (!isNaN(d.getTime())) dateLabel = d.toISOString().slice(0, 10);
+        }
+      }
+    } catch (_) { /* cross-origin guard */ }
+
     return `
-      <footer class="app-footer">
-        Project Cost Control · <span class="v">v1.0 · Multi-page</span> ·
-        Steps 1–8 of Project Budget Preparation Flow ·
-        <a href="https://docs.google.com/spreadsheets/d/${C.SHEET_ID}/edit"
-           target="_blank" rel="noopener" style="color:var(--green)">Backing Sheet ↗</a>
-      </footer>
-    `;
+    <footer id="portalVersionFooter" style="
+      position:fixed;bottom:0;left:0;right:0;z-index:900;
+      height:32px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);
+      border-top:1px solid var(--border);display:flex;align-items:center;
+      padding:0 18px;gap:8px;font-size:11px;color:var(--text-dim);
+      pointer-events:none;
+    ">
+      <span style="font-weight:700;color:var(--green)">EVGCPL Portal</span>
+      <span style="opacity:.4">·</span>
+      <span>PCC</span>
+      ${ver !== '—' ? `<span style="opacity:.4">·</span><span>v${ver}</span>` : ''}
+      ${build !== '—' ? `<span style="opacity:.4">·</span><span>build ${build}</span>` : ''}
+      ${dateLabel ? `<span style="opacity:.4">·</span><span>${dateLabel}</span>` : ''}
+      <span style="flex:1"></span>
+      <span>© ${new Date().getFullYear()} Evergreen Enterprises</span>
+    </footer>`;
   }
 
+  // ── Project switcher modal ────────────────────────────────────
   function buildProjectSwitcher() {
     return `
-      <div class="modal-bg" id="projectSwitcher" onclick="if(event.target===this)Shell.closeProjectSwitcher()">
-        <div class="modal">
-          <div class="modal-head">
-            <h3>Select Project</h3>
-            <button class="btn-icon" onclick="Shell.closeProjectSwitcher()">✕</button>
+    <div class="modal-bg" id="projectSwitcher"
+         onclick="if(event.target===this)Shell.closeProjectSwitcher()">
+      <div class="modal">
+        <div class="modal-head">
+          <h3>Select Project</h3>
+          <button class="btn-icon" onclick="Shell.closeProjectSwitcher()">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-search">
+            <input type="text" id="projectSearch"
+                   placeholder="Search by code or name…"
+                   oninput="Shell.filterProjects(this.value)" />
           </div>
-          <div class="modal-body">
-            <div class="modal-search">
-              <input type="text" id="projectSearch" placeholder="Search by code or name…"
-                     oninput="Shell.filterProjects(this.value)" />
-            </div>
-            <div id="projectList">
-              <div class="empty"><div class="empty-icon">📁</div>
-                <div class="empty-title">Loading projects…</div></div>
+          <div id="projectList">
+            <div class="empty">
+              <div class="empty-icon">📁</div>
+              <div class="empty-title">Loading projects…</div>
             </div>
           </div>
         </div>
       </div>
-      <div id="toast"></div>
-    `;
+    </div>
+    <div id="toast"></div>`;
   }
 
-  /**
-   * Init shell: inject header/nav/footer, load projects, restore active project.
-   * Call from every page's bootstrap.
-   */
+  // ── Init ──────────────────────────────────────────────────────
   async function init(opts) {
     const pageId = (opts && opts.pageId) || '';
 
-    // Inject header BEFORE main content
-    const header = document.createElement('div');
-    header.innerHTML = buildHeader(pageId) + buildNav(pageId);
-    document.body.insertBefore(header, document.body.firstChild);
+    // 1. Inject header at top of body
+    const headerEl = document.createElement('div');
+    headerEl.innerHTML = buildHeader(pageId);
+    document.body.insertBefore(headerEl, document.body.firstChild);
 
-    // Inject footer + switcher AFTER main
+    // 2. Wrap the existing <main class="app-main"> in the sidebar layout
+    const mainEl = document.querySelector('main.app-main');
+    if (mainEl) {
+      const layout = document.createElement('div');
+      layout.className = 'pcc-layout';
+      mainEl.parentNode.insertBefore(layout, mainEl);
+      layout.innerHTML = buildSidebar(pageId);
+      layout.appendChild(mainEl);
+    }
+
+    // 3. Inject footer + project switcher at end of body
     const tail = document.createElement('div');
     tail.innerHTML = buildFooter() + buildProjectSwitcher();
     document.body.appendChild(tail);
 
-    // Load projects
+    // 4. Load projects + restore active project
     await loadProjects();
+
+    // 5. Stamp "last loaded" time
+    _stampUpdated();
 
     return { activeProject: window.STATE.activeProject };
   }
 
+  // ── Last updated timestamp ────────────────────────────────────
+  function _stampUpdated(label) {
+    const el = document.getElementById('snavUpdTime');
+    if (!el) return;
+    const now = new Date();
+    const hhmm = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+    el.textContent = label || hhmm;
+    el.title = now.toLocaleString('en-GB');
+  }
+
+  // Public — pages can call this after a save to update the timestamp
+  function stampSaved() { _stampUpdated('Saved ' + new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12: false })); }
+
+  // ── Project loaders ───────────────────────────────────────────
   async function loadProjects() {
-    const projects = await API.gviz(C.TABS.PROJECT);
-    window.STATE.projects = projects.filter(p => p['Project Code']);
+    try {
+      const projects = await API.gviz(C.TABS.PROJECT);
+      window.STATE.projects = (projects || []).filter(p => p['Project Code']);
+    } catch (e) {
+      window.STATE.projects = window.STATE.projects || [];
+    }
     if (window.STATE.activeProject && window.STATE.projects.length) {
-      // Re-resolve from latest data
-      const code = window.STATE.activeProject['Project Code'];
+      const code  = window.STATE.activeProject['Project Code'];
       const fresh = window.STATE.projects.find(p => p['Project Code'] === code);
       if (fresh) window.STATE.activeProject = fresh;
     }
@@ -152,27 +227,29 @@ window.Shell = (function() {
   }
   function filterProjects(q) {
     const ql = String(q).toLowerCase();
-    const filtered = window.STATE.projects.filter(p =>
+    renderProjectList(window.STATE.projects.filter(p =>
       String(p['Project Code'] || '').toLowerCase().includes(ql) ||
       String(p['Project Name'] || '').toLowerCase().includes(ql)
-    );
-    renderProjectList(filtered);
+    ));
   }
   function renderProjectList(list) {
     const cont = document.getElementById('projectList');
     if (!cont) return;
-    if (!list.length) {
-      cont.innerHTML = `<div class="empty"><div class="empty-icon">∅</div>
+    if (!list || !list.length) {
+      cont.innerHTML = `<div class="empty">
+        <div class="empty-icon">∅</div>
         <div class="empty-title">No projects found</div>
-        <div class="empty-sub">Add a project in the Project Setup page first.</div></div>`;
+        <div class="empty-sub">Add one in Project Setup first.</div>
+      </div>`;
       return;
     }
+    const cur = window.STATE.activeProject;
     cont.innerHTML = list.map(p => {
       const code = p['Project Code'] || '—';
       const name = p['Project Name'] || '(no name)';
-      const cur  = window.STATE.activeProject;
       const isActive = cur && cur['Project Code'] === code;
-      return `<div class="proj-row ${isActive ? 'active' : ''}" onclick="Shell.selectProject('${Utils.esc(code)}')">
+      return `<div class="proj-row ${isActive ? 'active' : ''}"
+                   onclick="Shell.selectProject('${Utils.esc(code)}')">
         <span class="pr-code">${Utils.esc(code)}</span>
         <span class="pr-name">${Utils.esc(name)}</span>
       </div>`;
@@ -183,8 +260,7 @@ window.Shell = (function() {
     if (!p) return;
     window.STATE.activeProject = p;
     window.STATE.months = Utils.genMonths(p['Start Date'], p['End Date']);
-    if (!window.STATE.months.length) {
-      // Fallback: 12 months from current
+    if (!window.STATE.months || !window.STATE.months.length) {
       const cur = new Date(); cur.setDate(1);
       for (let i = 0; i < 12; i++) {
         window.STATE.months.push(cur.toISOString().slice(0, 7));
@@ -195,21 +271,21 @@ window.Shell = (function() {
     closeProjectSwitcher();
     refreshHeaderProjectPill();
     Utils.toast(`Loaded: ${p['Project Code']}`, 'ok');
-    // Trigger page reload of data
     if (window.PAGE && typeof window.PAGE.onProjectChange === 'function') {
       window.PAGE.onProjectChange();
     }
   }
   async function refresh() {
     await loadProjects();
-    Utils.toast(`Loaded ${window.STATE.projects.length} projects`, 'ok');
+    _stampUpdated();
+    Utils.toast(`Loaded ${(window.STATE.projects || []).length} projects`, 'ok');
     if (window.PAGE && typeof window.PAGE.onProjectChange === 'function') {
       window.PAGE.onProjectChange();
     }
   }
 
   return {
-    init, refresh,
+    init, refresh, stampSaved,
     openProjectSwitcher, closeProjectSwitcher,
     filterProjects, selectProject,
   };

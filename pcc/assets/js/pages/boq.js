@@ -314,6 +314,7 @@ Scope: ${txt}` }],
           });
         }
         Utils.toast(`Saved ${items.length} BOQ items`, 'ok');
+        if (window.Shell && Shell.stampSaved) Shell.stampSaved();
       } else {
         Utils.toast((r && r.message) || 'Save failed', 'err');
       }

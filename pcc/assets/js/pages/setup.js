@@ -529,6 +529,8 @@ window.PAGE = (function() {
         if (window.persistState) window.persistState();
 
         Utils.toast('Project saved ✓', 'ok');
+        if (window.Shell && Shell.stampSaved) Shell.stampSaved();
+        if (window.Shell && Shell.stampSaved) Shell.stampSaved();
 
         // Refresh from sheet in background after 4s to pick up formula-computed fields
         setTimeout(() => loadProjects(), 4000);

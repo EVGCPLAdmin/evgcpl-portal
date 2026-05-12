@@ -605,6 +605,7 @@ window.PAGE = (function() {
           });
         }
         Utils.toast(`Saved ${nodes.length} WBS and ${activities.length} activities`, 'ok');
+        if (window.Shell && Shell.stampSaved) Shell.stampSaved();
         renderTree();
       } else {
         Utils.toast((r && r.message) || 'Save failed', 'err');
