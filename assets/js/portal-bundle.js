@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.13.1';
-const PORTAL_BUILD    = 350;
-const PORTAL_BUILD_AT = '2026-05-12T13:27:25Z';
+const PORTAL_VERSION  = '3.13.2';
+const PORTAL_BUILD    = 351;
+const PORTAL_BUILD_AT = '2026-05-12T13:35:20Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5639,8 +5639,9 @@ window.sheetConfigSaveOne = async function(key) {
   }
   st.textContent = 'Saving…'; st.style.color = '#92400e';
   try {
-    // Always use the compiled default URL for writing (avoids bootstrap problem)
-    const writeUrl = EXEC_REGISTRY_DEFAULTS.main.defaultUrl;
+    // Use getExec('main') — respects T1 localStorage → T2 Sheet → T3 compiled default.
+    // Set the correct main URL in the T1 override card first if the compiled default is stale.
+    const writeUrl = getExec('main');
     const userEmail = (window.STATE && STATE.user && STATE.user.email) || 'unknown';
     const r = await fetch(writeUrl, {
       method: 'POST',
