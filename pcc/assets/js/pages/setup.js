@@ -25,63 +25,74 @@ window.PAGE = (function() {
   let gstRowIdx   = 0;
 
   // ── FIELD_MAP — sheet column → element id ─────────────────────
-  // Keep in sync with sheet headers. Backend reads these keys.
   const FIELD_MAP = {
     // Identity
-    'Project Code':           'f_projectCode',
-    'Project Name':           'f_projectName',
-    'Series':                 'f_series',
-    'Private / Govt':         'f_privateGovt',
-    'Domestic / Inte':        'f_domesticInt',
-    'Awarded Date':           'f_awardedDate',
-    'Contract Amount':        'f_contractAmount',
-    'Currency':               'f_currency',
-    'Start Date':             'f_startDate',
-    'End Date':               'f_endDate',
-    'Active/Inactive?':       'f_active',
+    'Project Code':              'f_projectCode',
+    'Project Name':              'f_projectName',
+    'Series':                    'f_series',
+    'Private / Govt':            'f_privateGovt',
+    'Domestic / International':  'f_domesticInt',   // full column name (was truncated)
+    'Awarded Date':              'f_awardedDate',
+    'Contract Amount':           'f_contractAmount',
+    'Currency':                  'f_currency',
+    'Start Date':                'f_startDate',
+    'End Date':                  'f_endDate',
+    'Active/Inactive?':          'f_active',
     // Company & Billing
-    'Company':                'f_company',
-    'PAN':                    'f_pan',
-    'TAN':                    'f_tan',
-    'Purchase Billing Under': 'f_purchaseBilling',
-    'Payroll Under':          'f_payrollUnder',
+    'Company':                   'f_company',
+    'PAN':                       'f_pan',
+    'TAN':                       'f_tan',
+    'Purchase Billing Under':    'f_purchaseBilling',
+    'Payroll Under':             'f_payrollUnder',
     // Site
-    'Site Name':              'f_siteName',
-    'Site Code':              'f_siteCode',
-    'Site Address Line 1':    'f_addr1',
-    'Site Address Line 2':    'f_addr2',
-    'Site Address Line 3':    'f_addr3',
-    'Address':                'f_address',
-    'City':                   'f_city',
-    'State':                  'f_state',
-    'Country':                'f_country',
-    'Pin Code':               'f_pin',
-    'Email ID':               'f_email',
-    'Contact 1':              'f_contact1',
-    'Contact 2':              'f_contact2',
-    'Contact 3':              'f_contact3',
-    'WebSite':                'f_website',
-    'Location':               'f_location',
-    'Delivery Address':       'f_deliveryAddress',
+    'Site Name':                 'f_siteName',
+    'Site Code':                 'f_siteCode',
+    'Site Address Line 1':       'f_addr1',
+    'Site Address Line 2':       'f_addr2',
+    'Site Address Line 3':       'f_addr3',
+    'Address':                   'f_address',
+    'City':                      'f_city',
+    'State':                     'f_state',
+    'Country':                   'f_country',
+    'Pin Code':                  'f_pin',
+    'Email ID':                  'f_email',
+    'Contact 1':                 'f_contact1',
+    'Contact 2':                 'f_contact2',
+    'Contact 3':                 'f_contact3',
+    'WebSite':                   'f_website',
+    'Location':                  'f_location',
+    'Delivery Address':          'f_deliveryAddress',
     // Client
-    'Client Name':            'f_clientName',
-    'Work Order Number':      'f_woNumber',
-    'WO Date':                'f_woDate',
-    'GST':                    'f_clientGst',   // Q4: map Client GST → sheet col 'GST'
+    'Client Name':               'f_clientName',
+    'Work Order Number':         'f_woNumber',
+    'WO Date':                   'f_woDate',
+    'GST':                       'f_clientGst',
     // Team
-    'Site In Charge Name':    'f_siteIc',
-    'Reporting Manager Name': 'f_reportMgr',
-    'Planning In-Charge':     'f_planIc',
-    'Accounts In-Charge':     'f_accIc',
-    'Mess In-Charge':         'f_messIc',
-    'Attendance In-Charge':   'f_attendanceIc',
-    'SC Attendance In-Charge':'f_scAttendanceIc',
+    'Site In Charge Name':       'f_siteIc',
+    'Reporting Manager Name':    'f_reportMgr',
+    'Planning In-Charge':        'f_planIc',
+    'Accounts In-Charge':        'f_accIc',
+    'Mess In-Charge':            'f_messIc',
+    'Attendance In-Charge':      'f_attendanceIc',
+    'SC Attendance In-Charge':   'f_scAttendanceIc',
     // Auto-captured (hidden)
-    'UUID':                   'f_uuid',
-    'UserEmail':              'f_userEmail',
-    'SystemEmail':            'f_systemEmail',
-    'Timestamp':              'f_timestamp',
+    'UUID':                      'f_uuid',
+    'UserEmail':                 'f_userEmail',
+    'SystemEmail':               'f_systemEmail',
+    'Timestamp':                 'f_timestamp',
   };
+
+  // Reverse map: elementId → sheet column (built once, used in collectForm)
+  const ID_TO_COL = {};
+  Object.keys(FIELD_MAP).forEach(col => { ID_TO_COL[FIELD_MAP[col]] = col; });
+
+  // Build a lowercase→exact key lookup so populateForm can fuzzy-match
+  // sheet columns that differ in case or truncation from FIELD_MAP keys.
+  function _buildColLookup(projectObj) {
+    const lc = {};
+    Object.keys(projectObj).forEach(k => { lc[k.toLowerCase().trim()] = k; });
+    return lc;
+  }
 
   // ── Load ──────────────────────────────────────────────────────
   async function load() {
@@ -333,15 +344,28 @@ window.PAGE = (function() {
   }
 
   // ── Form population ────────────────────────────────────────────
+  // Uses FIELD_MAP for exact matches + fuzzy lowercase fallback so minor
+  // column name differences (truncation, case) don't cause blank fields.
   function populateForm(p) {
+    const lcLookup = _buildColLookup(p); // lowercase key → actual key in p
+
     Object.keys(FIELD_MAP).forEach(col => {
       const el = document.getElementById(FIELD_MAP[col]);
       if (!el) return;
-      let v = p[col] != null ? p[col] : '';
 
-      // Date normalisation
-      if (el.type === 'date') { v = toDateInput(v); }
+      // 1. Exact match
+      let v = p[col];
 
+      // 2. Lowercase fuzzy fallback (catches truncation, casing differences)
+      if (v == null || v === '') {
+        const actual = lcLookup[col.toLowerCase().trim()];
+        if (actual) v = p[actual];
+      }
+
+      // 3. Still null → blank
+      if (v == null) v = '';
+
+      if (el.type === 'date') v = toDateInput(v);
       el.value = v;
     });
 
@@ -472,11 +496,42 @@ window.PAGE = (function() {
     try {
       const r = await API.scriptCall('saveProjectSetup', data);
       if (r && r.success) {
+        // Apply backend-assigned values back into local data
+        if (r.projectCode) data['Project Code'] = r.projectCode;
+        if (r.uuid)        data['UUID']         = r.uuid;
+        if (r.series)      data['Series']       = String(r.series);
+        if (r.timestamp)   data['Timestamp']    = r.timestamp;
+
+        // ── Update in-memory project list immediately ──────────────
+        // Do NOT wait for gviz (which caches for 1-2 min).
+        // Merge the saved values into allProjects so the list stays fresh.
+        const existingIdx = allProjects.findIndex(
+          p => p['Project Code'] === data['Project Code']
+        );
+        if (existingIdx >= 0) {
+          // Merge: apply non-empty saved values into the cached project object
+          Object.keys(data).forEach(k => {
+            const v = data[k];
+            if (v !== '' && v !== null && v !== undefined) {
+              allProjects[existingIdx][k] = v;
+            }
+          });
+          window.STATE.activeProject = allProjects[existingIdx];
+        } else {
+          // New project — add to list
+          allProjects.unshift(data);
+          window.STATE.activeProject = data;
+        }
+
+        // Re-populate form from merged in-memory data (no gviz round-trip)
+        populateForm(window.STATE.activeProject);
+        renderList(allProjects);
+        if (window.persistState) window.persistState();
+
         Utils.toast('Project saved ✓', 'ok');
-        if (r.projectCode) document.getElementById('f_projectCode').value = r.projectCode;
-        if (r.uuid)        document.getElementById('f_uuid').value        = r.uuid;
-        if (r.series)      document.getElementById('f_series').value      = r.series;
-        await loadProjects();
+
+        // Refresh from sheet in background after 4s to pick up formula-computed fields
+        setTimeout(() => loadProjects(), 4000);
       } else {
         Utils.toast((r && r.message) || 'Save failed', 'err');
       }

@@ -8,89 +8,218 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="assets/css/app.css" />
 <style>
-/* ── Tree layout ─────────────────────────────────────────────── */
-.tree-root      { display:flex;flex-direction:column;gap:4px; }
+/* ── Page layout: tree + drawer ─────────────────────────────── */
+.tree-page {
+  display: flex;
+  gap: 0;
+  position: relative;
+  min-height: calc(100vh - 120px);
+}
 
+/* Tree panel */
+.tree-panel {
+  flex: 1;
+  min-width: 0;
+  transition: max-width .25s ease;
+  padding-right: 0;
+}
+.tree-panel.tree-narrowed {
+  max-width: calc(100% - 400px);
+}
+
+/* ── Slide-in drawer ─────────────────────────────────────────── */
+.tree-drawer {
+  position: sticky;
+  top: 0;
+  width: 0;
+  max-height: calc(100vh - 80px);
+  overflow: hidden;
+  transition: width .25s ease;
+  background: var(--surface);
+  border-left: 2px solid var(--border);
+  border-radius: 0 12px 12px 0;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.tree-drawer.open {
+  width: 400px;
+  overflow-y: auto;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.drawer-title { font-size: 15px; font-weight: 700; color: var(--text); }
+.drawer-sub   { font-size: 11.5px; color: var(--text-faint); margin-top: 2px; }
+
+.drawer-body {
+  flex: 1;
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+
+.drawer-footer {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: .5rem;
+  justify-content: flex-end;
+  background: var(--surface2);
+  position: sticky;
+  bottom: 0;
+}
+
+.drawer-form .field { margin-bottom: 14px; }
+.drawer-form .field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-bottom: 4px;
+}
+.drawer-form input, .drawer-form select, .drawer-form textarea {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--text);
+}
+.drawer-form input:focus, .drawer-form select:focus {
+  border-color: var(--green);
+  outline: none;
+}
+.drawer-form input[readonly] {
+  background: var(--surface2);
+  color: var(--text-faint);
+  cursor: default;
+}
+.form-note {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  margin-bottom: 14px;
+}
+.form-note.info { background: rgba(30,128,56,.07); color: var(--green); border-left: 3px solid var(--green); }
+
+/* ── Tree rows ─────────────────────────────────────────────── */
+.tree-root { display: flex; flex-direction: column; gap: 4px; }
 .tree-row {
-  display:flex;align-items:center;gap:8px;
-  padding:9px 14px;border-radius:8px;cursor:pointer;
-  user-select:none;transition:background .12s;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  flex-wrap: wrap;
 }
-.tree-row:hover { filter:brightness(.96); }
+.tree-row.level-0 { background: var(--green); color: #fff; font-size: 13.5px; }
+.tree-row.level-0 .tree-meta { color: rgba(255,255,255,.7); }
+.tree-row.level-1 { background: rgba(30,128,56,.07); border-left: 3px solid var(--green); font-size: 13px; }
+.tree-row.level-1.unlinked-row { border-left-color: var(--gold); background: rgba(160,108,16,.06); }
+.tree-row.level-2 { background: rgba(30,128,56,.03); border-left: 3px solid rgba(30,128,56,.3); font-size: 12.5px; }
 
-/* Level colours */
-.tree-row.level-0 {
-  background:var(--green);color:#fff;font-size:13.5px;
-  border-radius:8px 8px 0 0;
+.tree-toggle {
+  background: none; border: none; font-size: 10px; cursor: pointer;
+  color: inherit; padding: 3px 5px; border-radius: 4px; flex-shrink: 0;
+  opacity: .7;
 }
-.tree-row.level-0 .tree-meta { color:rgba(255,255,255,.75); }
-.tree-row.level-0 .tree-chevron { color:#fff; }
+.tree-toggle:hover { opacity: 1; background: rgba(0,0,0,.08); }
+.tree-icon    { font-size: 14px; flex-shrink: 0; }
+.tree-sno     { font-size: 11px; font-weight: 700; min-width: 44px; flex-shrink: 0; }
+.tree-sno.green { color: var(--green); }
+.tree-label   { flex: 1; min-width: 0; }
+.tree-label strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-meta    { font-size: 11px; color: var(--text-faint); }
+.tree-badges  { display: flex; gap: 4px; flex-wrap: wrap; flex-shrink: 0; }
+.tree-badge   { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
 
-.tree-row.level-1 {
-  background:rgba(30,128,56,.08);
-  border-left:3px solid var(--green);
-  font-size:13px;
+/* Add + Edit buttons on rows */
+.tree-add-btn {
+  font-size: 10px; font-weight: 700;
+  padding: 3px 10px; border-radius: 8px;
+  border: 1.5px solid rgba(30,128,56,.4);
+  background: transparent; cursor: pointer;
+  color: var(--green); white-space: nowrap;
+  transition: background .12s, color .12s;
+  flex-shrink: 0;
 }
-.tree-row.level-1.unlinked-row { border-left-color:var(--gold); background:rgba(160,108,16,.06); }
+.tree-add-btn:hover { background: var(--green); color: #fff; }
+.level-0 .tree-add-btn { border-color: rgba(255,255,255,.5); color: #fff; }
+.level-0 .tree-add-btn:hover { background: rgba(255,255,255,.2); }
 
-.tree-row.level-2 {
-  background:rgba(30,128,56,.04);
-  border-left:3px solid rgba(30,128,56,.35);
-  font-size:12.5px;
+.tree-edit-btn {
+  font-size: 11px; background: none; border: none;
+  cursor: pointer; padding: 2px 4px; opacity: .5;
+  flex-shrink: 0;
 }
+.tree-edit-btn:hover { opacity: 1; }
 
-.tree-chevron { font-size:10px;width:14px;flex-shrink:0;color:var(--green); }
-.tree-icon    { font-size:14px;flex-shrink:0; }
-.tree-sno     { flex-shrink:0;font-size:11px;font-weight:700;min-width:50px; }
-.tree-sno.green { color:var(--green); }
-.tree-label   { flex:1;min-width:0;overflow:hidden; }
-.tree-label strong { display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.tree-meta    { font-size:11px;color:var(--text-faint); }
-.tree-badges  { display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap; }
+.edit-hint { font-size: 10px; opacity: 0; }
+tr:hover .edit-hint { opacity: .6; }
 
-.tree-badge {
-  font-size:10px;font-weight:700;
-  padding:2px 8px;border-radius:10px;white-space:nowrap;
-}
-
-/* Children containers — indented */
-.tree-children { padding-left:28px; }
-.tree-project > .tree-children {
-  border-left:2px solid rgba(30,128,56,.15);
-  border-radius:0 0 8px 8px;
-  padding-bottom:4px;
-}
-.tree-boq   { margin:4px 0; }
-.tree-wbs   { margin:3px 0; }
-
+/* Children containers */
+.tree-children { padding-left: 26px; }
+.tree-project > .tree-children { border-left: 2px solid rgba(30,128,56,.12); padding-bottom: 4px; }
+.tree-boq, .tree-wbs { margin: 3px 0; }
 .tree-empty {
-  padding:12px 16px;font-size:11.5px;color:var(--text-faint);
-  font-style:italic;background:rgba(0,0,0,.02);border-radius:6px;
-  border:1px dashed var(--border);margin:4px 0;
+  padding: 10px 14px; font-size: 11.5px; color: var(--text-faint);
+  font-style: italic; background: rgba(0,0,0,.02);
+  border-radius: 6px; border: 1px dashed var(--border); margin: 3px 0;
 }
-
-/* Activities table inside WBS */
-.tree-acts-table {
-  width:100%;border-collapse:collapse;font-size:11.5px;
-  background:var(--surface);border-radius:0 0 6px 6px;
-  margin-top:2px;
-}
+.tree-acts-wrap { margin: 3px 0; }
+.tree-acts-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .tree-acts-table thead th {
-  text-align:left;padding:5px 10px;font-size:10px;
-  font-weight:700;text-transform:uppercase;letter-spacing:.04em;
-  color:var(--text-dim);border-bottom:1px solid var(--border);
-  background:rgba(30,128,56,.03);
+  text-align: left; padding: 5px 10px; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em;
+  color: var(--text-dim); border-bottom: 1px solid var(--border);
 }
-.tree-acts-table tbody td {
-  padding:6px 10px;border-bottom:1px solid var(--border);
-  vertical-align:middle;
-}
-.tree-acts-table tbody tr:last-child td { border-bottom:none; }
-.tree-acts-table tbody tr:hover { background:rgba(30,128,56,.03); }
-.task-sub { font-size:9px;color:var(--text-faint);font-family:monospace;margin-top:1px; }
+.tree-acts-table tbody td { padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.tree-acts-table tbody tr:last-child td { border-bottom: none; }
+.tree-acts-table tbody tr:hover { background: rgba(30,128,56,.04); }
+.task-sub { font-size: 9px; color: var(--text-faint); font-family: monospace; }
 
-/* Unlinked section */
-.unlinked .tree-children { border-left:2px dashed var(--gold); }
+/* ── Master picker modal ─────────────────────────────────────── */
+.mp-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.35);
+  display: none; align-items: center; justify-content: center; z-index: 999;
+}
+.mp-modal {
+  background: var(--surface); border-radius: 14px;
+  width: min(680px, 95vw); max-height: 85vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 24px 60px rgba(0,0,0,.25);
+}
+.mp-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 16px 20px 12px; border-bottom: 1px solid var(--border);
+}
+.mp-head h3 { margin: 0; font-size: 16px; }
+.mp-sub { font-size: 11.5px; color: var(--text-faint); margin-top: 3px; }
+.mp-filters {
+  display: flex; gap: .5rem; align-items: center;
+  padding: 10px 20px; border-bottom: 1px solid var(--border);
+}
+.mp-filters input { flex: 1; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; }
+.mp-table-wrap { overflow-y: auto; flex: 1; }
+.mp-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.mp-table thead th { padding: 8px 14px; text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+.mp-table tbody td { padding: 7px 14px; border-bottom: 1px solid var(--border); }
+.mp-table tbody tr:hover { background: rgba(30,128,56,.05); }
+.mp-foot { display: flex; align-items: center; gap: .5rem; padding: 12px 20px; border-top: 1px solid var(--border); }
+.mp-foot .mp-count { font-size: 11px; color: var(--text-faint); flex: 1; }
 </style>
 </head>
 <body>
@@ -100,9 +229,8 @@
     <div>
       <h1>🌲 Project Tree</h1>
       <div class="ph-sub">
-        Full project hierarchy &middot;
-        <code>Project → BOQ → WBS → Activities</code> &middot;
-        linked via <code>UUID ↔ CheckSum</code>
+        <code>Project → BOQ → WBS → Activities</code> ·
+        Click any row to edit · <strong>+ buttons</strong> to add
       </div>
     </div>
     <div class="ph-actions">
@@ -112,7 +240,7 @@
     </div>
   </div>
 
-  <!-- Project identity KPI strip -->
+  <!-- KPI strip -->
   <div class="kpi-strip">
     <div class="kpi">
       <div class="kpi-label">Project Code</div>
@@ -122,49 +250,82 @@
       <div class="kpi-label">Project Name</div>
       <div class="kpi-val" id="treeProjName" style="font-size:14px">—</div>
     </div>
-    <div class="kpi-spacer" style="flex:1"></div>
+    <div style="flex:1"></div>
     <div class="kpi" style="align-items:flex-end">
       <span class="pill pill-green" id="treeStatus">Idle</span>
     </div>
   </div>
 
   <!-- Linkage legend -->
-  <div style="
-    display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;
-    padding:.55rem 1rem;font-size:11.5px;color:var(--text-faint);
-    background:var(--surface2);border-radius:8px;margin-bottom:1rem;
-    border:1px solid var(--border);
-  ">
-    <span style="font-weight:600;color:var(--text)">Linkage chain:</span>
-    <span>📁 Project</span>
-    <span style="color:var(--border)">────</span>
-    <code>BOQ.CheckSum = Project.UUID</code>
-    <span>────</span>
-    <span>📋 BOQ</span>
-    <span style="color:var(--border)">────</span>
-    <code>WBS.CheckSum = BOQ.UUID</code>
-    <span>────</span>
-    <span>🌳 WBS</span>
-    <span style="color:var(--border)">────</span>
-    <code>Activity.CheckSum = WBS.UUID</code>
-    <span>────</span>
+  <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;padding:.5rem 1rem;font-size:11px;color:var(--text-faint);background:var(--surface2);border-radius:8px;margin-bottom:1rem;border:1px solid var(--border)">
+    <span style="font-weight:600;color:var(--text)">Linkage:</span>
+    <span>📁 Project</span><code>→ BOQ.CheckSum=Project.UUID</code>
+    <span>📋 BOQ</span><code>→ WBS.CheckSum=BOQ.UUID</code>
+    <span>🌳 WBS</span><code>→ Activity.CheckSum=WBS.UUID</code>
     <span>🔧 Activity</span>
+    <span style="margin-left:auto;font-style:italic">Click any row to edit · + to add</span>
   </div>
 
-  <!-- Tree container -->
-  <div class="card">
-    <div class="card-pad" style="padding:.5rem .75rem">
-      <div class="tree-root" id="projectTree">
-        <div class="tree-empty">Loading tree…</div>
+  <!-- Main area: tree + drawer side-by-side -->
+  <div class="tree-page">
+
+    <!-- Tree panel -->
+    <div class="tree-panel" id="treePanel">
+      <div class="card">
+        <div class="card-pad" style="padding:.5rem .75rem">
+          <div class="tree-root" id="projectTree">
+            <div class="tree-empty">Loading tree…</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <a class="btn btn-secondary" href="index.html">← Back to Home</a>
       </div>
     </div>
-  </div>
 
-  <div style="margin-top:18px;display:flex;gap:.6rem">
-    <a class="btn btn-secondary" href="index.html">← Back to Home</a>
-  </div>
+    <!-- Slide-in drawer -->
+    <div class="tree-drawer" id="treeDrawer">
+      <div id="drawerContent"><!-- rendered by JS --></div>
+    </div>
 
+  </div>
 </main>
+
+<!-- ── Master Activity Picker ─────────────────────────────────── -->
+<div class="mp-overlay" id="mpOverlay" onclick="if(event.target===this)PAGE.closeMasterPicker()">
+  <div class="mp-modal">
+    <div class="mp-head">
+      <div>
+        <h3>📚 Pick Activity from Master</h3>
+        <div class="mp-sub">Browse M_PL_1_Activities · click a row to select</div>
+      </div>
+      <button class="btn-icon" onclick="PAGE.closeMasterPicker()">×</button>
+    </div>
+    <div class="mp-filters">
+      <input type="search" id="mpSearch" placeholder="Search activity, nature, type…" oninput="PAGE.filterMaster()" />
+      <span id="mpCount" class="pill pill-green">0</span>
+    </div>
+    <div class="mp-table-wrap">
+      <table class="mp-table">
+        <thead>
+          <tr>
+            <th>Activity</th>
+            <th>Nature of Work</th>
+            <th>Type of Work</th>
+            <th>UoM</th>
+          </tr>
+        </thead>
+        <tbody id="mpTbody">
+          <tr><td colspan="4" class="empty-cell">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="mp-foot">
+      <span class="mp-count">Click a row to select · closes automatically</span>
+      <button class="btn btn-secondary" onclick="PAGE.closeMasterPicker()">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <script src="assets/js/config.js"></script>
 <script src="assets/js/state.js"></script>

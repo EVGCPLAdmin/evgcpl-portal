@@ -316,16 +316,69 @@ function saveProjectSetup(p) {
     }
   }
 
-  // ── Build row aligned to existing column order ──
-  var row = headers.map(function(h) {
-    var k = String(h || '').trim();
-    if (!k) return '';
-    var v = p[k];
-    return (v !== null && v !== undefined) ? v : '';
-  });
+  // ── Fields that formula columns — NEVER write to these from code ──
+  // These are computed by the sheet itself (formulas). Writing a value
+  // would replace the formula with a static string.
+  var NEVER_WRITE = ['Project Code'];
 
-  if (existingRow) sh.getRange(existingRow, 1, 1, headers.length).setValues([row]);
-  else sh.appendRow(row);
+  // ── Fields protected after first write — skip on updates ─────
+  // Written once at row creation; never overwritten on subsequent saves.
+  var WRITE_ONCE = ['UUID', 'Series', 'UserEmail', 'SystemEmail'];
+
+  if (existingRow) {
+    // ── UPDATE: cell-by-cell — only changed, non-protected cells ──
+    // This leaves formula cells and protected cells completely untouched.
+    headers.forEach(function(h, i) {
+      var k = String(h || '').trim();
+      if (!k) return;
+
+      // Formula columns: never write
+      if (NEVER_WRITE.indexOf(k) >= 0) return;
+
+      // Write-once columns: skip on updates
+      if (WRITE_ONCE.indexOf(k) >= 0) return;
+
+      // Active/Inactive: normalise
+      if (k === 'Active/Inactive?' || k === 'Active/Inactive') {
+        sh.getRange(existingRow, i + 1).setValue(activeVal);
+        return;
+      }
+
+      // Timestamp: always server-stamp on every save
+      if (k === 'Timestamp') {
+        sh.getRange(existingRow, i + 1).setValue(ts);
+        return;
+      }
+
+      // All other fields: only write if non-empty — never erase existing data
+      var submitted = p[k];
+      var submittedStr = (submitted !== null && submitted !== undefined)
+                          ? String(submitted).trim() : '';
+      if (submittedStr !== '') {
+        sh.getRange(existingRow, i + 1).setValue(submitted);
+      }
+      // If blank: leave the cell alone entirely
+    });
+
+  } else {
+    // ── CREATE: append a full row ─────────────────────────────────
+    // NEVER_WRITE columns get an empty string — the sheet formula will compute them.
+    // WRITE_ONCE columns get their generated values (UUID, Series).
+    var newRow = headers.map(function(h) {
+      var k = String(h || '').trim();
+      if (!k) return '';
+      if (NEVER_WRITE.indexOf(k) >= 0) return '';    // let sheet formula handle
+      if (k === 'UUID')        return uuid;
+      if (k === 'Series')      return p['Series'];
+      if (k === 'Timestamp')   return ts;
+      if (k === 'UserEmail')   return p['UserEmail']   || '';
+      if (k === 'SystemEmail') return p['SystemEmail'] || '';
+      if (k === 'Active/Inactive?' || k === 'Active/Inactive') return activeVal;
+      var v = p[k];
+      return (v !== null && v !== undefined) ? v : '';
+    });
+    sh.appendRow(newRow);
+  }
 
   return ContentService.createTextOutput(JSON.stringify({
     success: true, projectCode: projectCode, uuid: uuid,
