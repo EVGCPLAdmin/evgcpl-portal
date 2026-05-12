@@ -71,49 +71,99 @@ function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
     Logger.log('[_replaceProjectRows] Created new tab: ' + tabName);
   }
 
-  // ── Read EXISTING headers — never overwrite them ─────────────
+  // ── Read EXISTING headers — NEVER overwrite ──────────────────
   var lastCol = Math.max(sh.getLastColumn(), 1);
   var existingHeaders = sh.getRange(1, 1, 1, lastCol).getValues()[0];
-  // Build column-name → 0-based-index map from whatever is in row 1
   var colIndex = {};
   existingHeaders.forEach(function(h, i) {
     if (h && String(h).trim()) colIndex[String(h).trim()] = i;
   });
 
-  // ── Clear rows for this project (col A = projectCode) ────────
+  // ── Detect ARRAYFORMULA-protected columns ─────────────────────
+  // Row 2 (first data row) — any cell with a formula is ARRAYFORMULA-protected.
+  // We MUST NOT write to these columns; the sheet formula owns them.
+  var formulaProtected = {};  // 0-based col index → true
+  if (sh.getLastRow() >= 2) {
+    try {
+      var row2Formulas = sh.getRange(2, 1, 1, lastCol).getFormulas()[0];
+      row2Formulas.forEach(function(f, i) {
+        if (f && String(f).trim().charAt(0) === '=') {
+          formulaProtected[i] = true;
+          Logger.log('[_replaceProjectRows] Formula-protected col [' + i + ']: ' + existingHeaders[i]);
+        }
+      });
+    } catch (e) {
+      Logger.log('[_replaceProjectRows] Could not read formulas: ' + e);
+    }
+  }
+
+  // ── Clear rows for this project (match on CheckSum or Project Code col) ──
+  // Try CheckSum column first (AppSheet Ref key), fall back to Project Code
+  var matchColIdx = colIndex['CheckSum'] !== undefined ? colIndex['CheckSum']
+                  : colIndex['Project Code'] !== undefined ? colIndex['Project Code']
+                  : 0;  // default to col A
+
   var lastRow = sh.getLastRow();
   if (lastRow > 1) {
-    var codes = sh.getRange(2, 1, lastRow - 1, 1).getValues();
+    var matchVals = sh.getRange(2, matchColIdx + 1, lastRow - 1, 1).getValues();
     var toDelete = [];
-    for (var i = 0; i < codes.length; i++) {
-      if (String(codes[i][0]).trim() === String(projectCode).trim()) {
-        toDelete.push(i + 2);
-      }
+    for (var i = 0; i < matchVals.length; i++) {
+      var cellVal = String(matchVals[i][0] || '').trim();
+      if (cellVal === String(projectCode).trim()) toDelete.push(i + 2);
     }
-    // Delete from bottom up so row numbers stay valid
     toDelete.reverse().forEach(function(r) { sh.deleteRow(r); });
   }
 
-  // ── Append fresh rows, mapped to existing column positions ───
+  // ── Append fresh rows (ARRAYFORMULA-safe block writes) ────────
+  // For each new row:
+  //   1. Find all contiguous blocks of writable (non-formula) columns
+  //   2. Write each block as a single setValues call
+  //   3. Formula columns are never touched — ARRAYFORMULA fills them
   if (rows.length > 0) {
-    var numCols = existingHeaders.length;
-    var data = rows.map(function(rowObj) {
-      var out = new Array(numCols).fill('');
+    rows.forEach(function(rowObj) {
+      // Map field values to column positions
+      var cellValues = new Array(lastCol).fill('');
       Object.keys(rowObj).forEach(function(field) {
         var idx = colIndex[field];
-        if (idx !== undefined) {
+        if (idx !== undefined && !formulaProtected[idx]) {
           var v = rowObj[field];
-          out[idx] = (v === null || v === undefined) ? '' : v;
+          cellValues[idx] = (v === null || v === undefined) ? '' : v;
         }
-        // Fields not in the sheet are silently skipped — never adds a column
       });
-      return out;
+
+      var newRowNum = sh.getLastRow() + 1;
+
+      // Build contiguous writable blocks (skip formula-protected columns)
+      var blocks = [];
+      var blockStart = -1;
+      var blockVals  = [];
+
+      for (var ci = 0; ci < lastCol; ci++) {
+        if (formulaProtected[ci]) {
+          // Flush any pending block
+          if (blockStart >= 0) {
+            blocks.push({ col: blockStart + 1, vals: blockVals.slice() });
+            blockStart = -1; blockVals = [];
+          }
+        } else {
+          if (blockStart < 0) blockStart = ci;
+          blockVals.push(cellValues[ci]);
+        }
+      }
+      if (blockStart >= 0) blocks.push({ col: blockStart + 1, vals: blockVals });
+
+      // Write each block (one setValues call per contiguous block)
+      blocks.forEach(function(block) {
+        if (block.vals.length > 0) {
+          sh.getRange(newRowNum, block.col, 1, block.vals.length).setValues([block.vals]);
+        }
+      });
     });
-    sh.getRange(sh.getLastRow() + 1, 1, data.length, numCols).setValues(data);
   }
 
-  return rows.length;  // caller wraps in _wrap() for the response
+  return rows.length;
 }
+
 
 // ─── 1. WORKPLAN ───
 function saveWorkplan(p) {
@@ -388,41 +438,115 @@ function saveProjectSetup(p) {
 }
 
 // ─── 2. BOQ ───
+// Schema matches AppSheet PL11_BOQ.
+// NEVER WRITE (formula columns — ARRAYFORMULA owns them):
+//   BOQ ID · BOQ ID (Description) · Project Code · Project Name
+//   Site Name · UserEmail · SystemEmail · Timestamp
+// Auto-calculated by backend:
+//   UUID (PL-BOQ-{random}), BOQ Item # (sequential per project)
+// PCC computes and sends static value for:
+//   Amount = Qty × Rate
 function saveBOQ(p) {
-  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
+  p = _norm(p);
   var projectCode = String(p.projectCode || '').trim();
-  var projectUuid = String(p.projectUuid || '').trim(); // for CheckSum = Project.UUID
-  var nowIso = new Date().toISOString();
+  var projectUuid = String(p.projectUuid || '').trim();
+  var projectName = String(p.projectName || '').trim();
+  var siteName    = String(p.siteName    || '').trim();
+  var userEmail   = String(p.userEmail   || '').trim();
+  var systemEmail = String(p.systemEmail || userEmail || '').trim();
+
+  if (!projectCode) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false, message: 'Missing projectCode'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Timestamp format: "08-Apr-2026 17:17:19"
+  var _mths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var _now  = new Date();
+  var ts = ('0' + _now.getDate()).slice(-2) + '-' +
+           _mths[_now.getMonth()] + '-' + _now.getFullYear() + ' ' +
+           ('0' + _now.getHours()).slice(-2)   + ':' +
+           ('0' + _now.getMinutes()).slice(-2)  + ':' +
+           ('0' + _now.getSeconds()).slice(-2);
+
   var assignedRows = [];
 
+  // Build row objects with full schema
   var rows = (p.rows || []).map(function(r, idx) {
-    // Preserve existing UUID; generate one for new rows
-    var uuid = String(r.uuid || '').trim() || Utilities.getUuid();
-    // CheckSum links this BOQ row to the Project (Project.UUID)
-    var checkSum = String(r.checkSum || '').trim() || projectUuid;
-    assignedRows.push({ index: idx, uuid: uuid, checkSum: checkSum });
+    var existingUuid = String(r['UUID'] || r.uuid || '').trim();
+    // Generate UUID in AppSheet-compatible format: PL-BOQ-{random}
+    var uuid = existingUuid || ('PL-BOQ-' + Utilities.getUuid());
+
+    var checkSum = String(r['CheckSum'] || r.checkSum || '').trim() || projectUuid;
+
+    // BOQ Item # — sequential within project (1-based, from the submitted index)
+    // Frontend sends them in order; backend reassigns 1, 2, 3... for the project
+    var boqItemNum = idx + 1;
+
+    assignedRows.push({
+      index:      idx,
+      uuid:       uuid,
+      checkSum:   checkSum,
+      boqItemNum: boqItemNum,
+    });
+
     return {
-      'Project Code': projectCode,
-      'UUID':         uuid,
-      'CheckSum':     checkSum,     // = Project.UUID
-      'S No':         r.sno,
-      'Description':  r.desc,
-      'Unit':         r.unit,
-      'Qty':          r.qty,
-      'Rate':         r.rate,
-      'Amount':       r.amt,
-      'Updated At':   nowIso,
+      // ── Writable data columns ──────────────────────────────────
+      'CheckSum':        checkSum,          // = Project UUID (AppSheet Ref key)
+      'UUID':            uuid,              // PL-BOQ-{random}
+      'BOQ Item #':      boqItemNum,        // Sequential 1,2,3... per project
+
+      // Mapped from CheckSum / active project (PCC writes; AppSheet formula also writes via [CheckSum].[X])
+      'Project Code':    p.projectCode      || '',
+      'Project Name':    p.projectName      || '',
+      'Site Name':       p.siteName         || '',
+
+      // Item fields
+      'Description':     String(r['Description']     || r.desc || ''),
+      'Unit':            String(r['Unit']             || r.unit || ''),
+
+      // Quantities
+      'Qty':             Number(r['Qty']              || r.qty           || 0),
+      'Tender Qty':      Number(r['Tender Qty']       || r.tenderQty     || 0),
+      'Actual Qty':      Number(r['Actual Qty']       || r.actualQty     || 0),
+
+      // Rates
+      'Rate':            Number(r['Rate']             || r.rate           || 0),
+      'Contractor Rate': Number(r['Contractor Rate']  || r.contractorRate || 0),
+      'Client Rate':     Number(r['Client Rate']      || r.clientRate     || 0),
+
+      // PCC computes and sends as static value
+      'Amount':          Number(r['Amount']           || r.amt            || 0),
+
+      // User + system fields (PCC writes since AppSheet formula won't run for PCC-created rows)
+      'UserEmail':       p.userEmail   || Session.getActiveUser().getEmail() || '',
+      'SystemEmail':     p.systemEmail || Session.getActiveUser().getEmail() || '',
+      'Timestamp':       ts,           // Format: "08-Apr-2026 17:17:19"
+
+      // NEVER included (ARRAYFORMULA columns — sheet owns them):
+      // 'BOQ ID'              → ARRAYFORMULA: UUID&"-"&BOQItem#
+      // 'BOQ ID (Description)'→ ARRAYFORMULA: UUID&"-"&BOQItem#&" : "&Desc
     };
   });
 
-  var count = _replaceProjectRows('BOQ', [
-    'Project Code', 'UUID', 'CheckSum', 'S No', 'Description', 'Unit', 'Qty', 'Rate', 'Amount', 'Updated At',
-  ], projectCode, rows);
+  // Default headers for new sheet creation (in AppSheet column order)
+  var defaultHeaders = [
+    'CheckSum', 'BOQ ID', 'BOQ ID (Description)', 'UUID', 'Project Code',
+    'BOQ Item #', 'Description', 'Unit',
+    'Qty', 'Tender Qty', 'Actual Qty',
+    'Rate', 'Contractor Rate', 'Client Rate', 'Amount',
+    'Project Name', 'Site Name', 'UserEmail', 'SystemEmail', 'Timestamp',
+  ];
+
+  // Match rows by CheckSum (= Project UUID, the AppSheet Ref key)
+  var matchKey = projectUuid || projectCode;
+  _replaceProjectRows('BOQ', defaultHeaders, matchKey, rows);
 
   return ContentService.createTextOutput(JSON.stringify({
-    success: true,
-    message: 'Saved ' + rows.length + ' BOQ items',
-    assignedRows: assignedRows,  // frontend updates local UUIDs
+    success:      true,
+    message:      'Saved ' + rows.length + ' BOQ items',
+    assignedRows: assignedRows,
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
