@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.13.0';
-const PORTAL_BUILD    = 349;
-const PORTAL_BUILD_AT = '2026-05-12T13:14:56Z';
+const PORTAL_VERSION  = '3.13.1';
+const PORTAL_BUILD    = 350;
+const PORTAL_BUILD_AT = '2026-05-12T13:27:25Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -40,35 +40,48 @@ window._SHEET_CONFIG_META = {};   // { exec_main: { updatedBy, updatedAt } }
 window._SHEET_CONFIG_LOADED = false;
 
 async function loadSheetConfig() {
+  window._SHEET_CONFIG_ERR = '';
   try {
-    const url = `https://docs.google.com/spreadsheets/d/1B2wb38KhNwlLoZnsAGWQkO0FdEGFFfsh3ycRRurigq4/gviz/tq?tqx=out:json&sheet=PortalConfig&cache=${Date.now()}`;
+    // Use the sheet's gviz API — tab must be public (sheet shared as Anyone can view)
+    const sid = '1B2wb38KhNwlLoZnsAGWQkO0FdEGFFfsh3ycRRurigq4';
+    const url = `https://docs.google.com/spreadsheets/d/${sid}/gviz/tq?tqx=out:json&sheet=PortalConfig`;
     const res  = await fetch(url, { cache: 'no-cache' });
     const text = await res.text();
-    const json = JSON.parse(text.replace(/^.*?google\.visualization\.Query\.setResponse\(/, '').replace(/\);\s*$/, ''));
-    if (!json.table || !json.table.rows) { window._SHEET_CONFIG_LOADED = true; return; }
-    const cols   = json.table.cols.map(c => (c.label || c.id || '').trim());
+    // gviz wraps response: google.visualization.Query.setResponse({...});
+    const jsonStr = text.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, '');
+    let json;
+    try { json = JSON.parse(jsonStr); }
+    catch(pe) { window._SHEET_CONFIG_ERR = 'Parse error — sheet may not be public. Share Master sheet as Anyone can view.'; window._SHEET_CONFIG_LOADED = true; return; }
+    if (json.status === 'error') {
+      window._SHEET_CONFIG_ERR = 'Sheet error: ' + (json.errors?.[0]?.message || 'unknown') + '. Verify tab name is exactly "PortalConfig" and sheet is public.';
+      window._SHEET_CONFIG_LOADED = true; return;
+    }
+    if (!json.table) { window._SHEET_CONFIG_ERR = 'No table returned — PortalConfig tab not found or empty.'; window._SHEET_CONFIG_LOADED = true; return; }
+    const cols   = (json.table.cols || []).map(c => (c.label || c.id || '').trim());
     const keyIdx = cols.findIndex(h => /^key$/i.test(h));
     const valIdx = cols.findIndex(h => /^value$/i.test(h));
     const byIdx  = cols.findIndex(h => /updated.?by/i.test(h));
     const atIdx  = cols.findIndex(h => /updated.?at/i.test(h));
-    if (keyIdx < 0 || valIdx < 0) { window._SHEET_CONFIG_LOADED = true; return; }
+    if (keyIdx < 0 || valIdx < 0) { window._SHEET_CONFIG_ERR = 'PortalConfig tab found but missing Key or Value columns. Add headers: Key | Value | Description | Updated By | Updated At'; window._SHEET_CONFIG_LOADED = true; return; }
     const cfg = {}; const meta = {};
     (json.table.rows || []).forEach(row => {
-      const k = String(row.c[keyIdx]?.v || '').trim();
-      const v = String(row.c[valIdx]?.v || '').trim();
-      if (k && v) {
+      const c = row.c || [];
+      const k = String(c[keyIdx]?.v || '').trim();
+      const v = String(c[valIdx]?.v || '').trim();
+      if (k) {
         cfg[k] = v;
         meta[k] = {
-          updatedBy: byIdx >= 0 ? String(row.c[byIdx]?.v || '') : '',
-          updatedAt: atIdx >= 0 ? String(row.c[atIdx]?.v || '') : '',
+          updatedBy: byIdx >= 0 ? String(c[byIdx]?.v || '') : '',
+          updatedAt: atIdx >= 0 ? String(c[atIdx]?.v || '') : '',
         };
       }
     });
     window._SHEET_CONFIG      = cfg;
     window._SHEET_CONFIG_META = meta;
     window._SHEET_CONFIG_LOADED = true;
-    console.log('[SheetConfig] Loaded', Object.keys(cfg).length, 'keys');
+    console.log('[SheetConfig] Loaded', Object.keys(cfg).length, 'keys:', Object.keys(cfg));
   } catch (e) {
+    window._SHEET_CONFIG_ERR = 'Fetch failed: ' + e.message;
     window._SHEET_CONFIG_LOADED = true;
     console.warn('[SheetConfig] Load failed:', e.message);
   }
@@ -5564,13 +5577,13 @@ function renderSheetConfigCard() {
         <div style="margin-top:3px">${sourceBadge(k)}</div>
       </div>
       <div style="min-width:0">
-        <input type="url" id="sheetCfgIn-${k}"
+        <input type="text" id="sheetCfgIn-${k}"
           value="${(sheetVal).replace(/"/g,'&quot;')}"
-          placeholder="https://script.google.com/macros/s/.../exec"
-          spellcheck="false"
-          style="width:100%;padding:.45rem .7rem;font-family:'Consolas',monospace;font-size:11px;
-                 border:1.5px solid ${sheetVal ? 'var(--green)' : 'var(--border)'};
-                 border-radius:6px;background:var(--surface2);color:var(--txt)" />
+          placeholder="Paste exec URL here — https://script.google.com/macros/s/.../exec"
+          spellcheck="false" autocomplete="off"
+          style="width:100%;padding:.45rem .7rem;font-family:'Consolas','JetBrains Mono',monospace;font-size:11px;
+                 border:1.5px solid ${sheetVal ? '#16a34a' : 'var(--border)'};
+                 border-radius:6px;background:#fff;color:#111;cursor:text" />
         <div style="font-size:.68rem;color:var(--txt3);margin-top:.2rem">
           Last saved: <em>${lastInfo}</em>
         </div>
@@ -5588,9 +5601,13 @@ function renderSheetConfigCard() {
         <div style="font-size:.74rem;color:var(--txt3);margin-top:.15rem">
           Persistent · shared across <strong>all users and browsers</strong> ·
           fetched on every page load ·
-          ${!loaded ? '<em style="color:#f0a500">Loading…</em>' :
-            hasData ? `<span style="color:#16a34a">✓ ${Object.keys(cfg).length} keys loaded</span>` :
+          ${!loaded ? '<em style="color:#f0a500">Loading from sheet…</em>' :
+            hasData ? `<span style="color:#16a34a">✓ ${Object.keys(cfg).length} keys loaded from sheet</span>` :
+            window._SHEET_CONFIG_ERR ? `<span style="color:#dc2626">⚠ ${window._SHEET_CONFIG_ERR}</span>` :
             '<span style="color:#9ca3af">PortalConfig tab not found — will be created on first save</span>'}
+        <a href="https://docs.google.com/spreadsheets/d/1B2wb38KhNwlLoZnsAGWQkO0FdEGFFfsh3ycRRurigq4/edit#gid=0"
+           target="_blank" rel="noopener"
+           style="font-size:.68rem;color:var(--g7);margin-left:.5rem">Open Master Sheet ↗</a>
         </div>
       </div>
       <div style="display:flex;gap:.4rem;flex-wrap:wrap">
