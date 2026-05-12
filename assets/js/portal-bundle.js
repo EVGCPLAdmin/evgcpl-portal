@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.12.1';
-const PORTAL_BUILD    = 348;
-const PORTAL_BUILD_AT = '2026-05-12T13:06:38Z';
+const PORTAL_VERSION  = '3.13.0';
+const PORTAL_BUILD    = 349;
+const PORTAL_BUILD_AT = '2026-05-12T13:14:56Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -30,24 +30,76 @@ const EXEC_REGISTRY_DEFAULTS = {
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
 
-// Returns the exec URL for a given key. Looks up localStorage overrides first,
-// then falls back to the default. Unknown keys fall through to 'main'.
+// ── Tier 2: Sheet-stored config ───────────────────────────────
+// Stored in the PortalConfig tab of the Master sheet.
+// Read via gviz (public, no Apps Script needed — avoids chicken-and-egg).
+// Write via Apps Script POST.  Loaded once at startup; cached in _SHEET_CONFIG.
+// Priority chain:  localStorage (T1)  →  Sheet config (T2)  →  Compiled default (T3)
+window._SHEET_CONFIG     = {};     // { exec_main: '...', exec_pcc: '...' }
+window._SHEET_CONFIG_META = {};   // { exec_main: { updatedBy, updatedAt } }
+window._SHEET_CONFIG_LOADED = false;
+
+async function loadSheetConfig() {
+  try {
+    const url = `https://docs.google.com/spreadsheets/d/1B2wb38KhNwlLoZnsAGWQkO0FdEGFFfsh3ycRRurigq4/gviz/tq?tqx=out:json&sheet=PortalConfig&cache=${Date.now()}`;
+    const res  = await fetch(url, { cache: 'no-cache' });
+    const text = await res.text();
+    const json = JSON.parse(text.replace(/^.*?google\.visualization\.Query\.setResponse\(/, '').replace(/\);\s*$/, ''));
+    if (!json.table || !json.table.rows) { window._SHEET_CONFIG_LOADED = true; return; }
+    const cols   = json.table.cols.map(c => (c.label || c.id || '').trim());
+    const keyIdx = cols.findIndex(h => /^key$/i.test(h));
+    const valIdx = cols.findIndex(h => /^value$/i.test(h));
+    const byIdx  = cols.findIndex(h => /updated.?by/i.test(h));
+    const atIdx  = cols.findIndex(h => /updated.?at/i.test(h));
+    if (keyIdx < 0 || valIdx < 0) { window._SHEET_CONFIG_LOADED = true; return; }
+    const cfg = {}; const meta = {};
+    (json.table.rows || []).forEach(row => {
+      const k = String(row.c[keyIdx]?.v || '').trim();
+      const v = String(row.c[valIdx]?.v || '').trim();
+      if (k && v) {
+        cfg[k] = v;
+        meta[k] = {
+          updatedBy: byIdx >= 0 ? String(row.c[byIdx]?.v || '') : '',
+          updatedAt: atIdx >= 0 ? String(row.c[atIdx]?.v || '') : '',
+        };
+      }
+    });
+    window._SHEET_CONFIG      = cfg;
+    window._SHEET_CONFIG_META = meta;
+    window._SHEET_CONFIG_LOADED = true;
+    console.log('[SheetConfig] Loaded', Object.keys(cfg).length, 'keys');
+  } catch (e) {
+    window._SHEET_CONFIG_LOADED = true;
+    console.warn('[SheetConfig] Load failed:', e.message);
+  }
+}
+
+// ── Load at startup (non-blocking) ───────────────────────────
+loadSheetConfig();
+
+// Returns the exec URL for a given key.
+// Priority:  T1 localStorage  →  T2 Sheet (PortalConfig tab)  →  T3 Compiled default
 function getExec(key) {
   try {
+    // T1: localStorage override (per-browser, instant)
     const overrides = JSON.parse(localStorage.getItem(EXEC_LS_KEY) || '{}');
     if (overrides[key] && /^https:\/\/script\.google\.com\/macros\//.test(overrides[key])) {
       return overrides[key];
     }
+    // T2: Sheet-stored config (persistent, all users/browsers)
+    const sheetVal = (window._SHEET_CONFIG || {})['exec_' + key];
+    if (sheetVal && /^https:\/\/script\.google\.com\/macros\//.test(sheetVal)) {
+      return sheetVal;
+    }
+    // Unknown key → fall through
     if (key !== 'main' && !EXEC_REGISTRY_DEFAULTS[key]) {
-      // Unknown key — fall back to main override or default
       if (overrides.main) return overrides.main;
+      const sm = (window._SHEET_CONFIG || {})['exec_main'];
+      if (sm) return sm;
       return EXEC_REGISTRY_DEFAULTS.main.defaultUrl;
     }
-    if (overrides.main && (!EXEC_REGISTRY_DEFAULTS[key] || !overrides[key])) {
-      // Resolved key has no override but main does; only use main as fallback if asked
-      // for main explicitly; otherwise return the registered default.
-    }
   } catch (e) { /* ignore */ }
+  // T3: Compiled default
   return (EXEC_REGISTRY_DEFAULTS[key] || EXEC_REGISTRY_DEFAULTS.main).defaultUrl;
 }
 
@@ -5477,6 +5529,149 @@ window.execTestAll = async function() {
   }
 };
 
+// ══════════════════════════════════════════════════════════════
+//  TIER 2 — Sheet-stored config  (PortalConfig tab, Master sheet)
+//  Persistent · shared across all users and browsers
+//  Write via Apps Script · Read via gviz on startup
+// ══════════════════════════════════════════════════════════════
+
+function renderSheetConfigCard() {
+  const keys     = Object.keys(EXEC_REGISTRY_DEFAULTS);
+  const cfg      = window._SHEET_CONFIG || {};
+  const meta     = window._SHEET_CONFIG_META || {};
+  const loaded   = window._SHEET_CONFIG_LOADED;
+  const hasData  = Object.keys(cfg).length > 0;
+
+  // Source badge for each key — shows which tier is currently active
+  function sourceBadge(k) {
+    const lsVal    = (getExecOverrides())[k];
+    const sheetVal = cfg['exec_' + k];
+    const defVal   = EXEC_REGISTRY_DEFAULTS[k]?.defaultUrl;
+    if (lsVal && lsVal !== defVal)            return '<span style="font-size:9px;padding:2px 7px;border-radius:8px;background:#fef9c3;color:#92400e;font-weight:700">T1 localStorage</span>';
+    if (sheetVal && /^https:/.test(sheetVal)) return '<span style="font-size:9px;padding:2px 7px;border-radius:8px;background:#dcfce7;color:#166534;font-weight:700">T2 Sheet</span>';
+    return '<span style="font-size:9px;padding:2px 7px;border-radius:8px;background:rgba(0,0,0,.05);color:#6b7280;font-weight:600">T3 Default</span>';
+  }
+
+  const rows = keys.map(k => {
+    const sheetVal  = cfg['exec_' + k] || '';
+    const m         = meta['exec_' + k] || {};
+    const lastInfo  = m.updatedBy ? `${m.updatedAt || ''} by ${m.updatedBy}` : 'Not yet saved';
+    return `
+    <div style="display:grid;grid-template-columns:170px 1fr auto auto;gap:.7rem;align-items:center;padding:.6rem .9rem;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-weight:700;font-size:.84rem;color:var(--g9)">${EXEC_REGISTRY_DEFAULTS[k].label}</div>
+        <code style="font-size:.66rem;color:var(--txt3)">${k}</code>
+        <div style="margin-top:3px">${sourceBadge(k)}</div>
+      </div>
+      <div style="min-width:0">
+        <input type="url" id="sheetCfgIn-${k}"
+          value="${(sheetVal).replace(/"/g,'&quot;')}"
+          placeholder="https://script.google.com/macros/s/.../exec"
+          spellcheck="false"
+          style="width:100%;padding:.45rem .7rem;font-family:'Consolas',monospace;font-size:11px;
+                 border:1.5px solid ${sheetVal ? 'var(--green)' : 'var(--border)'};
+                 border-radius:6px;background:var(--surface2);color:var(--txt)" />
+        <div style="font-size:.68rem;color:var(--txt3);margin-top:.2rem">
+          Last saved: <em>${lastInfo}</em>
+        </div>
+      </div>
+      <span id="sheetCfgSt-${k}" style="font-size:.65rem;padding:3px 8px;border-radius:8px;background:var(--surface2);color:var(--txt3);font-weight:600;white-space:nowrap">—</span>
+      <button onclick="sheetConfigSaveOne('${k}')" class="btn btn-primary btn-sm" style="font-size:.7rem;white-space:nowrap">💾 Save</button>
+    </div>`;
+  }).join('');
+
+  return `
+  <div class="card" style="margin-bottom:1.2rem;border-left:4px solid var(--green)">
+    <div class="card-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
+      <div>
+        <h3 style="margin:0;font-size:1rem">🗄 Sheet Config <span style="font-size:.72rem;font-weight:400;color:var(--txt3);margin-left:.5rem">PortalConfig tab · Master Sheet</span></h3>
+        <div style="font-size:.74rem;color:var(--txt3);margin-top:.15rem">
+          Persistent · shared across <strong>all users and browsers</strong> ·
+          fetched on every page load ·
+          ${!loaded ? '<em style="color:#f0a500">Loading…</em>' :
+            hasData ? `<span style="color:#16a34a">✓ ${Object.keys(cfg).length} keys loaded</span>` :
+            '<span style="color:#9ca3af">PortalConfig tab not found — will be created on first save</span>'}
+        </div>
+      </div>
+      <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+        <button onclick="sheetConfigReload()" class="btn btn-secondary btn-sm" style="font-size:.74rem">🔄 Reload from Sheet</button>
+        <button onclick="sheetConfigSaveAll()" class="btn btn-primary btn-sm" style="font-size:.74rem" id="sheetCfgSaveAllBtn">💾 Save All</button>
+      </div>
+    </div>
+    <div style="padding:.2rem 0">${rows}</div>
+    <div style="padding:.6rem 1rem;font-size:.72rem;color:var(--txt3);background:var(--surface2);border-top:1px solid var(--border)">
+      <strong>Priority chain:</strong>
+      &nbsp;🟠 T1 localStorage override (this browser only, from the card above)
+      &nbsp;→&nbsp; 🟢 T2 Sheet config (this card, all users)
+      &nbsp;→&nbsp; ⚫ T3 Compiled default (fallback)
+      &nbsp;·&nbsp;
+      <em>T1 wins even if T2 is set — clear the T1 override to use T2.</em>
+    </div>
+  </div>`;
+}
+
+// Save one key to the PortalConfig sheet
+window.sheetConfigSaveOne = async function(key) {
+  const inp = document.getElementById('sheetCfgIn-' + key);
+  const st  = document.getElementById('sheetCfgSt-' + key);
+  if (!inp || !st) return;
+  const val = inp.value.trim();
+  if (val && !/^https:\/\/script\.google\.com\/macros\//.test(val)) {
+    alert(`"${key}" must be a valid Google Apps Script exec URL (https://script.google.com/macros/s/.../exec)`);
+    return;
+  }
+  st.textContent = 'Saving…'; st.style.color = '#92400e';
+  try {
+    // Always use the compiled default URL for writing (avoids bootstrap problem)
+    const writeUrl = EXEC_REGISTRY_DEFAULTS.main.defaultUrl;
+    const userEmail = (window.STATE && STATE.user && STATE.user.email) || 'unknown';
+    const r = await fetch(writeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({
+        action:    'savePortalConfig',
+        key:       'exec_' + key,
+        value:     val,
+        updatedBy: userEmail,
+      }),
+    });
+    const data = await r.json();
+    if (data.success) {
+      window._SHEET_CONFIG['exec_' + key] = val;
+      window._SHEET_CONFIG_META['exec_' + key] = {
+        updatedBy: userEmail,
+        updatedAt: new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }),
+      };
+      inp.style.borderColor = val ? 'var(--green)' : 'var(--border)';
+      st.textContent = '✓ Saved'; st.style.color = '#16a34a';
+      setTimeout(() => renderDevModePage(), 1200);
+    } else {
+      st.textContent = '✗ ' + (data.message || 'Failed'); st.style.color = '#dc2626';
+    }
+  } catch (e) {
+    st.textContent = '✗ Error'; st.style.color = '#dc2626';
+    st.title = e.message;
+  }
+};
+
+// Save all inputs to sheet
+window.sheetConfigSaveAll = async function() {
+  const keys = Object.keys(EXEC_REGISTRY_DEFAULTS);
+  const btn  = document.getElementById('sheetCfgSaveAllBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  for (const k of keys) { await sheetConfigSaveOne(k); }
+  if (btn) { btn.disabled = false; btn.textContent = '💾 Save All'; }
+};
+
+// Reload sheet config and re-render the Config page
+window.sheetConfigReload = async function() {
+  const btn = document.getElementById ? document.querySelector('[onclick="sheetConfigReload()"]') : null;
+  if (btn) btn.textContent = '🔄 Reloading…';
+  window._SHEET_CONFIG = {}; window._SHEET_CONFIG_META = {}; window._SHEET_CONFIG_LOADED = false;
+  await loadSheetConfig();
+  renderDevModePage();
+};
+
 
 function renderDevModePage() {
   const el = document.getElementById('mainContent');
@@ -5515,8 +5710,11 @@ function renderDevModePage() {
       </div>
     </div>
 
-    <!-- Apps Script Endpoints — runtime override of all /exec URLs -->
+    <!-- Apps Script Endpoints — Tier 1: localStorage override -->
     ${renderExecEndpointsCard()}
+
+    <!-- Apps Script Endpoints — Tier 2: Sheet-stored (PortalConfig tab) -->
+    ${renderSheetConfigCard()}
 
     <!-- Legend -->
     <div style="display:flex;gap:.8rem;flex-wrap:wrap;margin-bottom:1rem;font-size:.75rem;color:var(--txt3)">

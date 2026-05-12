@@ -716,3 +716,126 @@ function getSheetHeaders(p) {
     sheetId: PCC_SHEET_ID,
   })).setMimeType(ContentService.MimeType.JSON);
 }
+
+// ─── Portal Config ─── (PortalConfig tab in Master sheet)
+// Stores exec URLs + other config persistently, shared across all users.
+// Read via gviz (public). Write via this handler (Apps Script).
+
+var MASTER_SHEET_ID_PC = '1B2wb38KhNwlLoZnsAGWQkO0FdEGFFfsh3ycRRurigq4';
+
+function _getOrCreatePortalConfigSheet() {
+  var ss = SpreadsheetApp.openById(MASTER_SHEET_ID_PC);
+  var sh = ss.getSheetByName('PortalConfig');
+  if (!sh) {
+    sh = ss.insertSheet('PortalConfig');
+    var hdrs = ['Key', 'Value', 'Description', 'Updated By', 'Updated At'];
+    sh.getRange(1, 1, 1, hdrs.length)
+      .setValues([hdrs])
+      .setBackground('#1a6038')
+      .setFontColor('#ffffff')
+      .setFontWeight('bold');
+    sh.setFrozenRows(1);
+    sh.setColumnWidth(1, 140);
+    sh.setColumnWidth(2, 480);
+    sh.setColumnWidth(3, 220);
+    sh.setColumnWidth(4, 160);
+    sh.setColumnWidth(5, 160);
+    // Pre-populate with exec key stubs
+    var stubs = [
+      ['exec_main',       '', 'Main backend — most portal POSTs'],
+      ['exec_pcc',        '', 'PCC handlers — saveProjectSetup, saveBOQ, saveWBS…'],
+      ['exec_pinReset',   '', 'PIN reset — bound to UserSecrets sheet'],
+      ['exec_aiProxy',    '', 'AI proxy — Groq via Apps Script'],
+      ['exec_diagnostic', '', 'Sheet diagnostic — server-side sharing checks'],
+    ];
+    sh.getRange(2, 1, stubs.length, 3).setValues(stubs);
+    Logger.log('[PortalConfig] Created PortalConfig tab with ' + stubs.length + ' stubs');
+  }
+  return sh;
+}
+
+function savePortalConfig(p) {
+  p = _norm(p);
+  var key       = String(p.key       || '').trim();
+  var value     = String(p.value     || '').trim();
+  var updatedBy = String(p.updatedBy || '').trim();
+
+  if (!key) return ContentService.createTextOutput(JSON.stringify({
+    success: false, message: 'Missing key'
+  })).setMimeType(ContentService.MimeType.JSON);
+
+  // Validate exec URLs
+  if (value && key.indexOf('exec_') === 0 && !/^https:\/\/script\.google\.com\/macros\//.test(value)) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false, message: 'exec_* keys must be https://script.google.com/macros/... URLs'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var sh = _getOrCreatePortalConfigSheet();
+  var data = sh.getDataRange().getValues();
+  var headers  = data[0].map(function(h) { return String(h).trim(); });
+  var keyIdx   = headers.indexOf('Key');
+  var valIdx   = headers.indexOf('Value');
+  var byIdx    = headers.indexOf('Updated By');
+  var atIdx    = headers.indexOf('Updated At');
+
+  // Format timestamp
+  var now   = new Date();
+  var mths  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var ts    = ('0' + now.getDate()).slice(-2) + '-' + mths[now.getMonth()] + '-' + now.getFullYear() +
+              ' ' + ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
+
+  // Find or append row
+  var found = false;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][keyIdx] || '').trim() === key) {
+      if (valIdx >= 0) sh.getRange(i + 1, valIdx + 1).setValue(value);
+      if (byIdx  >= 0) sh.getRange(i + 1, byIdx  + 1).setValue(updatedBy);
+      if (atIdx  >= 0) sh.getRange(i + 1, atIdx  + 1).setValue(ts);
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    var row = new Array(headers.length).fill('');
+    if (keyIdx >= 0) row[keyIdx] = key;
+    if (valIdx >= 0) row[valIdx] = value;
+    if (byIdx  >= 0) row[byIdx]  = updatedBy;
+    if (atIdx  >= 0) row[atIdx]  = ts;
+    sh.appendRow(row);
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({
+    success:   true,
+    message:   (found ? 'Updated' : 'Created') + ': ' + key,
+    key:       key,
+    value:     value,
+    updatedAt: ts,
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function getPortalConfig(p) {
+  var sh = _getOrCreatePortalConfigSheet();
+  var data    = sh.getDataRange().getValues();
+  var headers = data[0].map(function(h) { return String(h).trim(); });
+  var keyIdx  = headers.indexOf('Key');
+  var valIdx  = headers.indexOf('Value');
+  var byIdx   = headers.indexOf('Updated By');
+  var atIdx   = headers.indexOf('Updated At');
+
+  var config = {}, meta = {};
+  for (var i = 1; i < data.length; i++) {
+    var k = String(data[i][keyIdx] || '').trim();
+    var v = String(data[i][valIdx] || '').trim();
+    if (k) {
+      config[k] = v;
+      meta[k]   = {
+        updatedBy: byIdx >= 0 ? String(data[i][byIdx] || '') : '',
+        updatedAt: atIdx >= 0 ? String(data[i][atIdx] || '') : '',
+      };
+    }
+  }
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true, config: config, meta: meta
+  })).setMimeType(ContentService.MimeType.JSON);
+}

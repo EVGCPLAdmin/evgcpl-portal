@@ -450,28 +450,25 @@ function saveBOQ(p) {
   p = _norm(p);
   var projectCode = String(p.projectCode || '').trim();
   var projectUuid = String(p.projectUuid || '').trim();
+  var projectName = String(p.projectName || '').trim();
+  var siteName    = String(p.siteName    || '').trim();
+  var userEmail   = String(p.userEmail   || '').trim();
+  var systemEmail = String(p.systemEmail || userEmail || '').trim();
+
   if (!projectCode) {
     return ContentService.createTextOutput(JSON.stringify({
       success: false, message: 'Missing projectCode'
     })).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // ── Find current max BOQ Item # for this project in the sheet ──
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
-  var sh = ss.getSheetByName('BOQ');
-  var maxItemNum = 0;
-  if (sh && sh.getLastRow() >= 2) {
-    var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-    var itemNumColIdx = -1;
-    var checkSumColIdx = -1;
-    headers.forEach(function(h, i) {
-      if (String(h).trim() === 'BOQ Item #') itemNumColIdx = i;
-      if (String(h).trim() === 'CheckSum')   checkSumColIdx = i;
-    });
-    // Only count rows that belong to OTHER projects (so we don't count the current project's rows
-    // that will be replaced — sequential numbering starts fresh from 1 per project)
-    maxItemNum = 0;  // always restart from 1 within the project
-  }
+  // Timestamp format: "08-Apr-2026 17:17:19"
+  var _mths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var _now  = new Date();
+  var ts = ('0' + _now.getDate()).slice(-2) + '-' +
+           _mths[_now.getMonth()] + '-' + _now.getFullYear() + ' ' +
+           ('0' + _now.getHours()).slice(-2)   + ':' +
+           ('0' + _now.getMinutes()).slice(-2)  + ':' +
+           ('0' + _now.getSeconds()).slice(-2);
 
   var assignedRows = [];
 
@@ -495,26 +492,45 @@ function saveBOQ(p) {
     });
 
     return {
-      // ── Writable data columns ──
-      'CheckSum':        checkSum,
-      'UUID':            uuid,
-      'BOQ Item #':      boqItemNum,
+      // ── Writable data columns ──────────────────────────────────
+      'CheckSum':        checkSum,          // = Project UUID (AppSheet Ref key)
+      'UUID':            uuid,              // PL-BOQ-{random}
+      'BOQ Item #':      boqItemNum,        // Sequential 1,2,3... per project
+
+      // Mapped from CheckSum / active project (PCC writes; AppSheet formula also writes via [CheckSum].[X])
+      'Project Code':    p.projectCode      || '',
+      'Project Name':    p.projectName      || '',
+      'Site Name':       p.siteName         || '',
+
+      // Item fields
       'Description':     String(r['Description']     || r.desc || ''),
       'Unit':            String(r['Unit']             || r.unit || ''),
-      'Qty':             Number(r['Qty']              || r.qty  || 0),
-      'Tender Qty':      Number(r['Tender Qty']       || r.tenderQty      || 0),
-      'Actual Qty':      Number(r['Actual Qty']       || r.actualQty      || 0),
-      'Rate':            Number(r['Rate']             || r.rate            || 0),
-      'Contractor Rate': Number(r['Contractor Rate']  || r.contractorRate  || 0),
-      'Client Rate':     Number(r['Client Rate']      || r.clientRate      || 0),
-      'Amount':          Number(r['Amount']           || r.amt             || 0),
-      // ── DO NOT include formula columns — _replaceProjectRows skips them anyway ──
-      // BOQ ID · BOQ ID (Description) · Project Code · Project Name
-      // Site Name · UserEmail · SystemEmail · Timestamp
+
+      // Quantities
+      'Qty':             Number(r['Qty']              || r.qty           || 0),
+      'Tender Qty':      Number(r['Tender Qty']       || r.tenderQty     || 0),
+      'Actual Qty':      Number(r['Actual Qty']       || r.actualQty     || 0),
+
+      // Rates
+      'Rate':            Number(r['Rate']             || r.rate           || 0),
+      'Contractor Rate': Number(r['Contractor Rate']  || r.contractorRate || 0),
+      'Client Rate':     Number(r['Client Rate']      || r.clientRate     || 0),
+
+      // PCC computes and sends as static value
+      'Amount':          Number(r['Amount']           || r.amt            || 0),
+
+      // User + system fields (PCC writes since AppSheet formula won't run for PCC-created rows)
+      'UserEmail':       p.userEmail   || Session.getActiveUser().getEmail() || '',
+      'SystemEmail':     p.systemEmail || Session.getActiveUser().getEmail() || '',
+      'Timestamp':       ts,           // Format: "08-Apr-2026 17:17:19"
+
+      // NEVER included (ARRAYFORMULA columns — sheet owns them):
+      // 'BOQ ID'              → ARRAYFORMULA: UUID&"-"&BOQItem#
+      // 'BOQ ID (Description)'→ ARRAYFORMULA: UUID&"-"&BOQItem#&" : "&Desc
     };
   });
 
-  // Default headers for new sheet creation (all writable columns only)
+  // Default headers for new sheet creation (in AppSheet column order)
   var defaultHeaders = [
     'CheckSum', 'BOQ ID', 'BOQ ID (Description)', 'UUID', 'Project Code',
     'BOQ Item #', 'Description', 'Unit',
@@ -523,7 +539,7 @@ function saveBOQ(p) {
     'Project Name', 'Site Name', 'UserEmail', 'SystemEmail', 'Timestamp',
   ];
 
-  // Use CheckSum as the project match key (AppSheet Ref — = Project UUID)
+  // Match rows by CheckSum (= Project UUID, the AppSheet Ref key)
   var matchKey = projectUuid || projectCode;
   _replaceProjectRows('BOQ', defaultHeaders, matchKey, rows);
 
@@ -698,5 +714,128 @@ function getSheetHeaders(p) {
     success: true,
     headers: result,
     sheetId: PCC_SHEET_ID,
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ─── Portal Config ─── (PortalConfig tab in Master sheet)
+// Stores exec URLs + other config persistently, shared across all users.
+// Read via gviz (public). Write via this handler (Apps Script).
+
+var MASTER_SHEET_ID_PC = '1B2wb38KhNwlLoZnsAGWQkO0FdEGFFfsh3ycRRurigq4';
+
+function _getOrCreatePortalConfigSheet() {
+  var ss = SpreadsheetApp.openById(MASTER_SHEET_ID_PC);
+  var sh = ss.getSheetByName('PortalConfig');
+  if (!sh) {
+    sh = ss.insertSheet('PortalConfig');
+    var hdrs = ['Key', 'Value', 'Description', 'Updated By', 'Updated At'];
+    sh.getRange(1, 1, 1, hdrs.length)
+      .setValues([hdrs])
+      .setBackground('#1a6038')
+      .setFontColor('#ffffff')
+      .setFontWeight('bold');
+    sh.setFrozenRows(1);
+    sh.setColumnWidth(1, 140);
+    sh.setColumnWidth(2, 480);
+    sh.setColumnWidth(3, 220);
+    sh.setColumnWidth(4, 160);
+    sh.setColumnWidth(5, 160);
+    // Pre-populate with exec key stubs
+    var stubs = [
+      ['exec_main',       '', 'Main backend — most portal POSTs'],
+      ['exec_pcc',        '', 'PCC handlers — saveProjectSetup, saveBOQ, saveWBS…'],
+      ['exec_pinReset',   '', 'PIN reset — bound to UserSecrets sheet'],
+      ['exec_aiProxy',    '', 'AI proxy — Groq via Apps Script'],
+      ['exec_diagnostic', '', 'Sheet diagnostic — server-side sharing checks'],
+    ];
+    sh.getRange(2, 1, stubs.length, 3).setValues(stubs);
+    Logger.log('[PortalConfig] Created PortalConfig tab with ' + stubs.length + ' stubs');
+  }
+  return sh;
+}
+
+function savePortalConfig(p) {
+  p = _norm(p);
+  var key       = String(p.key       || '').trim();
+  var value     = String(p.value     || '').trim();
+  var updatedBy = String(p.updatedBy || '').trim();
+
+  if (!key) return ContentService.createTextOutput(JSON.stringify({
+    success: false, message: 'Missing key'
+  })).setMimeType(ContentService.MimeType.JSON);
+
+  // Validate exec URLs
+  if (value && key.indexOf('exec_') === 0 && !/^https:\/\/script\.google\.com\/macros\//.test(value)) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false, message: 'exec_* keys must be https://script.google.com/macros/... URLs'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var sh = _getOrCreatePortalConfigSheet();
+  var data = sh.getDataRange().getValues();
+  var headers  = data[0].map(function(h) { return String(h).trim(); });
+  var keyIdx   = headers.indexOf('Key');
+  var valIdx   = headers.indexOf('Value');
+  var byIdx    = headers.indexOf('Updated By');
+  var atIdx    = headers.indexOf('Updated At');
+
+  // Format timestamp
+  var now   = new Date();
+  var mths  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var ts    = ('0' + now.getDate()).slice(-2) + '-' + mths[now.getMonth()] + '-' + now.getFullYear() +
+              ' ' + ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
+
+  // Find or append row
+  var found = false;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][keyIdx] || '').trim() === key) {
+      if (valIdx >= 0) sh.getRange(i + 1, valIdx + 1).setValue(value);
+      if (byIdx  >= 0) sh.getRange(i + 1, byIdx  + 1).setValue(updatedBy);
+      if (atIdx  >= 0) sh.getRange(i + 1, atIdx  + 1).setValue(ts);
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    var row = new Array(headers.length).fill('');
+    if (keyIdx >= 0) row[keyIdx] = key;
+    if (valIdx >= 0) row[valIdx] = value;
+    if (byIdx  >= 0) row[byIdx]  = updatedBy;
+    if (atIdx  >= 0) row[atIdx]  = ts;
+    sh.appendRow(row);
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({
+    success:   true,
+    message:   (found ? 'Updated' : 'Created') + ': ' + key,
+    key:       key,
+    value:     value,
+    updatedAt: ts,
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function getPortalConfig(p) {
+  var sh = _getOrCreatePortalConfigSheet();
+  var data    = sh.getDataRange().getValues();
+  var headers = data[0].map(function(h) { return String(h).trim(); });
+  var keyIdx  = headers.indexOf('Key');
+  var valIdx  = headers.indexOf('Value');
+  var byIdx   = headers.indexOf('Updated By');
+  var atIdx   = headers.indexOf('Updated At');
+
+  var config = {}, meta = {};
+  for (var i = 1; i < data.length; i++) {
+    var k = String(data[i][keyIdx] || '').trim();
+    var v = String(data[i][valIdx] || '').trim();
+    if (k) {
+      config[k] = v;
+      meta[k]   = {
+        updatedBy: byIdx >= 0 ? String(data[i][byIdx] || '') : '',
+        updatedAt: atIdx >= 0 ? String(data[i][atIdx] || '') : '',
+      };
+    }
+  }
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true, config: config, meta: meta
   })).setMimeType(ContentService.MimeType.JSON);
 }

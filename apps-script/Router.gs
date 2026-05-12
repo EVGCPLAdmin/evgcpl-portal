@@ -69,6 +69,10 @@ function doPost(e) {
     // ── Diagnostics / schema inspection ────────────────────────
     if (action === 'getSheetHeaders')          return getSheetHeaders(body);
 
+    // ── Portal config (PortalConfig tab in Master sheet) ───────
+    if (action === 'savePortalConfig')         return savePortalConfig(body);
+    if (action === 'getPortalConfig')          return getPortalConfig(body);
+
     // ── PIN ops (separate PIN.gs if present) ───────────────────
     if (action === 'verifyPin')                return verifyPin(body);
     if (action === 'resetPin')                 return resetPin(body);

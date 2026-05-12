@@ -3,9 +3,9 @@
 ═══════════════════════════════════════════════════════════════ */
 
 // ── Build constants — patched by build-portal.js at build time ──
-const PCC_VERSION  = '3.12.1';
-const PCC_BUILD    = 348;
-const PCC_BUILD_AT = '2026-05-12T13:06:38Z';
+const PCC_VERSION  = '3.13.0';
+const PCC_BUILD    = 349;
+const PCC_BUILD_AT = '2026-05-12T13:14:56Z';
 
 // ── Apps Script URL: read parent portal's endpoint registry ──
 // The PCC subapp loads in an iframe on the same origin. Its parent stores
@@ -19,10 +19,20 @@ function _resolvePccScriptUrl() {
     if (raw) {
       const overrides = JSON.parse(raw);
       const ok = u => typeof u === 'string' && /^https:\/\/script\.google\.com\/macros\//.test(u);
-      if (ok(overrides.pcc))  return overrides.pcc;   // dedicated PCC override
-      if (ok(overrides.main)) return overrides.main;  // fall back to main backend
+      // T1: localStorage override
+      if (ok(overrides.pcc))  return overrides.pcc;
+      if (ok(overrides.main)) return overrides.main;
     }
-  } catch (e) { /* localStorage parse failed — fall through to default */ }
+  } catch (e) { /* localStorage parse failed */ }
+  // T2: Sheet config (loaded by parent portal into window._SHEET_CONFIG,
+  //     or via same-origin parent frame access)
+  try {
+    const sc = (window._SHEET_CONFIG || (window.parent && window.parent._SHEET_CONFIG) || {});
+    const ok = u => typeof u === 'string' && /^https:\/\/script\.google\.com\/macros\//.test(u);
+    if (ok(sc['exec_pcc']))  return sc['exec_pcc'];
+    if (ok(sc['exec_main'])) return sc['exec_main'];
+  } catch (e) { /* cross-origin */ }
+  // T3: Compiled default
   return _PCC_DEFAULT_URL;
 }
 
