@@ -1305,3 +1305,8 @@ td.locked-cell::before {
   top: 6px;
   bottom: 6px;
 }
+
+/* ── WBS card head — with BOQ dropdown ──────────────────────── */
+.wbs-card-head {
+  grid-template-columns: 28px 90px 1fr 180px 90px auto 28px !important;
+}

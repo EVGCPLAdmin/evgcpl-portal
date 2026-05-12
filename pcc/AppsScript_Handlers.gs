@@ -231,63 +231,105 @@ function submitBudgetApproval(p) {
  * ════════════════════════════════════════════════════════════════ */
 
 // ─── 1. PROJECT SETUP ───
-// Single-row upsert. Generates Project Code if missing using formula
-// EG{YY}{G/P}{NNNN} where G=Gov, P=Pvt. Series increments based on existing rows.
+// Single-row upsert. Auto-generates UUID, Series (max+1), Project Code (EG+YY+P/G+Series).
+// Normalises Active/Inactive? to ACTIVE/INACTIVE. Stamps Timestamp. Never overwrites headers.
 function saveProjectSetup(p) {
-  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
+  p = _norm(p);
   var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
   var sh = ss.getSheetByName('Project');
-  if (!sh) {
-    return ContentService.createTextOutput(JSON.stringify({
-      success: false, message: 'Project tab not found',
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
+  if (!sh) return ContentService.createTextOutput(JSON.stringify({
+    success: false, message: 'Project tab not found'
+  })).setMimeType(ContentService.MimeType.JSON);
 
-  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-  var col = function(name) { return headers.indexOf(name) + 1; }; // 1-indexed; 0 if absent
+  // ── Read existing headers – NEVER overwrite ──
+  var lastCol  = Math.max(sh.getLastColumn(), 1);
+  var headers  = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  var colIndex = {};
+  headers.forEach(function(h, i) { var k = String(h || '').trim(); if (k) colIndex[k] = i; });
 
-  // Generate Project Code if blank (NEW project)
-  var projectCode = (p['Project Code'] || '').trim();
-  if (!projectCode) {
-    var yy = String((p['Awarded Date'] ? new Date(p['Awarded Date']).getFullYear() : new Date().getFullYear())).slice(-2);
-    var typeChar = (p['Private / Govt'] || '').toUpperCase().charAt(0) || 'P';
-    var existing = sh.getLastRow() > 1 ? sh.getRange(2, col('Project Code'), sh.getLastRow() - 1, 1).getValues() : [];
-    var prefix = 'EG' + yy + typeChar;
-    var maxNum = 0;
-    existing.forEach(function(r) {
-      var v = String(r[0] || '');
-      if (v.indexOf(prefix) === 0) {
-        var n = parseInt(v.slice(prefix.length), 10);
-        if (!isNaN(n) && n > maxNum) maxNum = n;
+  // ── Series: max + 1 for new projects ──
+  var projectCode = String(p['Project Code'] || '').trim();
+  var isNew = !projectCode;
+  if (isNew) {
+    var seriesFromP = parseInt(String(p['Series'] || '0'), 10) || 0;
+    if (!seriesFromP) {
+      var seriesMax = 0;
+      var lastR = sh.getLastRow();
+      if (lastR > 1 && colIndex['Series'] !== undefined) {
+        sh.getRange(2, colIndex['Series'] + 1, lastR - 1, 1).getValues().forEach(function(r) {
+          var n = parseInt(String(r[0] || '0'), 10);
+          if (!isNaN(n) && n > seriesMax) seriesMax = n;
+        });
       }
-    });
-    projectCode = prefix + ('0000' + (maxNum + 1)).slice(-4);
+      seriesFromP = seriesMax + 1;
+    }
+    p['Series'] = seriesFromP;
+    // Project Code = EG + YY + P/G + Series (4-digit)
+    var yy       = String(p['Awarded Date'] ? new Date(p['Awarded Date']).getFullYear() : new Date().getFullYear()).slice(-2);
+    var typeChar = String(p['Private / Govt'] || '').toUpperCase().charAt(0) || 'P';
+    projectCode  = 'EG' + yy + typeChar + ('0000' + seriesFromP).slice(-4);
     p['Project Code'] = projectCode;
   }
 
-  // Find existing row for this code
-  var pcCol = col('Project Code');
-  var lastRow = sh.getLastRow();
+  // ── UUID: generate if missing ──
+  var uuid = String(p['UUID'] || '').trim();
+  if (!uuid) {
+    var lastR2 = sh.getLastRow();
+    if (lastR2 > 1 && colIndex['Project Code'] !== undefined && colIndex['UUID'] !== undefined) {
+      var pcVals   = sh.getRange(2, colIndex['Project Code'] + 1, lastR2 - 1, 1).getValues();
+      var uuidVals = sh.getRange(2, colIndex['UUID'] + 1,         lastR2 - 1, 1).getValues();
+      for (var i = 0; i < pcVals.length; i++) {
+        if (String(pcVals[i][0]).trim() === projectCode && String(uuidVals[i][0]).trim()) {
+          uuid = String(uuidVals[i][0]).trim(); break;
+        }
+      }
+    }
+    if (!uuid) uuid = Utilities.getUuid();
+  }
+  p['UUID'] = uuid;
+
+  // ── ACTIVE / INACTIVE normalise ──
+  var activeVal = String(p['Active/Inactive?'] || p['Active/Inactive'] || 'ACTIVE').trim().toUpperCase();
+  if (activeVal !== 'INACTIVE') activeVal = 'ACTIVE';
+  p['Active/Inactive?'] = activeVal;
+  p['Active/Inactive']  = activeVal;
+
+  // ── Timestamp: "12 May 2026 14:28" ──
+  var now = new Date();
+  var mths = ['January','February','March','April','May','June',
+              'July','August','September','October','November','December'];
+  var ts = now.getDate() + ' ' + mths[now.getMonth()] + ' ' + now.getFullYear() + ' ' +
+           ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
+  p['Timestamp'] = ts;
+
+  // ── UserEmail / SystemEmail: ensure both set ──
+  if (!p['UserEmail']   && p['SystemEmail']) p['UserEmail']   = p['SystemEmail'];
+  if (!p['SystemEmail'] && p['UserEmail'])   p['SystemEmail'] = p['UserEmail'];
+
+  // ── Find existing row ──
   var existingRow = 0;
-  if (lastRow > 1 && pcCol > 0) {
-    var codes = sh.getRange(2, pcCol, lastRow - 1, 1).getValues();
-    for (var i = 0; i < codes.length; i++) {
-      if (String(codes[i][0]) === projectCode) { existingRow = i + 2; break; }
+  var lastR3 = sh.getLastRow();
+  if (lastR3 > 1 && colIndex['Project Code'] !== undefined) {
+    var pcV = sh.getRange(2, colIndex['Project Code'] + 1, lastR3 - 1, 1).getValues();
+    for (var j = 0; j < pcV.length; j++) {
+      if (String(pcV[j][0]).trim() === projectCode) { existingRow = j + 2; break; }
     }
   }
 
-  // Build the row in order of existing headers
-  var row = headers.map(function(h) { return p[h] != null ? p[h] : ''; });
+  // ── Build row aligned to existing column order ──
+  var row = headers.map(function(h) {
+    var k = String(h || '').trim();
+    if (!k) return '';
+    var v = p[k];
+    return (v !== null && v !== undefined) ? v : '';
+  });
 
-  if (existingRow) {
-    sh.getRange(existingRow, 1, 1, headers.length).setValues([row]);
-  } else {
-    sh.appendRow(row);
-  }
+  if (existingRow) sh.getRange(existingRow, 1, 1, headers.length).setValues([row]);
+  else sh.appendRow(row);
 
   return ContentService.createTextOutput(JSON.stringify({
-    success: true,
-    projectCode: projectCode,
+    success: true, projectCode: projectCode, uuid: uuid,
+    series: p['Series'], timestamp: ts,
     message: existingRow ? 'Project updated' : 'Project created',
   })).setMimeType(ContentService.MimeType.JSON);
 }
@@ -295,19 +337,40 @@ function saveProjectSetup(p) {
 // ─── 2. BOQ ───
 function saveBOQ(p) {
   p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
-  return _replaceProjectRows('BOQ', [
-    'Project Code', 'S No', 'Description', 'Unit', 'Qty', 'Rate', 'Amount',
-  ], p.projectCode, (p.rows || []).map(function(r) {
+  var projectCode = String(p.projectCode || '').trim();
+  var projectUuid = String(p.projectUuid || '').trim(); // for CheckSum = Project.UUID
+  var nowIso = new Date().toISOString();
+  var assignedRows = [];
+
+  var rows = (p.rows || []).map(function(r, idx) {
+    // Preserve existing UUID; generate one for new rows
+    var uuid = String(r.uuid || '').trim() || Utilities.getUuid();
+    // CheckSum links this BOQ row to the Project (Project.UUID)
+    var checkSum = String(r.checkSum || '').trim() || projectUuid;
+    assignedRows.push({ index: idx, uuid: uuid, checkSum: checkSum });
     return {
-      'Project Code': p.projectCode,
+      'Project Code': projectCode,
+      'UUID':         uuid,
+      'CheckSum':     checkSum,     // = Project.UUID
       'S No':         r.sno,
       'Description':  r.desc,
       'Unit':         r.unit,
       'Qty':          r.qty,
       'Rate':         r.rate,
       'Amount':       r.amt,
+      'Updated At':   nowIso,
     };
-  }));
+  });
+
+  var count = _replaceProjectRows('BOQ', [
+    'Project Code', 'UUID', 'CheckSum', 'S No', 'Description', 'Unit', 'Qty', 'Rate', 'Amount', 'Updated At',
+  ], projectCode, rows);
+
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true,
+    message: 'Saved ' + rows.length + ' BOQ items',
+    assignedRows: assignedRows,  // frontend updates local UUIDs
+  })).setMimeType(ContentService.MimeType.JSON);
 }
 
 // ─── 3. WBS ─── (replaces both WBS nodes & Activities for the project)
@@ -344,14 +407,14 @@ function saveWBS(p) {
   var assignedNodes = [];
 
   var wbsHeaders = [
-    'Project Code', 'UUID', 'WBS Code', 'WBS Name', 'Updated At'
+    'Project Code', 'UUID', 'WBS Code', 'WBS Name', 'CheckSum', 'Updated At'
   ];
 
   var wbsRows = (p.nodes || []).map(function(n) {
     var finalUuid = (n.uuid && String(n.uuid).trim()) || Utilities.getUuid();
     var finalCode = (n.wbsCode && String(n.wbsCode).trim()) ||
                     _formatWbsCode(projectCode, nextCodeNum++);
-    // Register both tempId and uuid → finalUuid in the refMap so activities can resolve either
+    var boqRef    = String(n.boqRef || '').trim(); // = parent BOQ.UUID → WBS.CheckSum
     if (n.tempId) refMap[String(n.tempId).trim()] = finalUuid;
     if (n.uuid)   refMap[String(n.uuid).trim()]   = finalUuid;
     assignedNodes.push({
@@ -365,6 +428,7 @@ function saveWBS(p) {
       'UUID':         finalUuid,
       'WBS Code':     finalCode,
       'WBS Name':     n.wbsName || '',
+      'CheckSum':     boqRef,        // ← WBS links to BOQ via this
       'Updated At':   nowIso,
     };
   });

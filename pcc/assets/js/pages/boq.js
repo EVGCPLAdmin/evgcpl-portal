@@ -26,6 +26,8 @@ window.PAGE = (function() {
       items = data
         .filter(r => (r['Project Code'] || r['ProjectCode']) === code)
         .map((r, i) => ({
+          uuid: r['UUID']     || r['uuid']     || '',  // preserved from sheet; backend fills on first save
+          checkSum: r['CheckSum'] || r['Checksum'] || '', // = Project.UUID
           sno:  Number(r['S No'] || r['Sno'] || (i + 1)),
           desc: r['Description'] || r['Item Description'] || '',
           unit: r['Unit'] || 'CUM',
@@ -286,20 +288,35 @@ Scope: ${txt}` }],
     btn.disabled = true; btn.textContent = 'Saving…';
 
     try {
+      const ap = window.STATE.activeProject;
+      if (!ap) { Utils.toast('Select a project first', 'err'); return; }
       const payload = {
-        projectCode: ap['Project Code'],
+        projectCode:  ap['Project Code'],
+        projectUuid:  ap['UUID'] || ap['uuid'] || '',   // for CheckSum = Project.UUID
         rows: items.map((it, i) => ({
-          sno:  i + 1,
-          desc: it.desc,
-          unit: it.unit,
-          qty:  Number(it.qty) || 0,
-          rate: Number(it.rate) || 0,
-          amt:  (Number(it.qty) || 0) * (Number(it.rate) || 0),
+          uuid:     it.uuid || '',    // empty = new; backend generates
+          checkSum: it.checkSum || '', // = Project.UUID; backend fills if empty
+          sno:      i + 1,
+          desc:     it.desc,
+          unit:     it.unit,
+          qty:      Number(it.qty)  || 0,
+          rate:     Number(it.rate) || 0,
+          amt:      (Number(it.qty) || 0) * (Number(it.rate) || 0),
         })),
       };
       const r = await API.scriptCall('saveBOQ', payload);
-      if (r && r.success) Utils.toast(`Saved ${items.length} BOQ items`, 'ok');
-      else Utils.toast((r && r.message) || 'Save failed', 'err');
+      if (r && r.success) {
+        // Apply backend-assigned UUIDs so subsequent saves use them
+        if (r.assignedRows && Array.isArray(r.assignedRows)) {
+          r.assignedRows.forEach(a => {
+            const item = items.find((it, idx) => idx === a.index || it.uuid === a.uuid);
+            if (item && a.uuid) { item.uuid = a.uuid; item.checkSum = a.checkSum || item.checkSum; }
+          });
+        }
+        Utils.toast(`Saved ${items.length} BOQ items`, 'ok');
+      } else {
+        Utils.toast((r && r.message) || 'Save failed', 'err');
+      }
     } catch (e) {
       Utils.toast('Save error: ' + e.message, 'err');
     } finally {

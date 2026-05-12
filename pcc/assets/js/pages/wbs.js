@@ -20,9 +20,10 @@
 window.PAGE = (function() {
 
   // ── State ──
-  let nodes      = [];   // [{uuid?, tempId, wbsCode?, wbsName, _expanded}]
-  let activities = [];   // [{parentRef, name, natureOfWork, typeOfWork, unit, costCode, boqQty, masterUuid, checkSum, taskCode}]
+  let nodes      = [];
+  let activities = [];
   let costCodes  = [];
+  let boqList    = [];   // [{uuid, sno, desc}] — for the BOQ parent picker on each WBS row
 
   // Master indices (M_PL_1_Activities + Z12 for UoM hints)
   let masterRows       = [];
@@ -49,27 +50,38 @@ window.PAGE = (function() {
     const code = ap['Project Code'];
 
     try {
-      const [w, a, cc, mAct, z12] = await Promise.all([
+      const [w, a, cc, boq, mAct, z12] = await Promise.all([
         API.gviz(window.CONFIG.TABS.WBS),
         API.gviz(window.CONFIG.TABS.ACTIVITIES),
         API.gviz(window.CONFIG.TABS.COSTCODE),
+        API.gviz(window.CONFIG.TABS.BOQ).catch(() => []),
         API.gviz(window.CONFIG.TABS.M_ACTIVITIES).catch(() => []),
         API.gviz(window.CONFIG.Z12_TAB, window.CONFIG.Z12_SHEET_ID).catch(() => []),
       ]);
 
       buildMasterIndices({ mAct: mAct || [], z12: z12 || [] });
 
-      // Load WBS nodes — pure free text, no validation
+      // Cache BOQ rows for this project so WBS can show a "parent BOQ" picker
+      boqList = (boq || [])
+        .filter(r => (r['Project Code'] || r['ProjectCode']) === code)
+        .map((r, i) => ({
+          uuid: String(r['UUID'] || '').trim() || `_boq_${i}`,
+          sno:  String(r['S No'] || (i + 1)).trim(),
+          desc: String(r['Description'] || '').trim(),
+        }));
+
+      // Load WBS nodes — preserve CheckSum (= parent BOQ.UUID)
       nodes = (w || [])
         .filter(r => (r['Project Code'] || r['ProjectCode']) === code)
         .map(r => ({
           uuid:      String(r['UUID']     || '').trim(),
-          tempId:    '',           // empty for loaded rows — they have real UUIDs
+          tempId:    '',
           wbsCode:   String(r['WBS Code'] || r['Code'] || '').trim(),
           wbsName:   String(r['WBS Name'] || r['Name'] || r['Description'] || '').trim(),
-          _expanded: true,         // default expand all on load
+          boqRef:    String(r['CheckSum'] || '').trim(),  // = parent BOQ.UUID
+          _expanded: true,
         }))
-        .filter(n => n.uuid || n.wbsName); // keep rows that have either
+        .filter(n => n.uuid || n.wbsName);
 
       // Load Activities — match each to a parent WBS via CheckSum (=WBS.UUID)
       activities = (a || [])
@@ -174,6 +186,15 @@ window.PAGE = (function() {
     const myActs = activities.filter(a => a.parentRef === ref);
     const expanded = !!n._expanded;
     const isNew = !n.uuid;
+    const boqOpts = ['<option value="">— Link to BOQ —</option>']
+      .concat(boqList.map(b =>
+        `<option value="${Utils.esc(b.uuid)}">${Utils.esc(b.sno)} · ${Utils.esc(b.desc).slice(0,35)}</option>`
+      )).join('');
+    const boqSelected = boqOpts.replace(
+      `value="${Utils.esc(n.boqRef || '')}"`,
+      `value="${Utils.esc(n.boqRef || '')}" selected`
+    );
+    const boqLabel = boqList.find(b => b.uuid === n.boqRef);
 
     return `
     <div class="wbs-card ${isNew ? 'wbs-new' : ''}" data-idx="${idx}">
@@ -181,15 +202,20 @@ window.PAGE = (function() {
         <button class="wbs-toggle" onclick="PAGE.toggleNode(${idx})" title="${expanded ? 'Collapse' : 'Expand'}">
           ${expanded ? '▼' : '▶'}
         </button>
-        <span class="wbs-code-display mono">${Utils.esc(n.wbsCode || (isNew ? '— auto on save —' : ''))}</span>
+        <span class="wbs-code-display mono">${Utils.esc(n.wbsCode || (isNew ? '— auto —' : ''))}</span>
         <input class="wbs-name-edit" value="${Utils.esc(n.wbsName)}"
           onchange="PAGE.editNode(${idx},'wbsName',this.value)"
           placeholder="WBS description (free text)" />
+        <select class="unit-select" style="font-size:11px;max-width:180px;color:${n.boqRef?'var(--green)':'var(--text-faint)'}"
+          onchange="PAGE.editNode(${idx},'boqRef',this.value)"
+          title="Parent BOQ item — WBS.CheckSum = BOQ.UUID">
+          ${boqSelected}
+        </select>
         <span class="wbs-act-count pill ${myActs.length ? 'pill-green' : 'pill-grey'}">
           ${myActs.length} ${myActs.length === 1 ? 'activity' : 'activities'}
         </span>
         <button class="btn btn-secondary btn-sm" onclick="PAGE.addActivitiesToWbs(${idx})"
-          title="Pick activities from M_PL_1_Activities and link to this WBS">📚 Add activities</button>
+          title="Pick activities from M_PL_1_Activities">📚 Add activities</button>
         <button class="btn-icon danger" onclick="PAGE.removeNode(${idx})" title="Remove">×</button>
       </div>
       ${expanded ? renderActivitiesUnder(n) : ''}
@@ -536,6 +562,7 @@ window.PAGE = (function() {
           tempId:  n.tempId  || '',
           wbsCode: n.wbsCode || '',
           wbsName: n.wbsName,
+          boqRef:  n.boqRef  || '',   // = parent BOQ.UUID → written as WBS.CheckSum
         })),
         activities: activities.map(a => ({
           parentRef:    a.parentRef,           // UUID or tempId
