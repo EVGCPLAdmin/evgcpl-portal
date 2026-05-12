@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.6.1';
-const PORTAL_BUILD    = 333;
-const PORTAL_BUILD_AT = '2026-05-12T07:12:28Z';
+const PORTAL_VERSION  = '3.6.2';
+const PORTAL_BUILD    = 334;
+const PORTAL_BUILD_AT = '2026-05-12T07:19:15Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5333,9 +5333,14 @@ window.execSaveAll = function() {
     eval('APPS_SCRIPT_URL = getExec(\'main\')');
     /* eslint-enable */
   } catch(e) { /* const reassignment will fail in strict mode — that's OK, the next page-load will pick up new values */ }
+  // If the PCC iframe is currently mounted, reload it so it picks up the new SCRIPT_URL
+  const pccFrame = document.getElementById('pccFrame');
+  if (pccFrame) {
+    try { pccFrame.contentWindow.location.reload(); } catch (e) { /* cross-origin safety */ }
+  }
   const btn = document.getElementById('execSaveBtn');
   if (btn) {
-    btn.innerHTML = '&#10003; Saved! Reload to apply';
+    btn.innerHTML = '&#10003; Saved! Reload any open module';
     btn.style.background = '#16a34a';
     setTimeout(() => { renderDevModePage(); }, 900);
   }

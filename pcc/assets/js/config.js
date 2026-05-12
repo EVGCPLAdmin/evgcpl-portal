@@ -2,10 +2,29 @@
    CONFIG · Sheet IDs, Apps Script URL, Tab names
 ═══════════════════════════════════════════════════════════════ */
 
+// ── Apps Script URL: read parent portal's endpoint registry ──
+// The PCC subapp loads in an iframe on the same origin. Its parent stores
+// per-endpoint URL overrides in localStorage under 'evgcpl_exec_registry_v1'.
+// We read that map and prefer overrides[pcc] (or overrides[main] as fallback).
+// Hardcoded URL is the last-resort default.
+const _PCC_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec';
+function _resolvePccScriptUrl() {
+  try {
+    const raw = localStorage.getItem('evgcpl_exec_registry_v1');
+    if (raw) {
+      const overrides = JSON.parse(raw);
+      const ok = u => typeof u === 'string' && /^https:\/\/script\.google\.com\/macros\//.test(u);
+      if (ok(overrides.pcc))  return overrides.pcc;   // dedicated PCC override
+      if (ok(overrides.main)) return overrides.main;  // fall back to main backend
+    }
+  } catch (e) { /* localStorage parse failed — fall through to default */ }
+  return _PCC_DEFAULT_URL;
+}
+
 window.CONFIG = {
   // Project Cost Control backing sheet
   SHEET_ID:   '1dQow9nD4e0qVOSfpwEWQmPTuhF3FW_8r1oK5dMjJlRE',
-  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec',
+  SCRIPT_URL: _resolvePccScriptUrl(),
 
   // Master sheet (sites, vendors, billing companies, sub-contractors)
   // Tabs of interest: 5-SiteMaster, 1-BillingMaster, 7-VendorMaster, 10-SubContractorMaster

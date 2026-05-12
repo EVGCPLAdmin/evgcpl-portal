@@ -22,11 +22,35 @@
         <a href="https://docs.google.com/spreadsheets/d/1dQow9nD4e0qVOSfpwEWQmPTuhF3FW_8r1oK5dMjJlRE/edit"
            target="_blank" rel="noopener" style="color:var(--green);font-weight:600">a single Google Sheet &uarr;</a>
       </div>
+      <!-- Apps Script URL diagnostic — shows which backend the subapp is using -->
+      <div id="pccExecChip" style="margin-top:6px;font-size:11px;color:var(--text-faint);display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
+        <span>Backend:</span>
+        <code id="pccExecUrl" style="font-size:10.5px;color:var(--green);font-weight:600">loading…</code>
+        <span id="pccExecSource" style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(0,0,0,.05)">—</span>
+        <button onclick="window.location.reload()" style="font-size:10px;padding:1px 8px;border:1px solid var(--border);border-radius:8px;background:transparent;cursor:pointer">↻ Reload to pick up new URL</button>
+      </div>
     </div>
     <div class="ph-actions">
       <button class="btn btn-primary" onclick="Shell.openProjectSwitcher()">Switch Project</button>
     </div>
   </div>
+  <script>
+    // Populate the diagnostic chip with the actual SCRIPT_URL the subapp loaded
+    (function() {
+      var url = (window.CONFIG && window.CONFIG.SCRIPT_URL) || '(none)';
+      var chip = document.getElementById('pccExecUrl');
+      var src  = document.getElementById('pccExecSource');
+      if (chip) chip.textContent = url.length > 70 ? url.slice(0, 35) + '…' + url.slice(-25) : url;
+      if (chip) chip.title = url;
+      // Determine source: override vs default
+      try {
+        var overrides = JSON.parse(localStorage.getItem('evgcpl_exec_registry_v1') || '{}');
+        if (overrides.pcc === url)        { src.textContent = '🔓 pcc override';  src.style.background = '#dcfce7'; src.style.color = '#166534'; }
+        else if (overrides.main === url)  { src.textContent = '🔓 main override'; src.style.background = '#fef9c3'; src.style.color = '#92400e'; }
+        else                              { src.textContent = '🔒 compiled default'; src.style.background = 'rgba(0,0,0,.05)'; src.style.color = 'var(--text-faint)'; }
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
 
   <div class="kpi-strip">
     <div class="kpi"><div class="kpi-label">Active Project</div><div class="kpi-val mono" id="kpiHomeCode">&mdash;</div><div class="kpi-sub" id="kpiHomeName">No project selected</div></div>
