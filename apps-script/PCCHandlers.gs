@@ -594,103 +594,126 @@ function saveBOQ(p) {
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
-// ─── 3. WBS ─── (replaces both WBS nodes & Activities for the project)
+// ─── 3. WBS ─── (PL12_WBS schema — CheckSum = BOQ.UUID)
+// Schema: one row per WBS work package, child of a specific BOQ item.
+// NEVER WRITE: WBS Code · Related PL13_Activities
+// UUID format:  PCC-WBS-{random}
+// Activity #:   sequential per BOQ (per CheckSum)
 function saveWBS(p) {
-  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
-  // ════════════════════════════════════════════════════════════
-  // WBS save with auto-generated UUIDs + WBS Codes + tempId resolution
-  // ────────────────────────────────────────────────────────────
-  // Frontend sends:
-  //   nodes:      [{ uuid?, tempId?, wbsCode?, wbsName }]
-  //   activities: [{ parentRef, name, natureOfWork, typeOfWork,
-  //                  unit, costCode, boqQty, masterUuid, taskCode }]
-  //
-  // This handler:
-  //   1. For each node without UUID → generates a new UUID + WBS Code
-  //   2. Builds a tempId/oldUUID → finalUUID map
-  //   3. Writes WBS rows with full schema
-  //   4. Replaces activity.parentRef → final UUID → writes as CheckSum
-  //   5. Returns assignedNodes[] so frontend can update its local state
-  // ════════════════════════════════════════════════════════════
-
+  p = _norm(p);
   var projectCode = String(p.projectCode || '').trim();
+  var projectName = String(p.projectName || '').trim();
+  var siteName    = String(p.siteName    || '').trim();
+  var userEmail   = String(p.userEmail   || '').trim();
+  if (!userEmail) {
+    try { userEmail = Session.getActiveUser().getEmail() || ''; } catch(e) {}
+  }
+  var ts = _fmtTimestamp(new Date());
+
   if (!projectCode) {
     return ContentService.createTextOutput(JSON.stringify({
       success: false, message: 'Missing projectCode'
     })).setMimeType(ContentService.MimeType.JSON);
   }
 
-  var nowIso = new Date().toISOString();
-  var nextCodeNum = _getNextWbsCodeNum(projectCode);
-
-  // Build refMap: tempId → finalUUID, AND existingUUID → existingUUID (passthrough)
-  var refMap = {};
+  // Track sequential Activity # per BOQ (per CheckSum / BOQ UUID)
+  var actNumByBoq = {};   // boqUuid → current counter
   var assignedNodes = [];
+  var refMap = {};        // tempId/oldUuid → finalUuid (for Activities resolution)
 
-  var wbsHeaders = [
-    'Project Code', 'UUID', 'WBS Code', 'WBS Name', 'CheckSum', 'Updated At'
-  ];
+  var wbsRows = (p.nodes || []).map(function(n, idx) {
+    var oldUuid  = String(n.uuid || '').trim();
+    // UUID: preserve existing; generate new for new rows with PCC-WBS- prefix
+    var finalUuid = oldUuid || ('PCC-WBS-' + Utilities.getUuid());
+    var boqUuid   = String(n.checkSum || n.boqUuid || '').trim();
 
-  var wbsRows = (p.nodes || []).map(function(n) {
-    var finalUuid = (n.uuid && String(n.uuid).trim()) || Utilities.getUuid();
-    var finalCode = (n.wbsCode && String(n.wbsCode).trim()) ||
-                    _formatWbsCode(projectCode, nextCodeNum++);
-    var boqRef    = String(n.boqRef || '').trim(); // = parent BOQ.UUID → WBS.CheckSum
-    if (n.tempId) refMap[String(n.tempId).trim()] = finalUuid;
-    if (n.uuid)   refMap[String(n.uuid).trim()]   = finalUuid;
+    // Sequential Activity # per BOQ
+    if (!actNumByBoq[boqUuid]) actNumByBoq[boqUuid] = 0;
+    actNumByBoq[boqUuid]++;
+    var actNum = actNumByBoq[boqUuid];
+
+    // Build ref map for Activities resolution
+    if (n.tempId) refMap[String(n.tempId).trim()]  = finalUuid;
+    if (oldUuid)  refMap[oldUuid]                   = finalUuid;
+
     assignedNodes.push({
-      tempId:  n.tempId || '',
+      tempId:  n.tempId  || '',
+      oldUuid: oldUuid,
       uuid:    finalUuid,
-      wbsCode: finalCode,
-      wbsName: n.wbsName || '',
+      actNum:  actNum,
     });
+
     return {
-      'Project Code': projectCode,
-      'UUID':         finalUuid,
-      'WBS Code':     finalCode,
-      'WBS Name':     n.wbsName || '',
-      'CheckSum':     boqRef,        // ← WBS links to BOQ via this
-      'Updated At':   nowIso,
+      // ── PL12_WBS schema (NEVER WRITE: WBS Code, Related PL13_Activities) ──
+      'CheckSum':             boqUuid,          // FK → PL11_BOQ.UUID
+      'UUID':                 finalUuid,        // PCC-WBS-{uuid}
+      'Project Code':         projectCode,      // mapped via BOQ
+      'BOQ ID':               String(n.boqId       || '').trim(),
+      'BOQ ID (Description)': String(n.boqIdDesc   || '').trim(),
+      'Activity #':           actNum,           // sequential per BOQ
+      'Description':          String(n.description || n.wbsName || '').trim(),
+      'Unit':                 String(n.unit        || '').trim(),
+      'Qty':                  Number(n.qty)         || 0,
+      'Project Name':         projectName,      // mapped via BOQ
+      'Site Name':            siteName,         // mapped via BOQ
+      'UserEmail':            userEmail,
+      'SystemEmail':          userEmail,
+      'Timestamp':            ts,
+      // WBS Code — NEVER WRITE (protected column)
     };
   });
 
-  _replaceProjectRows('WBS', wbsHeaders, projectCode, wbsRows);
-
-  // Now Activities — resolve parentRef → real UUID via refMap
-  var actHeaders = [
-    'Project Code', 'Activity', 'WBS Code', 'CheckSum',
-    'Nature of Work', 'Type of Work', 'Unit', 'Cost Code',
-    'BOQ Qty', 'Master UUID', 'Task Code', 'Updated At'
+  var defaultHeaders = [
+    'CheckSum',
+    'UUID',
+    'Project Code',
+    'BOQ ID',
+    'BOQ ID (Description)',
+    'Activity #',
+    'Description',
+    'Unit',
+    'Qty',
+    'Project Name',
+    'Site Name',
+    'UserEmail',
+    'SystemEmail',
+    'Timestamp',
   ];
 
-  var actRows = (p.activities || []).map(function(a) {
-    var parentRef = String(a.parentRef || '').trim();
-    var resolvedUuid = refMap[parentRef] || parentRef; // fall back to raw if not in map
-    // Find the WBS Code for this resolved UUID (from the rows we just built)
-    var parent = wbsRows.filter(function(r) { return r['UUID'] === resolvedUuid; })[0];
-    var wbsCode = parent ? parent['WBS Code'] : '';
-    return {
-      'Project Code':   projectCode,
-      'Activity':       a.name || '',
-      'WBS Code':       wbsCode,
-      'CheckSum':       resolvedUuid,      // = parent WBS.UUID
-      'Nature of Work': a.natureOfWork || '',
-      'Type of Work':   a.typeOfWork   || '',
-      'Unit':           a.unit         || '',
-      'Cost Code':      a.costCode     || '',
-      'BOQ Qty':        Number(a.boqQty) || 0,
-      'Master UUID':    a.masterUuid   || '',
-      'Task Code':      a.taskCode     || '',
-      'Updated At':     nowIso,
-    };
-  });
+  _replaceProjectRows('WBS', defaultHeaders, projectCode, wbsRows);
 
-  _replaceProjectRows('Activities', actHeaders, projectCode, actRows);
+  // ── Activities (PL13_Activities) — keep backward-compat if caller sends them ──
+  if (p.activities && p.activities.length > 0) {
+    var actHeaders = [
+      'Project Code', 'Activity', 'WBS UUID', 'CheckSum',
+      'Nature of Work', 'Type of Work', 'Unit', 'Cost Code',
+      'BOQ Qty', 'Master UUID', 'Task Code', 'Updated At',
+    ];
+    var actRows = p.activities.map(function(a) {
+      var parentRef    = String(a.parentRef || '').trim();
+      var resolvedUuid = refMap[parentRef] || parentRef;
+      return {
+        'Project Code':   projectCode,
+        'Activity':       a.name         || '',
+        'WBS UUID':       resolvedUuid,
+        'CheckSum':       resolvedUuid,   // Activity.CheckSum = WBS.UUID
+        'Nature of Work': a.natureOfWork || '',
+        'Type of Work':   a.typeOfWork   || '',
+        'Unit':           a.unit         || '',
+        'Cost Code':      a.costCode     || '',
+        'BOQ Qty':        Number(a.boqQty) || 0,
+        'Master UUID':    a.masterUuid   || '',
+        'Task Code':      a.taskCode     || '',
+        'Updated At':     ts,
+      };
+    });
+    _replaceProjectRows('Activities', actHeaders, projectCode, actRows);
+  }
 
   return ContentService.createTextOutput(JSON.stringify({
-    success: true,
-    message: 'Saved ' + wbsRows.length + ' WBS rows and ' + actRows.length + ' activities',
-    assignedNodes: assignedNodes,   // [{ tempId, uuid, wbsCode, wbsName }] — frontend uses to update local state
+    success:       true,
+    message:       'Saved ' + wbsRows.length + ' WBS rows',
+    assignedNodes: assignedNodes,
   })).setMimeType(ContentService.MimeType.JSON);
 }
 

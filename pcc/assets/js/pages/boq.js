@@ -85,6 +85,12 @@ window.PAGE = (function () {
           <td>
             <button class="btn-icon danger" onclick="PAGE.removeRow(${ri})" title="Remove">×</button>
           </td>
+          <td style="text-align:center">
+            <button class="btn btn-secondary btn-sm"
+                    style="font-size:10px;padding:2px 7px;color:#166534;border-color:#a7f3d0"
+                    onclick="PAGE.openWbsDrawer(${ri})"
+                    title="Add/view WBS items for this BOQ">+WBS</button>
+          </td>
         </tr>`;
       }).join('');
     }
@@ -416,6 +422,137 @@ Max 6 items. Scope: ${txt}` }],
     }
   }
 
+  // ── WBS Drawer ────────────────────────────────────────────────
+  // Opens from right — shows existing WBS for a BOQ item + form to add new
+  let _wbsDrawerBoqIdx = -1;
+  let _wbsForBoq       = [];  // WBS rows loaded for the active BOQ
+
+  async function openWbsDrawer(boqIdx) {
+    const it = items[boqIdx];
+    if (!it) return;
+    _wbsDrawerBoqIdx = boqIdx;
+
+    // Update drawer subtitle
+    const sub = document.getElementById('wbsDrawerSub');
+    if (sub) sub.textContent = `BOQ ${it.boqItemNum || (boqIdx+1)} · ${String(it.desc || '').slice(0,40)}`;
+
+    // Clear form
+    ['wbsDrawerDesc','wbsDrawerUnit','wbsDrawerQty'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+
+    // Load existing WBS for this BOQ from sheet
+    _wbsForBoq = [];
+    const listEl = document.getElementById('wbsDrawerList');
+    if (listEl) listEl.innerHTML = '<div style="font-size:12px;color:var(--text-faint);font-style:italic">Loading…</div>';
+
+    if (it.uuid) {
+      try {
+        const ap = window.STATE.activeProject;
+        const code = ap && ap['Project Code'];
+        const wbsAll = await API.gviz(window.CONFIG.TABS.WBS).catch(() => []);
+        _wbsForBoq = (wbsAll || []).filter(r => {
+          const cs = String(r['CheckSum'] || '').trim();
+          return cs === it.uuid;
+        });
+      } catch (e) { /* show empty */ }
+    }
+
+    if (listEl) {
+      if (!_wbsForBoq.length) {
+        listEl.innerHTML = '<div style="font-size:12px;color:var(--text-faint);font-style:italic">No WBS items yet — add one below.</div>';
+      } else {
+        listEl.innerHTML = _wbsForBoq.map((r, i) => {
+          const desc = String(r['Description'] || r['WBS Name'] || '').slice(0, 36);
+          const unit = String(r['Unit'] || '');
+          const qty  = Number(r['Qty'] || 0);
+          const act  = String(r['Activity #'] || (i+1));
+          return `
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;
+                      border:1px solid var(--border);border-radius:6px;margin-bottom:6px;
+                      background:var(--surface2);font-size:12px">
+            <span class="mono" style="font-size:10px;color:#1e3a8a;font-weight:700;min-width:28px">#${act}</span>
+            <span style="flex:1;font-weight:500">${Utils.esc(desc)}</span>
+            <span class="mono" style="font-size:10.5px;color:var(--text-dim)">${Utils.esc(unit)}${qty ? ' · '+qty : ''}</span>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    // Open drawer
+    document.getElementById('wbsDrawer').style.transform = 'translateX(0)';
+    document.getElementById('wbsDrawerOverlay').style.display = 'block';
+    setTimeout(() => document.getElementById('wbsDrawerDesc')?.focus(), 200);
+  }
+
+  function closeWbsDrawer() {
+    document.getElementById('wbsDrawer').style.transform = 'translateX(100%)';
+    document.getElementById('wbsDrawerOverlay').style.display = 'none';
+    _wbsDrawerBoqIdx = -1;
+  }
+
+  async function wbsDrawerSave() {
+    const it = items[_wbsDrawerBoqIdx];
+    if (!it) return;
+
+    const desc = (document.getElementById('wbsDrawerDesc')?.value || '').trim();
+    const unit = (document.getElementById('wbsDrawerUnit')?.value || '').trim();
+    const qty  = Number(document.getElementById('wbsDrawerQty')?.value || 0);
+
+    if (!desc) { Utils.toast('Description is required', 'err'); return; }
+
+    const ap = window.STATE.activeProject;
+    if (!ap) { Utils.toast('No active project', 'err'); return; }
+
+    const btn = document.getElementById('wbsDrawerSaveBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    // Build full existing WBS payload + new row
+    const allNodes = _wbsForBoq.map((r, i) => ({
+      uuid:        String(r['UUID']       || ''),
+      checkSum:    String(r['CheckSum']   || ''),
+      boqId:       String(r['BOQ ID']     || ''),
+      boqIdDesc:   String(r['BOQ ID (Description)'] || ''),
+      description: String(r['Description']|| r['WBS Name'] || ''),
+      unit:        String(r['Unit']       || ''),
+      qty:         Number(r['Qty'])        || 0,
+    }));
+
+    // Compute BOQ ID and BOQ ID (Description) from the BOQ item
+    const boqId     = it.uuid ? (it.uuid + '-' + (it.boqItemNum || (_wbsDrawerBoqIdx+1))) : '';
+    const boqIdDesc = boqId ? (boqId + ' : ' + (it.desc || '')) : '';
+
+    allNodes.push({
+      uuid: '', checkSum: it.uuid || '',
+      boqId, boqIdDesc,
+      description: desc, unit, qty,
+    });
+
+    try {
+      const r = await API.scriptCall('saveWBS', {
+        projectCode: ap['Project Code'],
+        projectName: ap['Project Name'] || '',
+        siteName:    ap['Site Name']    || '',
+        userEmail:   (window.STATE.user && (window.STATE.user.email || window.STATE.user.Email)) || '',
+        nodes: allNodes,
+        activities: [],
+      });
+
+      if (r && r.success) {
+        Utils.toast('WBS item added ✓', 'ok');
+        // Reload the WBS list in the drawer
+        await openWbsDrawer(_wbsDrawerBoqIdx);
+      } else {
+        Utils.toast((r && r.message) || 'Save failed', 'err');
+      }
+    } catch (e) {
+      Utils.toast('Error: ' + e.message, 'err');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Add WBS Item'; }
+    }
+  }
+
   // ── Helpers ────────────────────────────────────────────────────
   function setEl(id, val) { const e = document.getElementById(id); if (e) e.textContent = val; }
   function setStatus(msg, color) {
@@ -430,6 +567,7 @@ Max 6 items. Scope: ${txt}` }],
     removeRow, quickAdd, clearAll, filter,
     importCSV, exportCSV,
     askAI, _addAISug,
+    openWbsDrawer, closeWbsDrawer, wbsDrawerSave,
     onProjectChange,
   };
 })();
