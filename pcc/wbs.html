@@ -7,116 +7,141 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="assets/css/app.css" />
+<style>
+/* ── Unit datalist ── */
+datalist option { font-size: 13px; }
+
+/* ── BOQ group card ── */
+.boq-group {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.boq-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #f0fdf4;
+  border-bottom: 1px solid #a7f3d0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.boq-grp-left { display: flex; align-items: center; gap: 10px; }
+.boq-grp-n    { font-family: 'DM Mono', monospace; font-size: 12px;
+                font-weight: 700; color: #166534; background: #dcfce7;
+                padding: 2px 8px; border-radius: 6px; }
+.boq-grp-desc { font-size: 13px; font-weight: 700; color: #166534; }
+.boq-grp-meta { font-size: 11px; color: #4ade80; margin-left: 4px; }
+.boq-grp-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ── WBS table ── */
+.wbs-table { width: 100%; border-collapse: collapse; }
+.wbs-table thead th {
+  background: #1a6038; color: #fff; font-size: 11px;
+  font-weight: 700; padding: 7px 10px; text-align: left;
+  border-right: 1px solid rgba(255,255,255,.15);
+}
+.wbs-table thead th:last-child { border-right: none; }
+.wbs-table thead th.num { text-align: center; width: 48px; }
+.wbs-table thead th.act { width: 64px; text-align: center; }
+.wbs-table thead th.uom { width: 130px; }
+.wbs-table thead th.qty { width: 110px; text-align: right; }
+.wbs-table thead th.del { width: 36px; text-align: center; }
+
+.wbs-table tbody tr { border-bottom: 1px solid var(--border); }
+.wbs-table tbody tr:hover td { background: #f9fafb; }
+.wbs-table tbody td { padding: 5px 8px; vertical-align: middle; }
+.wbs-table tbody td.num { text-align: center; font-family: 'DM Mono', monospace;
+                           font-size: 11px; color: var(--text-faint); }
+.wbs-table tbody td.act { text-align: center; font-family: 'DM Mono', monospace;
+                           font-size: 11px; color: #1e3a8a; font-weight: 700; }
+.wbs-table tbody td.qty { text-align: right; }
+.wbs-table tbody td.del { text-align: center; }
+
+/* Inline inputs */
+.wbs-ie { width: 100%; border: 1px solid transparent; border-radius: 5px;
+           font-family: inherit; font-size: 13px; padding: 3px 6px;
+           background: transparent; color: var(--text); transition: border-color .15s, background .15s; }
+.wbs-ie:focus { border-color: var(--green); background: #f0fdf4; outline: none; }
+.wbs-ie:hover { border-color: var(--border); }
+.wbs-ie.num   { text-align: right; font-family: 'DM Mono', monospace; font-size: 12px; }
+
+/* Empty states */
+.wbs-empty { padding: 14px 16px; font-size: 12px; color: var(--text-faint);
+             font-style: italic; border-bottom: 1px solid var(--border); }
+
+/* KPI strip */
+.kpi-strip { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.kpi-box   { background: var(--surface2); border: 1px solid var(--border);
+             border-radius: 8px; padding: 8px 14px; }
+.kpi-lbl   { font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em;
+             color: var(--text-faint); margin-bottom: 3px; }
+.kpi-val   { font-size: 18px; font-weight: 700;
+             font-family: 'DM Mono', monospace; color: var(--green); }
+</style>
 </head>
 <body>
 <main class="app-main">
 
+  <!-- Unit datalist (shared) -->
+  <datalist id="wbsUnitOptions">
+    <option value="Running Meter">
+    <option value="Kilogram">
+    <option value="Numbers">
+    <option value="Square Meter">
+    <option value="Cubic Meter">
+    <option value="Metric Ton">
+    <option value="Lump Sum">
+    <option value="Square Feet">
+    <option value="Cubic Feet">
+    <option value="Millimeter">
+    <option value="Litre">
+    <option value="Hour">
+  </datalist>
+
+  <!-- Page head -->
   <div class="page-head">
     <div>
-      <h1>🌳 WBS &amp; Activities</h1>
-      <div class="ph-sub">Step 3 · Free-text WBS &middot; Activities picked from <code>M_PL_1_Activities</code> &middot; linked via UUID/CheckSum</div>
+      <h1>🌳 Work Breakdown Structure</h1>
+      <div class="ph-sub">
+        Step 3 · Grouped by BOQ Item ·
+        <span id="kWbsProj" class="mono" style="font-weight:700">—</span>
+        <span id="kWbsProjName" style="color:var(--text-dim)"> · (no name)</span>
+      </div>
     </div>
     <div class="ph-actions">
-      <button class="btn btn-secondary" onclick="PAGE.exportCSV()">📊 Export CSV</button>
-      <button class="btn btn-primary" id="saveBtn" onclick="PAGE.save()">💾 Save WBS</button>
+      <button class="btn btn-secondary" onclick="PAGE.load()">↻ Reload</button>
+      <button class="btn btn-primary" id="wbsSaveBtn" onclick="PAGE.save()">💾 Save WBS</button>
     </div>
   </div>
 
+  <!-- KPI strip -->
   <div class="kpi-strip">
-    <div class="kpi"><div class="kpi-label">Active Project</div><div class="kpi-val mono" id="kWbsProj">—</div><div class="kpi-sub" id="kWbsProjName">No project</div></div>
-    <div class="kpi blue"><div class="kpi-label">WBS Rows</div><div class="kpi-val" id="kWbsNodes">0</div><div class="kpi-sub">deliverables</div></div>
-    <div class="kpi"><div class="kpi-label">Activities</div><div class="kpi-val" id="kWbsActs">0</div><div class="kpi-sub">total</div></div>
-    <div class="kpi gold"><div class="kpi-label">Linked</div><div class="kpi-val" id="kWbsDepth">0/0</div><div class="kpi-sub">activities → WBS</div></div>
+    <div class="kpi-box"><div class="kpi-lbl">BOQ Items</div>
+      <div class="kpi-val" id="kpiBOQCount">0</div></div>
+    <div class="kpi-box"><div class="kpi-lbl">WBS Rows</div>
+      <div class="kpi-val" id="kpiWBSCount">0</div></div>
+    <div class="kpi-box"><div class="kpi-lbl">BOQ with WBS</div>
+      <div class="kpi-val" id="kpiBOQCovered">0</div></div>
   </div>
 
-  <div class="strict-banner">
-    <span class="sb-icon">🔒</span>
-    <div>
-      <strong>WBS</strong> is free text — <strong>WBS Code is auto-generated by backend</strong> on save.
-      <strong>Activities</strong> are picked from <code>M_PL_1_Activities</code> and linked to their parent WBS via <code>UUID ↔ CheckSum</code>.
-      <strong>Activity, Nature, Type, UoM</strong> are locked after pick; only <strong>Cost Code</strong> and <strong>BOQ Qty</strong> are editable.
-    </div>
+  <!-- BOQ-grouped WBS panels -->
+  <div id="wbsPanels">
+    <div class="tree-empty" style="padding:24px">Loading WBS…</div>
   </div>
 
-  <div class="card">
-    <div class="card-head">
-      <div class="ch-l">
-        <div class="ch-icon green">🌳</div>
-        <div>
-          <div class="ch-title">WBS Tree</div>
-          <div class="ch-sub">Each WBS row collapses its activities &middot; click <strong>📚 Add activities</strong> on a row to import from master</div>
-        </div>
-      </div>
-      <span class="pill pill-green" id="wbsStatus">Idle</span>
+  <!-- Bottom nav -->
+  <div style="display:flex;gap:.6rem;justify-content:space-between;flex-wrap:wrap;margin-top:18px">
+    <a class="btn btn-secondary" href="boq.html">← BOQ</a>
+    <div style="display:flex;gap:.6rem">
+      <button class="btn btn-primary" onclick="PAGE.save()" id="wbsSaveBtnB">💾 Save WBS</button>
+      <a class="btn btn-primary" href="workplan.html">Continue to Workplan →</a>
     </div>
-    <div class="card-pad">
-      <div class="boq-toolbar">
-        <div class="left">
-          <input type="text" id="wbsFilter" placeholder="Filter WBS…" style="width:240px" oninput="PAGE.filter(this.value)" />
-        </div>
-        <div class="right">
-          <button class="btn btn-primary" onclick="PAGE.addNode()">+ Add WBS</button>
-        </div>
-      </div>
-      <div class="wbs-tree" id="wbsTree">
-        <div class="plp-empty">Loading WBS…</div>
-      </div>
-    </div>
-  </div>
-
-  <div style="margin-top:18px;display:flex;gap:.6rem;justify-content:space-between;flex-wrap:wrap">
-    <a class="btn btn-secondary" href="boq.html">← Back to BOQ</a>
-    <a class="btn btn-primary" href="workplan.html">Continue to Workplan →</a>
   </div>
 
 </main>
-
-<!-- Master Activity Picker (M_PL_1_Activities) — scoped to a parent WBS -->
-<div id="masterPickerOverlay" class="m-overlay" style="display:none" onclick="if(event.target===this)PAGE.closeMasterPicker()">
-  <div class="m-modal" role="dialog">
-    <div class="m-head">
-      <div>
-        <h3>📚 Pick Activities from Master</h3>
-        <div class="m-sub">
-          Adding to <strong id="mpParentLabel" style="color:var(--green)">—</strong>
-          &middot; activities link to this WBS via <code>UUID ↔ CheckSum</code>
-        </div>
-      </div>
-      <button class="btn-icon" onclick="PAGE.closeMasterPicker()">×</button>
-    </div>
-    <div class="m-filters">
-      <input type="search" id="mpSearch" placeholder="Search activity, type, code…" oninput="PAGE.filterMaster()" />
-      <select id="mpNatureFilter">
-        <option value="">All Natures</option>
-      </select>
-      <select id="mpTypeFilter" onchange="PAGE.filterMaster()">
-        <option value="">All Types</option>
-      </select>
-      <span id="mpCount" class="pill pill-green">0</span>
-    </div>
-    <div class="m-table-wrap">
-      <table class="m-table">
-        <thead>
-          <tr>
-            <th style="width:32px"></th>
-            <th>Activity</th>
-            <th style="width:140px">Nature of Work</th>
-            <th style="width:160px">Type of Work</th>
-            <th style="width:80px">UoM</th>
-            <th style="width:120px">Task Code</th>
-          </tr>
-        </thead>
-        <tbody id="mpTbody"><tr><td colspan="6" class="empty-cell">Loading…</td></tr></tbody>
-      </table>
-    </div>
-    <div class="m-foot">
-      <span id="mpSelectedCount" class="m-fnote">0 selected</span>
-      <span style="flex:1"></span>
-      <button class="btn btn-secondary" onclick="PAGE.closeMasterPicker()">Cancel</button>
-      <button class="btn btn-primary" onclick="PAGE.confirmMasterPick()">Add to this WBS</button>
-    </div>
-  </div>
-</div>
 
 <script src="assets/js/config.js"></script>
 <script src="assets/js/state.js"></script>
