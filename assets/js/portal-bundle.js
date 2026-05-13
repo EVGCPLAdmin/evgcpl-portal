@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.13.4';
-const PORTAL_BUILD    = 353;
-const PORTAL_BUILD_AT = '2026-05-12T14:27:32Z';
+const PORTAL_VERSION  = '3.13.6';
+const PORTAL_BUILD    = 355;
+const PORTAL_BUILD_AT = '2026-05-12T14:42:44Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -22,6 +22,7 @@ const PIN_SHEET_ID     = '1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0'; // User
 //   1. Add a new key here with a description and a defaultUrl
 //   2. Use it in code as: getExec('myKey')
 const EXEC_REGISTRY_DEFAULTS = {
+  portalConfig:{ label: 'Portal Config Backend',  desc: 'Standalone backend for the PortalConfig sheet (savePortalConfig / getPortalConfig). Independent of other handlers — never changes.', defaultUrl: '' },
   main:        { label: 'Main Backend (default)', desc: 'Most portal POSTs (DPR, Safety, PCC, Onboarding, Reports). Default for getExec().', defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
   pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet.',                                          defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
   aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
@@ -5639,9 +5640,19 @@ window.sheetConfigSaveOne = async function(key) {
   }
   st.textContent = 'Saving…'; st.style.color = '#92400e';
   try {
-    // Use getExec('main') — respects T1 localStorage → T2 Sheet → T3 compiled default.
-    // Set the correct main URL in the T1 override card first if the compiled default is stale.
-    const writeUrl = getExec('main');
+    // savePortalConfig is hosted in the standalone PortalConfig backend.
+    // Priority chain: portalConfig (dedicated) → pcc (legacy) → main (fallback)
+    let writeUrl = '';
+    for (const k of ['portalConfig', 'pcc', 'main']) {
+      const u = getExec(k);
+      if (u && /^https:\/\/script\.google\.com\/macros\//.test(u)) { writeUrl = u; break; }
+    }
+    if (!writeUrl) {
+      st.textContent = '✗ No backend URL configured';
+      st.style.color = '#dc2626';
+      alert('Deploy the PortalConfigBackend Apps Script first, then paste its URL into the T1 override card under "Portal Config Backend".');
+      return;
+    }
     const userEmail = (window.STATE && STATE.user && STATE.user.email) || 'unknown';
     const r = await fetch(writeUrl, {
       method: 'POST',
