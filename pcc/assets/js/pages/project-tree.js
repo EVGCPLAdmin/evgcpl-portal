@@ -150,6 +150,9 @@ window.PAGE = (function () {
     if (!boqNodes.length && !wbsOrphan.length)
       return `<div class="tree-empty">No BOQ items yet — click <strong>+ BOQ</strong> above.</div>`;
 
+    // ── Node cache: store ctx objects keyed by ID; avoids inline JSON escaping issues ──
+    window._PCC_TREE_CACHE = window._PCC_TREE_CACHE || {};
+
     const isOpen = id => _expanded[id] !== false;
     let html = '';
 
@@ -159,19 +162,28 @@ window.PAGE = (function () {
       const myActs = myWbs.reduce((n,w) => n + (actsByWbs[w.uuid]||[]).length, 0);
       const amt    = b.amount ? ' · ₹' + fmtNum(b.amount) : '';
 
+      // Store ctx objects — avoids ALL escaping/quoting issues in onclick
+      const ckAddWbs = 'add_wbs_' + b.uuid;
+      const ckEditBOQ = 'edit_boq_' + b.uuid;
+      window._PCC_TREE_CACHE[ckAddWbs]  = { mode:'add',  boqUuid: b.uuid, boqDesc: b.desc };
+      window._PCC_TREE_CACHE[ckEditBOQ] = {
+        mode:'edit', uuid: b.uuid, sNo: b.sNo, desc: b.desc,
+        unit: b.unit, qty: b.qty, rate: b.rate, amount: b.amount, checkSum: b.checkSum,
+      };
+
       html += `
       <div class="tree-boq" id="${nodeId}">
         <div class="tree-row level-1">
           <button class="tree-toggle" onclick="PAGE.toggle('${nodeId}')">${isOpen(nodeId)?'▼':'▶'}</button>
           <span class="tree-icon">📋</span>
           <span class="tree-sno mono">${Utils.esc(b.sNo)}</span>
-          <span class="tree-label" onclick="PAGE.openDrawer('boq',{mode:'edit',row:${JSON.stringify(b).replace(/"/g,"'")}})" style="cursor:pointer" title="Click to edit">
+          <span class="tree-label" onclick="PAGE.openDrawer('boq', window._PCC_TREE_CACHE['${ckEditBOQ}'])" style="cursor:pointer" title="Click to edit">
             <strong>${Utils.esc(b.desc||'(no description)')}</strong>
             <span class="tree-meta">${Utils.esc(b.unit)} ${b.qty?'· Qty: '+b.qty:''}${amt}</span>
           </span>
           <span class="tree-badges">${badge(myWbs.length,'WBS','blue')}${badge(myActs,'act','gold')}</span>
-          <button class="tree-add-btn" onclick="PAGE.openDrawer('wbs',{mode:'add',boqUuid:'${b.uuid}',boqDesc:'${Utils.esc(b.desc)}'})" title="Add WBS node">+ WBS</button>
-          <button class="tree-edit-btn" onclick="PAGE.openDrawer('boq',{mode:'edit',uuid:'${b.uuid}',sNo:'${b.sNo}',desc:'${Utils.esc(b.desc)}',unit:'${Utils.esc(b.unit)}',qty:'${b.qty}',rate:'${b.rate}',amount:'${b.amount}',checkSum:'${b.checkSum}'})" title="Edit">✏️</button>
+          <button class="tree-add-btn" onclick="PAGE.openDrawer('wbs', window._PCC_TREE_CACHE['${ckAddWbs}'])" title="Add WBS node">+ WBS</button>
+          <button class="tree-edit-btn" onclick="PAGE.openDrawer('boq', window._PCC_TREE_CACHE['${ckEditBOQ}'])" title="Edit">✏️</button>
         </div>
         ${isOpen(nodeId) ? `<div class="tree-children">${renderWBSLevel(myWbs, actsByWbs, b.uuid)}</div>` : ''}
       </div>`;
@@ -196,23 +208,28 @@ window.PAGE = (function () {
   function renderWBSLevel(wbsNodes, actsByWbs, boqUuid) {
     if (!wbsNodes.length)
       return `<div class="tree-empty">No WBS items — click <strong>+ WBS</strong> to add.</div>`;
+    window._PCC_TREE_CACHE = window._PCC_TREE_CACHE || {};
     const isOpen = id => _expanded[id] !== false;
     let html = '';
     wbsNodes.forEach(w => {
-      const nodeId = 'wbs_' + w.uuid;
-      const myActs = actsByWbs[w.uuid] || [];
+      const nodeId    = 'wbs_' + w.uuid;
+      const myActs    = actsByWbs[w.uuid] || [];
+      const ckEditWbs = 'edit_wbs_' + w.uuid;
+      const ckAddAct  = 'add_act_' + w.uuid;
+      window._PCC_TREE_CACHE[ckEditWbs] = { mode:'edit', uuid: w.uuid, wbsCode: w.code, wbsName: w.name, boqUuid: w.checkSum };
+      window._PCC_TREE_CACHE[ckAddAct]  = { mode:'add',  wbsUuid: w.uuid, wbsCode: w.code, wbsName: w.name };
       html += `
       <div class="tree-wbs" id="${nodeId}">
         <div class="tree-row level-2">
           <button class="tree-toggle" onclick="PAGE.toggle('${nodeId}')">${isOpen(nodeId)?'▼':'▶'}</button>
           <span class="tree-icon">🌳</span>
           <span class="tree-sno mono green">${Utils.esc(w.code)}</span>
-          <span class="tree-label" onclick="PAGE.openDrawer('wbs',{mode:'edit',uuid:'${w.uuid}',wbsCode:'${Utils.esc(w.code)}',wbsName:'${Utils.esc(w.name)}',boqUuid:'${w.checkSum}'})" style="cursor:pointer" title="Click to edit">
+          <span class="tree-label" onclick="PAGE.openDrawer('wbs', window._PCC_TREE_CACHE['${ckEditWbs}'])" style="cursor:pointer" title="Click to edit">
             <strong>${Utils.esc(w.name||'(unnamed)')}</strong>
           </span>
           ${badge(myActs.length,'act', myActs.length?'green':'grey')}
-          <button class="tree-add-btn" onclick="PAGE.openDrawer('activity',{mode:'add',wbsUuid:'${w.uuid}',wbsCode:'${Utils.esc(w.code)}',wbsName:'${Utils.esc(w.name)}'})" title="Add activity">+ Activity</button>
-          <button class="tree-edit-btn" onclick="PAGE.openDrawer('wbs',{mode:'edit',uuid:'${w.uuid}',wbsCode:'${Utils.esc(w.code)}',wbsName:'${Utils.esc(w.name)}',boqUuid:'${w.checkSum}'})" title="Edit">✏️</button>
+          <button class="tree-add-btn" onclick="PAGE.openDrawer('activity', window._PCC_TREE_CACHE['${ckAddAct}'])" title="Add activity">+ Activity</button>
+          <button class="tree-edit-btn" onclick="PAGE.openDrawer('wbs', window._PCC_TREE_CACHE['${ckEditWbs}'])" title="Edit">✏️</button>
         </div>
         ${isOpen(nodeId) ? `<div class="tree-children">${renderActLevel(myActs, w)}</div>` : ''}
       </div>`;
