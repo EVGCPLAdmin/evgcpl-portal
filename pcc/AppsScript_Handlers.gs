@@ -552,13 +552,35 @@ function saveBOQ(p) {
     };
   });
 
-  // Default headers for new sheet creation (in AppSheet column order)
+  // Default headers for new sheet creation — matches exact user-confirmed schema
+  // Column order: CheckSum → UUID → BOQ Item # → Project Code → Project Name → Site Name
+  //               → Description → Unit → Qty → Tender Qty → Actual Qty
+  //               → Rate → Contractor Rate → Client Rate → Amount
+  //               → UserEmail → SystemEmail → Timestamp
+  // NEVER WRITTEN (ARRAYFORMULA — sheet owns these):
+  //   'BOQ ID'                → =ARRAYFORMULA(UUID&"-"&BOQItem#)
+  //   'BOQ ID (Description)'  → =ARRAYFORMULA(UUID&"-"&BOQItem#&" : "&Desc)
   var defaultHeaders = [
-    'CheckSum', 'BOQ ID', 'BOQ ID (Description)', 'UUID', 'Project Code',
-    'BOQ Item #', 'Description', 'Unit',
-    'Qty', 'Tender Qty', 'Actual Qty',
-    'Rate', 'Contractor Rate', 'Client Rate', 'Amount',
-    'Project Name', 'Site Name', 'UserEmail', 'SystemEmail', 'Timestamp',
+    'CheckSum',
+    'BOQ ID',                // ARRAYFORMULA — never written by PCC
+    'BOQ ID (Description)',  // ARRAYFORMULA — never written by PCC
+    'UUID',
+    'Project Code',
+    'BOQ Item #',
+    'Project Name',
+    'Site Name',
+    'Description',
+    'Unit',
+    'Qty',
+    'Tender Qty',
+    'Actual Qty',
+    'Rate',
+    'Contractor Rate',
+    'Client Rate',
+    'Amount',
+    'UserEmail',
+    'SystemEmail',
+    'Timestamp',
   ];
 
   // Match rows by CheckSum (= Project UUID, the AppSheet Ref key)

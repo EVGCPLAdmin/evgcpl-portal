@@ -166,37 +166,59 @@ function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
 
 
 // ─── 1. WORKPLAN ───
+// Schema: one row per activity in the BOQ → WBS → Activity hierarchy.
+// 12 monthly columns (Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar).
+// Total Qty is carried from BOQ. Planned Total = sum of monthly columns.
 function saveWorkplan(p) {
-  p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
-  // Schema: one row per activity (NOT per month).
-  // WBS Code · Nature of Work · Activity · UoM · Qty · Start · End · Duration · % Weight · Responsibility
-  // Plus provenance fields linking back to M_PL_1_Activities (Master UUID, Task Code, CheckSum)
-  // and a server-stamped Updated At.
-  var nowIso = new Date().toISOString();
+  p = _norm(p);
+  var projectCode = String(p.projectCode || '').trim();
+  var fy          = String(p.fy || '').trim();  // e.g. "2026-27"
+
+  var mths = ['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar'];
+
   var rows = (p.rows || []).map(function(r) {
-    return {
-      'Project Code':   p.projectCode,
-      'WBS Code':       r.wbsCode || '',
-      'Nature of Work': r.natureOfWork || '',
-      'Activity':       r.activity || '',
-      'UoM':            r.unit || '',
-      'Qty':            r.qty != null ? Number(r.qty) || 0 : 0,
-      'Start':          r.start || '',
-      'End':            r.end || '',
-      'Duration':       r.duration != null ? Number(r.duration) || 0 : 0,
-      '% Weight':       r.weight   != null ? Number(r.weight)   || 0 : 0,
-      'Responsibility': r.responsibility || '',
-      'Master UUID':    r.masterUuid || '',
-      'Task Code':      r.taskCode   || '',
-      'CheckSum':       r.checkSum   || '',
-      'Updated At':     nowIso,
+    var row = {
+      'Project Code':    projectCode,
+      'FY':              fy,
+      'BOQ Item #':      r['BOQ Item #']      || r.boqItemNum || '',
+      'BOQ UUID':        r['BOQ UUID']        || r.boqUuid    || '',
+      'BOQ Description': r['BOQ Description'] || r.boqDesc    || '',
+      'WBS Code':        r['WBS Code']        || r.wbsCode    || '',
+      'WBS Name':        r['WBS Name']        || r.wbsName    || '',
+      'WBS UUID':        r['WBS UUID']        || r.wbsUuid    || '',
+      'Activity':        r['Activity']        || r.activity   || '',
+      'Nature of Work':  r['Nature of Work']  || r.nature     || '',
+      'Type of Work':    r['Type of Work']    || r.type       || '',
+      'UoM':             r['UoM']             || r.unit       || '',
+      'Total Qty':       Number(r['Total Qty']  || r.totalQty  || 0),
+      'Planned Total':   Number(r['Planned Total']|| r.planTot  || 0),
+      '% Weight':        Number(r['% Weight']   || r.weight    || 0),
+      'Updated At':      _fmtTimestamp(new Date()),
     };
+    // 12 monthly columns
+    mths.forEach(function(m) {
+      row[m] = Number(r[m] || 0);
+    });
+    return row;
   });
-  return _replaceProjectRows('Workplan', [
-    'Project Code', 'WBS Code', 'Nature of Work', 'Activity',
-    'UoM', 'Qty', 'Start', 'End', 'Duration', '% Weight', 'Responsibility',
-    'Master UUID', 'Task Code', 'CheckSum', 'Updated At',
-  ], p.projectCode, rows);
+
+  var defaultHeaders = [
+    'Project Code', 'FY',
+    'BOQ Item #', 'BOQ UUID', 'BOQ Description',
+    'WBS Code', 'WBS Name', 'WBS UUID',
+    'Activity', 'Nature of Work', 'Type of Work', 'UoM',
+    'Total Qty', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+    'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar',
+    'Planned Total', '% Weight', 'Updated At',
+  ];
+
+  _replaceProjectRows('Workplan', defaultHeaders, projectCode, rows);
+
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true,
+    message: 'Saved ' + rows.length + ' workplan rows for FY ' + fy,
+    count:   rows.length,
+  })).setMimeType(ContentService.MimeType.JSON);
 }
 
 // ─── 2. MANPOWER ───
@@ -530,13 +552,35 @@ function saveBOQ(p) {
     };
   });
 
-  // Default headers for new sheet creation (in AppSheet column order)
+  // Default headers for new sheet creation — matches exact user-confirmed schema
+  // Column order: CheckSum → UUID → BOQ Item # → Project Code → Project Name → Site Name
+  //               → Description → Unit → Qty → Tender Qty → Actual Qty
+  //               → Rate → Contractor Rate → Client Rate → Amount
+  //               → UserEmail → SystemEmail → Timestamp
+  // NEVER WRITTEN (ARRAYFORMULA — sheet owns these):
+  //   'BOQ ID'                → =ARRAYFORMULA(UUID&"-"&BOQItem#)
+  //   'BOQ ID (Description)'  → =ARRAYFORMULA(UUID&"-"&BOQItem#&" : "&Desc)
   var defaultHeaders = [
-    'CheckSum', 'BOQ ID', 'BOQ ID (Description)', 'UUID', 'Project Code',
-    'BOQ Item #', 'Description', 'Unit',
-    'Qty', 'Tender Qty', 'Actual Qty',
-    'Rate', 'Contractor Rate', 'Client Rate', 'Amount',
-    'Project Name', 'Site Name', 'UserEmail', 'SystemEmail', 'Timestamp',
+    'CheckSum',
+    'BOQ ID',                // ARRAYFORMULA — never written by PCC
+    'BOQ ID (Description)',  // ARRAYFORMULA — never written by PCC
+    'UUID',
+    'Project Code',
+    'BOQ Item #',
+    'Project Name',
+    'Site Name',
+    'Description',
+    'Unit',
+    'Qty',
+    'Tender Qty',
+    'Actual Qty',
+    'Rate',
+    'Contractor Rate',
+    'Client Rate',
+    'Amount',
+    'UserEmail',
+    'SystemEmail',
+    'Timestamp',
   ];
 
   // Match rows by CheckSum (= Project UUID, the AppSheet Ref key)
