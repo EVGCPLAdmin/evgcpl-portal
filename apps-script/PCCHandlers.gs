@@ -233,6 +233,8 @@ function _deleteRowByUUID(tabName, uuid) {
 }
 
 function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
+  rows = rows || [];
+  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
   var sh = ss.getSheetByName(tabName);
 
   // ── Create tab if it doesn't exist ──────────────────────────
@@ -917,120 +919,6 @@ function deleteActivity(p) {
   }
   return ContentService.createTextOutput(JSON.stringify({ success:false, message:'Not found' })).setMimeType(ContentService.MimeType.JSON);
 }
-  p = _norm(p);
-  var projectCode = String(p.projectCode || '').trim();
-  var projectName = String(p.projectName || '').trim();
-  var siteName    = String(p.siteName    || '').trim();
-  var userEmail   = String(p.userEmail   || '').trim();
-  if (!userEmail) {
-    try { userEmail = Session.getActiveUser().getEmail() || ''; } catch(e) {}
-  }
-  var ts = _fmtTimestamp(new Date());
-
-  if (!projectCode) {
-    return ContentService.createTextOutput(JSON.stringify({
-      success: false, message: 'Missing projectCode'
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
-
-  // Track sequential Activity # per BOQ (per CheckSum / BOQ UUID)
-  var actNumByBoq = {};   // boqUuid → current counter
-  var assignedNodes = [];
-  var refMap = {};        // tempId/oldUuid → finalUuid (for Activities resolution)
-
-  var wbsRows = (p.nodes || []).map(function(n, idx) {
-    var oldUuid  = String(n.uuid || '').trim();
-    // UUID: preserve existing; generate new for new rows with PCC-WBS- prefix
-    var finalUuid = oldUuid || ('PCC-WBS-' + Utilities.getUuid());
-    var boqUuid   = String(n.checkSum || n.boqUuid || '').trim();
-
-    // Sequential Activity # per BOQ
-    if (!actNumByBoq[boqUuid]) actNumByBoq[boqUuid] = 0;
-    actNumByBoq[boqUuid]++;
-    var actNum = actNumByBoq[boqUuid];
-
-    // Build ref map for Activities resolution
-    if (n.tempId) refMap[String(n.tempId).trim()]  = finalUuid;
-    if (oldUuid)  refMap[oldUuid]                   = finalUuid;
-
-    assignedNodes.push({
-      tempId:  n.tempId  || '',
-      oldUuid: oldUuid,
-      uuid:    finalUuid,
-      actNum:  actNum,
-    });
-
-    return {
-      // ── PL12_WBS schema (NEVER WRITE: WBS Code, Related PL13_Activities) ──
-      'CheckSum':             boqUuid,          // FK → PL11_BOQ.UUID
-      'UUID':                 finalUuid,        // PCC-WBS-{uuid}
-      'Project Code':         projectCode,      // mapped via BOQ
-      'BOQ ID':               String(n.boqId       || '').trim(),
-      'BOQ ID (Description)': String(n.boqIdDesc   || '').trim(),
-      'Activity #':           actNum,           // sequential per BOQ
-      'Description':          String(n.description || n.wbsName || '').trim(),
-      'Unit':                 String(n.unit        || '').trim(),
-      'Qty':                  Number(n.qty)         || 0,
-      'Project Name':         projectName,      // mapped via BOQ
-      'Site Name':            siteName,         // mapped via BOQ
-      'UserEmail':            userEmail,
-      'SystemEmail':          userEmail,
-      'Timestamp':            ts,
-      // WBS Code — NEVER WRITE (protected column)
-    };
-  });
-
-  var defaultHeaders = [
-    'CheckSum',
-    'UUID',
-    'Project Code',
-    'BOQ ID',
-    'BOQ ID (Description)',
-    'Activity #',
-    'Description',
-    'Unit',
-    'Qty',
-    'Project Name',
-    'Site Name',
-    'UserEmail',
-    'SystemEmail',
-    'Timestamp',
-  ];
-
-  _replaceProjectRows('WBS', defaultHeaders, projectCode, wbsRows);
-
-  // ── Activities (PL13_Activities) — keep backward-compat if caller sends them ──
-  if (p.activities && p.activities.length > 0) {
-    var actHeaders = [
-      'Project Code', 'Activity', 'WBS UUID', 'CheckSum',
-      'Nature of Work', 'Type of Work', 'Unit', 'Cost Code',
-      'BOQ Qty', 'Master UUID', 'Task Code', 'Updated At',
-    ];
-    var actRows = p.activities.map(function(a) {
-      var parentRef    = String(a.parentRef || '').trim();
-      var resolvedUuid = refMap[parentRef] || parentRef;
-      return {
-        'Project Code':   projectCode,
-        'Activity':       a.name         || '',
-        'WBS UUID':       resolvedUuid,
-        'CheckSum':       resolvedUuid,   // Activity.CheckSum = WBS.UUID
-        'Nature of Work': a.natureOfWork || '',
-        'Type of Work':   a.typeOfWork   || '',
-        'Unit':           a.unit         || '',
-        'Cost Code':      a.costCode     || '',
-        'BOQ Qty':        Number(a.boqQty) || 0,
-        'Master UUID':    a.masterUuid   || '',
-        'Task Code':      a.taskCode     || '',
-        'Updated At':     ts,
-      };
-    });
-    _replaceProjectRows('Activities', actHeaders, projectCode, actRows);
-  }
-
-// ── Helpers for saveWBS (legacy) ────────────────────────────────
-
-// Find the next available WBS Code number for a project.
-// Scans existing rows on the WBS tab and picks max+1.
 function _getNextWbsCodeNum(projectCode) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();

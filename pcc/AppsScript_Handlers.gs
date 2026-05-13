@@ -233,6 +233,8 @@ function _deleteRowByUUID(tabName, uuid) {
 }
 
 function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
+  rows = rows || [];
+  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
   var sh = ss.getSheetByName(tabName);
 
   // ── Create tab if it doesn't exist ──────────────────────────
@@ -342,13 +344,18 @@ function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
 
 
 // ─── 1. WORKPLAN ───
-// Schema: one row per activity in the BOQ → WBS → Activity hierarchy.
-// 12 monthly columns (Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar).
-// Total Qty is carried from BOQ. Planned Total = sum of monthly columns.
+// One row per WBS item — no activity dependency.
+// BOQ is the group header, WBS is the planning unit.
+// Monthly columns: Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar
 function saveWorkplan(p) {
   p = _norm(p);
   var projectCode = String(p.projectCode || '').trim();
-  var fy          = String(p.fy || '').trim();  // e.g. "2026-27"
+  var fy          = String(p.fy          || '').trim();
+  if (!projectCode) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false, message: 'Missing projectCode'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
 
   var mths = ['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar'];
 
@@ -356,35 +363,30 @@ function saveWorkplan(p) {
     var row = {
       'Project Code':    projectCode,
       'FY':              fy,
-      'BOQ Item #':      r['BOQ Item #']      || r.boqItemNum || '',
-      'BOQ UUID':        r['BOQ UUID']        || r.boqUuid    || '',
-      'BOQ Description': r['BOQ Description'] || r.boqDesc    || '',
-      'WBS Code':        r['WBS Code']        || r.wbsCode    || '',
-      'WBS Name':        r['WBS Name']        || r.wbsName    || '',
-      'WBS UUID':        r['WBS UUID']        || r.wbsUuid    || '',
-      'Activity':        r['Activity']        || r.activity   || '',
-      'Nature of Work':  r['Nature of Work']  || r.nature     || '',
-      'Type of Work':    r['Type of Work']    || r.type       || '',
-      'UoM':             r['UoM']             || r.unit       || '',
-      'Total Qty':       Number(r['Total Qty']  || r.totalQty  || 0),
-      'Planned Total':   Number(r['Planned Total']|| r.planTot  || 0),
-      '% Weight':        Number(r['% Weight']   || r.weight    || 0),
+      'BOQ Item #':      r['BOQ Item #']      || '',
+      'BOQ UUID':        r['BOQ UUID']        || '',
+      'BOQ Description': r['BOQ Description'] || '',
+      'WBS UUID':        r['WBS UUID']        || '',
+      'WBS Code':        r['WBS Code']        || '',
+      'WBS Name':        r['WBS Name']        || '',
+      'Activity #':      r['Activity #']      || '',
+      'UoM':             r['UoM']             || '',
+      'Total Qty':       Number(r['Total Qty']    || 0),
+      'WBS Qty':         Number(r['WBS Qty']      || 0),
+      'Planned Total':   Number(r['Planned Total'] || 0),
+      '% Weight':        Number(r['% Weight']     || 0),
       'Updated At':      _fmtTimestamp(new Date()),
     };
-    // 12 monthly columns
-    mths.forEach(function(m) {
-      row[m] = Number(r[m] || 0);
-    });
+    mths.forEach(function(m) { row[m] = Number(r[m] || 0); });
     return row;
   });
 
   var defaultHeaders = [
     'Project Code', 'FY',
     'BOQ Item #', 'BOQ UUID', 'BOQ Description',
-    'WBS Code', 'WBS Name', 'WBS UUID',
-    'Activity', 'Nature of Work', 'Type of Work', 'UoM',
-    'Total Qty', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
-    'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar',
+    'WBS UUID', 'WBS Code', 'WBS Name', 'Activity #', 'UoM',
+    'Total Qty', 'WBS Qty',
+    'Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar',
     'Planned Total', '% Weight', 'Updated At',
   ];
 
