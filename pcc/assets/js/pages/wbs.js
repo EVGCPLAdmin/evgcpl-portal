@@ -225,11 +225,25 @@ window.PAGE = (function () {
     render();
   }
 
-  function removeActivity(idx) {
+  async function removeActivity(idx) {
     if (idx < 0 || idx >= _acts.length) return;
+    const act = _acts[idx];
+    const actName = g(act, 'Activity');
+    const wbsUuid = g(act, 'CheckSum');
+
+    // Optimistic UI update
     _acts.splice(idx, 1);
     _actsDirty = true;
     render();
+
+    // Delete from sheet (best-effort, non-blocking)
+    if (actName && wbsUuid && _ap) {
+      try {
+        await API.scriptCall('deleteActivity', {
+          actName, wbsUuid, projectCode: _ap['Project Code']
+        });
+      } catch(e) { console.warn('[WBS] deleteActivity failed:', e.message); }
+    }
   }
 
   // ── WBS Drawer ──────────────────────────────────────────────────
@@ -282,11 +296,12 @@ window.PAGE = (function () {
         qty:         Number(g(r,'Qty')) || 0,
       }));
 
-    existingForBoq.push({
+    // ── DELTA: only send the new row — never sends existing rows ──
+    const newNode = {
       uuid: '', checkSum: _drawerBoqUuid,
       boqId: _drawerBoqId, boqIdDesc: _drawerBoqIdDesc,
       description: desc, unit, qty,
-    });
+    };
 
     try {
       const r = await API.scriptCall('saveWBS', {
@@ -294,8 +309,9 @@ window.PAGE = (function () {
         projectName: _ap['Project Name'] || '',
         siteName:    _ap['Site Name']    || '',
         userEmail:   (window.STATE.user && (window.STATE.user.email || window.STATE.user.Email)) || '',
-        nodes: existingForBoq,
+        nodes: [newNode],  // DELTA — one row only
         activities: [],
+        delta: true,
       });
 
       if (r && r.success) {
@@ -388,19 +404,20 @@ window.PAGE = (function () {
     }
   }
 
-  function confirmMasterPick() {
+  async function confirmMasterPick() {
     if (!_mpSelected.size) { Utils.toast('Select at least one activity', 'err'); return; }
     if (!_pickerWbsUuid)   { Utils.toast('No WBS selected', 'err'); return; }
 
     let added = 0;
+    const newActs = [];
     _mpSelected.forEach(i => {
-      const r    = _mpRows[i];
+      const r   = _mpRows[i];
       if (!r) return;
-      const act  = g(r,'Activity') || '';
-      // Avoid duplicate activities in same WBS
+      const act = g(r,'Activity') || '';
+      // Avoid duplicate activities in same WBS (check local state)
       const exists = _acts.some(a => g(a,'Activity') === act && g(a,'CheckSum') === _pickerWbsUuid);
       if (!exists) {
-        _acts.push({
+        const newAct = {
           'Project Code':   _ap ? _ap['Project Code'] : '',
           'Activity':       act,
           'CheckSum':       _pickerWbsUuid,
@@ -410,16 +427,45 @@ window.PAGE = (function () {
           'BOQ Qty':        Number(g(r,'BOQ Qty')) || 0,
           'Master UUID':    g(r,'UUID')            || '',
           'Task Code':      g(r,'Task Code')       || '',
-          '_isNew':         true,
-        });
+        };
+        _acts.push(newAct);
+        newActs.push(newAct);
         added++;
       }
     });
 
-    _actsDirty = true;
+    _actsDirty = added > 0;
     closeMasterPicker();
     render();
-    Utils.toast(`Added ${added} activit${added === 1 ? 'y' : 'ies'} ✓`, 'ok');
+
+    // DELTA: push only the new activities to the sheet immediately
+    if (added > 0 && _ap) {
+      const activities = newActs.map(a => ({
+        parentRef:    g(a,'CheckSum'),
+        name:         g(a,'Activity'),
+        natureOfWork: g(a,'Nature of Work'),
+        typeOfWork:   g(a,'Type of Work'),
+        unit:         g(a,'Unit'),
+        boqQty:       Number(g(a,'BOQ Qty')) || 0,
+        masterUuid:   g(a,'Master UUID'),
+        taskCode:     g(a,'Task Code'),
+      }));
+      try {
+        const r = await API.scriptCall('saveWBS', {
+          projectCode: _ap['Project Code'],
+          projectName: _ap['Project Name'] || '',
+          siteName:    _ap['Site Name']    || '',
+          userEmail:   (window.STATE.user && (window.STATE.user.email || window.STATE.user.Email)) || '',
+          nodes: [],         // no WBS changes
+          activities,
+          delta: true,       // append only — never replaces
+        });
+        if (r && r.success) Utils.toast(`Added ${added} activit${added===1?'y':'ies'} ✓`, 'ok');
+        else Utils.toast((r&&r.message)||'Save failed', 'err');
+      } catch(e) { Utils.toast('Error saving activities: '+e.message, 'err'); }
+    } else if (added > 0) {
+      Utils.toast(`Added ${added} activit${added===1?'y':'ies'} (unsaved — click Save All)`, 'ok');
+    }
   }
 
   // ── Save ────────────────────────────────────────────────────────
@@ -458,6 +504,7 @@ window.PAGE = (function () {
       taskCode:     g(r,'Task Code'),
     }));
 
+    // delta=false for Save All → full replace (handles deletions)
     try {
       const r = await API.scriptCall('saveWBS', {
         projectCode: _ap['Project Code'],
@@ -465,6 +512,7 @@ window.PAGE = (function () {
         siteName:    _ap['Site Name']    || '',
         userEmail:   (window.STATE.user && (window.STATE.user.email || window.STATE.user.Email)) || '',
         nodes, activities,
+        delta: false,  // Save All → full replace (handles removals)
       });
       if (r && r.success) {
         _wbsDirty = false; _actsDirty = false;

@@ -530,13 +530,16 @@ Max 6 items. Scope: ${txt}` }],
     });
 
     try {
+      // DELTA: send only the single new WBS node — never the full list
+      const newNode = allNodes[allNodes.length - 1];  // last item = the one just added
       const r = await API.scriptCall('saveWBS', {
         projectCode: ap['Project Code'],
         projectName: ap['Project Name'] || '',
         siteName:    ap['Site Name']    || '',
         userEmail:   (window.STATE.user && (window.STATE.user.email || window.STATE.user.Email)) || '',
-        nodes: allNodes,
+        nodes: [newNode],   // DELTA — one row only
         activities: [],
+        delta: true,
       });
 
       if (r && r.success) {

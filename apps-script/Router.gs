@@ -58,7 +58,9 @@ function doPost(e) {
     if (action === 'saveProjectSetup')         return _wrap(saveProjectSetup(body));
     if (action === 'saveBOQ')                  return _wrap(saveBOQ(body));
     if (action === 'saveWBS')                  return saveWBS(body);   // returns its own response
-    if (action === 'saveWorkplan')             return _wrap(saveWorkplan(body));
+    if (action === 'deleteWBSRow')             return deleteWBSRow(body);
+    if (action === 'deleteActivity')           return deleteActivity(body);
+    if (action === 'saveWorkplan')             return saveWorkplan(body);
     if (action === 'saveManpower')             return _wrap(saveManpower(body));
     if (action === 'saveMachinery')            return _wrap(saveMachinery(body));
     if (action === 'saveMaterials')            return _wrap(saveMaterials(body));

@@ -31,6 +31,13 @@ var PCC_SHEET_ID = '1dQow9nD4e0qVOSfpwEWQmPTuhF3FW_8r1oK5dMjJlRE';
 // Normalizer used at the top of every handler:
 //   • Returns {} if p is null/undefined (no crash)
 //   • Auto-unwraps p.payload if a legacy doPost wrapped the call
+// ── Timestamp helper — "08-Apr-2026 17:17:19" ─────────────────
+function _fmtTimestamp(d) {
+  var mths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return ('0'+d.getDate()).slice(-2)+'-'+mths[d.getMonth()]+'-'+d.getFullYear()+' '+
+         ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)+':'+('0'+d.getSeconds()).slice(-2);
+}
+
 function _norm(p) {
   if (!p) return {};
   if (p.payload && typeof p.payload === 'object' && !Array.isArray(p.payload)) {
@@ -54,9 +61,178 @@ function _norm(p) {
  *      Any field we have that the sheet doesn't have a column for → silently skipped.
  *   4. Clears only rows where col A = projectCode (never touches other projects).
  */
-function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
+
+// ══════════════════════════════════════════════════════════════
+//  DELTA HELPERS  (_upsertRows / _deleteRowByUUID / _writeBlocks)
+//  These never delete rows — safe for incremental adds/edits.
+//  Used by saveWBS, saveActivity.  "Save All" still uses _replaceProjectRows.
+// ══════════════════════════════════════════════════════════════
+
+function _upsertRows(tabName, defaultHeaders, rows) {
   rows = rows || [];
+  if (!rows.length) return { added: 0, updated: 0 };
   var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var sh = ss.getSheetByName(tabName);
+  if (!sh) {
+    sh = ss.insertSheet(tabName);
+    sh.getRange(1, 1, 1, defaultHeaders.length)
+      .setValues([defaultHeaders])
+      .setBackground('#1e8035').setFontColor('#ffffff').setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  var lastCol = Math.max(sh.getLastColumn(), 1);
+  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  var colIndex = {};
+  headers.forEach(function(h, i) { if (h && String(h).trim()) colIndex[String(h).trim()] = i; });
+  var formulaProtected = {};
+  if (sh.getLastRow() >= 2) {
+    try {
+      sh.getRange(2, 1, 1, lastCol).getFormulas()[0].forEach(function(f, i) {
+        if (f && String(f).trim().charAt(0) === '=') formulaProtected[i] = true;
+      });
+    } catch(e) {}
+  }
+  var existingByUuid = {};
+  var uuidColIdx = colIndex['UUID'];
+  if (uuidColIdx !== undefined && sh.getLastRow() > 1) {
+    sh.getRange(2, uuidColIdx + 1, sh.getLastRow() - 1, 1).getValues().forEach(function(row, i) {
+      var u = String(row[0] || '').trim();
+      if (u) existingByUuid[u] = i + 2;
+    });
+  }
+  var added = 0, updated = 0;
+  rows.forEach(function(rowObj) {
+    var uuid      = String(rowObj['UUID'] || '').trim();
+    var targetRow = uuid ? existingByUuid[uuid] : null;
+    var cellVals  = new Array(lastCol).fill('');
+    Object.keys(rowObj).forEach(function(field) {
+      var idx = colIndex[field];
+      if (idx !== undefined && !formulaProtected[idx]) {
+        var v = rowObj[field];
+        cellVals[idx] = (v === null || v === undefined) ? '' : v;
+      }
+    });
+    if (targetRow) {
+      _writeBlocks(sh, targetRow, cellVals, formulaProtected, lastCol);
+      updated++;
+    } else {
+      var nr = sh.getLastRow() + 1;
+      _writeBlocks(sh, nr, cellVals, formulaProtected, lastCol);
+      if (uuid) existingByUuid[uuid] = nr;
+      added++;
+    }
+  });
+  return { added: added, updated: updated };
+}
+
+
+// ── _upsertActivities ─────────────────────────────────────────
+// Activities have no UUID column — match on composite key:
+// Activity (name) + CheckSum (WBS UUID).
+// If that pair already exists in the sheet → skip (no duplicate).
+// If not found → append new row.
+function _upsertActivities(defaultHeaders, rows) {
+  rows = rows || [];
+  if (!rows.length) return { added: 0, skipped: 0 };
+
+  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var sh = ss.getSheetByName('Activities');
+
+  if (!sh) {
+    sh = ss.insertSheet('Activities');
+    sh.getRange(1, 1, 1, defaultHeaders.length)
+      .setValues([defaultHeaders])
+      .setBackground('#1e8035').setFontColor('#ffffff').setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+
+  var lastCol = Math.max(sh.getLastColumn(), 1);
+  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  var colIndex = {};
+  headers.forEach(function(h, i) { if (h && String(h).trim()) colIndex[String(h).trim()] = i; });
+
+  // Build set of existing (Activity + CheckSum) pairs
+  var existingKeys = {};
+  var actColIdx = colIndex['Activity'];
+  var csColIdx  = colIndex['CheckSum'];
+  if (actColIdx !== undefined && csColIdx !== undefined && sh.getLastRow() > 1) {
+    var data = sh.getRange(2, 1, sh.getLastRow()-1, lastCol).getValues();
+    data.forEach(function(row) {
+      var key = String(row[actColIdx]||'').trim() + '||' + String(row[csColIdx]||'').trim();
+      if (key !== '||') existingKeys[key] = true;
+    });
+  }
+
+  // Detect formula-protected columns
+  var formulaProtected = {};
+  if (sh.getLastRow() >= 2) {
+    try {
+      sh.getRange(2, 1, 1, lastCol).getFormulas()[0].forEach(function(f, i) {
+        if (f && String(f).trim().charAt(0) === '=') formulaProtected[i] = true;
+      });
+    } catch(e) {}
+  }
+
+  var added = 0, skipped = 0;
+
+  rows.forEach(function(rowObj) {
+    var actName  = String(rowObj['Activity'] || '').trim();
+    var checkSum = String(rowObj['CheckSum'] || '').trim();
+    var key      = actName + '||' + checkSum;
+
+    if (existingKeys[key]) {
+      skipped++;  // already in sheet — skip
+      return;
+    }
+
+    // Append new row
+    var cellVals = new Array(lastCol).fill('');
+    Object.keys(rowObj).forEach(function(field) {
+      var idx = colIndex[field];
+      if (idx !== undefined && !formulaProtected[idx]) {
+        var v = rowObj[field];
+        cellVals[idx] = (v === null || v === undefined) ? '' : v;
+      }
+    });
+    var newRowNum = sh.getLastRow() + 1;
+    _writeBlocks(sh, newRowNum, cellVals, formulaProtected, lastCol);
+    existingKeys[key] = true;  // prevent same-batch duplicates
+    added++;
+  });
+
+  return { added: added, skipped: skipped };
+}
+
+function _writeBlocks(sh, rowNum, cellVals, formulaProtected, lastCol) {
+  var bStart = -1, bVals = [];
+  for (var ci = 0; ci < lastCol; ci++) {
+    if (formulaProtected[ci]) {
+      if (bStart >= 0) { sh.getRange(rowNum, bStart+1, 1, bVals.length).setValues([bVals]); bStart=-1; bVals=[]; }
+    } else {
+      if (bStart < 0) bStart = ci;
+      bVals.push(cellVals[ci]);
+    }
+  }
+  if (bStart >= 0 && bVals.length) sh.getRange(rowNum, bStart+1, 1, bVals.length).setValues([bVals]);
+}
+
+function _deleteRowByUUID(tabName, uuid) {
+  if (!uuid) return false;
+  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var sh = ss.getSheetByName(tabName);
+  if (!sh || sh.getLastRow() < 2) return false;
+  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  var uuidCol = -1;
+  headers.forEach(function(h, i) { if (String(h).trim() === 'UUID') uuidCol = i; });
+  if (uuidCol < 0) return false;
+  var data = sh.getRange(2, uuidCol+1, sh.getLastRow()-1, 1).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0]||'').trim() === uuid) { sh.deleteRow(i+2); return true; }
+  }
+  return false;
+}
+
+function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
   var sh = ss.getSheetByName(tabName);
 
   // ── Create tab if it doesn't exist ──────────────────────────
@@ -595,16 +771,16 @@ function saveBOQ(p) {
 }
 
 // ─── 3. WBS ─── (PL12_WBS schema — CheckSum = BOQ.UUID)
-// Schema: one row per WBS work package, child of a specific BOQ item.
-// NEVER WRITE: WBS Code · Related PL13_Activities
-// UUID format:  PCC-WBS-{random}
-// Activity #:   sequential per BOQ (per CheckSum)
+// Two modes:
+//   delta=true  (default) → _upsertRows: add new / update existing by UUID. NEVER deletes.
+//   delta=false           → _replaceProjectRows: full replace (used by Save All)
 function saveWBS(p) {
   p = _norm(p);
   var projectCode = String(p.projectCode || '').trim();
   var projectName = String(p.projectName || '').trim();
   var siteName    = String(p.siteName    || '').trim();
   var userEmail   = String(p.userEmail   || '').trim();
+  var isDelta     = p.delta !== false;  // default to delta mode
   if (!userEmail) {
     try { userEmail = Session.getActiveUser().getEmail() || ''; } catch(e) {}
   }
@@ -616,78 +792,63 @@ function saveWBS(p) {
     })).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Track sequential Activity # per BOQ (per CheckSum / BOQ UUID)
-  var actNumByBoq = {};   // boqUuid → current counter
+  var actNumByBoq = {};
   var assignedNodes = [];
-  var refMap = {};        // tempId/oldUuid → finalUuid (for Activities resolution)
+  var refMap = {};
 
   var wbsRows = (p.nodes || []).map(function(n, idx) {
     var oldUuid  = String(n.uuid || '').trim();
-    // UUID: preserve existing; generate new for new rows with PCC-WBS- prefix
-    var finalUuid = oldUuid || ('PCC-WBS-' + Utilities.getUuid());
-    var boqUuid   = String(n.checkSum || n.boqUuid || '').trim();
+    var finalUuid= oldUuid || ('PCC-WBS-' + Utilities.getUuid());
+    var boqUuid  = String(n.checkSum || n.boqUuid || '').trim();
 
-    // Sequential Activity # per BOQ
     if (!actNumByBoq[boqUuid]) actNumByBoq[boqUuid] = 0;
     actNumByBoq[boqUuid]++;
     var actNum = actNumByBoq[boqUuid];
 
-    // Build ref map for Activities resolution
-    if (n.tempId) refMap[String(n.tempId).trim()]  = finalUuid;
-    if (oldUuid)  refMap[oldUuid]                   = finalUuid;
+    if (n.tempId) refMap[String(n.tempId).trim()] = finalUuid;
+    if (oldUuid)  refMap[oldUuid]                  = finalUuid;
 
-    assignedNodes.push({
-      tempId:  n.tempId  || '',
-      oldUuid: oldUuid,
-      uuid:    finalUuid,
-      actNum:  actNum,
-    });
+    assignedNodes.push({ tempId: n.tempId||'', oldUuid: oldUuid, uuid: finalUuid, actNum: actNum });
 
     return {
-      // ── PL12_WBS schema (NEVER WRITE: WBS Code, Related PL13_Activities) ──
-      'CheckSum':             boqUuid,          // FK → PL11_BOQ.UUID
-      'UUID':                 finalUuid,        // PCC-WBS-{uuid}
-      'Project Code':         projectCode,      // mapped via BOQ
-      'BOQ ID':               String(n.boqId       || '').trim(),
-      'BOQ ID (Description)': String(n.boqIdDesc   || '').trim(),
-      'Activity #':           actNum,           // sequential per BOQ
+      'CheckSum':             boqUuid,
+      'UUID':                 finalUuid,
+      'Project Code':         projectCode,
+      'BOQ ID':               String(n.boqId      || '').trim(),
+      'BOQ ID (Description)': String(n.boqIdDesc  || '').trim(),
+      'Activity #':           actNum,
       'Description':          String(n.description || n.wbsName || '').trim(),
       'Unit':                 String(n.unit        || '').trim(),
       'Qty':                  Number(n.qty)         || 0,
-      'Project Name':         projectName,      // mapped via BOQ
-      'Site Name':            siteName,         // mapped via BOQ
+      'Project Name':         projectName,
+      'Site Name':            siteName,
       'UserEmail':            userEmail,
       'SystemEmail':          userEmail,
       'Timestamp':            ts,
-      // WBS Code — NEVER WRITE (protected column)
     };
   });
 
   var defaultHeaders = [
-    'CheckSum',
-    'UUID',
-    'Project Code',
-    'BOQ ID',
-    'BOQ ID (Description)',
-    'Activity #',
-    'Description',
-    'Unit',
-    'Qty',
-    'Project Name',
-    'Site Name',
-    'UserEmail',
-    'SystemEmail',
-    'Timestamp',
+    'CheckSum','UUID','Project Code','BOQ ID','BOQ ID (Description)',
+    'Activity #','Description','Unit','Qty',
+    'Project Name','Site Name','UserEmail','SystemEmail','Timestamp',
   ];
 
-  _replaceProjectRows('WBS', defaultHeaders, projectCode, wbsRows);
+  var wbsResult;
+  if (isDelta) {
+    wbsResult = _upsertRows('WBS', defaultHeaders, wbsRows);
+  } else {
+    _replaceProjectRows('WBS', defaultHeaders, projectCode, wbsRows);
+    wbsResult = { added: wbsRows.length, updated: 0 };
+  }
 
-  // ── Activities (PL13_Activities) — keep backward-compat if caller sends them ──
+  // Activities — same delta/replace logic
+  var actResult = { added: 0, updated: 0 };
   if (p.activities && p.activities.length > 0) {
     var actHeaders = [
-      'Project Code', 'Activity', 'WBS UUID', 'CheckSum',
-      'Nature of Work', 'Type of Work', 'Unit', 'Cost Code',
-      'BOQ Qty', 'Master UUID', 'Task Code', 'Updated At',
+      'Project Code','Activity','WBS UUID','CheckSum',
+      'Nature of Work','Type of Work','Unit','Cost Code',
+      'BOQ Qty','Master UUID','Task Code','Updated At',
     ];
     var actRows = p.activities.map(function(a) {
       var parentRef    = String(a.parentRef || '').trim();
@@ -696,7 +857,7 @@ function saveWBS(p) {
         'Project Code':   projectCode,
         'Activity':       a.name         || '',
         'WBS UUID':       resolvedUuid,
-        'CheckSum':       resolvedUuid,   // Activity.CheckSum = WBS.UUID
+        'CheckSum':       resolvedUuid,
         'Nature of Work': a.natureOfWork || '',
         'Type of Work':   a.typeOfWork   || '',
         'Unit':           a.unit         || '',
@@ -707,20 +868,55 @@ function saveWBS(p) {
         'Updated At':     ts,
       };
     });
-    _replaceProjectRows('Activities', actHeaders, projectCode, actRows);
+    if (isDelta) {
+      actResult = _upsertActivities(actHeaders, actRows);
+    } else {
+      _replaceProjectRows('Activities', actHeaders, projectCode, actRows);
+      actResult = { added: actRows.length, updated: 0 };
+    }
   }
 
   return ContentService.createTextOutput(JSON.stringify({
     success:       true,
-    message:       'Saved ' + wbsRows.length + ' WBS rows',
+    message:       'WBS: +'+wbsResult.added+' ✎'+wbsResult.updated +
+                   ' · Activities: +'+actResult.added+' ✎'+actResult.updated,
     assignedNodes: assignedNodes,
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
-// ── Helpers for saveWBS ─────────────────────────────────────────
+// ─── Delete a single WBS row or Activity row by UUID ───
+function deleteWBSRow(p) {
+  p = _norm(p);
+  var ok = _deleteRowByUUID('WBS', String(p.uuid || '').trim());
+  return ContentService.createTextOutput(JSON.stringify({ success: ok, message: ok ? 'Deleted' : 'Not found' }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
-// Find the next available WBS Code number for a project.
-// Scans existing rows on the WBS tab and picks max+1.
+function deleteActivity(p) {
+  p = _norm(p);
+  // Activities table has no UUID column — match on Activity name + CheckSum (WBS UUID)
+  var actName  = String(p.actName  || '').trim();
+  var wbsUuid  = String(p.wbsUuid  || '').trim();
+  if (!actName || !wbsUuid) {
+    return ContentService.createTextOutput(JSON.stringify({ success:false, message:'Missing actName or wbsUuid' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var sh = ss.getSheetByName('Activities');
+  if (!sh || sh.getLastRow() < 2) return ContentService.createTextOutput(JSON.stringify({ success:false, message:'Activities tab not found' })).setMimeType(ContentService.MimeType.JSON);
+  var headers  = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(function(h){return String(h).trim();});
+  var actCol   = headers.indexOf('Activity');
+  var csCol    = headers.indexOf('CheckSum');
+  if (actCol < 0 || csCol < 0) return ContentService.createTextOutput(JSON.stringify({ success:false, message:'Missing Activity or CheckSum column' })).setMimeType(ContentService.MimeType.JSON);
+  var data = sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][actCol]||'').trim()===actName && String(data[i][csCol]||'').trim()===wbsUuid) {
+      sh.deleteRow(i+2);
+      return ContentService.createTextOutput(JSON.stringify({ success:true, message:'Deleted: '+actName })).setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+  return ContentService.createTextOutput(JSON.stringify({ success:false, message:'Not found' })).setMimeType(ContentService.MimeType.JSON);
+}
 function _getNextWbsCodeNum(projectCode) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
