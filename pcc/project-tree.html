@@ -1,343 +1,1422 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Project Tree · Project Cost Control</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="assets/css/app.css" />
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Project Tree — EVGCPL PCC · v3.13.8 build 357</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
-/* ── Page layout: tree + drawer ─────────────────────────────── */
-.tree-page {
-  display: flex;
-  gap: 0;
-  position: relative;
-  min-height: calc(100vh - 120px);
+/* ── Base ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f1114;--surface:#13151a;--surface2:#16181e;--surface3:#1a1d24;
+  --border:#1e2128;--border2:#252830;
+  --txt:#e8e6e1;--txt2:#a09c94;--txt3:#6b6e76;--txt4:#3a3d44;
+  --gold:#d4a853;--gold2:#b8892e;--gold-bg:#d4a85318;
+  --green:#4ade80;--green2:#22c55e;--green-bg:#22c55e18;
+  --blue:#5b9bd5;--blue-bg:#5b9bd518;
+  --red:#e06c60;--red-bg:#e06c6018;
+  --amber:#f59e0b;--amber-bg:#f59e0b18;
+  --radius:10px;--radius-sm:6px;
+  --shadow:0 4px 20px rgba(0,0,0,.4);
+}
+html,body{height:100%;background:var(--bg);color:var(--txt);font-family:'DM Sans',system-ui,sans-serif;font-size:14px}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#2a2d35;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#3a3d45}
+input,select,textarea{font-family:inherit;font-size:13px;outline:none}
+button{font-family:inherit;cursor:pointer}
+
+/* ── App shell ── */
+#root{display:flex;flex-direction:column;height:100%}
+.app-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 20px;border-bottom:1px solid var(--border);
+  background:var(--surface);flex-shrink:0;gap:12px
+}
+.app-header-left{display:flex;align-items:center;gap:10px}
+.app-logo{height:30px;width:auto}
+.app-title{font-size:15px;font-weight:700;color:var(--txt);letter-spacing:-.02em}
+.app-subtitle{font-size:11px;color:var(--txt3);font-weight:400;margin-top:1px}
+.app-body{flex:1;overflow:hidden;display:flex;flex-direction:column}
+
+/* ── Tabs ── */
+.view-tabs{
+  display:flex;align-items:center;gap:2px;
+  padding:10px 20px 0;background:var(--surface);
+  border-bottom:2px solid var(--border);flex-shrink:0
+}
+.view-tab{
+  padding:8px 16px;font-size:13px;font-weight:600;border:none;
+  background:transparent;color:var(--txt3);border-bottom:2px solid transparent;
+  margin-bottom:-2px;transition:all .15s;border-radius:var(--radius-sm) var(--radius-sm) 0 0
+}
+.view-tab.active{color:var(--gold);border-bottom-color:var(--gold);background:var(--gold-bg)}
+.view-tab:hover:not(.active){color:var(--txt2);background:var(--surface3)}
+
+/* ── Toolbar ── */
+.toolbar{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 20px;background:var(--surface2);
+  border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap
+}
+.toolbar-sep{width:1px;height:20px;background:var(--border2);flex-shrink:0}
+.project-chip{
+  display:flex;align-items:center;gap:6px;
+  background:var(--surface3);border:1px solid var(--border2);
+  border-radius:20px;padding:4px 12px;font-size:12px;font-weight:600;
+  color:var(--txt2);cursor:pointer;transition:all .15s
+}
+.project-chip.active{background:var(--gold-bg);border-color:var(--gold);color:var(--gold)}
+.project-chip:hover:not(.active){border-color:var(--border2);color:var(--txt)}
+
+/* ── Buttons ── */
+.btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:6px 12px;border-radius:var(--radius-sm);font-size:12px;
+  font-weight:600;border:1px solid transparent;transition:all .15s;cursor:pointer
+}
+.btn-gold{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#0f1114;border-color:transparent}
+.btn-gold:hover{filter:brightness(1.08)}
+.btn-ghost{background:transparent;border-color:var(--border2);color:var(--txt2)}
+.btn-ghost:hover{border-color:var(--gold);color:var(--gold);background:var(--gold-bg)}
+.btn-danger{background:var(--red-bg);border-color:var(--red);color:var(--red)}
+.btn-sm{padding:4px 9px;font-size:11px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── Scroll area ── */
+.scroll-area{flex:1;overflow:auto;padding:16px 20px}
+
+/* ─────────────────────────────────────── TREE VIEW ─── */
+.tree-container{display:flex;flex-direction:column;gap:8px}
+
+/* Project row */
+.proj-row{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);overflow:hidden
+}
+.proj-header{
+  display:flex;align-items:center;gap:10px;
+  padding:12px 16px;cursor:pointer;transition:background .12s;
+  border-left:3px solid var(--gold)
+}
+.proj-header:hover{background:var(--surface3)}
+.chevron{
+  font-size:10px;color:var(--txt3);transition:transform .2s;flex-shrink:0;
+  width:16px;text-align:center
+}
+.chevron.open{transform:rotate(90deg)}
+.proj-icon{font-size:18px;flex-shrink:0}
+.proj-name{font-weight:700;font-size:14px;color:var(--txt);flex:1;min-width:0}
+.proj-code{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--gold);
+  background:var(--gold-bg);padding:2px 8px;border-radius:4px;flex-shrink:0}
+.proj-meta{font-size:11px;color:var(--txt3);display:flex;align-items:center;gap:6px;flex-shrink:0}
+.badge{
+  display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700
+}
+.badge-gold{background:var(--gold-bg);color:var(--gold)}
+.badge-blue{background:var(--blue-bg);color:var(--blue)}
+.badge-green{background:var(--green-bg);color:var(--green)}
+.badge-amber{background:var(--amber-bg);color:var(--amber)}
+.proj-body{border-top:1px solid var(--border)}
+
+/* BOQ row */
+.boq-row{border-top:1px solid var(--border)}
+.boq-row:first-child{border-top:none}
+.boq-header{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 16px 10px 32px;cursor:pointer;transition:background .12s;
+  border-left:3px solid transparent
+}
+.boq-header:hover{background:var(--surface3);border-left-color:var(--blue)}
+.boq-num{
+  font-family:'JetBrains Mono',monospace;font-size:10px;
+  background:var(--surface3);border:1px solid var(--border2);
+  border-radius:4px;padding:1px 6px;color:var(--txt3);flex-shrink:0;min-width:24px;text-align:center
+}
+.boq-desc{flex:1;font-size:13px;font-weight:600;color:var(--txt);min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.boq-unit{font-size:11px;color:var(--txt3);flex-shrink:0}
+.boq-qty{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;
+  color:var(--blue);flex-shrink:0;min-width:60px;text-align:right}
+.boq-amount{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--txt2);
+  flex-shrink:0;min-width:90px;text-align:right}
+.boq-actions{display:flex;gap:4px;flex-shrink:0;opacity:0;transition:opacity .15s}
+.boq-header:hover .boq-actions{opacity:1}
+.boq-body{background:var(--surface);border-top:1px solid var(--border)}
+
+/* WBS row */
+.wbs-list{display:flex;flex-direction:column}
+.wbs-row{border-top:1px solid var(--border)}
+.wbs-row:first-child{border-top:none}
+.wbs-header{
+  display:flex;align-items:center;gap:8px;
+  padding:9px 16px 9px 52px;cursor:pointer;transition:background .12s;
+  border-left:3px solid transparent
+}
+.wbs-header:hover{background:var(--surface2);border-left-color:var(--green)}
+.wbs-code{
+  font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--green);
+  background:var(--green-bg);padding:1px 7px;border-radius:4px;flex-shrink:0;white-space:nowrap
+}
+.wbs-desc{flex:1;font-size:12px;font-weight:600;color:var(--txt2);min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wbs-actions{display:flex;gap:4px;flex-shrink:0;opacity:0;transition:opacity .15s}
+.wbs-header:hover .wbs-actions{opacity:1}
+.wbs-body{background:var(--bg);border-top:1px solid var(--border)}
+
+/* Activity table */
+.activity-table{width:100%;border-collapse:collapse}
+.activity-table th{
+  font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase;
+  letter-spacing:.05em;padding:7px 12px 7px 68px;background:var(--surface2);
+  border-bottom:1px solid var(--border);text-align:left
+}
+.activity-table th:not(:first-child){padding-left:8px}
+.activity-table td{
+  font-size:12px;padding:7px 12px 7px 68px;border-bottom:1px solid var(--border);
+  color:var(--txt2)
+}
+.activity-table td:not(:first-child){padding-left:8px}
+.activity-table tr:last-child td{border-bottom:none}
+.activity-table tr:hover td{background:var(--surface3)}
+.act-num{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--txt4);min-width:24px}
+.act-desc{font-weight:500;color:var(--txt)}
+.act-type{font-size:11px}
+
+/* Unlinked WBS section */
+.unlinked-header{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 16px 8px 32px;background:var(--amber-bg);
+  border-top:1px solid var(--border)
+}
+.unlinked-label{font-size:12px;font-weight:600;color:var(--amber)}
+
+/* Add button inside tree */
+.add-btn{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;
+  border:1px dashed;cursor:pointer;background:transparent;transition:all .15s
+}
+.add-wbs{border-color:var(--green);color:var(--green)}
+.add-wbs:hover{background:var(--green-bg)}
+.add-boq{border-color:var(--blue);color:var(--blue)}
+.add-boq:hover{background:var(--blue-bg)}
+.add-act{border-color:var(--txt4);color:var(--txt3)}
+.add-act:hover{border-color:var(--txt2);color:var(--txt2)}
+
+/* Empty state */
+.empty{padding:32px;text-align:center;color:var(--txt3)}
+.empty-icon{font-size:2.4rem;margin-bottom:8px}
+.empty-title{font-size:14px;font-weight:600;color:var(--txt2);margin-bottom:4px}
+.empty-sub{font-size:12px}
+
+/* ─────────────────────────────────────── WORK PLAN ─── */
+.wp-outer{overflow:auto;flex:1}
+.wp-table{border-collapse:collapse;width:max-content;min-width:100%}
+.wp-table th,.wp-table td{border:1px solid var(--border2);white-space:nowrap}
+/* Fixed columns */
+.wp-th-fixed,.wp-td-fixed{
+  position:sticky;background:var(--surface2);z-index:2
+}
+.wp-th-fixed{background:var(--surface3);z-index:3}
+.wp-col-num{left:0;width:40px;min-width:40px}
+.wp-col-desc{left:40px;width:300px;min-width:300px}
+.wp-col-unit{left:340px;width:60px;min-width:60px;text-align:center}
+.wp-col-total{left:400px;width:90px;min-width:90px;text-align:right}
+
+/* Month columns */
+.wp-table th{
+  font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase;
+  letter-spacing:.04em;padding:8px 10px;background:var(--surface3);text-align:center
+}
+.wp-table td{padding:0;font-size:12px}
+.wp-td-inner{padding:6px 10px;height:34px;display:flex;align-items:center}
+
+/* BOQ row */
+.wp-boq-row{background:var(--surface)}
+.wp-boq-row .wp-td-fixed{background:var(--surface)}
+.wp-boq-code{
+  font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--gold);
+  background:var(--gold-bg);padding:1px 6px;border-radius:3px;margin-right:6px
+}
+.wp-boq-desc{font-weight:700;color:var(--txt);font-size:12px;flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wp-boq-qty{
+  font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;
+  color:var(--blue);justify-content:flex-end
+}
+.wp-boq-month{
+  font-family:'JetBrains Mono',monospace;font-size:11px;
+  color:var(--txt3);justify-content:center;font-style:italic
 }
 
-/* Tree panel */
-.tree-panel {
-  flex: 1;
-  min-width: 0;
-  transition: max-width .25s ease;
-  padding-right: 0;
+/* WBS row */
+.wp-wbs-row td{background:var(--bg)}
+.wp-wbs-row .wp-td-fixed{background:var(--surface2)}
+.wp-wbs-code{
+  font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--green);
+  background:var(--green-bg);padding:1px 6px;border-radius:3px;margin-right:6px;flex-shrink:0
 }
-.tree-panel.tree-narrowed {
-  max-width: calc(100% - 400px);
-}
-
-/* ── Slide-in drawer ─────────────────────────────────────────── */
-.tree-drawer {
-  position: sticky;
-  top: 0;
-  width: 0;
-  max-height: calc(100vh - 80px);
-  overflow: hidden;
-  transition: width .25s ease;
-  background: var(--surface);
-  border-left: 2px solid var(--border);
-  border-radius: 0 12px 12px 0;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-}
-.tree-drawer.open {
-  width: 400px;
-  overflow-y: auto;
+.wp-wbs-desc{font-size:12px;color:var(--txt2);flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wp-wbs-qty{
+  font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;
+  color:var(--green);justify-content:flex-end
 }
 
-.drawer-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 16px 18px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface2);
-  position: sticky;
-  top: 0;
-  z-index: 2;
+/* Editable month cell */
+.wp-month-input{
+  width:100%;height:34px;background:transparent;border:none;
+  font-family:'JetBrains Mono',monospace;font-size:12px;
+  color:var(--txt);text-align:right;padding:0 10px;
+  transition:background .12s
 }
-.drawer-title { font-size: 15px; font-weight: 700; color: var(--text); }
-.drawer-sub   { font-size: 11.5px; color: var(--text-faint); margin-top: 2px; }
+.wp-month-input:focus{background:var(--gold-bg);color:var(--gold);outline:none}
+.wp-month-input.over-limit{color:var(--red)!important;background:var(--red-bg)!important}
 
-.drawer-body {
-  flex: 1;
-  padding: 16px 18px;
-  overflow-y: auto;
+/* Total check cell */
+.wp-total-check{
+  font-family:'JetBrains Mono',monospace;font-size:11px;
+  padding:0 10px;height:34px;display:flex;align-items:center;justify-content:flex-end
+}
+.wp-total-check.ok{color:var(--green)}
+.wp-total-check.over{color:var(--red)}
+.wp-total-check.under{color:var(--txt3)}
+
+/* Month header — current month highlight */
+.wp-cur-month{color:var(--gold)!important;background:var(--gold-bg)!important}
+
+/* FY selector */
+.fy-select{
+  background:var(--surface3);border:1px solid var(--border2);
+  color:var(--txt);padding:5px 28px 5px 10px;border-radius:var(--radius-sm);
+  font-size:12px;font-weight:600;cursor:pointer;
+  appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236b6e76' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 8px center
+}
+.fy-select:focus{border-color:var(--gold)}
+
+/* ── Modal ── */
+.modal-backdrop{
+  position:fixed;inset:0;background:rgba(0,0,0,.65);
+  display:flex;align-items:center;justify-content:center;z-index:100;
+  animation:fadeIn .15s ease
+}
+.modal{
+  background:var(--surface);border:1px solid var(--border2);
+  border-radius:12px;width:520px;max-width:calc(100vw - 32px);
+  max-height:90vh;overflow:hidden;display:flex;flex-direction:column;
+  box-shadow:var(--shadow);animation:slideUp .18s ease
+}
+.modal-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 20px;border-bottom:1px solid var(--border)
+}
+.modal-title{font-size:14px;font-weight:700;color:var(--txt)}
+.modal-close{
+  background:transparent;border:none;font-size:18px;color:var(--txt3);
+  cursor:pointer;width:28px;height:28px;display:flex;align-items:center;
+  justify-content:center;border-radius:6px;transition:all .12s
+}
+.modal-close:hover{background:var(--surface3);color:var(--txt)}
+.modal-body{padding:20px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.modal-footer{
+  display:flex;justify-content:flex-end;gap:8px;
+  padding:14px 20px;border-top:1px solid var(--border)
+}
+.field-group{display:flex;flex-direction:column;gap:5px}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.field-label{font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em}
+.field-input{
+  background:var(--surface3);border:1px solid var(--border2);
+  border-radius:var(--radius-sm);padding:8px 10px;color:var(--txt);
+  font-size:13px;width:100%;transition:border-color .12s
+}
+.field-input:focus{border-color:var(--gold)}
+.field-input::placeholder{color:var(--txt4)}
+
+/* ── Toast ── */
+.toast{
+  position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+  background:var(--surface);border:1px solid var(--border2);
+  border-radius:8px;padding:10px 20px;font-size:13px;font-weight:500;
+  box-shadow:var(--shadow);z-index:200;animation:toastIn .2s ease;
+  display:flex;align-items:center;gap:8px;white-space:nowrap
+}
+.toast.ok{border-color:var(--green);color:var(--green)}
+.toast.err{border-color:var(--red);color:var(--red)}
+
+/* ── Spinner ── */
+.spinner{
+  width:20px;height:20px;border:2px solid var(--border2);
+  border-top-color:var(--gold);border-radius:50%;
+  animation:spin .6s linear infinite
 }
 
-.drawer-footer {
-  padding: 12px 18px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  gap: .5rem;
-  justify-content: flex-end;
-  background: var(--surface2);
-  position: sticky;
-  bottom: 0;
-}
-
-.drawer-form .field { margin-bottom: 14px; }
-.drawer-form .field label {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  margin-bottom: 4px;
-}
-.drawer-form input, .drawer-form select, .drawer-form textarea {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-family: inherit;
-  font-size: 13px;
-  background: var(--surface);
-  color: var(--text);
-}
-.drawer-form input:focus, .drawer-form select:focus {
-  border-color: var(--green);
-  outline: none;
-}
-.drawer-form input[readonly] {
-  background: var(--surface2);
-  color: var(--text-faint);
-  cursor: default;
-}
-.form-note {
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 11.5px;
-  margin-bottom: 14px;
-}
-.form-note.info { background: rgba(30,128,56,.07); color: var(--green); border-left: 3px solid var(--green); }
-
-/* ── Tree rows ─────────────────────────────────────────────── */
-.tree-root { display: flex; flex-direction: column; gap: 4px; }
-.tree-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  flex-wrap: wrap;
-}
-.tree-row.level-0 { background: var(--green); color: #fff; font-size: 13.5px; }
-.tree-row.level-0 .tree-meta { color: rgba(255,255,255,.7); }
-.tree-row.level-1 { background: rgba(30,128,56,.07); border-left: 3px solid var(--green); font-size: 13px; }
-.tree-row.level-1.unlinked-row { border-left-color: var(--gold); background: rgba(160,108,16,.06); }
-.tree-row.level-2 { background: rgba(30,128,56,.03); border-left: 3px solid rgba(30,128,56,.3); font-size: 12.5px; }
-
-.tree-toggle {
-  background: none; border: none; font-size: 10px; cursor: pointer;
-  color: inherit; padding: 3px 5px; border-radius: 4px; flex-shrink: 0;
-  opacity: .7;
-}
-.tree-toggle:hover { opacity: 1; background: rgba(0,0,0,.08); }
-.tree-icon    { font-size: 14px; flex-shrink: 0; }
-.tree-sno     { font-size: 11px; font-weight: 700; min-width: 44px; flex-shrink: 0; }
-.tree-sno.green { color: var(--green); }
-.tree-label   { flex: 1; min-width: 0; }
-.tree-label strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree-meta    { font-size: 11px; color: var(--text-faint); }
-.tree-badges  { display: flex; gap: 4px; flex-wrap: wrap; flex-shrink: 0; }
-.tree-badge   { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
-
-/* Add + Edit buttons on rows */
-.tree-add-btn {
-  font-size: 10px; font-weight: 700;
-  padding: 3px 10px; border-radius: 8px;
-  border: 1.5px solid rgba(30,128,56,.4);
-  background: transparent; cursor: pointer;
-  color: var(--green); white-space: nowrap;
-  transition: background .12s, color .12s;
-  flex-shrink: 0;
-}
-.tree-add-btn:hover { background: var(--green); color: #fff; }
-.level-0 .tree-add-btn { border-color: rgba(255,255,255,.5); color: #fff; }
-.level-0 .tree-add-btn:hover { background: rgba(255,255,255,.2); }
-
-.tree-edit-btn {
-  font-size: 11px; background: none; border: none;
-  cursor: pointer; padding: 2px 4px; opacity: .5;
-  flex-shrink: 0;
-}
-.tree-edit-btn:hover { opacity: 1; }
-
-.edit-hint { font-size: 10px; opacity: 0; }
-tr:hover .edit-hint { opacity: .6; }
-
-/* Children containers */
-.tree-children { padding-left: 26px; }
-.tree-project > .tree-children { border-left: 2px solid rgba(30,128,56,.12); padding-bottom: 4px; }
-.tree-boq, .tree-wbs { margin: 3px 0; }
-.tree-empty {
-  padding: 10px 14px; font-size: 11.5px; color: var(--text-faint);
-  font-style: italic; background: rgba(0,0,0,.02);
-  border-radius: 6px; border: 1px dashed var(--border); margin: 3px 0;
-}
-.tree-acts-wrap { margin: 3px 0; }
-.tree-acts-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
-.tree-acts-table thead th {
-  text-align: left; padding: 5px 10px; font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .04em;
-  color: var(--text-dim); border-bottom: 1px solid var(--border);
-}
-.tree-acts-table tbody td { padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-.tree-acts-table tbody tr:last-child td { border-bottom: none; }
-.tree-acts-table tbody tr:hover { background: rgba(30,128,56,.04); }
-.task-sub { font-size: 9px; color: var(--text-faint); font-family: monospace; }
-
-/* ── Master picker modal ─────────────────────────────────────── */
-.mp-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.35);
-  display: none; align-items: center; justify-content: center; z-index: 999;
-}
-.mp-modal {
-  background: var(--surface); border-radius: 14px;
-  width: min(680px, 95vw); max-height: 85vh;
-  display: flex; flex-direction: column;
-  box-shadow: 0 24px 60px rgba(0,0,0,.25);
-}
-.mp-head {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  padding: 16px 20px 12px; border-bottom: 1px solid var(--border);
-}
-.mp-head h3 { margin: 0; font-size: 16px; }
-.mp-sub { font-size: 11.5px; color: var(--text-faint); margin-top: 3px; }
-.mp-filters {
-  display: flex; gap: .5rem; align-items: center;
-  padding: 10px 20px; border-bottom: 1px solid var(--border);
-}
-.mp-filters input { flex: 1; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; }
-.mp-table-wrap { overflow-y: auto; flex: 1; }
-.mp-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.mp-table thead th { padding: 8px 14px; text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); color: var(--text-dim); }
-.mp-table tbody td { padding: 7px 14px; border-bottom: 1px solid var(--border); }
-.mp-table tbody tr:hover { background: rgba(30,128,56,.05); }
-.mp-foot { display: flex; align-items: center; gap: .5rem; padding: 12px 20px; border-top: 1px solid var(--border); }
-.mp-foot .mp-count { font-size: 11px; color: var(--text-faint); flex: 1; }
+/* ── Animations ── */
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
-<main class="app-main">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-  <div class="page-head">
-    <div>
-      <h1>🌲 Project Tree</h1>
-      <div class="ph-sub">
-        <code>Project → BOQ → WBS → Activities</code> ·
-        Click any row to edit · <strong>+ buttons</strong> to add
+/* ═══════════════════════════════════════════════════════════════
+   CONFIG
+═══════════════════════════════════════════════════════════════ */
+const CONFIG = {
+  SHEET_ID:   '1dQow9nD4e0qVOSfpwEWQmPTuhF3FW_8r1oK5dMjJlRE',
+  SCRIPT_URL: (typeof window.__PCC_SCRIPT_URL__ !== 'undefined')
+    ? window.__PCC_SCRIPT_URL__
+    : 'YOUR_APPS_SCRIPT_EXEC_URL',        // ← patch by build script
+  TABS: { PROJECT:'Project', BOQ:'BOQ', WBS:'WBS', ACTIVITIES:'Activities', WORKPLAN:'WorkPlan' },
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITIES
+═══════════════════════════════════════════════════════════════ */
+function uuid4() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random()*16|0, v = c==='x'?r:(r&0x3|0x8);
+    return v.toString(16);
+  });
+}
+function fmt(n) {
+  if (!n && n !== 0) return '—';
+  return Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+}
+function fmtAmt(n) {
+  if (!n && n !== 0) return '—';
+  const v = Math.abs(n);
+  if (v >= 1e7) return '₹' + (n/1e7).toFixed(2) + 'Cr';
+  if (v >= 1e5) return '₹' + (n/1e5).toFixed(2) + 'L';
+  return '₹' + n.toLocaleString('en-IN');
+}
+
+/* gviz fetch */
+async function fetchTab(tab) {
+  const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(tab)}`;
+  const res  = await fetch(url);
+  const text = await res.text();
+  const json = JSON.parse(text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/)[1]);
+  if (!json.table || !json.table.rows?.length) return [];
+  const cols = json.table.cols.map(c => c.label);
+  return json.table.rows.map(r => {
+    const obj = {};
+    cols.forEach((c, i) => { obj[c] = r.c[i]?.v ?? ''; });
+    return obj;
+  });
+}
+
+/* Apps Script POST */
+async function scriptPost(action, payload) {
+  const body = JSON.stringify({ action, ...payload });
+  const res  = await fetch(CONFIG.SCRIPT_URL, {
+    method: 'POST', headers: { 'Content-Type': 'text/plain' }, body,
+  });
+  return res.json();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FY HELPERS — Indian FY: Apr(Y) → Mar(Y+1)
+═══════════════════════════════════════════════════════════════ */
+function currentFY() {
+  const now = new Date();
+  const yr  = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear()-1;
+  return `${yr}-${(yr+1).toString().slice(2)}`;
+}
+function fyMonths(fyStr) {
+  // fyStr = "2025-26"
+  const yr = parseInt(fyStr.split('-')[0]);
+  const months = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(yr, 3 + i, 1);   // Apr = month 3
+    months.push({
+      key: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
+      label: d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
+      short: d.toLocaleDateString('en-IN', { month: 'short' }),
+    });
+  }
+  return months;
+}
+function availableFYs() {
+  const yr = new Date().getFullYear();
+  return [-2,-1,0,1].map(d => {
+    const y = yr + d;
+    return `${y}-${(y+1).toString().slice(2)}`;
+  });
+}
+function isCurrentMonth(mKey) {
+  const now = new Date();
+  return mKey === `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MODAL COMPONENT
+═══════════════════════════════════════════════════════════════ */
+function Modal({ title, onClose, children, footer }) {
+  // Close on Escape
+  useEffect(() => {
+    const h = e => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  return (
+    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <span className="modal-title">{title}</span>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">{children}</div>
+        {footer && <div className="modal-footer">{footer}</div>}
       </div>
     </div>
-    <div class="ph-actions">
-      <button class="btn btn-secondary" onclick="PAGE.collapseAll()">Collapse all</button>
-      <button class="btn btn-secondary" onclick="PAGE.expandAll()">Expand all</button>
-      <button class="btn btn-secondary" onclick="PAGE.refresh()">↻ Refresh</button>
-    </div>
-  </div>
+  );
+}
 
-  <!-- KPI strip -->
-  <div class="kpi-strip">
-    <div class="kpi">
-      <div class="kpi-label">Project Code</div>
-      <div class="kpi-val mono" id="treeProjCode">—</div>
+/* ═══════════════════════════════════════════════════════════════
+   TOAST
+═══════════════════════════════════════════════════════════════ */
+function Toast({ msg, type }) {
+  return msg ? (
+    <div className={`toast ${type === 'err' ? 'err' : 'ok'}`}>
+      {type === 'err' ? '✕' : '✓'} {msg}
     </div>
-    <div class="kpi">
-      <div class="kpi-label">Project Name</div>
-      <div class="kpi-val" id="treeProjName" style="font-size:14px">—</div>
-    </div>
-    <div style="flex:1"></div>
-    <div class="kpi" style="align-items:flex-end">
-      <span class="pill pill-green" id="treeStatus">Idle</span>
-    </div>
-  </div>
+  ) : null;
+}
 
-  <!-- Linkage legend -->
-  <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;padding:.5rem 1rem;font-size:11px;color:var(--text-faint);background:var(--surface2);border-radius:8px;margin-bottom:1rem;border:1px solid var(--border)">
-    <span style="font-weight:600;color:var(--text)">Linkage:</span>
-    <span>📁 Project</span><code>→ BOQ.CheckSum=Project.UUID</code>
-    <span>📋 BOQ</span><code>→ WBS.CheckSum=BOQ.UUID</code>
-    <span>🌳 WBS</span><code>→ Activity.CheckSum=WBS.UUID</code>
-    <span>🔧 Activity</span>
-    <span style="margin-left:auto;font-style:italic">Click any row to edit · + to add</span>
-  </div>
+/* ═══════════════════════════════════════════════════════════════
+   MAIN APP
+═══════════════════════════════════════════════════════════════ */
+function App() {
+  const [view, setView]               = useState('tree');          // 'tree' | 'workplan'
+  const [loading, setLoading]         = useState(true);
+  const [saving, setSaving]           = useState(false);
+  const [projects, setProjects]       = useState([]);
+  const [boqItems, setBoqItems]       = useState([]);
+  const [wbsItems, setWbsItems]       = useState([]);
+  const [activities, setActivities]   = useState([]);
+  const [workPlan, setWorkPlan]       = useState({});  // { wbsUUID_monthKey: qty }
+  const [selProject, setSelProject]   = useState(null);
+  const [expandedBOQ, setExpandedBOQ] = useState({});
+  const [expandedWBS, setExpandedWBS] = useState({});
+  const [selectedFY, setSelectedFY]   = useState(currentFY);
+  const [toast, setToast]             = useState(null);
 
-  <!-- Main area: tree + drawer side-by-side -->
-  <div class="tree-page">
+  // WBS modal state
+  const [wbsModal, setWbsModal]       = useState({ open: false, boqUUID: '', boqDesc: '' });
+  const [newWBS, setNewWBS]           = useState({ code: '', desc: '', unit: '', qty: '' });
+  const [wbsBusy, setWbsBusy]         = useState(false);
 
-    <!-- Tree panel -->
-    <div class="tree-panel" id="treePanel">
-      <div class="card">
-        <div class="card-pad" style="padding:.5rem .75rem">
-          <div class="tree-root" id="projectTree">
-            <div class="tree-empty">Loading tree…</div>
+  // Activity modal state
+  const [actModal, setActModal]       = useState({ open: false, wbsUUID: '', wbsDesc: '' });
+  const [newAct, setNewAct]           = useState({ desc: '', nature: '', type: '', unit: '', qty: '' });
+  const [actBusy, setActBusy]         = useState(false);
+
+  const toastRef = useRef(null);
+  const showToast = useCallback((msg, type = 'ok') => {
+    setToast({ msg, type });
+    clearTimeout(toastRef.current);
+    toastRef.current = setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  /* ── Load all data ── */
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [proj, boq, wbs, act, wp] = await Promise.all([
+        fetchTab(CONFIG.TABS.PROJECT),
+        fetchTab(CONFIG.TABS.BOQ),
+        fetchTab(CONFIG.TABS.WBS),
+        fetchTab(CONFIG.TABS.ACTIVITIES),
+        fetchTab(CONFIG.TABS.WORKPLAN).catch(() => []),
+      ]);
+
+      const activeProj = proj.filter(p => (p['Active/Inactive?'] || '').toUpperCase() !== 'INACTIVE');
+      setProjects(activeProj);
+      setBoqItems(boq);
+      setWbsItems(wbs);
+      setActivities(act);
+
+      // Parse WorkPlan rows → flat map
+      const wpMap = {};
+      wp.forEach(row => {
+        const key = row['WBSCheckSum'] + '__' + row['MonthKey'];
+        wpMap[key] = parseFloat(row['Qty']) || 0;
+      });
+      setWorkPlan(wpMap);
+
+      if (activeProj.length > 0 && !selProject) {
+        setSelProject(activeProj[0]['UUID'] || activeProj[0]['Project Code'] || activeProj[0]['Project Name']);
+      }
+    } catch (err) {
+      showToast('Failed to load data — check sheet access', 'err');
+    } finally {
+      setLoading(false);
+    }
+  }, [selProject, showToast]);
+
+  useEffect(() => { loadAll(); }, []);
+
+  /* ── Selected project record ── */
+  const selProjRec = useMemo(() =>
+    projects.find(p => (p['UUID'] || p['Project Code']) === selProject) || null,
+  [projects, selProject]);
+
+  /* ── BOQ items for selected project ── */
+  const projBOQ = useMemo(() => {
+    if (!selProjRec) return [];
+    const projUUID = selProjRec['UUID'] || selProjRec['Project Code'];
+    return boqItems.filter(b =>
+      (b['CheckSum'] === projUUID) ||
+      (b['Project Code'] === selProjRec['Project Code'])
+    );
+  }, [boqItems, selProjRec]);
+
+  /* ── WBS for a BOQ item ── */
+  const wbsForBOQ = useCallback((boqUUID) =>
+    wbsItems.filter(w => w['CheckSum'] === boqUUID || w['BOQCheckSum'] === boqUUID),
+  [wbsItems]);
+
+  /* ── Activities for a WBS ── */
+  const activitiesForWBS = useCallback((wbsUUID) =>
+    activities.filter(a => a['CheckSum'] === wbsUUID),
+  [activities]);
+
+  /* ── Unlinked WBS (no matching BOQ) ── */
+  const unlinkedWBS = useMemo(() => {
+    if (!selProjRec) return [];
+    const projUUID = selProjRec['UUID'] || selProjRec['Project Code'];
+    const boqUUIDs = new Set(projBOQ.map(b => b['UUID']));
+    return wbsItems.filter(w => {
+      const belongsToProj = w['Project Code'] === selProjRec['Project Code'] ||
+                            w['ProjectUUID'] === projUUID;
+      const hasBoq = boqUUIDs.has(w['CheckSum']) || boqUUIDs.has(w['BOQCheckSum']);
+      return belongsToProj && !hasBoq;
+    });
+  }, [wbsItems, selProjRec, projBOQ]);
+
+  /* ───────────────────────── SAVE WBS ─── */
+  const openWBSModal = useCallback((boqUUID, boqDesc) => {
+    setNewWBS({ code: '', desc: '', unit: '', qty: '' });
+    setWbsModal({ open: true, boqUUID, boqDesc });
+  }, []);
+
+  const closeWBSModal = useCallback(() => {
+    setWbsModal({ open: false, boqUUID: '', boqDesc: '' });
+  }, []);
+
+  const saveWBS = useCallback(async () => {
+    if (!newWBS.desc.trim()) return;
+    setWbsBusy(true);
+    try {
+      const projUUID = selProjRec?.['UUID'] || selProjRec?.['Project Code'] || '';
+      const projCode = selProjRec?.['Project Code'] || '';
+      const newRow = {
+        UUID:        uuid4(),
+        CheckSum:    wbsModal.boqUUID,   // ← linked to BOQ.UUID
+        BOQCheckSum: wbsModal.boqUUID,
+        ProjectUUID: projUUID,
+        'Project Code': projCode,
+        'WBS Code':  newWBS.code.trim(),
+        'WBS Description': newWBS.desc.trim(),
+        Unit:        newWBS.unit.trim(),
+        Qty:         parseFloat(newWBS.qty) || 0,
+        Timestamp:   new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        'Active/Inactive?': 'ACTIVE',
+      };
+      const result = await scriptPost('saveWBS', { row: newRow });
+      if (result?.success) {
+        setWbsItems(prev => [...prev, newRow]);
+        setExpandedBOQ(prev => ({ ...prev, [wbsModal.boqUUID]: true }));
+        closeWBSModal();
+        showToast('WBS added successfully');
+      } else {
+        showToast(result?.message || 'Save failed', 'err');
+      }
+    } catch (err) {
+      showToast('Error: ' + err.message, 'err');
+    } finally {
+      setWbsBusy(false);
+    }
+  }, [newWBS, wbsModal, selProjRec, closeWBSModal, showToast]);
+
+  /* ───────────────────────── SAVE ACTIVITY ─── */
+  const openActModal = useCallback((wbsUUID, wbsDesc) => {
+    setNewAct({ desc: '', nature: '', type: '', unit: '', qty: '' });
+    setActModal({ open: true, wbsUUID, wbsDesc });
+  }, []);
+
+  const closeActModal = useCallback(() => {
+    setActModal({ open: false, wbsUUID: '', wbsDesc: '' });
+  }, []);
+
+  const saveActivity = useCallback(async () => {
+    if (!newAct.desc.trim()) return;
+    setActBusy(true);
+    try {
+      const newRow = {
+        UUID:        uuid4(),
+        CheckSum:    actModal.wbsUUID,
+        'Activity Description': newAct.desc.trim(),
+        'Nature of Work': newAct.nature.trim(),
+        'Type of Work':   newAct.type.trim(),
+        Unit:        newAct.unit.trim(),
+        Qty:         parseFloat(newAct.qty) || 0,
+        Timestamp:   new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        'Active/Inactive?': 'ACTIVE',
+      };
+      const result = await scriptPost('saveActivity', { row: newRow });
+      if (result?.success) {
+        setActivities(prev => [...prev, newRow]);
+        setExpandedWBS(prev => ({ ...prev, [actModal.wbsUUID]: true }));
+        closeActModal();
+        showToast('Activity added');
+      } else {
+        showToast(result?.message || 'Save failed', 'err');
+      }
+    } catch (err) {
+      showToast('Error: ' + err.message, 'err');
+    } finally {
+      setActBusy(false);
+    }
+  }, [newAct, actModal, closeActModal, showToast]);
+
+  /* ───────────────────────── WORK PLAN SAVE ─── */
+  const handleWPChange = useCallback((wbsUUID, monthKey, val) => {
+    const k = wbsUUID + '__' + monthKey;
+    setWorkPlan(prev => ({ ...prev, [k]: parseFloat(val) || 0 }));
+  }, []);
+
+  const saveWorkPlan = useCallback(async () => {
+    setSaving(true);
+    try {
+      const rows = [];
+      const months = fyMonths(selectedFY);
+      // Build all WP rows for current project + FY
+      projBOQ.forEach(boq => {
+        const boqUUID = boq['UUID'] || boq['Item Code'] || boq['WBS Code'];
+        wbsForBOQ(boqUUID).forEach(wbs => {
+          const wbsUUID = wbs['UUID'];
+          months.forEach(m => {
+            const k   = wbsUUID + '__' + m.key;
+            const qty = workPlan[k] || 0;
+            if (qty > 0) {
+              rows.push({
+                UUID:        uuid4(),
+                WBSCheckSum: wbsUUID,
+                BOQCheckSum: boqUUID,
+                ProjectCode: selProjRec?.['Project Code'] || '',
+                FY:          selectedFY,
+                MonthKey:    m.key,
+                MonthLabel:  m.label,
+                Qty:         qty,
+                Timestamp:   new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+              });
+            }
+          });
+        });
+      });
+      const result = await scriptPost('saveWorkPlan', { rows, fy: selectedFY, projectCode: selProjRec?.['Project Code'] });
+      if (result?.success) {
+        showToast('Work plan saved');
+      } else {
+        showToast(result?.message || 'Save failed', 'err');
+      }
+    } catch (err) {
+      showToast('Error: ' + err.message, 'err');
+    } finally {
+      setSaving(false);
+    }
+  }, [workPlan, projBOQ, wbsForBOQ, selProjRec, selectedFY, showToast]);
+
+  /* ═══════════════════════════════════════ TREE VIEW ═══ */
+  const TreeView = () => {
+    if (!selProjRec) return (
+      <div className="empty">
+        <div className="empty-icon">📁</div>
+        <div className="empty-title">No project selected</div>
+        <div className="empty-sub">Pick a project from the toolbar above.</div>
+      </div>
+    );
+
+    const projUUID = selProjRec['UUID'] || selProjRec['Project Code'];
+    const boqCount = projBOQ.length;
+    const wbsCount = wbsItems.filter(w =>
+      w['Project Code'] === selProjRec['Project Code'] || w['ProjectUUID'] === projUUID
+    ).length;
+    const actCount = activities.filter(a =>
+      wbsItems.filter(w => w['Project Code'] === selProjRec['Project Code']).some(w => w['UUID'] === a['CheckSum'])
+    ).length;
+
+    return (
+      <div className="tree-container">
+        {/* Project header */}
+        <div className="proj-row">
+          <div className="proj-header" onClick={() => {}}>
+            <div className="proj-icon">📁</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="proj-name">{selProjRec['Project Name'] || selProjRec['Project Code']}</div>
+              <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 2 }}>
+                {selProjRec['Client Name'] || ''}{selProjRec['Site Name'] ? ' · ' + selProjRec['Site Name'] : ''}
+              </div>
+            </div>
+            <div className="proj-code">{selProjRec['Project Code']}</div>
+            <div className="proj-meta">
+              <span className="badge badge-gold">{boqCount} BOQ</span>
+              <span className="badge badge-blue">{wbsCount} WBS</span>
+              <span className="badge badge-green">{actCount} Act</span>
+            </div>
+          </div>
+
+          {/* BOQ items */}
+          <div className="proj-body">
+            {projBOQ.length === 0 ? (
+              <div className="empty" style={{ padding: '20px' }}>
+                <div style={{ fontSize: 11, color: 'var(--txt3)' }}>No BOQ items linked to this project.</div>
+              </div>
+            ) : projBOQ.map((boq, bi) => {
+              const boqUUID   = boq['UUID'] || boq['Item Code'] || boq['WBS Code'] || String(bi);
+              const boqOpen   = !!expandedBOQ[boqUUID];
+              const boqWBS    = wbsForBOQ(boqUUID);
+              const qty       = parseFloat(boq['Agreed Qty'] || boq['Qty'] || 0);
+              const rate      = parseFloat(boq['Rate'] || 0);
+              const amount    = qty * rate;
+
+              return (
+                <div className="boq-row" key={boqUUID}>
+                  {/* BOQ header */}
+                  <div className="boq-header">
+                    {/* Chevron */}
+                    <span
+                      className={`chevron ${boqOpen ? 'open' : ''}`}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setExpandedBOQ(prev => ({ ...prev, [boqUUID]: !prev[boqUUID] }))}
+                    >▶</span>
+                    <span className="boq-num">{bi + 1}</span>
+                    <span
+                      className="boq-desc"
+                      onClick={() => setExpandedBOQ(prev => ({ ...prev, [boqUUID]: !prev[boqUUID] }))}
+                      style={{ cursor: 'pointer' }}
+                      title={boq['Description'] || boq['desc'] || ''}
+                    >
+                      {boq['Description'] || boq['desc'] || boq['Item Description'] || 'Untitled BOQ'}
+                    </span>
+                    <span className="boq-unit">{boq['Unit'] || '—'}</span>
+                    <span className="boq-qty">{fmt(qty)}</span>
+                    {amount > 0 && <span className="boq-amount">{fmtAmt(amount)}</span>}
+                    <div className="boq-actions">
+                      <button
+                        className="add-btn add-wbs"
+                        onClick={e => { e.stopPropagation(); openWBSModal(boqUUID, boq['Description'] || boq['desc'] || ''); }}
+                      >＋ WBS</button>
+                    </div>
+                  </div>
+
+                  {/* WBS items */}
+                  {boqOpen && (
+                    <div className="boq-body">
+                      <div className="wbs-list">
+                        {boqWBS.length === 0 ? (
+                          <div style={{ padding: '12px 52px', fontSize: 11, color: 'var(--txt4)' }}>
+                            No WBS linked. Click <strong>＋ WBS</strong> above to add.
+                          </div>
+                        ) : boqWBS.map((wbs, wi) => {
+                          const wbsUUID  = wbs['UUID'] || String(wi);
+                          const wbsOpen  = !!expandedWBS[wbsUUID];
+                          const wbsActs  = activitiesForWBS(wbsUUID);
+
+                          return (
+                            <div className="wbs-row" key={wbsUUID}>
+                              <div className="wbs-header">
+                                <span
+                                  className={`chevron ${wbsOpen ? 'open' : ''}`}
+                                  style={{ cursor: 'pointer' }}
+                                  onClick={() => setExpandedWBS(prev => ({ ...prev, [wbsUUID]: !prev[wbsUUID] }))}
+                                >▶</span>
+                                <span className="wbs-code">{wbs['WBS Code'] || 'WBS'}</span>
+                                <span
+                                  className="wbs-desc"
+                                  onClick={() => setExpandedWBS(prev => ({ ...prev, [wbsUUID]: !prev[wbsUUID] }))}
+                                  style={{ cursor: 'pointer' }}
+                                  title={wbs['WBS Description'] || ''}
+                                >
+                                  {wbs['WBS Description'] || wbs['Description'] || 'Untitled WBS'}
+                                </span>
+                                <span className="proj-meta">
+                                  <span className="badge badge-green">{wbsActs.length} act</span>
+                                </span>
+                                <div className="wbs-actions">
+                                  <button
+                                    className="add-btn add-act"
+                                    onClick={e => { e.stopPropagation(); openActModal(wbsUUID, wbs['WBS Description'] || ''); }}
+                                  >＋ Activity</button>
+                                </div>
+                              </div>
+
+                              {/* Activities */}
+                              {wbsOpen && (
+                                <div className="wbs-body">
+                                  {wbsActs.length === 0 ? (
+                                    <div style={{ padding: '10px 68px', fontSize: 11, color: 'var(--txt4)' }}>
+                                      No activities yet.
+                                    </div>
+                                  ) : (
+                                    <table className="activity-table">
+                                      <thead>
+                                        <tr>
+                                          <th style={{ width: 28 }}>#</th>
+                                          <th>Activity</th>
+                                          <th style={{ width: 120 }}>Nature</th>
+                                          <th style={{ width: 120 }}>Type</th>
+                                          <th style={{ width: 60 }}>UoM</th>
+                                          <th style={{ width: 80, textAlign: 'right' }}>Qty</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {wbsActs.map((act, ai) => (
+                                          <tr key={act['UUID'] || ai}>
+                                            <td className="act-num">{ai + 1}</td>
+                                            <td className="act-desc">{act['Activity Description'] || act['Description'] || '—'}</td>
+                                            <td className="act-type">
+                                              <span style={{ background: 'var(--surface3)', padding: '1px 6px', borderRadius: 3, fontSize: 11 }}>
+                                                {act['Nature of Work'] || '—'}
+                                              </span>
+                                            </td>
+                                            <td style={{ fontSize: 11, color: 'var(--txt3)' }}>{act['Type of Work'] || '—'}</td>
+                                            <td style={{ fontSize: 11 }}>{act['Unit'] || '—'}</td>
+                                            <td style={{ textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: 'var(--blue)', fontSize: 12 }}>
+                                              {fmt(act['Qty'])}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Unlinked WBS warning section */}
+            {unlinkedWBS.length > 0 && (
+              <div>
+                <div className="unlinked-header">
+                  <span style={{ fontSize: 14 }}>⚠️</span>
+                  <span className="unlinked-label">WBS not linked to any BOQ item ({unlinkedWBS.length})</span>
+                  <span style={{ fontSize: 11, color: 'var(--txt3)', marginLeft: 4 }}>
+                    — Set BOQ.UUID as WBS.CheckSum to link
+                  </span>
+                </div>
+                <div className="wbs-list">
+                  {unlinkedWBS.map((wbs, wi) => (
+                    <div className="wbs-row" key={wbs['UUID'] || wi}>
+                      <div className="wbs-header" style={{ paddingLeft: 32 }}>
+                        <span className="wbs-code" style={{ background: 'var(--amber-bg)', color: 'var(--amber)' }}>
+                          {wbs['WBS Code'] || 'WBS'}
+                        </span>
+                        <span className="wbs-desc">{wbs['WBS Description'] || 'Untitled'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
-      <div style="margin-top:14px">
-        <a class="btn btn-secondary" href="index.html">← Back to Home</a>
+    );
+  };
+
+  /* ═══════════════════════════════════════ WORK PLAN VIEW ═══ */
+  const WorkPlanView = () => {
+    const months     = fyMonths(selectedFY);
+    const curMonthFmt = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+
+    if (!selProjRec) return (
+      <div className="empty">
+        <div className="empty-icon">📅</div>
+        <div className="empty-title">No project selected</div>
       </div>
-    </div>
+    );
 
-    <!-- Slide-in drawer -->
-    <div class="tree-drawer" id="treeDrawer">
-      <div id="drawerContent"><!-- rendered by JS --></div>
-    </div>
+    // Build flat rows: for each BOQ → [boq header row] + [wbs child rows]
+    const rows = [];
+    projBOQ.forEach((boq, bi) => {
+      const boqUUID = boq['UUID'] || boq['Item Code'] || boq['WBS Code'] || String(bi);
+      const boqQty  = parseFloat(boq['Agreed Qty'] || boq['Qty'] || 0);
+      const boqWBS  = wbsForBOQ(boqUUID);
+      rows.push({ type: 'boq', boq, boqUUID, boqQty, bi });
+      boqWBS.forEach((wbs, wi) => {
+        const wbsUUID = wbs['UUID'] || String(wi);
+        rows.push({ type: 'wbs', wbs, wbsUUID, boqUUID, boqQty, bi, wi });
+      });
+    });
 
-  </div>
-</main>
-
-<!-- ── Master Activity Picker ─────────────────────────────────── -->
-<div class="mp-overlay" id="mpOverlay" onclick="if(event.target===this)PAGE.closeMasterPicker()">
-  <div class="mp-modal">
-    <div class="mp-head">
-      <div>
-        <h3>📚 Pick Activity from Master</h3>
-        <div class="mp-sub">Browse M_PL_1_Activities · click a row to select</div>
+    if (rows.length === 0) return (
+      <div className="empty">
+        <div className="empty-icon">📋</div>
+        <div className="empty-title">No BOQ items found</div>
+        <div className="empty-sub">Add BOQ items in the Project Setup page first.</div>
       </div>
-      <button class="btn-icon" onclick="PAGE.closeMasterPicker()">×</button>
-    </div>
-    <div class="mp-filters">
-      <input type="search" id="mpSearch" placeholder="Search activity, nature, type…" oninput="PAGE.filterMaster()" />
-      <span id="mpCount" class="pill pill-green">0</span>
-    </div>
-    <div class="mp-table-wrap">
-      <table class="mp-table">
-        <thead>
-          <tr>
-            <th>Activity</th>
-            <th>Nature of Work</th>
-            <th>Type of Work</th>
-            <th>UoM</th>
-          </tr>
-        </thead>
-        <tbody id="mpTbody">
-          <tr><td colspan="4" class="empty-cell">Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="mp-foot">
-      <span class="mp-count">Click a row to select · closes automatically</span>
-      <button class="btn btn-secondary" onclick="PAGE.closeMasterPicker()">Cancel</button>
-    </div>
-  </div>
-</div>
+    );
 
-<script src="assets/js/config.js"></script>
-<script src="assets/js/state.js"></script>
-<script src="assets/js/api.js"></script>
-<script src="assets/js/utils.js"></script>
-<script src="assets/js/shell.js"></script>
-<script src="assets/js/pages/project-tree.js"></script>
-<script>
-(async function() {
-  await Shell.init({ pageId: 'project-tree' });
-  await PAGE.load();
-})();
+    return (
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div className="wp-outer">
+          <table className="wp-table">
+            <thead>
+              <tr>
+                {/* Fixed cols */}
+                <th className="wp-th-fixed wp-col-num" style={{ zIndex: 4 }}>#</th>
+                <th className="wp-th-fixed wp-col-desc" style={{ zIndex: 4 }}>Description</th>
+                <th className="wp-th-fixed wp-col-unit" style={{ zIndex: 4 }}>Unit</th>
+                <th className="wp-th-fixed wp-col-total" style={{ zIndex: 4 }}>
+                  Total Qty
+                  <div style={{ fontSize: 9, fontWeight: 400, color: 'var(--txt4)', marginTop: 1 }}>from BOQ</div>
+                </th>
+                {/* Month cols */}
+                {months.map(m => (
+                  <th key={m.key}
+                    className={m.key === curMonthFmt ? 'wp-cur-month' : ''}
+                    style={{ minWidth: 70 }}
+                  >
+                    {m.short}
+                    <div style={{ fontSize: 9, fontWeight: 400 }}>
+                      {m.label.split(' ')[1]}
+                    </div>
+                  </th>
+                ))}
+                {/* Planned total */}
+                <th style={{ minWidth: 80, background: 'var(--surface3)' }}>Planned∑</th>
+                <th style={{ minWidth: 70, background: 'var(--surface3)' }}>Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => {
+                if (row.type === 'boq') {
+                  /* ── BOQ header row ── */
+                  const totalPlanned = (() => {
+                    const boqWBS = wbsForBOQ(row.boqUUID);
+                    let sum = 0;
+                    boqWBS.forEach(wbs => {
+                      const wbsUUID = wbs['UUID'];
+                      months.forEach(m => { sum += workPlan[wbsUUID + '__' + m.key] || 0; });
+                    });
+                    return sum;
+                  })();
+
+                  return (
+                    <tr className="wp-boq-row" key={`boq-${row.boqUUID}`}>
+                      <td className="wp-td-fixed wp-col-num">
+                        <div className="wp-td-inner" style={{ justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--txt3)' }}>
+                          {row.bi + 1}
+                        </div>
+                      </td>
+                      <td className="wp-td-fixed wp-col-desc">
+                        <div className="wp-td-inner" style={{ gap: 6 }}>
+                          <span className="wp-boq-code">{row.boq['Item Code'] || row.boq['WBS'] || 'BOQ'}</span>
+                          <span className="wp-boq-desc">{row.boq['Description'] || row.boq['desc'] || 'Untitled'}</span>
+                        </div>
+                      </td>
+                      <td className="wp-td-fixed wp-col-unit">
+                        <div className="wp-td-inner" style={{ justifyContent: 'center', fontSize: 11 }}>
+                          {row.boq['Unit'] || '—'}
+                        </div>
+                      </td>
+                      <td className="wp-td-fixed wp-col-total">
+                        <div className="wp-boq-qty wp-td-inner">{fmt(row.boqQty)}</div>
+                      </td>
+                      {/* Month cells — BOQ row shows sum of all WBS */}
+                      {months.map(m => {
+                        const sumForMonth = wbsForBOQ(row.boqUUID).reduce((s, wbs) => {
+                          return s + (workPlan[wbs['UUID'] + '__' + m.key] || 0);
+                        }, 0);
+                        return (
+                          <td key={m.key}
+                            className={m.key === curMonthFmt ? 'wp-cur-month' : ''}
+                            style={{ background: m.key === curMonthFmt ? 'var(--gold-bg)' : undefined }}
+                          >
+                            <div className="wp-boq-month" style={{ justifyContent: 'flex-end' }}>
+                              {sumForMonth > 0 ? fmt(sumForMonth) : ''}
+                            </div>
+                          </td>
+                        );
+                      })}
+                      {/* Totals */}
+                      <td>
+                        <div className={`wp-total-check ${totalPlanned === 0 ? 'under' : totalPlanned <= row.boqQty ? 'ok' : 'over'}`}>
+                          {fmt(totalPlanned)}
+                        </div>
+                      </td>
+                      <td>
+                        <div className={`wp-total-check ${row.boqQty - totalPlanned >= 0 ? 'under' : 'over'}`}>
+                          {fmt(row.boqQty - totalPlanned)}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                } else {
+                  /* ── WBS child row ── */
+                  const wbsUUID = row.wbsUUID;
+                  const wbsMonthlySum = months.reduce((s, m) => s + (workPlan[wbsUUID + '__' + m.key] || 0), 0);
+                  // WBS qty = the WBS's own Qty field (if set), else derive from activities
+                  const wbsQty = parseFloat(row.wbs['Qty'] || 0);
+                  // Effective limit: if WBS has qty use it, else use parent BOQ qty
+                  const effectiveLimit = wbsQty > 0 ? wbsQty : row.boqQty;
+
+                  return (
+                    <tr className="wp-wbs-row" key={`wbs-${wbsUUID}`}>
+                      <td className="wp-td-fixed wp-col-num">
+                        <div className="wp-td-inner" style={{ justifyContent: 'center', fontSize: 10, color: 'var(--txt4)' }}>
+                          {row.bi + 1}.{row.wi + 1}
+                        </div>
+                      </td>
+                      <td className="wp-td-fixed wp-col-desc">
+                        <div className="wp-td-inner" style={{ paddingLeft: 28, gap: 6 }}>
+                          <span className="wp-wbs-code">{row.wbs['WBS Code'] || 'WBS'}</span>
+                          <span className="wp-wbs-desc">{row.wbs['WBS Description'] || 'Untitled WBS'}</span>
+                        </div>
+                      </td>
+                      <td className="wp-td-fixed wp-col-unit">
+                        <div className="wp-td-inner" style={{ justifyContent: 'center', fontSize: 11, color: 'var(--txt3)' }}>
+                          {row.wbs['Unit'] || row.boq['Unit'] || '—'}
+                        </div>
+                      </td>
+                      {/* Total Qty — carried from BOQ qty */}
+                      <td className="wp-td-fixed wp-col-total">
+                        <div className="wp-wbs-qty wp-td-inner">
+                          {wbsQty > 0 ? fmt(wbsQty) : (
+                            <span style={{ color: 'var(--txt4)', fontStyle: 'italic', fontFamily: 'inherit' }}>
+                              {fmt(row.boqQty)}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      {/* Editable month cells */}
+                      {months.map(m => {
+                        const k   = wbsUUID + '__' + m.key;
+                        const val = workPlan[k] || '';
+                        const isOver = wbsMonthlySum > effectiveLimit;
+                        return (
+                          <td key={m.key}
+                            style={{ background: m.key === curMonthFmt ? 'rgba(212,168,83,.05)' : undefined }}
+                          >
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              className={`wp-month-input ${isOver ? 'over-limit' : ''}`}
+                              value={val}
+                              placeholder=""
+                              onChange={e => handleWPChange(wbsUUID, m.key, e.target.value)}
+                            />
+                          </td>
+                        );
+                      })}
+                      {/* WBS planned sum */}
+                      <td>
+                        <div className={`wp-total-check ${wbsMonthlySum === 0 ? 'under' : wbsMonthlySum <= effectiveLimit ? 'ok' : 'over'}`}>
+                          {fmt(wbsMonthlySum)}
+                        </div>
+                      </td>
+                      {/* Balance */}
+                      <td>
+                        <div className={`wp-total-check ${effectiveLimit - wbsMonthlySum >= 0 ? 'under' : 'over'}`}>
+                          {fmt(effectiveLimit - wbsMonthlySum)}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  /* ══════════════════════════════════════ RENDER ═══ */
+  return (
+    <>
+      {/* Header */}
+      <div className="app-header">
+        <div className="app-header-left">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 20 }}>🌲</span>
+            <div>
+              <div className="app-title">Project Tree</div>
+              <div className="app-subtitle">BOQ → WBS → Activities · Work Plan</div>
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={loadAll} disabled={loading}>
+            {loading ? <span className="spinner" style={{ width: 12, height: 12 }} /> : '↻'} Refresh
+          </button>
+          {view === 'workplan' && (
+            <button className="btn btn-gold btn-sm" onClick={saveWorkPlan} disabled={saving}>
+              {saving ? '⏳' : '💾'} Save Plan
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* View tabs */}
+      <div className="view-tabs">
+        <button className={`view-tab ${view === 'tree' ? 'active' : ''}`} onClick={() => setView('tree')}>
+          🌲 Project Tree
+        </button>
+        <button className={`view-tab ${view === 'workplan' ? 'active' : ''}`} onClick={() => setView('workplan')}>
+          📅 Work Plan
+        </button>
+      </div>
+
+      {/* Toolbar */}
+      <div className="toolbar">
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Project</span>
+        {projects.map(p => {
+          const id = p['UUID'] || p['Project Code'];
+          return (
+            <button
+              key={id}
+              className={`project-chip ${selProject === id ? 'active' : ''}`}
+              onClick={() => setSelProject(id)}
+            >
+              <span>{p['Project Code']}</span>
+              <span style={{ fontWeight: 400, color: 'inherit', opacity: .7 }}>
+                {p['Project Name']?.slice(0, 24)}{p['Project Name']?.length > 24 ? '…' : ''}
+              </span>
+            </button>
+          );
+        })}
+
+        {view === 'workplan' && (
+          <>
+            <div className="toolbar-sep" />
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>FY</span>
+            <select className="fy-select" value={selectedFY} onChange={e => setSelectedFY(e.target.value)}>
+              {availableFYs().map(fy => (
+                <option key={fy} value={fy}>{fy}</option>
+              ))}
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--txt3)', marginLeft: 4 }}>
+              Apr {selectedFY.split('-')[0]} — Mar {parseInt(selectedFY.split('-')[0])+1}
+            </div>
+          </>
+        )}
+
+        {view === 'tree' && selProjRec && (
+          <>
+            <div style={{ flex: 1 }} />
+            <span style={{ fontSize: 11, color: 'var(--txt3)' }}>
+              {projBOQ.length} BOQ items · {wbsForBOQ.length >= 0 ? wbsItems.filter(w => w['Project Code'] === selProjRec['Project Code']).length : 0} WBS
+            </span>
+          </>
+        )}
+      </div>
+
+      {/* Body */}
+      <div className="app-body">
+        {loading ? (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
+            <div className="spinner" style={{ width: 28, height: 28 }} />
+            <div style={{ fontSize: 12, color: 'var(--txt3)' }}>Loading project data…</div>
+          </div>
+        ) : (
+          <div className={view === 'tree' ? 'scroll-area' : ''} style={view === 'workplan' ? { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '12px 20px', gap: 8 } : {}}>
+            {view === 'tree' ? <TreeView /> : <WorkPlanView />}
+          </div>
+        )}
+      </div>
+
+      {/* ── WBS Modal ── */}
+      {wbsModal.open && (
+        <Modal
+          title="Add WBS Item"
+          onClose={closeWBSModal}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={closeWBSModal}>Cancel</button>
+              <button
+                className="btn btn-gold"
+                onClick={saveWBS}
+                disabled={wbsBusy || !newWBS.desc.trim()}
+              >
+                {wbsBusy ? '⏳ Saving…' : '＋ Add WBS'}
+              </button>
+            </>
+          }
+        >
+          {/* Context */}
+          <div style={{ background: 'var(--surface3)', border: '1px solid var(--border2)', borderRadius: 6, padding: '8px 12px', fontSize: 12 }}>
+            <span style={{ color: 'var(--txt3)' }}>Parent BOQ: </span>
+            <span style={{ color: 'var(--blue)', fontWeight: 600 }}>{wbsModal.boqDesc}</span>
+          </div>
+
+          <div className="field-row">
+            <div className="field-group">
+              <label className="field-label">WBS Code <span style={{ color: 'var(--txt4)' }}>(optional)</span></label>
+              <input
+                className="field-input"
+                placeholder="e.g. WBS-01.01"
+                value={newWBS.code}
+                onChange={e => setNewWBS(p => ({ ...p, code: e.target.value }))}
+              />
+            </div>
+            <div className="field-group">
+              <label className="field-label">Unit</label>
+              <select
+                className="field-input"
+                value={newWBS.unit}
+                onChange={e => setNewWBS(p => ({ ...p, unit: e.target.value }))}
+                style={{ cursor: 'pointer' }}
+              >
+                <option value="">— Select —</option>
+                {['cum', 'Sqm', 'RM', 'MT', 'Kg', 'Nos', 'LS', 'Days', 'Hours'].map(u => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="field-group">
+            <label className="field-label">WBS Description <span style={{ color: 'var(--red)', fontSize: 10 }}>*required</span></label>
+            <input
+              className="field-input"
+              placeholder="e.g. Foundation Excavation in Hard Rock"
+              value={newWBS.desc}
+              onChange={e => setNewWBS(p => ({ ...p, desc: e.target.value }))}
+              autoFocus
+            />
+          </div>
+
+          <div className="field-group">
+            <label className="field-label">Qty <span style={{ color: 'var(--txt4)' }}>(optional — leave blank to inherit from BOQ)</span></label>
+            <input
+              className="field-input"
+              type="text"
+              inputMode="decimal"
+              placeholder="0.00"
+              value={newWBS.qty}
+              onChange={e => setNewWBS(p => ({ ...p, qty: e.target.value }))}
+            />
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Activity Modal ── */}
+      {actModal.open && (
+        <Modal
+          title="Add Activity"
+          onClose={closeActModal}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={closeActModal}>Cancel</button>
+              <button
+                className="btn btn-gold"
+                onClick={saveActivity}
+                disabled={actBusy || !newAct.desc.trim()}
+              >
+                {actBusy ? '⏳ Saving…' : '＋ Add Activity'}
+              </button>
+            </>
+          }
+        >
+          <div style={{ background: 'var(--surface3)', border: '1px solid var(--border2)', borderRadius: 6, padding: '8px 12px', fontSize: 12 }}>
+            <span style={{ color: 'var(--txt3)' }}>Parent WBS: </span>
+            <span style={{ color: 'var(--green)', fontWeight: 600 }}>{actModal.wbsDesc}</span>
+          </div>
+
+          <div className="field-group">
+            <label className="field-label">Activity Description *</label>
+            <input
+              className="field-input"
+              placeholder="e.g. Excavation in Hard Rock"
+              value={newAct.desc}
+              onChange={e => setNewAct(p => ({ ...p, desc: e.target.value }))}
+              autoFocus
+            />
+          </div>
+
+          <div className="field-row">
+            <div className="field-group">
+              <label className="field-label">Nature of Work</label>
+              <input
+                className="field-input"
+                placeholder="e.g. Earthwork"
+                value={newAct.nature}
+                onChange={e => setNewAct(p => ({ ...p, nature: e.target.value }))}
+              />
+            </div>
+            <div className="field-group">
+              <label className="field-label">Type of Work</label>
+              <input
+                className="field-input"
+                placeholder="e.g. Soil Cutting"
+                value={newAct.type}
+                onChange={e => setNewAct(p => ({ ...p, type: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <div className="field-row">
+            <div className="field-group">
+              <label className="field-label">Unit</label>
+              <select
+                className="field-input"
+                value={newAct.unit}
+                onChange={e => setNewAct(p => ({ ...p, unit: e.target.value }))}
+                style={{ cursor: 'pointer' }}
+              >
+                <option value="">— Select —</option>
+                {['cum', 'Sqm', 'RM', 'MT', 'Kg', 'Nos', 'LS', 'Days', 'Hours'].map(u => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+            </div>
+            <div className="field-group">
+              <label className="field-label">Qty</label>
+              <input
+                className="field-input"
+                type="text"
+                inputMode="decimal"
+                placeholder="0.00"
+                value={newAct.qty}
+                onChange={e => setNewAct(p => ({ ...p, qty: e.target.value }))}
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Toast */}
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>
 </body>
 </html>
