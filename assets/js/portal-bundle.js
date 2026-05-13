@@ -1448,7 +1448,7 @@ function applyResolvedRole(resolved) {
 
 const ROLE_ROUTES = {
   md:        new Set(['dashboard','md-command','hr-dashboard','personal','my-profile','policies','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
-  hr:        new Set(['dashboard','hr-dashboard','personal','my-profile','policies','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  hr:        new Set(['dashboard','hr-dashboard','personal','my-profile','policies','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting', 'hr-user-profile']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   accounts:  new Set(['dashboard','my-profile','accounts','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
@@ -1623,6 +1623,7 @@ function renderPage(page) {
     'onboarding':     renderOnboardingPortal,
     'hr-dashboard':   renderHRDashboard,
     'my-profile':     renderMyProfile,
+    'hr-user-profile':  renderHRUserProfile,
     'personal':       () => renderAppSheetEmbed('Personal Dashboard','Your personal workspace — tasks, leave, payslips & more', 'personal'),
     'rewards':        renderRewardsModule,
     'apps':           renderAppsHub,
@@ -1688,15 +1689,179 @@ function renderPage(page) {
 //  DASHBOARD
 // ══════════════════════════════════════════════════
 
-// ════════════════════════════════════════════════════════════════
-//  EMPLOYEE / DEPT HEAD PERSONALISED DASHBOARD
-//  Shows: Profile summary · Salary · Team · Dept-specific KPIs
-//  SCM/Purchase: POs · MRS · Stores · Payments
-//  HR: headcount · new joiners · leave
-//  Accounts/Finance: payments summary
-//  Site/Operations: sites · safety · equipment
-// ════════════════════════════════════════════════════════════════
-function renderEmployeeDashboard() {
+function renderHRUserProfile() {
+  const el = document.getElementById('mainContent');
+  if (!el) return;
+
+  el.innerHTML = `
+    <div style="max-width:1200px; margin: 0 auto; font-family: inherit;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem">
+        <div>
+          <h2 style="margin:0; color:var(--txt1); font-size:1.5rem;">Employee User Profile</h2>
+          <p style="margin:0; color:var(--txt3); font-size:.85rem;">View and manage comprehensive employee records</p>
+        </div>
+        <button onclick="navigate('hr-dashboard')" style="padding:8px 16px; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.2); color:#fff; border-radius:8px; cursor:pointer; font-size:.8rem;">← Back to HR Dashboard</button>
+      </div>
+
+      <div class="profile-search-card" style="background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:1.2rem; margin-bottom:1.5rem; display:flex; gap:1rem; align-items:center;">
+        <div style="flex:1">
+          <label style="display:block; font-size:.75rem; color:rgba(255,255,255,.5); margin-bottom:.4rem;">Select Employee</label>
+          <div style="position:relative">
+            <input id="profile-emp-search" type="text" placeholder="Search by Name or ID..."
+              style="width:100%; padding:.7rem 1rem; background:rgba(0,0,0,.2); border:1px solid rgba(255,255,255,.2); border-radius:8px; color:#fff; font-size:.9rem; outline:none;"
+              oninput="handleProfileSearch(this.value)">
+            <div id="profile-search-results" style="position:absolute; top:100%; left:0; right:0; background:#2a2a2a; border:1px solid rgba(255,255,255,.2); border-radius:8px; margin-top:4px; z-index:100; display:none; max-height:200px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.5);"></div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:flex-end; gap:.5rem">
+           <button onclick="loadUserProfile()" id="btn-load-profile" disabled style="padding:.7rem 1.5rem; background:var(--g7); color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:600; font-size:.85rem; opacity:.5;">Load Profile</button>
+        </div>
+      </div>
+
+      <div id="profile-display-area" style="display:none; gap:1.5rem; flex-direction:column;">
+        <div id="profile-loading" style="display:none; text-align:center; padding:3rem; color:var(--txt3);">⏳ Fetching employee data from Master Sheets...</div>
+
+        <div id="profile-content" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(350px, 1fr)); gap:1.5rem;">
+          <!-- Cards will be injected here -->
+        </div>
+      </div>
+
+      <div id="profile-empty-state" style="text-align:center; padding:4rem; color:var(--txt3); background:rgba(255,255,255,.03); border:2px dashed rgba(255,255,255,.1); border-radius:16px;">
+        <div style="font-size:3rem; margin-bottom:1rem;">👤</div>
+        <h3 style="color:#fff">No Employee Selected</h3>
+        <p>Search for an employee above to view their complete profile details.</p>
+      </div>
+    </div>
+  `;
+}
+
+async function handleProfileSearch(query) {
+  const resultsEl = document.getElementById('profile-search-results');
+  const btnLoad = document.getElementById('btn-load-profile');
+  if (!query || query.length < 2) {
+    resultsEl.style.display = 'none';
+    btnLoad.disabled = true;
+    btnLoad.style.opacity = '.5';
+    return;
+  }
+
+  try {
+    const res = await API.scriptCall('getEmployeeList', { query });
+    if (!res.success) throw new Error(res.message);
+
+    const list = res.data || [];
+    const filtered = list.filter(e =>
+      e.name.toLowerCase().includes(query.toLowerCase()) ||
+      e.id.toString().toLowerCase().includes(query.toLowerCase())
+    );
+
+    if (filtered.length === 0) {
+      resultsEl.innerHTML = '<div style="padding:.7rem 1rem; color:#888; font-size:.85rem;">No employees found</div>';
+    } else {
+      resultsEl.innerHTML = filtered.map(e => `
+        <div class="search-item" onclick="selectProfileEmployee('${e.id}', '${e.name}')"
+          style="padding:.7rem 1rem; border-bottom:1px solid rgba(255,255,255,.05); cursor:pointer; font-size:.85rem; transition:background .2s;"
+          onmouseover="this.style.background='rgba(255,255,255,.1)'"
+          onmouseout="this.style.background='transparent'">
+          <strong style="color:#fff">${e.name}</strong> <span style="color:rgba(255,255,255,.4); margin-left:8px;">${e.id}</span>
+        </div>
+      `).join('');
+    }
+    resultsEl.style.display = 'block';
+  } catch (err) {
+    console.error('Profile search error:', err);
+  }
+}
+
+function selectProfileEmployee(id, name) {
+  const input = document.getElementById('profile-emp-search');
+  const resultsEl = document.getElementById('profile-search-results');
+  const btnLoad = document.getElementById('btn-load-profile');
+
+  input.value = name + ' (' + id + ')';
+  resultsEl.style.display = 'none';
+
+  STATE.selectedEmployeeId = id;
+  btnLoad.disabled = false;
+  btnLoad.style.opacity = '1';
+}
+
+async function loadUserProfile() {
+  const empId = STATE.selectedEmployeeId;
+  if (!empId) return;
+
+  const area = document.getElementById('profile-display-area');
+  const empty = document.getElementById('profile-empty-state');
+  const loading = document.getElementById('profile-loading');
+  const content = document.getElementById('profile-content');
+
+  area.style.display = 'flex';
+  empty.style.display = 'none';
+  loading.style.display = 'block';
+  content.innerHTML = '';
+
+  try {
+    const res = await API.scriptCall('getUserProfileDetails', { empId });
+    if (!res.success) throw new Error(res.message);
+
+    const p = res.data;
+
+    const createCard = (title, icon, fields) => {
+      let html = `<div class="profile-card" style="background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:1.5rem; box-shadow:0 4px 12px rgba(0,0,0,0.2);">
+        <div style="display:flex; align-items:center; gap:.5rem; margin-bottom:1.2rem; border-bottom:1px solid rgba(255,255,255,.1); padding-bottom:.5rem;">
+          <span style="font-size:1.2rem">${icon}</span>
+          <h3 style="margin:0; font-size:1rem; color:#fff;">${title}</h3>
+        </div>`;
+
+      if (Array.isArray(fields)) {
+        html += `<table style="width:100%; border-collapse:collapse; font-size:.85rem;">
+          <thead style="text-align:left; color:rgba(255,255,255,.5); border-bottom:1px solid rgba(255,255,255,.1);">
+            <tr>
+              <th style="padding:8px 0; font-weight:500;">Component</th>
+              <th style="padding:0 0 8px 0; text-align:right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>`;
+        fields.forEach(f => {
+          html += `<tr style="border-bottom:1px solid rgba(255,255,255,.03);">
+            <td style="padding:8px 0; color:#ddd;">${f.component}</td>
+            <td style="padding:8px 0; text-align:right; color:#fff; font-weight:600;">${f.value}</td>
+          </tr>`;
+        });
+        html += `</tbody></table>`;
+      } else {
+        html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:.8rem; font-size:.85rem;">`;
+        Object.entries(fields).forEach(([k, v]) => {
+          html += `<div style="color:rgba(255,255,255,.5);">${k}</div>
+                  <div style="color:#fff; font-weight:500; text-align:right;">${v || '—'}</div>`;
+        });
+        html += `</div>`;
+      }
+
+      html += `</div>`;
+      return html;
+    };
+
+    content.innerHTML =
+      createCard('Personal Details', '👤', p.personal) +
+      createCard('Bank Details', '🏦', p.bank) +
+      createCard('Salary Breakup', '💰', p.salary) +
+      createCard('PL Details', '📅', p.pl) +
+      createCard('Site Info', '🏗️', p.site);
+
+    loading.style.display = 'none';
+  } catch (err) {
+    loading.style.display = 'none';
+    document.getElementById('profile-display-area').innerHTML = `
+      <div style="text-align:center; padding:3rem; color:#ff7043; background:rgba(255,50,50,.1); border:1px solid rgba(255,0,0,.2); border-radius:12px; margin:1rem;">
+        <h3 style="color:#fff">⚠️ Error Loading Profile</h3>
+        <p style="color:#fff">${err.message}</p>
+        <button onclick="loadUserProfile()" style="margin-top:1rem; padding:8px 16px; background:#1a6038; color:#fff; border:none; border-radius:8px; cursor:pointer;">Retry</button>
+      </div>
+    `;
+  }
+}
+
   const el = document.getElementById('mainContent');
   if (!el) return;
 
