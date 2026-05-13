@@ -66,11 +66,8 @@ function doPost(e) {
     if (action === 'saveVariations')           return _wrap(saveVariations(body));
     if (action === 'submitBudgetApproval')     return _wrap(submitBudgetApproval(body));
 
-    // ── Employee Profile (EmployeeProfileHandlers.gs) ────────────────
-    if (action === 'getEmployeeList')       return getEmployeeList(body);
-    if (action === 'getUserProfileDetails') return getUserProfileDetails(body);
-
     // ── Diagnostics / schema inspection ────────────────────────
+    if (action === 'getSheetHeaders')          return getSheetHeaders(body);
 
     // ── Portal config (PortalConfig tab in Master sheet) ───────
     if (action === 'savePortalConfig')         return savePortalConfig(body);
