@@ -541,3 +541,35 @@ function getJoiningList() {
   case 'assignEmpCode':         return wrap(assignEmpCode(p));
   case 'sendOfferEmail':        return wrap(sendOfferEmail(p));
 */
+
+// ─────────────────────────────────────────────────────────────
+//  ACTION: updateApptLetter
+//  Logs appointment letter ref, date, and signed copy status
+// ─────────────────────────────────────────────────────────────
+function updateApptLetter(payload) {
+  try {
+    const sh     = _rcTab(RC_TABS.JOINING, RC_JOINING_HEADERS);
+    const data   = sh.getDataRange().getValues();
+    const headers= data[0];
+    const jcCol  = headers.indexOf('Joining Code');
+    const now    = _fmtTimestamp(new Date());
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][jcCol] === payload.joiningCode) {
+        const map = {
+          'Appointment Letter Ref':  payload.ref,
+          'Appointment Letter Date': payload.date,
+          'Signed Copy Received':    payload.signed,
+          'Updated At':              now,
+        };
+        Object.entries(map).forEach(([col, val]) => {
+          const ci = headers.indexOf(col);
+          if (ci >= 0 && val !== undefined) sh.getRange(i+1, ci+1).setValue(val);
+        });
+        return { success: true };
+      }
+    }
+    return { success: false, message: 'Joining Code not found' };
+  } catch(e) {
+    return { success: false, message: e.message };
+  }
+}

@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.17.4';
-const PORTAL_BUILD    = 372;
-const PORTAL_BUILD_AT = '2026-05-26T18:15:35Z';
+const PORTAL_VERSION  = '3.18.1';
+const PORTAL_BUILD    = 374;
+const PORTAL_BUILD_AT = '2026-05-26T18:53:58Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -27,7 +27,7 @@ const EXEC_REGISTRY_DEFAULTS = {
   pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet.',                                          defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
   aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
   diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
-  pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     defaultUrl: 'https://script.google.com/macros/s/AKfycbwtCxCExP9VZU25B4FfzzU69yEDGuNDY8mBsifa-ecSEEN30ihPmApwW--dR9n1WmA/exec' },
+  pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
 
@@ -15028,51 +15028,76 @@ function _rcRenderPanel() {
 // ══════════════════════════════════════════════════════════════
 function _rcRenderOverview() {
   const panel = document.getElementById('rc-panel');
-  const mrfs  = _rcMRFs || [];
+  panel.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--txt3)">⏳ Loading overview…</div>`;
 
-  const open    = mrfs.filter(m => m.status === 'Open').length;
-  const pending = mrfs.filter(m => ['Pending HR Review','Pending MD Approval'].includes(m.status)).length;
-  const offers  = 0;  // populated when offer tracker is built
-  const joining = 0;  // populated when joining tab is built
+  Promise.all([
+    _rcLoadMRFs(),
+    _rcLoadOffers(),
+    _rcLoadJoiningData(),
+  ]).then(() => {
+    const mrfs      = _rcMRFs        || [];
+    const offers    = _rcOffers      || [];
+    const joiners   = _rcJoiningData || [];
 
-  // Avg days to hire (MRF created to Closed–Filled)
-  const filled = mrfs.filter(m => m.status === 'Closed – Filled' && m.createdAt && m.closedAt);
-  const avgDays = filled.length
-    ? Math.round(filled.reduce((s,m) => s + (new Date(m.closedAt)-new Date(m.createdAt))/86400000, 0) / filled.length)
-    : '—';
+    const open      = mrfs.filter(m => m.status === 'Open').length;
+    const pending   = mrfs.filter(m => ['Pending HR Review','Pending MD Approval'].includes(m.status)).length;
+    const offerPend = offers.filter(o => o.status === 'Sent').length;
 
-  const card = (icon, value, label, sub, color) => `
-    <div class="card card-pad" style="flex:1;min-width:140px">
-      <div style="font-size:1.6rem;margin-bottom:.4rem">${icon}</div>
-      <div style="font-size:1.8rem;font-weight:700;color:${color||'var(--g7)'};line-height:1">${value}</div>
-      <div style="font-size:.78rem;font-weight:600;color:var(--txt1);margin-top:.3rem">${label}</div>
-      <div style="font-size:.72rem;color:var(--txt3);margin-top:.15rem">${sub}</div>
-    </div>`;
+    const thisMonth = new Date().toISOString().slice(0,7);
+    const joined    = joiners.filter(j => {
+      const jc = (j['Joining Code'] || j['joiningCode'] || '');
+      const st = (j['Status'] || j['status'] || '');
+      const dt = (j['Actual DOJ'] || j['actualDOJ'] || j['Created At'] || '');
+      return st === 'Joined' && dt.startsWith(thisMonth);
+    }).length;
 
-  panel.innerHTML = `
-    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.4rem">
-      ${card('📂', open,    'Open positions',         'Approved MRFs awaiting candidates', '#16a34a')}
-      ${card('⏳', pending, 'Pending approval',       'Awaiting HR or MD action',           '#d97706')}
-      ${card('📄', offers,  'Offers pending',         'Sent, awaiting acceptance',          '#2563eb')}
-      ${card('🎯', joining, 'Joining confirmed',       'This month',                         '#7c3aed')}
-      ${card('⏱️', avgDays, 'Avg days to hire',       'MRF raised to offer accepted',       '#0891b2')}
-    </div>
+    const filled = mrfs.filter(m => m.status === 'Closed – Filled' && m.createdAt && m.closedAt);
+    const avgDays = filled.length
+      ? Math.round(filled.reduce((s,m) => s + (new Date(m.closedAt)-new Date(m.createdAt))/86400000, 0)/filled.length)
+      : '—';
 
-    <div class="card card-pad">
-      <div style="font-weight:600;margin-bottom:.8rem;color:var(--txt1)">MRF status breakdown</div>
-      ${mrfs.length === 0
-        ? `<p style="color:var(--txt3);font-size:.82rem">No MRFs raised yet.</p>`
-        : _rcStatusBreakdownHtml(mrfs)}
-    </div>
+    const card = (icon, value, label, sub, color) => `
+      <div class="card card-pad" style="flex:1;min-width:140px;cursor:default">
+        <div style="font-size:1.5rem;margin-bottom:.35rem">${icon}</div>
+        <div style="font-size:1.9rem;font-weight:700;color:${color||'var(--g7)'};line-height:1">${value}</div>
+        <div style="font-size:.78rem;font-weight:600;color:var(--txt1);margin-top:.3rem">${label}</div>
+        <div style="font-size:.71rem;color:var(--txt3);margin-top:.1rem">${sub}</div>
+      </div>`;
 
-    ${pending > 0 ? `
-    <div style="margin-top:1rem">
-      <div class="card card-pad" style="border-left:3px solid #d97706">
-        <div style="font-weight:600;margin-bottom:.6rem;color:#d97706">⏳ Pending your action (${pending})</div>
-        ${_rcPendingListHtml(mrfs)}
+    panel.innerHTML = `
+      <div style="display:flex;gap:.9rem;flex-wrap:wrap;margin-bottom:1.2rem">
+        ${card('📂', open,      'Open positions',       'Approved MRFs awaiting candidates', '#16a34a')}
+        ${card('⏳', pending,   'Pending approval',     'Awaiting HR or MD action',           '#d97706')}
+        ${card('📄', offerPend, 'Offers pending',       'Sent — awaiting candidate response', '#2563eb')}
+        ${card('🎯', joined,    'Joined this month',    new Date().toLocaleString('en-IN',{month:'long',year:'numeric'}), '#7c3aed')}
+        ${card('⏱️', avgDays,   'Avg days to hire',     'MRF open → offer accepted',          '#0891b2')}
       </div>
-    </div>` : ''}
-  `;
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+
+        <div class="card card-pad">
+          <div style="font-weight:600;margin-bottom:.8rem;color:var(--txt1);font-size:.85rem">MRF pipeline</div>
+          ${mrfs.length === 0
+            ? `<p style="color:var(--txt3);font-size:.82rem">No MRFs yet.</p>`
+            : _rcStatusBreakdownHtml(mrfs)}
+        </div>
+
+        <div class="card card-pad">
+          <div style="font-weight:600;margin-bottom:.8rem;color:var(--txt1);font-size:.85rem">Recent activity</div>
+          ${_rcRecentActivityHtml(mrfs, offers)}
+        </div>
+
+      </div>
+
+      ${pending > 0 && ['md','hr'].includes(STATE.role) ? `
+      <div style="margin-top:1rem">
+        <div class="card card-pad" style="border-left:3px solid #d97706">
+          <div style="font-weight:600;margin-bottom:.6rem;color:#d97706;font-size:.83rem">⏳ Pending your action (${pending})</div>
+          ${_rcPendingListHtml(mrfs)}
+        </div>
+      </div>` : ''}
+    `;
+  });
 }
 
 function _rcStatusBreakdownHtml(mrfs) {
@@ -15109,6 +15134,27 @@ function _rcPendingListHtml(mrfs) {
     </div>`).join('');
 }
 
+function _rcRecentActivityHtml(mrfs, offers) {
+  const events = [];
+  mrfs.forEach(m => {
+    if (m.updatedAt) events.push({ ts: m.updatedAt, icon: '📋', text: `MRF ${m.id} — ${m.status}`, sub: m.position });
+  });
+  (offers||[]).forEach(o => {
+    if (o.sentDate) events.push({ ts: o.sentDate, icon: '📄', text: `Offer sent — ${o.candidateName}`, sub: o.position });
+    if (o.acceptanceDate && o.status === 'Accepted') events.push({ ts: o.acceptanceDate, icon: '✅', text: `Offer accepted — ${o.candidateName}`, sub: o.position });
+  });
+  events.sort((a,b) => b.ts.localeCompare(a.ts));
+  if (!events.length) return `<p style="color:var(--txt3);font-size:.82rem">No recent activity.</p>`;
+  return events.slice(0,6).map(e => `
+    <div style="display:flex;gap:.6rem;padding:.35rem 0;border-bottom:1px solid var(--border)">
+      <span style="flex-shrink:0;font-size:.9rem">${e.icon}</span>
+      <div>
+        <div style="font-size:.78rem;color:var(--txt1)">${e.text}</div>
+        <div style="font-size:.72rem;color:var(--txt3)">${e.sub} · ${e.ts.split(',')[0]||e.ts.slice(0,10)}</div>
+      </div>
+    </div>`).join('');
+}
+
 // ══════════════════════════════════════════════════════════════
 //  REQUISITIONS TAB  — MRF table + filters
 // ══════════════════════════════════════════════════════════════
@@ -15118,19 +15164,81 @@ function _rcRenderRequisitions() {
   _rcLoadMRFs().then(() => _rcDrawRequisitionsTable());
 }
 
-async function _rcLoadMRFs() {
-  if (_rcMRFs !== null) return; // already loaded this session
+// ── Additional state ───────────────────────────────────────────
+let _rcOffers      = null;
+let _rcJoiningData = null;
+let _rcOLDraft     = {};      // offer letter draft in progress
+
+async function _rcLoadMRFs(force=false) {
+  if (_rcMRFs !== null && !force) return;
   _rcLoading = true;
-
-  // Load from localStorage (dev fallback) — will swap to Apps Script fetch when sheet is ready
-  const stored = localStorage.getItem('evgcpl_mrf_v1');
-  _rcMRFs = stored ? JSON.parse(stored) : [];
-
-  // TODO: When RECRUITMENT_SHEET_ID is set, replace with:
-  // const rows = await fetchSheet(RECRUITMENT_SHEET_ID, 'MRF_Register');
-  // _rcMRFs = rows;
-
+  try {
+    const rows = await fetchSheet('MRF_Register', null, RECRUITMENT_SHEET_ID);
+    // fetchSheet returns [] on error — fall back to localStorage if empty
+    if (rows.length > 0) {
+      _rcMRFs = rows.map(r => ({
+        id:           r['MRF ID']       || r['id']        || '',
+        position:     r['Position']                        || '',
+        dept:         r['Department']   || r['Dept']       || '',
+        site:         r['Site']                            || '',
+        vacancies:    r['Vacancies']    || r['No of Vacancies'] || 1,
+        type:         r['Type']                            || 'New Position',
+        replacing:    r['Replacing']                       || '',
+        requiredBy:   r['Required By']                     || '',
+        reportingTo:  r['Reporting To']                    || '',
+        skills:       r['Skills']                          || '',
+        reason:       r['Reason']                          || '',
+        budget:       r['Budget']                          || '',
+        status:       r['Status']                          || 'Pending HR Review',
+        raisedBy:     r['Raised By']                       || '',
+        raisedByEmail:r['Raised By Email']                 || '',
+        hrRemarks:    r['HR Remarks']                      || '',
+        mdRemarks:    r['MD Remarks']                      || '',
+        createdAt:    r['Created At']                      || '',
+        updatedAt:    r['Updated At']                      || '',
+        closedAt:     r['Closed At']                       || '',
+      }));
+      _rcPersist();
+    } else {
+      const stored = localStorage.getItem('evgcpl_mrf_v1');
+      _rcMRFs = stored ? JSON.parse(stored) : [];
+    }
+  } catch(e) {
+    const stored = localStorage.getItem('evgcpl_mrf_v1');
+    _rcMRFs = stored ? JSON.parse(stored) : [];
+  }
   _rcLoading = false;
+}
+
+async function _rcLoadOffers(force=false) {
+  if (_rcOffers !== null && !force) return;
+  try {
+    const rows = await fetchSheet('Offer_Tracker', null, RECRUITMENT_SHEET_ID);
+    _rcOffers = rows.map(r => ({
+      olId:          r['OL ID']          || '',
+      mrfId:         r['MRF ID']         || '',
+      candidateName: r['Candidate Name'] || '',
+      position:      r['Position']       || '',
+      site:          r['Site']           || '',
+      ctcAnnual:     r['CTC (Annual)']   || '',
+      joiningDate:   r['Joining Date']   || '',
+      candidateEmail:r['Candidate Email']|| '',
+      dispatchMethod:r['Dispatch Method']|| '',
+      status:        r['Status']         || 'Sent',
+      sentDate:      r['Sent Date']      || '',
+      acceptanceDate:r['Acceptance Date']|| '',
+      remarks:       r['Remarks']        || '',
+      createdAt:     r['Created At']     || '',
+    }));
+  } catch(e) { _rcOffers = []; }
+}
+
+async function _rcLoadJoiningData(force=false) {
+  if (_rcJoiningData !== null && !force) return;
+  try {
+    const rows = await fetchSheet('v1_JoiningList', null, RECRUITMENT_SHEET_ID);
+    _rcJoiningData = rows;
+  } catch(e) { _rcJoiningData = []; }
 }
 
 function _rcPersist() {
@@ -15615,35 +15723,7 @@ function _rcReject(id) {
 // ══════════════════════════════════════════════════════════════
 //  PLACEHOLDER TABS  (built in later sessions)
 // ══════════════════════════════════════════════════════════════
-function _rcRenderOfferLetters() {
-  document.getElementById('rc-panel').innerHTML = `
-    <div class="card card-pad" style="text-align:center;padding:3rem">
-      <div style="font-size:2.5rem;margin-bottom:.6rem">📄</div>
-      <h3 style="color:var(--g7);margin-bottom:.4rem">Offer Letters</h3>
-      <p style="color:var(--txt3);font-size:.82rem">Generate, preview and dispatch offer letters.<br>Built in Session 6–7.</p>
-      <div style="margin-top:1rem;font-size:.75rem;color:var(--txt4);background:var(--surface2);border-radius:8px;padding:.6rem 1rem;display:inline-block">🔨 Coming — Sessions 6 &amp; 7</div>
-    </div>`;
-}
-
-function _rcRenderPreJoining() {
-  document.getElementById('rc-panel').innerHTML = `
-    <div class="card card-pad" style="text-align:center;padding:3rem">
-      <div style="font-size:2.5rem;margin-bottom:.6rem">☑️</div>
-      <h3 style="color:var(--g7);margin-bottom:.4rem">Pre-Joining Checklist</h3>
-      <p style="color:var(--txt3);font-size:.82rem">10-item checklist per joiner. Date-stamped.<br>Built in Session 9.</p>
-      <div style="margin-top:1rem;font-size:.75rem;color:var(--txt4);background:var(--surface2);border-radius:8px;padding:.6rem 1rem;display:inline-block">🔨 Coming — Session 9</div>
-    </div>`;
-}
-
-function _rcRenderJoining() {
-  document.getElementById('rc-panel').innerHTML = `
-    <div class="card card-pad" style="text-align:center;padding:3rem">
-      <div style="font-size:2.5rem;margin-bottom:.6rem">🎯</div>
-      <h3 style="color:var(--g7);margin-bottom:.4rem">Joining &amp; Conversion</h3>
-      <p style="color:var(--txt3);font-size:.82rem">Mark as joined · Appointment letter tracking · Convert to employee.<br>Built in Session 10.</p>
-      <div style="margin-top:1rem;font-size:.75rem;color:var(--txt4);background:var(--surface2);border-radius:8px;padding:.6rem 1rem;display:inline-block">🔨 Coming — Session 10</div>
-    </div>`;
-}
+// STUBS_REPLACED_BELOW
 
 // ══════════════════════════════════════════════════════════════
 //  APPS SCRIPT BRIDGE
@@ -15671,4 +15751,529 @@ function _showRcToast(msg) {
   t.style.opacity = '1';
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.style.opacity = '0', 3000);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  OFFER LETTERS TAB  (Sessions 6 & 7)
+// ══════════════════════════════════════════════════════════════
+function _rcRenderOfferLetters() {
+  const panel = document.getElementById('rc-panel');
+  panel.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--txt3)">⏳ Loading…</div>`;
+  Promise.all([_rcLoadMRFs(), _rcLoadOffers()]).then(() => _rcDrawOfferLettersTab());
+}
+
+function _rcDrawOfferLettersTab() {
+  const panel  = document.getElementById('rc-panel');
+  const offers = _rcOffers || [];
+  panel.innerHTML = `
+    <div style="display:flex;gap:0;margin-bottom:1.2rem;border-bottom:1px solid var(--border)">
+      <button id="rc-ol-tab-new" onclick="_rcOLSubTab('new')"
+        style="padding:.45rem .9rem;background:none;border:none;border-bottom:2px solid var(--g7);font-size:.81rem;font-weight:600;color:var(--g7);cursor:pointer">
+        + New Offer Letter
+      </button>
+      <button id="rc-ol-tab-tracker" onclick="_rcOLSubTab('tracker')"
+        style="padding:.45rem .9rem;background:none;border:none;border-bottom:2px solid transparent;font-size:.81rem;color:var(--txt3);cursor:pointer">
+        Offer Tracker (${offers.length})
+      </button>
+    </div>
+    <div id="rc-ol-sub"></div>`;
+  _rcOLSubTab('new');
+}
+
+function _rcOLSubTab(tab) {
+  ['new','tracker'].forEach(t => {
+    const b = document.getElementById('rc-ol-tab-'+t);
+    if (!b) return;
+    b.style.borderBottom = t===tab ? '2px solid var(--g7)' : '2px solid transparent';
+    b.style.fontWeight   = t===tab ? '600' : '400';
+    b.style.color        = t===tab ? 'var(--g7)' : 'var(--txt3)';
+  });
+  const sub = document.getElementById('rc-ol-sub');
+  if (!sub) return;
+  if (tab === 'new') _rcDrawOLForm(sub);
+  else _rcDrawOLTracker(sub);
+}
+
+function _rcDrawOLForm(container) {
+  const mrfs = (_rcMRFs||[]).filter(m => m.status === 'Open');
+  const d    = _rcOLDraft;
+  container.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;align-items:start">
+      <div class="card card-pad">
+        <div style="font-weight:600;font-size:.85rem;color:var(--g7);margin-bottom:1rem;border-bottom:1px solid var(--border);padding-bottom:.5rem">Candidate & Offer Details</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.7rem">
+          <div style="grid-column:1/-1">
+            <label style="font-size:.75rem;font-weight:600;color:var(--txt2)">Linked MRF (optional)</label>
+            <select id="ol-mrf" onchange="_rcOLMRFChange()" style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.81rem;background:var(--surface1);color:var(--txt1)">
+              <option value="">— Select MRF or fill manually —</option>
+              ${mrfs.map(m=>`<option value="${m.id}" ${d.mrfId===m.id?'selected':''}>${m.id} · ${m.position} · ${m.site}</option>`).join('')}
+            </select>
+          </div>
+          <div style="grid-column:1/-1">
+            <label style="font-size:.75rem;font-weight:600;color:var(--txt2)">Candidate Name *</label>
+            <input id="ol-name" value="${d.candidateName||''}" oninput="_rcOLField('candidateName',this.value)" placeholder="Full name"
+              style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.81rem;background:var(--surface1);color:var(--txt1)">
+          </div>
+          <div>
+            <label style="font-size:.75rem;font-weight:600;color:var(--txt2)">Designation *</label>
+            <input id="ol-desig" value="${d.position||''}" oninput="_rcOLField('position',this.value)"
+              style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.81rem;background:var(--surface1);color:var(--txt1)">
+          </div>
+          <div>
+            <label style="font-size:.75rem;font-weight:600;color:var(--txt2)">Department</label>
+            <input id="ol-dept" value="${d.dept||''}" oninput="_rcOLField('dept',this.value)"
+              style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.81rem;background:var(--surface1);color:var(--txt1)">
+          </div>
+          <div>
+            <label style="font-size:.75rem;font-weight:600;color:var(--txt2)">Site *</label>
+            <input id="ol-site" value="${d.site||''}" oninput="_rcOLField('site',this.value)"
+              style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.81rem;background:var(--surface1);color:var(--txt1)">
+          </div>
+          <div>
+            <label style="font-size:.75rem;font-weight:600;color:var(--txt2)">Reporting To</label>
+            <input id="ol-rpt" value="${d.reportingTo||''}" oninput="_rcOLField('reportingTo',this.value)"
+              style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.81rem;background:var(--surface1);color:var(--txt1)">
+          </div>
+          <div>
+            <label style="font-size:.75rem;font-weight:600;color:var(--txt2)">Joining Date *</label>
+            <input id="ol-doj" type="date" value="${d.joiningDate||''}" oninput="_rcOLField('joiningDate',this.value)"
+              style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.81rem;background:var(--surface1);color:var(--txt1)">
+          </div>
+          <div>
+            <label style="font-size:.75rem;font-weight:600;color:var(--txt2)">Offer Valid Until *</label>
+            <input id="ol-valid" type="date" value="${d.validUntil||''}" oninput="_rcOLField('validUntil',this.value)"
+              style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.81rem;background:var(--surface1);color:var(--txt1)">
+          </div>
+          <div>
+            <label style="font-size:.75rem;font-weight:600;color:var(--txt2)">Probation Period</label>
+            <input id="ol-prob" value="${d.probation||'3 months'}" oninput="_rcOLField('probation',this.value)"
+              style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.81rem;background:var(--surface1);color:var(--txt1)">
+          </div>
+          <div>
+            <label style="font-size:.75rem;font-weight:600;color:var(--txt2)">CTC Annual (₹)</label>
+            <input id="ol-ctc" type="number" value="${d.ctcAnnual||''}" oninput="_rcOLField('ctcAnnual',this.value);_rcOLAutoCalc()" placeholder="e.g. 360000"
+              style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.81rem;background:var(--surface1);color:var(--txt1)">
+          </div>
+        </div>
+        <div style="margin-top:.8rem;padding:.7rem;background:var(--surface2);border-radius:8px">
+          <div style="font-weight:600;font-size:.75rem;color:var(--txt2);margin-bottom:.5rem">Monthly breakup (auto-calculated from CTC)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem">
+            ${['Basic','HRA','Allowances','PF'].map(f=>`
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:.2rem 0;border-bottom:1px solid var(--border)">
+              <span style="font-size:.76rem;color:var(--txt3)">${f}</span>
+              <input id="ol-${f.toLowerCase()}" type="number" value="${d[f.toLowerCase()]||''}"
+                oninput="_rcOLField('${f.toLowerCase()}',this.value)"
+                style="width:90px;padding:2px 6px;border:1px solid var(--border);border-radius:5px;font-size:.76rem;background:var(--surface1);color:var(--txt1);text-align:right">
+            </div>`).join('')}
+            <div style="display:flex;justify-content:space-between;padding:.2rem 0;border-bottom:1px solid var(--border)">
+              <span style="font-size:.76rem;color:var(--txt3)">Gross</span>
+              <span id="ol-gross-disp" style="font-size:.78rem;font-weight:600;color:var(--txt1)">${d.gross?'₹'+Number(d.gross).toLocaleString('en-IN'):'—'}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:.2rem 0">
+              <span style="font-size:.76rem;font-weight:600;color:var(--g7)">Net / Month</span>
+              <span id="ol-net-disp" style="font-size:.78rem;font-weight:700;color:var(--g7)">${d.net?'₹'+Number(d.net).toLocaleString('en-IN'):'—'}</span>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:.7rem">
+          <label style="font-size:.75rem;font-weight:600;color:var(--txt2)">Candidate Email</label>
+          <input id="ol-email" type="email" value="${d.candidateEmail||''}" oninput="_rcOLField('candidateEmail',this.value)"
+            style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.81rem;background:var(--surface1);color:var(--txt1)">
+        </div>
+        <div style="display:flex;gap:.6rem;margin-top:1rem;flex-wrap:wrap">
+          <button onclick="_rcOLUpdatePreview()" class="btn btn-secondary btn-sm">↻ Refresh Preview</button>
+          <button onclick="_rcOLGeneratePDF()" class="btn btn-primary btn-sm">📄 Print / Save PDF</button>
+          <button onclick="_rcOLSendAndLog()" style="padding:.35rem .8rem;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:.78rem;cursor:pointer">✉️ Log Offer Sent</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:.74rem;font-weight:600;color:var(--txt3);margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.05em">Live Preview</div>
+        <div id="ol-preview-frame" style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#fff;min-height:480px;max-height:680px;overflow-y:auto">
+          ${_rcOLPreviewHTML()}
+        </div>
+      </div>
+    </div>`;
+}
+
+function _rcOLField(key, val) { _rcOLDraft[key] = val; }
+
+function _rcOLMRFChange() {
+  const id  = document.getElementById('ol-mrf')?.value;
+  const mrf = (_rcMRFs||[]).find(m => m.id === id);
+  if (!mrf) return;
+  Object.assign(_rcOLDraft, { mrfId:id, position:mrf.position||'', dept:mrf.dept||'', site:mrf.site||'', reportingTo:mrf.reportingTo||'' });
+  ['desig','dept','site','rpt'].forEach(k => {
+    const map = {desig:'position',dept:'dept',site:'site',rpt:'reportingTo'};
+    const el  = document.getElementById('ol-'+k);
+    if (el) el.value = _rcOLDraft[map[k]] || '';
+  });
+  _rcOLUpdatePreview();
+}
+
+function _rcOLAutoCalc() {
+  const annual = parseFloat(document.getElementById('ol-ctc')?.value || 0);
+  if (!annual) return;
+  const m = Math.round(annual/12);
+  const basic=Math.round(m*.40), hra=Math.round(m*.20), allow=Math.round(m*.30), pf=Math.round(m*.12);
+  const gross=basic+hra+allow, net=gross-pf;
+  ['basic','hra','allowances','pf'].forEach((k,i) => {
+    _rcOLDraft[k] = [basic,hra,allow,pf][i];
+    const el = document.getElementById('ol-'+k);
+    if (el) el.value = [basic,hra,allow,pf][i];
+  });
+  _rcOLDraft.gross=gross; _rcOLDraft.net=net;
+  const gEl=document.getElementById('ol-gross-disp'); if(gEl) gEl.textContent='₹'+gross.toLocaleString('en-IN');
+  const nEl=document.getElementById('ol-net-disp');   if(nEl) nEl.textContent='₹'+net.toLocaleString('en-IN');
+  _rcOLUpdatePreview();
+}
+
+function _rcOLUpdatePreview() {
+  const map={name:'candidateName',desig:'position',dept:'dept',site:'site',rpt:'reportingTo',doj:'joiningDate',valid:'validUntil',prob:'probation',ctc:'ctcAnnual',email:'candidateEmail'};
+  Object.entries(map).forEach(([id,key]) => { const el=document.getElementById('ol-'+id); if(el) _rcOLDraft[key]=el.value; });
+  ['basic','hra','allowances','pf'].forEach(k => { const el=document.getElementById('ol-'+k); if(el) _rcOLDraft[k]=el.value; });
+  const frame=document.getElementById('ol-preview-frame'); if(frame) frame.innerHTML=_rcOLPreviewHTML();
+}
+
+function _rcOLPreviewHTML() {
+  const d=_rcOLDraft;
+  const today=new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
+  const fmt=v=>v?new Date(v).toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'}):'___________';
+  const m=v=>v?'₹'+Number(v).toLocaleString('en-IN'):'—';
+  return `<div id="rc-ol-printable" style="font-family:Arial,sans-serif;padding:28px 32px;font-size:11.5px;color:#111;line-height:1.6;background:#fff">
+    <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #1A6038;padding-bottom:10px;margin-bottom:18px">
+      <div><div style="font-size:18px;font-weight:700;color:#1A6038">Evergreen Enterprises</div>
+      <div style="font-size:9px;color:#666">Civil &amp; Infrastructure Contractor · EVGCPL</div></div>
+      <img src="https://evgcpladmin.github.io/evgcpl-portal/EG.jpg" style="height:40px;object-fit:contain" onerror="this.style.display='none'">
+    </div>
+    <div style="font-size:9.5px;color:#666;margin-bottom:14px">Date: ${today}</div>
+    <div style="font-weight:700;font-size:12.5px;text-align:center;margin-bottom:14px;text-decoration:underline">OFFER OF EMPLOYMENT</div>
+    <p>Dear <strong>${d.candidateName||'___________'}</strong>,</p>
+    <p style="margin-top:9px">We are pleased to offer you the position of <strong>${d.position||'___________'}</strong> in our <strong>${d.dept||'___________'}</strong> department, based at <strong>${d.site||'___________'}</strong>. You will report to <strong>${d.reportingTo||'___________'}</strong>.</p>
+    <div style="margin:14px 0">
+      <div style="font-weight:700;font-size:10.5px;margin-bottom:7px;color:#1A6038">MONTHLY COMPENSATION</div>
+      <table style="width:100%;border-collapse:collapse;font-size:10.5px">
+        <thead><tr style="background:#1A6038;color:#fff">
+          <th style="padding:5px 9px;text-align:left;border:1px solid #1A6038">Component</th>
+          <th style="padding:5px 9px;text-align:right;border:1px solid #1A6038">Amount</th>
+        </tr></thead>
+        <tbody>
+          ${[['Basic',d.basic],['HRA',d.hra],['Allowances',d.allowances]].map(([l,v],i)=>`<tr style="background:${i%2?'#f9fafb':'#fff'}"><td style="padding:4px 9px;border:1px solid #ddd">${l}</td><td style="padding:4px 9px;text-align:right;border:1px solid #ddd">${m(v)}</td></tr>`).join('')}
+          <tr style="background:#f0f7f2"><td style="padding:5px 9px;border:1px solid #ddd;font-weight:600">Gross</td><td style="padding:5px 9px;text-align:right;border:1px solid #ddd;font-weight:600">${m(d.gross)}</td></tr>
+          <tr><td style="padding:4px 9px;border:1px solid #ddd;color:#666">PF (Employee)</td><td style="padding:4px 9px;text-align:right;border:1px solid #ddd;color:#666">-${m(d.pf)}</td></tr>
+          <tr style="background:#1A6038"><td style="padding:5px 9px;border:1px solid #1A6038;color:#fff;font-weight:700">Net Take-Home</td><td style="padding:5px 9px;text-align:right;border:1px solid #1A6038;color:#fff;font-weight:700">${m(d.net)}</td></tr>
+        </tbody>
+      </table>
+      <div style="font-size:9px;color:#666;margin-top:3px">Annual CTC: ${m(d.ctcAnnual||((d.gross||0)*12))}</div>
+    </div>
+    <div style="margin:12px 0">
+      <div style="font-weight:700;color:#1A6038;margin-bottom:5px;font-size:10.5px">KEY TERMS</div>
+      <table style="width:100%;border-collapse:collapse;font-size:10.5px">
+        ${[['Date of Joining',fmt(d.joiningDate)],['Probation Period',d.probation||'3 months'],['Offer Valid Until',fmt(d.validUntil)],['Place of Posting',d.site||'—']].map(([k,v],i)=>`<tr style="background:${i%2?'#f9fafb':'#fff'}"><td style="padding:3px 7px;font-weight:600;width:42%;border:1px solid #eee">${k}</td><td style="padding:3px 7px;border:1px solid #eee">${v}</td></tr>`).join('')}
+      </table>
+    </div>
+    <div style="font-size:10px;color:#444;margin:12px 0"><div style="font-weight:700;color:#1A6038;margin-bottom:4px;font-size:10.5px">CONDITIONS</div>
+    <p>This offer is conditional upon: (1) submission of original documents within 3 days of joining; (2) satisfactory background verification; (3) medical fitness. Failure of any condition may result in withdrawal of this offer.</p></div>
+    <p style="font-size:10.5px;margin:12px 0">Please sign and return a copy by ${fmt(d.validUntil)} to confirm acceptance.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:36px;margin-top:28px">
+      <div><div style="border-top:1px solid #333;padding-top:5px;font-size:9.5px"><div style="font-weight:700">Authorised Signatory</div><div style="color:#666">Evergreen Enterprises</div></div></div>
+      <div><div style="border-top:1px solid #333;padding-top:5px;font-size:9.5px"><div style="font-weight:700">Candidate Acceptance</div><div style="color:#666">${d.candidateName||'Name'} · Date: ___________</div></div></div>
+    </div>
+    <div style="margin-top:20px;font-size:9px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:7px">Evergreen Enterprises (EVGCPL) · Confidential</div>
+  </div>`;
+}
+
+function _rcOLGeneratePDF() {
+  _rcOLUpdatePreview();
+  const html = document.getElementById('rc-ol-printable')?.outerHTML;
+  if (!html) { alert('Fill candidate details first.'); return; }
+  const d = _rcOLDraft;
+  const fname = `OfferLetter_${(d.candidateName||'Candidate').replace(/\s+/g,'_')}_${d.mrfId||'EVGCPL'}.pdf`;
+  const w = window.open('','_blank','width=860,height=700');
+  w.document.write(`<!DOCTYPE html><html><head><title>${fname}</title>
+    <style>@media print{body{margin:0}}body{margin:0;font-family:Arial,sans-serif}</style>
+    </head><body>${html}<script>window.onload=function(){window.print()}<\/script></body></html>`);
+  w.document.close();
+}
+
+async function _rcOLSendAndLog() {
+  _rcOLUpdatePreview();
+  const d = _rcOLDraft;
+  if (!d.candidateName||!d.position) { alert('Candidate name and designation are required.'); return; }
+  const year=new Date().getFullYear();
+  const seq=String((_rcOffers||[]).filter(o=>o.olId.startsWith('OL-'+year)).length+1).padStart(3,'0');
+  const olId=`OL-${year}-${seq}`;
+  const now=new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
+  const offer={olId,mrfId:d.mrfId||'',candidateName:d.candidateName,position:d.position,site:d.site,ctcAnnual:d.ctcAnnual||((d.gross||0)*12),joiningDate:d.joiningDate,candidateEmail:d.candidateEmail,dispatchMethod:'Manual',status:'Sent',sentDate:now,basic:d.basic,hra:d.hra,allowances:d.allowances,pf:d.pf,gross:d.gross,net:d.net,probation:d.probation,validUntil:d.validUntil,createdBy:STATE.user?.email||'',createdAt:now};
+  if (!_rcOffers) _rcOffers=[];
+  _rcOffers.unshift(offer);
+  _rcPostAction({action:'saveOffer',offer});
+  if (d.mrfId) { const mrf=(_rcMRFs||[]).find(m=>m.id===d.mrfId); if(mrf){mrf.offerSent=olId; _rcPersist();} }
+  _rcOLDraft={};
+  _rcOLSubTab('tracker');
+  _showRcToast(`📄 Offer logged — ${olId}`);
+}
+
+function _rcDrawOLTracker(container) {
+  const offers=_rcOffers||[];
+  const sc={'Sent':['#2563eb','#eff6ff'],'Accepted':['#16a34a','#f0fdf4'],'Declined':['#dc2626','#fef2f2'],'Expired':['#6b7280','#f9fafb']};
+  container.innerHTML=`<div style="overflow-x:auto;border-radius:10px;border:1px solid var(--border)">
+    <table class="emp-table" style="min-width:780px">
+      <thead><tr><th>OL ID</th><th>MRF</th><th>Candidate</th><th>Position</th><th>Site</th><th>CTC</th><th>Joining</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody>${offers.length===0?`<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--txt3)">No offers yet.</td></tr>`:
+      offers.map(o=>{const[c,bg]=sc[o.status]||['#6b7280','#f9fafb'];return`<tr>
+        <td style="font-family:monospace;font-size:.73rem;color:var(--g7)">${o.olId}</td>
+        <td style="font-size:.74rem">${o.mrfId||'—'}</td>
+        <td style="font-weight:500">${o.candidateName}</td>
+        <td style="font-size:.77rem">${o.position}</td>
+        <td style="font-size:.77rem">${o.site||'—'}</td>
+        <td style="font-size:.77rem">₹${Number(o.ctcAnnual||0).toLocaleString('en-IN')}</td>
+        <td style="font-size:.75rem">${o.joiningDate||'—'}</td>
+        <td><span style="font-size:.71rem;padding:2px 8px;border-radius:20px;background:${bg};color:${c}">${o.status}</span></td>
+        <td style="white-space:nowrap">${o.status==='Sent'?`
+          <button class="btn btn-sm btn-secondary" onclick="_rcOLUpdateStatus('${o.olId}','Accepted')" style="font-size:.7rem;padding:2px 7px">✓ Accept</button>
+          <button class="btn btn-sm btn-secondary" onclick="_rcOLUpdateStatus('${o.olId}','Declined')" style="font-size:.7rem;padding:2px 7px">✗ Decline</button>
+        `:'—'}</td></tr>`;}).join('')}
+      </tbody>
+    </table></div>`;
+  setTimeout(()=>{const t=container.querySelector('.emp-table');if(t){makeTableSortable(t);wrapTableScroll(t);}},80);
+}
+
+function _rcOLUpdateStatus(olId,status) {
+  const offer=(_rcOffers||[]).find(o=>o.olId===olId);
+  if(!offer) return;
+  offer.status=status;
+  offer.acceptanceDate=new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
+  _rcPostAction({action:'updateOfferStatus',olId,status});
+  if(status==='Accepted'&&offer.mrfId){const mrf=(_rcMRFs||[]).find(m=>m.id===offer.mrfId);if(mrf)_rcUpdateStatus(offer.mrfId,'Closed – Filled');}
+  _rcDrawOLTracker(document.getElementById('rc-ol-sub'));
+  _showRcToast(status==='Accepted'?'✅ Accepted — move to Pre-Joining tab':'❌ Offer declined');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PRE-JOINING CHECKLIST TAB  (Session 9)
+// ══════════════════════════════════════════════════════════════
+const RC_PJ_ITEMS=[
+  {id:'pj1',label:'Education certificates collected',owner:'HR'},
+  {id:'pj2',label:'Previous employment proof collected',owner:'HR'},
+  {id:'pj3',label:'ID proof (Aadhaar, PAN) collected',owner:'HR'},
+  {id:'pj4',label:'Bank account details received',owner:'HR'},
+  {id:'pj5',label:'Background verification initiated',owner:'HR'},
+  {id:'pj6',label:'Signed offer letter copy received',owner:'HR'},
+  {id:'pj7',label:'Site / accommodation arranged',owner:'Site / RM'},
+  {id:'pj8',label:'Reporting manager informed',owner:'HR'},
+  {id:'pj9',label:'EmpCode allocated',owner:'HR'},
+  {id:'pj10',label:'Work email / portal login created',owner:'IT / HR'},
+];
+let _rcPJState={};
+
+function _rcRenderPreJoining() {
+  const panel=document.getElementById('rc-panel');
+  panel.innerHTML=`<div style="text-align:center;padding:2rem;color:var(--txt3)">⏳ Loading…</div>`;
+  _rcLoadOffers().then(()=>_rcDrawPreJoiningTab());
+}
+
+function _rcDrawPreJoiningTab() {
+  const panel=document.getElementById('rc-panel');
+  const accepted=(_rcOffers||[]).filter(o=>o.status==='Accepted');
+  if(!accepted.length){
+    panel.innerHTML=`<div class="card card-pad" style="text-align:center;padding:3rem">
+      <div style="font-size:2rem;margin-bottom:.6rem">☑️</div>
+      <h3 style="color:var(--g7);margin-bottom:.4rem">No accepted offers yet</h3>
+      <p style="color:var(--txt3);font-size:.82rem">Candidates appear here once their offer is accepted.</p>
+      <button class="btn btn-secondary btn-sm" onclick="_rcSwitchTab('offer-letters')" style="margin-top:1rem">← Offer Letters</button>
+    </div>`;
+    return;
+  }
+  panel.innerHTML=`<p style="font-size:.79rem;color:var(--txt3);margin-bottom:1rem">Complete all 10 items before creating a joining entry.</p><div id="rc-pj-list"></div>`;
+  const list=document.getElementById('rc-pj-list');
+  accepted.forEach(offer=>{
+    if(!_rcPJState[offer.olId]) _rcPJState[offer.olId]={};
+    const state=_rcPJState[offer.olId];
+    const checked=RC_PJ_ITEMS.filter(i=>state[i.id]?.checked).length;
+    const allDone=checked===RC_PJ_ITEMS.length;
+    const card=document.createElement('div');
+    card.className='card card-pad';
+    card.style.marginBottom='1rem';
+    card.innerHTML=`
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;flex-wrap:wrap;gap:.5rem">
+        <div>
+          <span style="font-weight:700;font-size:.9rem;color:var(--txt1)">${offer.candidateName}</span>
+          <span style="font-size:.75rem;color:var(--txt3);margin-left:.5rem">${offer.position} · ${offer.site||'—'} · ${offer.olId}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:.7rem">
+          <span style="font-size:.78rem;color:${allDone?'#16a34a':'#d97706'};font-weight:600">${checked}/10</span>
+          <button onclick="_rcPJCreateJoining('${offer.olId}','${offer.candidateName}','${offer.mrfId||''}','${offer.position||''}','${offer.site||''}')"
+            ${allDone?'':'disabled'}
+            style="padding:.35rem .9rem;background:${allDone?'#16a34a':'#ccc'};color:#fff;border:none;border-radius:8px;font-size:.78rem;font-weight:600;cursor:${allDone?'pointer':'not-allowed'}">
+            ${allDone?'🎯 Create Joining Entry':'⏳ '+(10-checked)+' left'}
+          </button>
+        </div>
+      </div>
+      <div style="height:5px;background:var(--border);border-radius:3px;margin-bottom:.8rem">
+        <div style="width:${checked*10}%;height:5px;background:#16a34a;border-radius:3px;transition:width .3s"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.3rem .8rem">
+        ${RC_PJ_ITEMS.map(item=>{
+          const st=state[item.id]||{};
+          return`<label style="display:flex;align-items:flex-start;gap:.5rem;padding:.3rem 0;cursor:pointer;border-bottom:1px solid var(--border)">
+            <input type="checkbox" ${st.checked?'checked':''} onchange="_rcPJToggle('${offer.olId}','${item.id}',this.checked,'${offer.candidateName}')"
+              style="margin-top:2px;flex-shrink:0;accent-color:#1A6038">
+            <div>
+              <div style="font-size:.79rem;color:${st.checked?'var(--txt3)':'var(--txt1)'};${st.checked?'text-decoration:line-through':''}">${item.label}</div>
+              <div style="font-size:.69rem;color:var(--txt3)">${item.owner}${st.date?' · '+st.date.split(',')[0]:''}</div>
+            </div>
+          </label>`;
+        }).join('')}
+      </div>`;
+    list.appendChild(card);
+  });
+}
+
+function _rcPJToggle(olId,itemId,checked,candidateName) {
+  if(!_rcPJState[olId]) _rcPJState[olId]={};
+  _rcPJState[olId][itemId]={checked,date:checked?new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}):''};
+  _rcPostAction({action:'savePreJoining',joiningCode:olId,itemId,checked,checkedBy:STATE.user?.name||STATE.user?.email||'',candidateName});
+  _rcDrawPreJoiningTab();
+}
+
+async function _rcPJCreateJoining(olId,candidateName,mrfId,position,site) {
+  const doj=prompt(`Actual joining date for ${candidateName} (YYYY-MM-DD):`,new Date().toISOString().slice(0,10));
+  if(!doj) return;
+  await _rcLoadJoiningData(true);
+  const existing=_rcJoiningData||[];
+  const maxNJC=existing.reduce((mx,row)=>{
+    const jc=row['Joining Code']||'';
+    const num=parseInt((jc.match(/NJC-(\d+)/i)||[])[1]||'0');
+    return Math.max(mx,num);
+  },0);
+  const joiningCode=`NJC-${maxNJC+1}`;
+  _rcPostAction({action:'createJoiningEntry',joiner:{joiningCode,path:'A',mrfId:mrfId||'',olId,name:candidateName,position:position||'',site:site||'',expectedDOJ:doj,createdBy:STATE.user?.email||''}});
+  if(!_rcJoiningData) _rcJoiningData=[];
+  _rcJoiningData.unshift({'Joining Code':joiningCode,'Type':'Formal Recruitment','Status':'Pending','Employee Name':candidateName,'Position':position,'Site':site,'Expected DOJ':doj});
+  _showRcToast(`🎯 Joining entry created — ${joiningCode}`);
+  _rcSwitchTab('joining');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  JOINING TAB  (Session 10)
+// ══════════════════════════════════════════════════════════════
+function _rcRenderJoining() {
+  const panel=document.getElementById('rc-panel');
+  panel.innerHTML=`<div style="text-align:center;padding:2rem;color:var(--txt3)">⏳ Loading joining list…</div>`;
+  _rcLoadJoiningData(true).then(()=>_rcDrawJoiningTab());
+}
+
+function _rcDrawJoiningTab() {
+  const panel=document.getElementById('rc-panel');
+  const joiners=_rcJoiningData||[];
+  const sc={'Pending':['#d97706','#fffbeb'],'Pre-Joining':['#2563eb','#eff6ff'],'Joined Directly':['#6b7280','#f9fafb'],'Joined':['#16a34a','#f0fdf4'],'Active':['#059669','#ecfdf5'],'Formal Recruitment':['#7c3aed','#f5f3ff']};
+  const counts={};
+  joiners.forEach(j=>{const s=j['Type']||j['Status']||'—'; counts[s]=(counts[s]||0)+1;});
+  const fStatus=document.getElementById('rc-jl-fs')?.value||'All';
+  const fQ=(document.getElementById('rc-jl-fq')?.value||'').toLowerCase();
+  const allS=['All',...Object.keys(counts)];
+  let filtered=joiners;
+  if(fStatus!=='All') filtered=filtered.filter(j=>(j['Type']||j['Status']||'')===fStatus);
+  if(fQ) filtered=filtered.filter(j=>Object.values(j).some(v=>String(v||'').toLowerCase().includes(fQ)));
+  const s0=joiners[0]||{};
+  const nameCol=['Employee Name','Candidate Name','Name'].find(k=>k in s0)||'Employee Name';
+  const jcCol=['Joining Code','joiningCode','JC'].find(k=>k in s0)||'Joining Code';
+  const typeCol=['Type','Path','type'].find(k=>k in s0)||'Type';
+  const siteCol=['Site','site','Site Name'].find(k=>k in s0)||'Site';
+  const dojCol=['Actual DOJ','Expected DOJ','DOJ','Date of Joining'].find(k=>k in s0)||'Expected DOJ';
+  const ecCol=['EmpCode','Employee Code','Emp Code'].find(k=>k in s0)||'EmpCode';
+  const statCol=['Status','status'].find(k=>k in s0)||'Status';
+  panel.innerHTML=`
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem">
+      ${Object.entries(counts).map(([s,c])=>{const[col,bg]=sc[s]||['#6b7280','#f9fafb'];return`<span style="font-size:.73rem;padding:2px 10px;border-radius:20px;background:${bg};color:${col};font-weight:600">${s}: ${c}</span>`;}).join('')}
+    </div>
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:.9rem;align-items:center">
+      <select id="rc-jl-fs" onchange="_rcDrawJoiningTab()" style="font-size:.78rem;padding:.35rem .6rem;border:1px solid var(--border);border-radius:8px;background:var(--surface1);color:var(--txt1)">
+        ${allS.map(s=>`<option${fStatus===s?' selected':''}>${s}</option>`).join('')}
+      </select>
+      <input id="rc-jl-fq" value="${fQ}" oninput="_rcDrawJoiningTab()" placeholder="Search name, code, site…"
+        style="font-size:.78rem;padding:.35rem .7rem;border:1px solid var(--border);border-radius:8px;background:var(--surface1);color:var(--txt1);min-width:200px">
+      <button class="btn btn-sm btn-secondary" onclick="_rcLoadJoiningData(true).then(()=>_rcDrawJoiningTab())">↻ Refresh</button>
+      <span style="font-size:.73rem;color:var(--txt3);margin-left:auto">${filtered.length} of ${joiners.length}</span>
+    </div>
+    <div style="overflow-x:auto;border-radius:10px;border:1px solid var(--border)">
+      <table class="emp-table" style="min-width:880px">
+        <thead><tr><th>Joining Code</th><th>Name</th><th>Type</th><th>Site</th><th>DOJ</th><th>EmpCode</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${filtered.length===0?`<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--txt3)">No records.</td></tr>`:
+          filtered.map(j=>{
+            const type=j[typeCol]||'—';
+            const status=j[statCol]||type;
+            const [c,bg]=sc[status]||sc[type]||['#6b7280','#f9fafb'];
+            const jc=j[jcCol]||'—';
+            const ec=j[ecCol]||'—';
+            const isPathA=(type||'').toLowerCase().includes('formal')||(type||'').toLowerCase().includes('recruit');
+            const canMark=['Pending','Pre-Joining'].includes(status)&&isPathA;
+            const canAssign=status==='Joined'&&(!ec||ec==='—');
+            return`<tr>
+              <td style="font-family:monospace;font-size:.73rem;color:var(--g7)">${jc}</td>
+              <td style="font-weight:500">${j[nameCol]||'—'}</td>
+              <td style="font-size:.74rem">${type}</td>
+              <td style="font-size:.77rem">${j[siteCol]||'—'}</td>
+              <td style="font-size:.75rem">${j[dojCol]||'—'}</td>
+              <td style="font-family:monospace;font-size:.74rem;color:var(--g7)">${ec}</td>
+              <td><span style="font-size:.71rem;padding:2px 8px;border-radius:20px;background:${bg};color:${c};white-space:nowrap">${status}</span></td>
+              <td style="white-space:nowrap;display:flex;gap:4px;flex-wrap:wrap">
+                ${canMark?`<button onclick="_rcJLMarkJoined('${jc}','${j[nameCol]||''}')" style="padding:2px 7px;background:#16a34a;color:#fff;border:none;border-radius:6px;font-size:.71rem;cursor:pointer">🎯 Mark Joined</button>`:''}
+                ${canAssign?`<button onclick="_rcJLAssignEC('${jc}','${j[nameCol]||''}')" class="btn btn-sm btn-secondary" style="font-size:.71rem;padding:2px 7px">Assign EmpCode</button>`:''}
+                ${['Joined','Active'].includes(status)?`<button onclick="_rcJLApptLetter('${jc}','${j[nameCol]||''}')" class="btn btn-sm btn-secondary" style="font-size:.71rem;padding:2px 7px">📋 Appt Letter</button>`:''}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div id="rc-jl-appt-panel"></div>`;
+  setTimeout(()=>{const t=panel.querySelector('.emp-table');if(t){makeTableSortable(t);wrapTableScroll(t);}},80);
+}
+
+function _rcJLMarkJoined(jc,name) {
+  const doj=prompt(`Confirm actual joining date for ${name}:`,new Date().toISOString().slice(0,10));
+  if(!doj) return;
+  _rcPostAction({action:'markAsJoined',joiningCode:jc,actualDOJ:doj});
+  _showRcToast(`✅ ${name} marked as Joined`);
+  _rcLoadJoiningData(true).then(()=>_rcDrawJoiningTab());
+}
+
+function _rcJLAssignEC(jc,name) {
+  const code=prompt(`Enter EmpCode for ${name}:`);
+  if(!code||!code.trim()) return;
+  _rcPostAction({action:'assignEmpCode',joiningCode:jc,empCode:code.trim()});
+  _showRcToast(`🪪 EmpCode ${code.trim()} assigned`);
+  _rcLoadJoiningData(true).then(()=>_rcDrawJoiningTab());
+}
+
+function _rcJLApptLetter(jc,name) {
+  const p=document.getElementById('rc-jl-appt-panel');
+  if(!p) return;
+  p.innerHTML=`<div class="card card-pad" style="margin-top:1rem;border-left:3px solid var(--g7)">
+    <div style="font-weight:600;margin-bottom:.8rem;color:var(--g7)">📋 Appointment Letter — ${name} (${jc})</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.7rem">
+      <div><label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Letter Ref No.</label>
+        <input id="al-ref" placeholder="e.g. EVGCPL/HR/2026/001" style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.8rem;background:var(--surface1);color:var(--txt1)"></div>
+      <div><label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Date Issued</label>
+        <input id="al-date" type="date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.8rem;background:var(--surface1);color:var(--txt1)"></div>
+      <div><label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Signed Copy Received</label>
+        <select id="al-signed" style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.8rem;background:var(--surface1);color:var(--txt1)"><option>No</option><option>Yes</option></select></div>
+    </div>
+    <div style="margin-top:.8rem;display:flex;gap:.6rem">
+      <button onclick="_rcJLSaveAL('${jc}','${name}')" class="btn btn-primary btn-sm">Save Record</button>
+      <button onclick="document.getElementById('rc-jl-appt-panel').innerHTML=''" class="btn btn-secondary btn-sm">Cancel</button>
+    </div>
+  </div>`;
+  p.scrollIntoView({behavior:'smooth'});
+}
+
+function _rcJLSaveAL(jc,name) {
+  const ref=document.getElementById('al-ref')?.value||'';
+  const date=document.getElementById('al-date')?.value||'';
+  const signed=document.getElementById('al-signed')?.value||'No';
+  _rcPostAction({action:'updateApptLetter',joiningCode:jc,ref,date,signed,updatedBy:STATE.user?.email||''});
+  _showRcToast(`📋 Appointment Letter record saved for ${name}`);
+  document.getElementById('rc-jl-appt-panel').innerHTML='';
 }

@@ -3,16 +3,16 @@
 ═══════════════════════════════════════════════════════════════ */
 
 // ── Build constants — patched by build-portal.js at build time ──
-const PCC_VERSION  = '3.17.4';
-const PCC_BUILD    = 372;
-const PCC_BUILD_AT = '2026-05-26T18:15:35Z';
+const PCC_VERSION  = '3.18.1';
+const PCC_BUILD    = 374;
+const PCC_BUILD_AT = '2026-05-26T18:53:58Z';
 
 // ── Apps Script URL: read parent portal's endpoint registry ──
 // The PCC subapp loads in an iframe on the same origin. Its parent stores
 // per-endpoint URL overrides in localStorage under 'evgcpl_exec_registry_v1'.
 // We read that map and prefer overrides[pcc] (or overrides[main] as fallback).
 // Hardcoded URL is the last-resort default.
-const _PCC_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwtCxCExP9VZU25B4FfzzU69yEDGuNDY8mBsifa-ecSEEN30ihPmApwW--dR9n1WmA/exec';
+const _PCC_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec';
 function _resolvePccScriptUrl() {
   try {
     const raw = localStorage.getItem('evgcpl_exec_registry_v1');
