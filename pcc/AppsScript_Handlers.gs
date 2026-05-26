@@ -38,6 +38,15 @@ function _fmtTimestamp(d) {
          ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)+':'+('0'+d.getSeconds()).slice(-2);
 }
 
+
+// ── _pccSS: Single source of truth for the PCC SpreadsheetApp handle ──
+// Use this everywhere instead of `var ss = _pccSS();`
+// Eliminates the chance of forgetting to declare ss.
+function _pccSS() {
+  return SpreadsheetApp.openById(PCC_SHEET_ID);
+}
+
+
 function _norm(p) {
   if (!p) return {};
   if (p.payload && typeof p.payload === 'object' && !Array.isArray(p.payload)) {
@@ -71,11 +80,20 @@ function _norm(p) {
 function _upsertRows(tabName, defaultHeaders, rows) {
   rows = rows || [];
   if (!rows.length) return { added: 0, updated: 0 };
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName(tabName);
   if (!sh) {
     sh = ss.insertSheet(tabName);
     sh.getRange(1, 1, 1, defaultHeaders.length)
+      .setValues([defaultHeaders])
+      .setBackground('#1e8035').setFontColor('#ffffff').setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  // Auto-populate headers if row 1 is empty
+  var _lc = Math.max(sh.getLastColumn(), 1);
+  var _r1 = sh.getLastRow() >= 1 ? sh.getRange(1,1,1,_lc).getValues()[0] : [];
+  if (!_r1.some(function(v){return v && String(v).trim();})) {
+    sh.getRange(1,1,1,defaultHeaders.length)
       .setValues([defaultHeaders])
       .setBackground('#1e8035').setFontColor('#ffffff').setFontWeight('bold');
     sh.setFrozenRows(1);
@@ -135,12 +153,21 @@ function _upsertActivities(defaultHeaders, rows) {
   rows = rows || [];
   if (!rows.length) return { added: 0, skipped: 0 };
 
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName('Activities');
 
   if (!sh) {
     sh = ss.insertSheet('Activities');
     sh.getRange(1, 1, 1, defaultHeaders.length)
+      .setValues([defaultHeaders])
+      .setBackground('#1e8035').setFontColor('#ffffff').setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  // Auto-populate headers if row 1 is empty
+  var _lc = Math.max(sh.getLastColumn(), 1);
+  var _r1 = sh.getLastRow() >= 1 ? sh.getRange(1,1,1,_lc).getValues()[0] : [];
+  if (!_r1.some(function(v){return v && String(v).trim();})) {
+    sh.getRange(1,1,1,defaultHeaders.length)
       .setValues([defaultHeaders])
       .setBackground('#1e8035').setFontColor('#ffffff').setFontWeight('bold');
     sh.setFrozenRows(1);
@@ -218,7 +245,7 @@ function _writeBlocks(sh, rowNum, cellVals, formulaProtected, lastCol) {
 
 function _deleteRowByUUID(tabName, uuid) {
   if (!uuid) return false;
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName(tabName);
   if (!sh || sh.getLastRow() < 2) return false;
   var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
@@ -234,7 +261,7 @@ function _deleteRowByUUID(tabName, uuid) {
 
 function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
   rows = rows || [];
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName(tabName);
 
   // ── Create tab if it doesn't exist ──────────────────────────
@@ -249,6 +276,25 @@ function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
     Logger.log('[_replaceProjectRows] Created new tab: ' + tabName);
   }
 
+  // ── If tab exists but has NO headers (row 1 empty) → populate them ──
+  // This handles the case where a tab was created manually or by a prior
+  // partial save that left row 1 empty. Without headers, the colIndex below
+  // would be empty and every field write would be silently skipped.
+  var lastColCheck = Math.max(sh.getLastColumn(), 1);
+  var row1 = sh.getLastRow() >= 1
+             ? sh.getRange(1, 1, 1, lastColCheck).getValues()[0]
+             : [];
+  var hasHeaders = row1.some(function(v) { return v && String(v).trim(); });
+  if (!hasHeaders) {
+    sh.getRange(1, 1, 1, defaultHeaders.length)
+      .setValues([defaultHeaders])
+      .setBackground('#1e8035')
+      .setFontColor('#ffffff')
+      .setFontWeight('bold');
+    sh.setFrozenRows(1);
+    Logger.log('[_replaceProjectRows] Tab "' + tabName + '" had no headers — populated defaults');
+  }
+
   // ── Read EXISTING headers — NEVER overwrite ──────────────────
   var lastCol = Math.max(sh.getLastColumn(), 1);
   var existingHeaders = sh.getRange(1, 1, 1, lastCol).getValues()[0];
@@ -256,6 +302,12 @@ function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
   existingHeaders.forEach(function(h, i) {
     if (h && String(h).trim()) colIndex[String(h).trim()] = i;
   });
+
+  // ── Sanity check: if colIndex is still empty, abort with clear error ──
+  if (Object.keys(colIndex).length === 0) {
+    Logger.log('[_replaceProjectRows] FATAL: No headers found in "' + tabName + '" after attempted populate. Aborting.');
+    throw new Error('Tab "' + tabName + '" has no usable headers. Manually add headers in row 1 and retry.');
+  }
 
   // ── Detect ARRAYFORMULA-protected columns ─────────────────────
   // Row 2 (first data row) — any cell with a formula is ARRAYFORMULA-protected.
@@ -450,7 +502,7 @@ function saveVariations(p) {
 // ─── 7. BUDGET APPROVAL ───
 function submitBudgetApproval(p) {
   p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName('BudgetApprovals');
   if (!sh) {
     sh = ss.insertSheet('BudgetApprovals');
@@ -485,7 +537,7 @@ function submitBudgetApproval(p) {
 // Normalises Active/Inactive? to ACTIVE/INACTIVE. Stamps Timestamp. Never overwrites headers.
 function saveProjectSetup(p) {
   p = _norm(p);
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName('Project');
   if (!sh) return ContentService.createTextOutput(JSON.stringify({
     success: false, message: 'Project tab not found'
@@ -903,7 +955,7 @@ function deleteActivity(p) {
     return ContentService.createTextOutput(JSON.stringify({ success:false, message:'Missing actName or wbsUuid' }))
       .setMimeType(ContentService.MimeType.JSON);
   }
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName('Activities');
   if (!sh || sh.getLastRow() < 2) return ContentService.createTextOutput(JSON.stringify({ success:false, message:'Activities tab not found' })).setMimeType(ContentService.MimeType.JSON);
   var headers  = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(function(h){return String(h).trim();});
@@ -957,7 +1009,7 @@ function _formatWbsCode(projectCode, num) {
 // Returns: { WBS: [...headers], Activities: [...headers], ... }
 function getSheetHeaders(p) {
   p = _norm(p);
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var tabs = (p.tabs && p.tabs.length) ? p.tabs
     : ['Project', 'BOQ', 'WBS', 'Activities', 'Workplan',
        'Manpower_Plan', 'Machinery_Plan', 'Material_Plan',

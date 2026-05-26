@@ -38,6 +38,15 @@ function _fmtTimestamp(d) {
          ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)+':'+('0'+d.getSeconds()).slice(-2);
 }
 
+
+// ── _pccSS: Single source of truth for the PCC SpreadsheetApp handle ──
+// Use this everywhere instead of `var ss = _pccSS();`
+// Eliminates the chance of forgetting to declare ss.
+function _pccSS() {
+  return SpreadsheetApp.openById(PCC_SHEET_ID);
+}
+
+
 function _norm(p) {
   if (!p) return {};
   if (p.payload && typeof p.payload === 'object' && !Array.isArray(p.payload)) {
@@ -71,7 +80,7 @@ function _norm(p) {
 function _upsertRows(tabName, defaultHeaders, rows) {
   rows = rows || [];
   if (!rows.length) return { added: 0, updated: 0 };
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName(tabName);
   if (!sh) {
     sh = ss.insertSheet(tabName);
@@ -135,7 +144,7 @@ function _upsertActivities(defaultHeaders, rows) {
   rows = rows || [];
   if (!rows.length) return { added: 0, skipped: 0 };
 
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName('Activities');
 
   if (!sh) {
@@ -218,7 +227,7 @@ function _writeBlocks(sh, rowNum, cellVals, formulaProtected, lastCol) {
 
 function _deleteRowByUUID(tabName, uuid) {
   if (!uuid) return false;
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName(tabName);
   if (!sh || sh.getLastRow() < 2) return false;
   var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
@@ -234,7 +243,7 @@ function _deleteRowByUUID(tabName, uuid) {
 
 function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
   rows = rows || [];
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName(tabName);
 
   // ── Create tab if it doesn't exist ──────────────────────────
@@ -344,13 +353,18 @@ function _replaceProjectRows(tabName, defaultHeaders, projectCode, rows) {
 
 
 // ─── 1. WORKPLAN ───
-// Schema: one row per activity in the BOQ → WBS → Activity hierarchy.
-// 12 monthly columns (Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar).
-// Total Qty is carried from BOQ. Planned Total = sum of monthly columns.
+// One row per WBS item — no activity dependency.
+// BOQ is the group header, WBS is the planning unit.
+// Monthly columns: Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar
 function saveWorkplan(p) {
   p = _norm(p);
   var projectCode = String(p.projectCode || '').trim();
-  var fy          = String(p.fy || '').trim();  // e.g. "2026-27"
+  var fy          = String(p.fy          || '').trim();
+  if (!projectCode) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false, message: 'Missing projectCode'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
 
   var mths = ['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar'];
 
@@ -358,35 +372,30 @@ function saveWorkplan(p) {
     var row = {
       'Project Code':    projectCode,
       'FY':              fy,
-      'BOQ Item #':      r['BOQ Item #']      || r.boqItemNum || '',
-      'BOQ UUID':        r['BOQ UUID']        || r.boqUuid    || '',
-      'BOQ Description': r['BOQ Description'] || r.boqDesc    || '',
-      'WBS Code':        r['WBS Code']        || r.wbsCode    || '',
-      'WBS Name':        r['WBS Name']        || r.wbsName    || '',
-      'WBS UUID':        r['WBS UUID']        || r.wbsUuid    || '',
-      'Activity':        r['Activity']        || r.activity   || '',
-      'Nature of Work':  r['Nature of Work']  || r.nature     || '',
-      'Type of Work':    r['Type of Work']    || r.type       || '',
-      'UoM':             r['UoM']             || r.unit       || '',
-      'Total Qty':       Number(r['Total Qty']  || r.totalQty  || 0),
-      'Planned Total':   Number(r['Planned Total']|| r.planTot  || 0),
-      '% Weight':        Number(r['% Weight']   || r.weight    || 0),
+      'BOQ Item #':      r['BOQ Item #']      || '',
+      'BOQ UUID':        r['BOQ UUID']        || '',
+      'BOQ Description': r['BOQ Description'] || '',
+      'WBS UUID':        r['WBS UUID']        || '',
+      'WBS Code':        r['WBS Code']        || '',
+      'WBS Name':        r['WBS Name']        || '',
+      'Activity #':      r['Activity #']      || '',
+      'UoM':             r['UoM']             || '',
+      'Total Qty':       Number(r['Total Qty']    || 0),
+      'WBS Qty':         Number(r['WBS Qty']      || 0),
+      'Planned Total':   Number(r['Planned Total'] || 0),
+      '% Weight':        Number(r['% Weight']     || 0),
       'Updated At':      _fmtTimestamp(new Date()),
     };
-    // 12 monthly columns
-    mths.forEach(function(m) {
-      row[m] = Number(r[m] || 0);
-    });
+    mths.forEach(function(m) { row[m] = Number(r[m] || 0); });
     return row;
   });
 
   var defaultHeaders = [
     'Project Code', 'FY',
     'BOQ Item #', 'BOQ UUID', 'BOQ Description',
-    'WBS Code', 'WBS Name', 'WBS UUID',
-    'Activity', 'Nature of Work', 'Type of Work', 'UoM',
-    'Total Qty', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
-    'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar',
+    'WBS UUID', 'WBS Code', 'WBS Name', 'Activity #', 'UoM',
+    'Total Qty', 'WBS Qty',
+    'Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar',
     'Planned Total', '% Weight', 'Updated At',
   ];
 
@@ -450,7 +459,7 @@ function saveVariations(p) {
 // ─── 7. BUDGET APPROVAL ───
 function submitBudgetApproval(p) {
   p = _norm(p);  // Defensive + auto-unwrap legacy { payload: {...} }
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName('BudgetApprovals');
   if (!sh) {
     sh = ss.insertSheet('BudgetApprovals');
@@ -485,7 +494,7 @@ function submitBudgetApproval(p) {
 // Normalises Active/Inactive? to ACTIVE/INACTIVE. Stamps Timestamp. Never overwrites headers.
 function saveProjectSetup(p) {
   p = _norm(p);
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName('Project');
   if (!sh) return ContentService.createTextOutput(JSON.stringify({
     success: false, message: 'Project tab not found'
@@ -903,7 +912,7 @@ function deleteActivity(p) {
     return ContentService.createTextOutput(JSON.stringify({ success:false, message:'Missing actName or wbsUuid' }))
       .setMimeType(ContentService.MimeType.JSON);
   }
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var sh = ss.getSheetByName('Activities');
   if (!sh || sh.getLastRow() < 2) return ContentService.createTextOutput(JSON.stringify({ success:false, message:'Activities tab not found' })).setMimeType(ContentService.MimeType.JSON);
   var headers  = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(function(h){return String(h).trim();});
@@ -957,7 +966,7 @@ function _formatWbsCode(projectCode, num) {
 // Returns: { WBS: [...headers], Activities: [...headers], ... }
 function getSheetHeaders(p) {
   p = _norm(p);
-  var ss = SpreadsheetApp.openById(PCC_SHEET_ID);
+  var ss = _pccSS();
   var tabs = (p.tabs && p.tabs.length) ? p.tabs
     : ['Project', 'BOQ', 'WBS', 'Activities', 'Workplan',
        'Manpower_Plan', 'Machinery_Plan', 'Material_Plan',
