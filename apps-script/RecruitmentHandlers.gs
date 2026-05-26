@@ -9,7 +9,7 @@ const RC_TABS = {
   MRF:      'MRF_Register',
   OFFERS:   'Offer_Tracker',
   PREJOIN:  'PreJoining_Checklist',
-  JOINING:  'Joining_List',
+  JOINING:  'v1_JoiningList',          // existing tab — do NOT rename
 };
 
 // ── Default headers ───────────────────────────────────────────
@@ -45,7 +45,8 @@ const RC_JOINING_HEADERS = [
 //  Helper: get recruitment sheet (opened from RECRUITMENT_SHEET_ID)
 //  !! Replace 'YOUR_RECRUITMENT_SHEET_ID' with real ID before deploying !!
 // ─────────────────────────────────────────────────────────────
-const RECRUITMENT_SHEET_ID = 'YOUR_RECRUITMENT_SHEET_ID';
+// ── Sheet ID (wired) ──────────────────────────────────────────
+const RECRUITMENT_SHEET_ID = '1Dw48OEDmIAAu9Va1-a9z7PZT7wKS_mWU7cwpK6osRNI';
 
 function _rcSS() {
   return SpreadsheetApp.openById(RECRUITMENT_SHEET_ID);
@@ -55,10 +56,18 @@ function _rcTab(tabName, headers) {
   const ss = _rcSS();
   let sh = ss.getSheetByName(tabName);
   if (!sh) {
+    // Tab doesn't exist — create it with our schema
     sh = ss.insertSheet(tabName);
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, headers.length)
+      .setBackground('#1A6038').setFontColor('#FFFFFF').setFontWeight('bold');
+    return sh;
   }
-  // Auto-populate headers if row 1 is empty
-  if (sh.getLastRow() === 0 || sh.getRange(1, 1).getValue() === '') {
+  // Tab exists — NEVER overwrite existing headers
+  // Only write headers if row 1 col A is completely blank (sheet was just created)
+  const firstCell = sh.getRange(1, 1).getValue();
+  if (!firstCell || firstCell === '') {
     sh.getRange(1, 1, 1, headers.length).setValues([headers]);
     sh.setFrozenRows(1);
     sh.getRange(1, 1, 1, headers.length)
@@ -473,20 +482,62 @@ function sendOfferEmail(payload) {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  ACTION: getJoiningListSchema
+//  Returns the existing headers from v1_JoiningList so the portal
+//  can map fields to the correct columns regardless of order
+// ─────────────────────────────────────────────────────────────
+function getJoiningListSchema() {
+  try {
+    const ss = _rcSS();
+    const sh = ss.getSheetByName(RC_TABS.JOINING);
+    if (!sh || sh.getLastRow() === 0) return { success: true, headers: [], tabName: RC_TABS.JOINING };
+    const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+      .map(h => String(h).trim()).filter(Boolean);
+    return { success: true, headers, tabName: RC_TABS.JOINING, lastRow: sh.getLastRow() };
+  } catch(e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ACTION: getJoiningList
+//  Returns all rows from v1_JoiningList as JSON — maps to actual headers
+// ─────────────────────────────────────────────────────────────
+function getJoiningList() {
+  try {
+    const ss = _rcSS();
+    const sh = ss.getSheetByName(RC_TABS.JOINING);
+    if (!sh || sh.getLastRow() <= 1) return { success: true, rows: [], headers: [] };
+    const data    = sh.getDataRange().getValues();
+    const headers = data[0].map(h => String(h).trim());
+    const rows    = data.slice(1).map(r => {
+      const obj = {};
+      headers.forEach((h, i) => { if (h) obj[h] = r[i]; });
+      return obj;
+    });
+    return { success: true, headers, rows };
+  } catch(e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 //  ROUTER ENTRIES  —  add these cases to your Router.gs doPost
 // ─────────────────────────────────────────────────────────────
 /*
   Add to Router.gs switch(action) block:
 
-  case 'saveMRF':            return wrap(saveMRF(p));
-  case 'updateMRF':          return wrap(updateMRF(p));
-  case 'updateMRFStatus':    return wrap(updateMRFStatus(p));
-  case 'getMRFs':            return wrap(getMRFs(p));
-  case 'saveOffer':          return wrap(saveOffer(p));
-  case 'updateOfferStatus':  return wrap(updateOfferStatus(p));
-  case 'createJoiningEntry': return wrap(createJoiningEntry(p));
-  case 'savePreJoining':     return wrap(savePreJoining(p));
-  case 'markAsJoined':       return wrap(markAsJoined(p));
-  case 'assignEmpCode':      return wrap(assignEmpCode(p));
-  case 'sendOfferEmail':     return wrap(sendOfferEmail(p));
+  case 'saveMRF':               return wrap(saveMRF(p));
+  case 'updateMRF':             return wrap(updateMRF(p));
+  case 'updateMRFStatus':       return wrap(updateMRFStatus(p));
+  case 'getMRFs':               return wrap(getMRFs(p));
+  case 'saveOffer':             return wrap(saveOffer(p));
+  case 'updateOfferStatus':     return wrap(updateOfferStatus(p));
+  case 'createJoiningEntry':    return wrap(createJoiningEntry(p));
+  case 'getJoiningList':        return wrap(getJoiningList(p));
+  case 'getJoiningListSchema':  return wrap(getJoiningListSchema());
+  case 'savePreJoining':        return wrap(savePreJoining(p));
+  case 'markAsJoined':          return wrap(markAsJoined(p));
+  case 'assignEmpCode':         return wrap(assignEmpCode(p));
+  case 'sendOfferEmail':        return wrap(sendOfferEmail(p));
 */

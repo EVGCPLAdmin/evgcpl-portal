@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.17.3';
-const PORTAL_BUILD    = 371;
-const PORTAL_BUILD_AT = '2026-05-26T18:00:13Z';
+const PORTAL_VERSION  = '3.17.4';
+const PORTAL_BUILD    = 372;
+const PORTAL_BUILD_AT = '2026-05-26T18:15:35Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2840,7 +2840,7 @@ function renderAppSheetEmbed(title, desc, appKey) {
 // ══════════════════════════════════════════════════
 //  SCM DASHBOARD — Purchase Orders
 // ══════════════════════════════════════════════════
-const RECRUITMENT_SHEET_ID = 'YOUR_RECRUITMENT_SHEET_ID'; // ← Set after sheet created
+const RECRUITMENT_SHEET_ID = '1Dw48OEDmIAAu9Va1-a9z7PZT7wKS_mWU7cwpK6osRNI';
 const PO_SHEET_ID      = '1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c';
 const PO_TAB           = 'PO_Actual'; // gid 1458467853 — replaces legacy 'PO' tab as of v3.4.0
 const PAYMENT_SHEET_ID = '1mLddxLRf719EaXE9XSET9gT8l0a8Cxns362yIbHo63g'; // Account View – PaymentRequest tab
@@ -15649,13 +15649,11 @@ function _rcRenderJoining() {
 //  APPS SCRIPT BRIDGE
 // ══════════════════════════════════════════════════════════════
 function _rcPostAction(payload) {
-  // Silently fails if sheet not configured — localStorage is source of truth for now
-  if (!RECRUITMENT_SHEET_ID || RECRUITMENT_SHEET_ID === 'YOUR_RECRUITMENT_SHEET_ID') return;
   fetch(APPS_SCRIPT_URL, {
     method:'POST',
     headers:{'Content-Type':'text/plain'},
     body: JSON.stringify({ ...payload, sheetId: RECRUITMENT_SHEET_ID })
-  }).catch(() => {}); // non-blocking
+  }).catch(() => {});
 }
 
 // ══════════════════════════════════════════════════════════════
