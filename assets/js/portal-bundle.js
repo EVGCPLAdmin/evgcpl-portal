@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.17.2';
-const PORTAL_BUILD    = 370;
-const PORTAL_BUILD_AT = '2026-05-13T11:43:39Z';
+const PORTAL_VERSION  = '3.17.3';
+const PORTAL_BUILD    = 371;
+const PORTAL_BUILD_AT = '2026-05-26T18:00:13Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1447,9 +1447,9 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','hr-dashboard','personal','my-profile','policies','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
-  hr:        new Set(['dashboard','hr-dashboard','personal','my-profile','policies','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
-  site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','md-command','hr-dashboard','personal','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  hr:        new Set(['dashboard','hr-dashboard','personal','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   accounts:  new Set(['dashboard','my-profile','accounts','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   employee:  new Set(['dashboard','my-profile','my-documents','accounts','policies','rewards','apps','wall','planning-overview','execution','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
@@ -1460,8 +1460,8 @@ const ROLE_ROUTES = {
 // Dept -> allowed routes for Department Heads (col W value after "Department Head - ")
 const DEPT_HEAD_ROUTES = {
   // HR
-  'hr':                        new Set(['dashboard','hr-dashboard','my-profile','policies','rewards','reports','my-documents','apps']),
-  'human resources':           new Set(['dashboard','hr-dashboard','my-profile','policies','rewards','reports','my-documents','apps']),
+  'hr':                        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps']),
+  'human resources':           new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps']),
   // Finance / Accounts
   'finance':                   new Set(['dashboard','accounts','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
   'accounts':                  new Set(['dashboard','accounts','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
@@ -1621,6 +1621,7 @@ function renderPage(page) {
     'dashboard':      renderDashboard,
     'md-command':     renderMDCommand,
     'onboarding':     renderOnboardingPortal,
+    'recruitment':    renderRecruitmentModule,
     'hr-dashboard':   renderHRDashboard,
     'my-profile':     renderMyProfile,
     'personal':       () => renderAppSheetEmbed('Personal Dashboard','Your personal workspace — tasks, leave, payslips & more', 'personal'),
@@ -2839,6 +2840,7 @@ function renderAppSheetEmbed(title, desc, appKey) {
 // ══════════════════════════════════════════════════
 //  SCM DASHBOARD — Purchase Orders
 // ══════════════════════════════════════════════════
+const RECRUITMENT_SHEET_ID = 'YOUR_RECRUITMENT_SHEET_ID'; // ← Set after sheet created
 const PO_SHEET_ID      = '1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c';
 const PO_TAB           = 'PO_Actual'; // gid 1458467853 — replaces legacy 'PO' tab as of v3.4.0
 const PAYMENT_SHEET_ID = '1mLddxLRf719EaXE9XSET9gT8l0a8Cxns362yIbHo63g'; // Account View – PaymentRequest tab
@@ -4822,6 +4824,7 @@ const MODULE_REGISTRY = [
   { route:'personal',          label:'Personal Dashboard',     section:'HR & People',      defStatus:'live', defRoles:['md','hr','dept_head'] },
   { route:'my-profile',        label:'My Profile',             section:'HR & People',      defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
   { route:'onboarding',        label:'Onboarding',             section:'HR & People',      defStatus:'live', defRoles:['md','hr'] },
+  { route:'recruitment',       label:'Recruitment',            section:'HR & People',      defStatus:'dev',  defRoles:['md','hr','dept_head','site'] },
   { route:'policies',          label:'Policies Hub',           section:'HR & People',      defStatus:'live', defRoles:['md','hr','site','employee','dept_head'] },
 
   // ── Site Ops ──────────────────────────────────────────────────
@@ -14900,3 +14903,774 @@ document.addEventListener('click', function(e) {
   }
 });
 
+
+// ════════════════════════════════════════════════════════════════
+//  RECRUITMENT MODULE  (v1.0  ·  Sessions 4 + 5)
+//  Route:  'recruitment'  hosted on hr.html
+//  Roles:  md · hr · dept_head · site (MRF raise only for site)
+// ════════════════════════════════════════════════════════════════
+
+// RECRUITMENT_SHEET_ID declared at top of portal-bundle.js (line ~2843)
+
+// ── Status config ──────────────────────────────────────────────
+const RC_STATUS = {
+  'Pending HR Review':   { color:'#d97706', bg:'#fffbeb', dot:'🟡' },
+  'Pending MD Approval': { color:'#2563eb', bg:'#eff6ff', dot:'🔵' },
+  'Open':                { color:'#16a34a', bg:'#f0fdf4', dot:'🟢' },
+  'Returned':            { color:'#dc2626', bg:'#fef2f2', dot:'🔴' },
+  'Rejected':            { color:'#dc2626', bg:'#fef2f2', dot:'🔴' },
+  'Closed – Filled':     { color:'#6b7280', bg:'#f9fafb', dot:'⚫' },
+  'Closed – Cancelled':  { color:'#9ca3af', bg:'#f9fafb', dot:'⚫' },
+};
+
+// ── Session state ──────────────────────────────────────────────
+let _rcTab   = 'requisitions';  // active tab key
+let _rcMRFs  = null;            // null = not loaded yet
+let _rcLoading = false;
+
+// ══════════════════════════════════════════════════════════════
+//  ENTRY POINT
+// ══════════════════════════════════════════════════════════════
+function renderRecruitmentModule() {
+  const el   = document.getElementById('mainContent');
+  const role = STATE.role;
+
+  if (!STATE.mastersLoaded) {
+    el.innerHTML = `<div style="text-align:center;padding:3rem;color:var(--txt3)">⏳ Loading master data…</div>`;
+    loadAllMasters().then(() => renderRecruitmentModule());
+    return;
+  }
+
+  const tabs = [
+    { key:'overview',      label:'Overview',      icon:'📊', roles:['md','hr'] },
+    { key:'requisitions',  label:'Requisitions',  icon:'📋', roles:['md','hr','dept_head','site'] },
+    { key:'offer-letters', label:'Offer Letters', icon:'📄', roles:['md','hr'] },
+    { key:'pre-joining',   label:'Pre-Joining',   icon:'☑️', roles:['md','hr'] },
+    { key:'joining',       label:'Joining',       icon:'🎯', roles:['md','hr'] },
+  ].filter(t => t.roles.includes(role));
+
+  if (!tabs.find(t => t.key === _rcTab)) _rcTab = tabs[0]?.key || 'requisitions';
+
+  const canRaise = ['md','hr','dept_head','site'].includes(role);
+
+  el.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-row">
+        <div>
+          <h1>👥 Recruitment</h1>
+          <p>Manpower requisitions · Offer letters · Pre-joining · Joining</p>
+        </div>
+        ${canRaise ? `<button class="btn btn-primary btn-sm" onclick="_rcOpenMRFForm()">+ New MRF</button>` : ''}
+      </div>
+    </div>
+
+    <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:1.4rem;overflow-x:auto">
+      ${tabs.map(t => `
+        <button id="rc-tab-${t.key}" onclick="_rcSwitchTab('${t.key}')"
+          style="padding:.55rem 1.1rem;background:none;border:none;cursor:pointer;font-size:.82rem;font-weight:${_rcTab===t.key?'600':'400'};
+                 color:${_rcTab===t.key?'var(--g7)':'var(--txt3)'};white-space:nowrap;
+                 border-bottom:${_rcTab===t.key?'2px solid var(--g7)':'2px solid transparent'};
+                 margin-bottom:-2px;transition:all .15s">
+          ${t.icon}&nbsp;${t.label}
+        </button>`).join('')}
+    </div>
+
+    <div id="rc-panel"></div>
+
+    <!-- MRF Modal -->
+    <div id="rc-modal" onclick="_rcModalBg(event)"
+      style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;overflow-y:auto;padding:2rem 1rem">
+      <div onclick="event.stopPropagation()"
+        style="background:var(--surface1,#fff);border-radius:16px;max-width:700px;margin:0 auto;
+               box-shadow:0 20px 60px rgba(0,0,0,.25)">
+        <div style="padding:1.1rem 1.4rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:.95rem;font-weight:600;color:var(--g7)" id="rc-modal-title">📋 Manpower Requisition Form</div>
+            <div style="font-size:.74rem;color:var(--txt3);margin-top:2px">All fields marked * are required</div>
+          </div>
+          <button onclick="_rcCloseModal()" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--txt3)">✕</button>
+        </div>
+        <div id="rc-modal-body" style="padding:1.4rem 1.5rem 1.8rem"></div>
+      </div>
+    </div>
+  `;
+
+  _rcRenderPanel();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  TAB SWITCHER
+// ══════════════════════════════════════════════════════════════
+function _rcSwitchTab(key) {
+  _rcTab = key;
+  document.querySelectorAll('[id^="rc-tab-"]').forEach(b => {
+    const active = b.id === 'rc-tab-' + key;
+    b.style.fontWeight   = active ? '600' : '400';
+    b.style.color        = active ? 'var(--g7)' : 'var(--txt3)';
+    b.style.borderBottom = active ? '2px solid var(--g7)' : '2px solid transparent';
+  });
+  _rcRenderPanel();
+}
+
+function _rcRenderPanel() {
+  const fns = {
+    overview:       _rcRenderOverview,
+    requisitions:   _rcRenderRequisitions,
+    'offer-letters': _rcRenderOfferLetters,
+    'pre-joining':  _rcRenderPreJoining,
+    joining:        _rcRenderJoining,
+  };
+  (fns[_rcTab] || _rcRenderRequisitions)();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  OVERVIEW TAB  — KPI cards
+// ══════════════════════════════════════════════════════════════
+function _rcRenderOverview() {
+  const panel = document.getElementById('rc-panel');
+  const mrfs  = _rcMRFs || [];
+
+  const open    = mrfs.filter(m => m.status === 'Open').length;
+  const pending = mrfs.filter(m => ['Pending HR Review','Pending MD Approval'].includes(m.status)).length;
+  const offers  = 0;  // populated when offer tracker is built
+  const joining = 0;  // populated when joining tab is built
+
+  // Avg days to hire (MRF created to Closed–Filled)
+  const filled = mrfs.filter(m => m.status === 'Closed – Filled' && m.createdAt && m.closedAt);
+  const avgDays = filled.length
+    ? Math.round(filled.reduce((s,m) => s + (new Date(m.closedAt)-new Date(m.createdAt))/86400000, 0) / filled.length)
+    : '—';
+
+  const card = (icon, value, label, sub, color) => `
+    <div class="card card-pad" style="flex:1;min-width:140px">
+      <div style="font-size:1.6rem;margin-bottom:.4rem">${icon}</div>
+      <div style="font-size:1.8rem;font-weight:700;color:${color||'var(--g7)'};line-height:1">${value}</div>
+      <div style="font-size:.78rem;font-weight:600;color:var(--txt1);margin-top:.3rem">${label}</div>
+      <div style="font-size:.72rem;color:var(--txt3);margin-top:.15rem">${sub}</div>
+    </div>`;
+
+  panel.innerHTML = `
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.4rem">
+      ${card('📂', open,    'Open positions',         'Approved MRFs awaiting candidates', '#16a34a')}
+      ${card('⏳', pending, 'Pending approval',       'Awaiting HR or MD action',           '#d97706')}
+      ${card('📄', offers,  'Offers pending',         'Sent, awaiting acceptance',          '#2563eb')}
+      ${card('🎯', joining, 'Joining confirmed',       'This month',                         '#7c3aed')}
+      ${card('⏱️', avgDays, 'Avg days to hire',       'MRF raised to offer accepted',       '#0891b2')}
+    </div>
+
+    <div class="card card-pad">
+      <div style="font-weight:600;margin-bottom:.8rem;color:var(--txt1)">MRF status breakdown</div>
+      ${mrfs.length === 0
+        ? `<p style="color:var(--txt3);font-size:.82rem">No MRFs raised yet.</p>`
+        : _rcStatusBreakdownHtml(mrfs)}
+    </div>
+
+    ${pending > 0 ? `
+    <div style="margin-top:1rem">
+      <div class="card card-pad" style="border-left:3px solid #d97706">
+        <div style="font-weight:600;margin-bottom:.6rem;color:#d97706">⏳ Pending your action (${pending})</div>
+        ${_rcPendingListHtml(mrfs)}
+      </div>
+    </div>` : ''}
+  `;
+}
+
+function _rcStatusBreakdownHtml(mrfs) {
+  const counts = {};
+  mrfs.forEach(m => { counts[m.status] = (counts[m.status]||0) + 1; });
+  return Object.entries(counts).map(([s, c]) => {
+    const cfg = RC_STATUS[s] || { color:'#6b7280', bg:'#f9fafb' };
+    const pct = Math.round(c/mrfs.length*100);
+    return `
+      <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:.5rem">
+        <span style="font-size:.75rem;color:${cfg.color};background:${cfg.bg};padding:2px 8px;border-radius:20px;white-space:nowrap;min-width:160px">${s}</span>
+        <div style="flex:1;height:6px;background:var(--border);border-radius:3px">
+          <div style="width:${pct}%;height:6px;background:${cfg.color};border-radius:3px"></div>
+        </div>
+        <span style="font-size:.78rem;font-weight:600;color:var(--txt2);min-width:20px">${c}</span>
+      </div>`;
+  }).join('');
+}
+
+function _rcPendingListHtml(mrfs) {
+  const role = STATE.role;
+  const pending = mrfs.filter(m =>
+    (role === 'md' && m.status === 'Pending MD Approval') ||
+    (role === 'hr' && m.status === 'Pending HR Review')
+  );
+  if (!pending.length) return `<p style="color:var(--txt3);font-size:.82rem">Nothing pending your action.</p>`;
+  return pending.slice(0,5).map(m => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:.5rem 0;border-bottom:1px solid var(--border)">
+      <div>
+        <span style="font-weight:600;font-size:.83rem;color:var(--txt1)">${m.position}</span>
+        <span style="font-size:.75rem;color:var(--txt3);margin-left:.5rem">${m.site||'—'} · ${m.dept||'—'}</span>
+      </div>
+      <button class="btn btn-sm btn-secondary" onclick="_rcSwitchTab('requisitions');_rcHighlightMRF('${m.id}')">Review →</button>
+    </div>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  REQUISITIONS TAB  — MRF table + filters
+// ══════════════════════════════════════════════════════════════
+function _rcRenderRequisitions() {
+  const panel = document.getElementById('rc-panel');
+  panel.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--txt3)">⏳ Loading requisitions…</div>`;
+  _rcLoadMRFs().then(() => _rcDrawRequisitionsTable());
+}
+
+async function _rcLoadMRFs() {
+  if (_rcMRFs !== null) return; // already loaded this session
+  _rcLoading = true;
+
+  // Load from localStorage (dev fallback) — will swap to Apps Script fetch when sheet is ready
+  const stored = localStorage.getItem('evgcpl_mrf_v1');
+  _rcMRFs = stored ? JSON.parse(stored) : [];
+
+  // TODO: When RECRUITMENT_SHEET_ID is set, replace with:
+  // const rows = await fetchSheet(RECRUITMENT_SHEET_ID, 'MRF_Register');
+  // _rcMRFs = rows;
+
+  _rcLoading = false;
+}
+
+function _rcPersist() {
+  localStorage.setItem('evgcpl_mrf_v1', JSON.stringify(_rcMRFs));
+}
+
+function _rcDrawRequisitionsTable() {
+  const panel = document.getElementById('rc-panel');
+  const role  = STATE.role;
+  const mrfs  = _rcMRFs || [];
+
+  // Filter controls
+  const statuses = ['All', ...Object.keys(RC_STATUS)];
+  const sites    = ['All', ...(STATE.masters.sites||[]).filter(s=>s.status==='ACTIVE').map(s=>s.name).sort()];
+
+  panel.innerHTML = `
+    <!-- Filters -->
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1rem;align-items:center">
+      <select id="rc-filt-status" onchange="_rcDrawRequisitionsTable()"
+        style="font-size:.78rem;padding:.35rem .6rem;border:1px solid var(--border);border-radius:8px;background:var(--surface1);color:var(--txt1)">
+        ${statuses.map(s=>`<option>${s}</option>`).join('')}
+      </select>
+      <select id="rc-filt-site" onchange="_rcDrawRequisitionsTable()"
+        style="font-size:.78rem;padding:.35rem .6rem;border:1px solid var(--border);border-radius:8px;background:var(--surface1);color:var(--txt1)">
+        ${sites.map(s=>`<option>${s}</option>`).join('')}
+      </select>
+      <input id="rc-filt-q" oninput="_rcDrawRequisitionsTable()" placeholder="Search position, dept…"
+        style="font-size:.78rem;padding:.35rem .7rem;border:1px solid var(--border);border-radius:8px;background:var(--surface1);color:var(--txt1);min-width:180px">
+      <span style="font-size:.74rem;color:var(--txt3);margin-left:auto" id="rc-count"></span>
+    </div>
+
+    <!-- Table -->
+    <div style="overflow-x:auto;border-radius:10px;border:1px solid var(--border)">
+      <table class="emp-table" style="min-width:820px">
+        <thead>
+          <tr>
+            <th>MRF ID</th>
+            <th>Position</th>
+            <th>Dept</th>
+            <th>Site</th>
+            <th style="text-align:center">Vac.</th>
+            <th>Type</th>
+            <th>Required By</th>
+            <th>Raised By</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="rc-mrf-tbody"></tbody>
+      </table>
+    </div>
+
+    ${mrfs.length === 0 ? `
+      <div style="text-align:center;padding:3rem;color:var(--txt3)">
+        <div style="font-size:2rem;margin-bottom:.5rem">📋</div>
+        <p style="font-weight:600;color:var(--txt2)">No MRFs yet</p>
+        <p style="font-size:.8rem;margin-top:.3rem">Click "+ New MRF" to raise the first manpower request.</p>
+      </div>` : ''}
+  `;
+
+  _rcApplyFiltersAndDraw();
+  setTimeout(() => {
+    const t = document.querySelector('#rc-panel .emp-table');
+    if (t) { makeTableSortable(t); wrapTableScroll(t); }
+  }, 80);
+}
+
+function _rcApplyFiltersAndDraw() {
+  const q       = (document.getElementById('rc-filt-q')?.value||'').toLowerCase();
+  const status  = document.getElementById('rc-filt-status')?.value || 'All';
+  const site    = document.getElementById('rc-filt-site')?.value   || 'All';
+  const role    = STATE.role;
+
+  let rows = (_rcMRFs || []);
+
+  // Site role sees only their site's MRFs
+  if (role === 'site') {
+    const mySite = (STATE.user?.site||'').toLowerCase();
+    rows = rows.filter(m => (m.site||'').toLowerCase() === mySite || m.raisedByEmail === STATE.user?.email);
+  }
+  // Dept head sees only their dept
+  if (role === 'dept_head') {
+    const myDept = (STATE.deptHeadDept||'').toLowerCase();
+    rows = rows.filter(m => (m.dept||'').toLowerCase().includes(myDept) || m.raisedByEmail === STATE.user?.email);
+  }
+
+  if (status !== 'All') rows = rows.filter(m => m.status === status);
+  if (site   !== 'All') rows = rows.filter(m => m.site   === site);
+  if (q) rows = rows.filter(m =>
+    (m.position||'').toLowerCase().includes(q) ||
+    (m.dept||'').toLowerCase().includes(q) ||
+    (m.id||'').toLowerCase().includes(q)
+  );
+
+  const tbody = document.getElementById('rc-mrf-tbody');
+  const cntEl = document.getElementById('rc-count');
+  if (cntEl) cntEl.textContent = `${rows.length} MRF${rows.length===1?'':'s'}`;
+
+  if (!tbody) return;
+
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--txt3)">No MRFs match current filters.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(m => {
+    const cfg = RC_STATUS[m.status] || { color:'#6b7280', bg:'#f9fafb' };
+    const actions = _rcMRFActions(m, role);
+    return `
+      <tr id="rc-mrf-row-${m.id}" style="transition:background .3s">
+        <td style="font-size:.74rem;font-family:monospace;color:var(--g7)">${m.id||'—'}</td>
+        <td style="font-weight:500">${m.position||'—'}</td>
+        <td style="font-size:.78rem">${m.dept||'—'}</td>
+        <td style="font-size:.78rem">${m.site||'—'}</td>
+        <td style="text-align:center;font-weight:600">${m.vacancies||1}</td>
+        <td style="font-size:.76rem">${m.type||'—'}</td>
+        <td style="font-size:.76rem">${m.requiredBy||'—'}</td>
+        <td style="font-size:.75rem;color:var(--txt3)">${m.raisedBy||'—'}</td>
+        <td>
+          <span style="font-size:.72rem;padding:2px 8px;border-radius:20px;background:${cfg.bg};color:${cfg.color};white-space:nowrap">${m.status||'—'}</span>
+        </td>
+        <td style="white-space:nowrap">${actions}</td>
+      </tr>`;
+  }).join('');
+}
+
+function _rcMRFActions(m, role) {
+  const btns = [];
+
+  // View always
+  btns.push(`<button class="btn btn-sm btn-secondary" onclick="_rcViewMRF('${m.id}')" style="font-size:.72rem;padding:3px 9px">View</button>`);
+
+  // Edit — only if pending and raised by current user OR HR/MD
+  if (['Pending HR Review'].includes(m.status) && ['md','hr'].includes(role)) {
+    btns.push(`<button class="btn btn-sm btn-secondary" onclick="_rcEditMRFForm('${m.id}')" style="font-size:.72rem;padding:3px 9px">Edit</button>`);
+  }
+
+  // HR actions
+  if (role === 'hr' && m.status === 'Pending HR Review') {
+    btns.push(`<button class="btn btn-sm" onclick="_rcHRApprove('${m.id}')" style="font-size:.72rem;padding:3px 9px;background:#16a34a;color:#fff;border:none;border-radius:6px;cursor:pointer">Forward →</button>`);
+    btns.push(`<button class="btn btn-sm" onclick="_rcReturn('${m.id}')" style="font-size:.72rem;padding:3px 9px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer">Return</button>`);
+  }
+
+  // MD actions
+  if (role === 'md' && m.status === 'Pending MD Approval') {
+    btns.push(`<button class="btn btn-sm" onclick="_rcMDApprove('${m.id}')" style="font-size:.72rem;padding:3px 9px;background:#16a34a;color:#fff;border:none;border-radius:6px;cursor:pointer">Approve ✓</button>`);
+    btns.push(`<button class="btn btn-sm" onclick="_rcReject('${m.id}')" style="font-size:.72rem;padding:3px 9px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer">Reject</button>`);
+  }
+
+  return `<div style="display:flex;gap:4px;flex-wrap:wrap">${btns.join('')}</div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MRF FORM  (New + Edit)
+// ══════════════════════════════════════════════════════════════
+function _rcOpenMRFForm(editId) {
+  const modal = document.getElementById('rc-modal');
+  const body  = document.getElementById('rc-modal-body');
+  const title = document.getElementById('rc-modal-title');
+  if (!modal || !body) return;
+
+  const mrf   = editId ? (_rcMRFs||[]).find(m => m.id === editId) : null;
+  const isEdit = !!mrf;
+  if (title) title.textContent = isEdit ? '✏️ Edit MRF — ' + mrf.id : '📋 Manpower Requisition Form';
+
+  const users = (STATE.masters.users||[]).filter(u => u.status==='ACTIVE').sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const sites = (STATE.masters.sites||[]).filter(s=>s.status==='ACTIVE').map(s=>s.name).sort();
+  const depts = [...new Set((STATE.masters.users||[]).map(u=>u.dept).filter(Boolean))].sort();
+
+  const v = (f, def='') => mrf ? (mrf[f]||def) : def;
+
+  body.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+
+      <div style="grid-column:1/-1">
+        <label class="form-label" style="font-size:.78rem;font-weight:600;color:var(--txt2)">Position Title *</label>
+        <input id="rc-f-position" value="${v('position')}" placeholder="e.g. Site Engineer"
+          style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-size:.83rem;background:var(--surface1);color:var(--txt1);margin-top:.25rem">
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;font-weight:600;color:var(--txt2)">Department *</label>
+        <select id="rc-f-dept" style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-size:.83rem;background:var(--surface1);color:var(--txt1);margin-top:.25rem">
+          <option value="">— Select dept —</option>
+          ${depts.map(d=>`<option${v('dept')===d?' selected':''}>${d}</option>`).join('')}
+        </select>
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;font-weight:600;color:var(--txt2)">Site *</label>
+        <select id="rc-f-site" style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-size:.83rem;background:var(--surface1);color:var(--txt1);margin-top:.25rem">
+          <option value="">— Select site —</option>
+          ${sites.map(s=>`<option${v('site')===s?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;font-weight:600;color:var(--txt2)">No. of Vacancies *</label>
+        <input id="rc-f-vac" type="number" min="1" value="${v('vacancies','1')}"
+          style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-size:.83rem;background:var(--surface1);color:var(--txt1);margin-top:.25rem">
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;font-weight:600;color:var(--txt2)">Type *</label>
+        <div style="display:flex;gap:1rem;margin-top:.5rem">
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;cursor:pointer">
+            <input type="radio" name="rc-f-type" value="New Position" ${v('type','New Position')==='New Position'?'checked':''}>
+            New Position
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;cursor:pointer">
+            <input type="radio" name="rc-f-type" value="Replacement" ${v('type')==='Replacement'?'checked':''}>
+            Replacement
+          </label>
+        </div>
+      </div>
+
+      <div id="rc-f-replace-wrap" style="display:${v('type')==='Replacement'?'block':'none'}">
+        <label style="font-size:.78rem;font-weight:600;color:var(--txt2)">Replacing (employee name)</label>
+        <input id="rc-f-replace" value="${v('replacing')}" placeholder="Name of departing employee"
+          style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-size:.83rem;background:var(--surface1);color:var(--txt1);margin-top:.25rem">
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;font-weight:600;color:var(--txt2)">Required By Date *</label>
+        <input id="rc-f-reqby" type="date" value="${v('requiredBy')}"
+          style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-size:.83rem;background:var(--surface1);color:var(--txt1);margin-top:.25rem">
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;font-weight:600;color:var(--txt2)">Reporting To</label>
+        <select id="rc-f-reportto" style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-size:.83rem;background:var(--surface1);color:var(--txt1);margin-top:.25rem">
+          <option value="">— Select manager —</option>
+          ${users.map(u=>`<option value="${u.empCode||u.name}" ${v('reportingTo')===(u.empCode||u.name)?' selected':''}>${u.name}${u.empCode?' ('+u.empCode+')':''}</option>`).join('')}
+        </select>
+      </div>
+
+      <div style="grid-column:1/-1">
+        <label style="font-size:.78rem;font-weight:600;color:var(--txt2)">Skills Required</label>
+        <textarea id="rc-f-skills" rows="2" placeholder="Key skills, qualifications, experience required…"
+          style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-size:.83rem;background:var(--surface1);color:var(--txt1);resize:vertical;margin-top:.25rem">${v('skills')}</textarea>
+      </div>
+
+      <div style="grid-column:1/-1">
+        <label style="font-size:.78rem;font-weight:600;color:var(--txt2)">Reason / Justification *</label>
+        <textarea id="rc-f-reason" rows="2" placeholder="Why is this position needed?"
+          style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-size:.83rem;background:var(--surface1);color:var(--txt1);resize:vertical;margin-top:.25rem">${v('reason')}</textarea>
+      </div>
+
+      <div>
+        <label style="font-size:.78rem;font-weight:600;color:var(--txt2)">Annual Salary Budget (₹)</label>
+        <input id="rc-f-budget" type="number" value="${v('budget')}" placeholder="Optional — CTC in rupees"
+          style="width:100%;padding:.45rem .7rem;border:1px solid var(--border);border-radius:8px;font-size:.83rem;background:var(--surface1);color:var(--txt1);margin-top:.25rem">
+      </div>
+
+    </div>
+
+    <!-- Radio toggle for replacement field -->
+    <div style="margin-top:1.2rem;padding-top:1rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:.7rem">
+      <button onclick="_rcCloseModal()" class="btn btn-secondary btn-sm">Cancel</button>
+      <button onclick="_rcSubmitMRF('${isEdit?mrf.id:''}')" class="btn btn-primary btn-sm" id="rc-submit-btn">
+        ${isEdit ? 'Save Changes' : 'Submit MRF'}
+      </button>
+    </div>
+  `;
+
+  // Radio change → show/hide replacing field
+  document.querySelectorAll('input[name="rc-f-type"]').forEach(r => {
+    r.addEventListener('change', () => {
+      const wrap = document.getElementById('rc-f-replace-wrap');
+      if (wrap) wrap.style.display = r.value === 'Replacement' ? 'block' : 'none';
+    });
+  });
+
+  modal.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+}
+
+function _rcEditMRFForm(id) { _rcOpenMRFForm(id); }
+
+function _rcCloseModal() {
+  const modal = document.getElementById('rc-modal');
+  if (modal) modal.style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function _rcModalBg(e) {
+  if (e.target.id === 'rc-modal') _rcCloseModal();
+}
+
+// ── Form submission ────────────────────────────────────────────
+async function _rcSubmitMRF(editId) {
+  const get = id => (document.getElementById(id)?.value||'').trim();
+  const position  = get('rc-f-position');
+  const dept      = get('rc-f-dept');
+  const site      = get('rc-f-site');
+  const vacancies = parseInt(get('rc-f-vac')||'1');
+  const type      = document.querySelector('input[name="rc-f-type"]:checked')?.value || 'New Position';
+  const reqBy     = get('rc-f-reqby');
+  const reason    = get('rc-f-reason');
+
+  // Validate required fields
+  if (!position || !dept || !site || !reqBy || !reason) {
+    const missing = [!position&&'Position',!dept&&'Department',!site&&'Site',!reqBy&&'Required By Date',!reason&&'Reason'].filter(Boolean);
+    alert('Please fill in: ' + missing.join(', '));
+    return;
+  }
+
+  const btn = document.getElementById('rc-submit-btn');
+  if (btn) { btn.textContent = 'Saving…'; btn.disabled = true; }
+
+  const now   = new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata' });
+  const email = STATE.user?.email || '';
+  const name  = STATE.user?.name  || email;
+
+  if (editId) {
+    // Edit existing
+    const idx = (_rcMRFs||[]).findIndex(m => m.id === editId);
+    if (idx >= 0) {
+      Object.assign(_rcMRFs[idx], {
+        position, dept, site, vacancies, type,
+        replacing: get('rc-f-replace'),
+        requiredBy: reqBy,
+        reportingTo: get('rc-f-reportto'),
+        skills: get('rc-f-skills'),
+        reason, budget: get('rc-f-budget'),
+        updatedAt: now, updatedBy: name,
+      });
+    }
+  } else {
+    // New MRF
+    const newMRF = {
+      id:         _rcGenMRFId(),
+      position, dept, site, vacancies, type,
+      replacing:  get('rc-f-replace'),
+      requiredBy: reqBy,
+      reportingTo: get('rc-f-reportto'),
+      skills:     get('rc-f-skills'),
+      reason,
+      budget:     get('rc-f-budget'),
+      status:     'Pending HR Review',
+      raisedBy:   name,
+      raisedByEmail: email,
+      createdAt:  now,
+    };
+    _rcMRFs = [newMRF, ...(_rcMRFs||[])];
+  }
+
+  // Persist locally
+  _rcPersist();
+
+  // POST to Apps Script (non-blocking — fails gracefully if sheet not set up yet)
+  _rcPostAction({ action: editId ? 'updateMRF' : 'saveMRF', mrf: editId ? _rcMRFs.find(m=>m.id===editId) : _rcMRFs[0] });
+
+  _rcCloseModal();
+  _rcTab = 'requisitions';
+  _rcDrawRequisitionsTable();
+
+  // Toast
+  _showRcToast(editId ? '✏️ MRF updated' : '✅ MRF submitted — Pending HR Review');
+}
+
+function _rcGenMRFId() {
+  const yr  = new Date().getFullYear();
+  const existing = (_rcMRFs||[]).filter(m => m.id && m.id.startsWith('MRF-'+yr+'-'));
+  const next = existing.length + 1;
+  return `MRF-${yr}-${String(next).padStart(3,'0')}`;
+}
+
+// ── View MRF detail ────────────────────────────────────────────
+function _rcViewMRF(id) {
+  const mrf = (_rcMRFs||[]).find(m => m.id === id);
+  if (!mrf) return;
+  const modal = document.getElementById('rc-modal');
+  const body  = document.getElementById('rc-modal-body');
+  const title = document.getElementById('rc-modal-title');
+  if (!modal || !body) return;
+
+  if (title) title.textContent = '📋 MRF Details — ' + mrf.id;
+  const cfg = RC_STATUS[mrf.status] || { color:'#6b7280', bg:'#f9fafb' };
+
+  const row = (label, value) => value
+    ? `<div style="display:flex;gap:.5rem;padding:.4rem 0;border-bottom:1px solid var(--border)">
+         <span style="font-size:.76rem;color:var(--txt3);min-width:140px;flex-shrink:0">${label}</span>
+         <span style="font-size:.8rem;color:var(--txt1)">${value}</span>
+       </div>` : '';
+
+  body.innerHTML = `
+    <div style="margin-bottom:1rem">
+      <span style="font-size:.78rem;padding:3px 12px;border-radius:20px;background:${cfg.bg};color:${cfg.color};font-weight:600">${mrf.status}</span>
+    </div>
+    ${row('MRF ID', mrf.id)}
+    ${row('Position', mrf.position)}
+    ${row('Department', mrf.dept)}
+    ${row('Site', mrf.site)}
+    ${row('Vacancies', mrf.vacancies)}
+    ${row('Type', mrf.type + (mrf.replacing ? ' — replacing ' + mrf.replacing : ''))}
+    ${row('Required By', mrf.requiredBy)}
+    ${row('Reporting To', mrf.reportingTo)}
+    ${row('Skills Required', mrf.skills)}
+    ${row('Reason / Justification', mrf.reason)}
+    ${row('Salary Budget', mrf.budget ? '₹' + Number(mrf.budget).toLocaleString('en-IN') + ' p.a.' : '')}
+    ${row('Raised By', mrf.raisedBy)}
+    ${row('Created', mrf.createdAt)}
+    ${row('Updated', mrf.updatedAt)}
+    ${mrf.hrRemarks ? row('HR Remarks', mrf.hrRemarks) : ''}
+    ${mrf.mdRemarks ? row('MD Remarks', mrf.mdRemarks) : ''}
+
+    <div style="margin-top:1.2rem;padding-top:.8rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end">
+      <button onclick="_rcCloseModal()" class="btn btn-secondary btn-sm">Close</button>
+    </div>
+  `;
+  modal.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+}
+
+// ── Highlight row after tab switch ─────────────────────────────
+function _rcHighlightMRF(id) {
+  setTimeout(() => {
+    const row = document.getElementById('rc-mrf-row-' + id);
+    if (row) {
+      row.style.background = '#fffbeb';
+      row.scrollIntoView({ behavior:'smooth', block:'center' });
+      setTimeout(() => row.style.background = '', 2000);
+    }
+  }, 300);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  STATUS TRANSITIONS
+// ══════════════════════════════════════════════════════════════
+function _rcUpdateStatus(id, newStatus, remarks) {
+  const mrf = (_rcMRFs||[]).find(m => m.id === id);
+  if (!mrf) return;
+  const now   = new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
+  const actor = STATE.user?.name || STATE.user?.email || '';
+  mrf.status    = newStatus;
+  mrf.updatedAt = now;
+  mrf.updatedBy = actor;
+  if (remarks) {
+    if (STATE.role === 'hr') mrf.hrRemarks = remarks;
+    if (STATE.role === 'md') mrf.mdRemarks = remarks;
+  }
+  if (['Closed – Filled','Closed – Cancelled'].includes(newStatus)) mrf.closedAt = now;
+
+  _rcPersist();
+  _rcPostAction({ action:'updateMRFStatus', id, status:newStatus, remarks, actor, updatedAt:now });
+}
+
+function _rcHRApprove(id) {
+  const mrf = (_rcMRFs||[]).find(m => m.id === id);
+  if (!mrf) return;
+  const remarks = prompt('Forward to MD — any notes to add? (optional)');
+  if (remarks === null) return; // cancelled
+  _rcUpdateStatus(id, 'Pending MD Approval', remarks);
+  _rcDrawRequisitionsTable();
+  _showRcToast('🔵 MRF forwarded to MD for approval');
+}
+
+function _rcMDApprove(id) {
+  if (!confirm('Approve this MRF and open the position?')) return;
+  _rcUpdateStatus(id, 'Open');
+  _rcDrawRequisitionsTable();
+  _showRcToast('✅ MRF approved — position is now Open');
+}
+
+function _rcReturn(id) {
+  const remarks = prompt('Reason for returning this MRF:');
+  if (!remarks || !remarks.trim()) return;
+  _rcUpdateStatus(id, 'Returned', remarks.trim());
+  _rcDrawRequisitionsTable();
+  _showRcToast('↩️ MRF returned with remarks');
+}
+
+function _rcReject(id) {
+  const remarks = prompt('Reason for rejection:');
+  if (!remarks || !remarks.trim()) return;
+  _rcUpdateStatus(id, 'Rejected', remarks.trim());
+  _rcDrawRequisitionsTable();
+  _showRcToast('❌ MRF rejected');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PLACEHOLDER TABS  (built in later sessions)
+// ══════════════════════════════════════════════════════════════
+function _rcRenderOfferLetters() {
+  document.getElementById('rc-panel').innerHTML = `
+    <div class="card card-pad" style="text-align:center;padding:3rem">
+      <div style="font-size:2.5rem;margin-bottom:.6rem">📄</div>
+      <h3 style="color:var(--g7);margin-bottom:.4rem">Offer Letters</h3>
+      <p style="color:var(--txt3);font-size:.82rem">Generate, preview and dispatch offer letters.<br>Built in Session 6–7.</p>
+      <div style="margin-top:1rem;font-size:.75rem;color:var(--txt4);background:var(--surface2);border-radius:8px;padding:.6rem 1rem;display:inline-block">🔨 Coming — Sessions 6 &amp; 7</div>
+    </div>`;
+}
+
+function _rcRenderPreJoining() {
+  document.getElementById('rc-panel').innerHTML = `
+    <div class="card card-pad" style="text-align:center;padding:3rem">
+      <div style="font-size:2.5rem;margin-bottom:.6rem">☑️</div>
+      <h3 style="color:var(--g7);margin-bottom:.4rem">Pre-Joining Checklist</h3>
+      <p style="color:var(--txt3);font-size:.82rem">10-item checklist per joiner. Date-stamped.<br>Built in Session 9.</p>
+      <div style="margin-top:1rem;font-size:.75rem;color:var(--txt4);background:var(--surface2);border-radius:8px;padding:.6rem 1rem;display:inline-block">🔨 Coming — Session 9</div>
+    </div>`;
+}
+
+function _rcRenderJoining() {
+  document.getElementById('rc-panel').innerHTML = `
+    <div class="card card-pad" style="text-align:center;padding:3rem">
+      <div style="font-size:2.5rem;margin-bottom:.6rem">🎯</div>
+      <h3 style="color:var(--g7);margin-bottom:.4rem">Joining &amp; Conversion</h3>
+      <p style="color:var(--txt3);font-size:.82rem">Mark as joined · Appointment letter tracking · Convert to employee.<br>Built in Session 10.</p>
+      <div style="margin-top:1rem;font-size:.75rem;color:var(--txt4);background:var(--surface2);border-radius:8px;padding:.6rem 1rem;display:inline-block">🔨 Coming — Session 10</div>
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  APPS SCRIPT BRIDGE
+// ══════════════════════════════════════════════════════════════
+function _rcPostAction(payload) {
+  // Silently fails if sheet not configured — localStorage is source of truth for now
+  if (!RECRUITMENT_SHEET_ID || RECRUITMENT_SHEET_ID === 'YOUR_RECRUITMENT_SHEET_ID') return;
+  fetch(APPS_SCRIPT_URL, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain'},
+    body: JSON.stringify({ ...payload, sheetId: RECRUITMENT_SHEET_ID })
+  }).catch(() => {}); // non-blocking
+}
+
+// ══════════════════════════════════════════════════════════════
+//  TOAST
+// ══════════════════════════════════════════════════════════════
+function _showRcToast(msg) {
+  let t = document.getElementById('rc-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'rc-toast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--g7);color:#fff;padding:10px 20px;border-radius:10px;font-size:.83rem;font-weight:500;z-index:2000;box-shadow:0 6px 20px rgba(0,0,0,.25);opacity:0;transition:opacity .2s';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.style.opacity = '0', 3000);
+}
