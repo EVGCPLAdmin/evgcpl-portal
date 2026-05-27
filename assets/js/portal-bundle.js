@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.4';
-const PORTAL_BUILD    = 377;
-const PORTAL_BUILD_AT = '2026-05-27T02:31:30Z';
+const PORTAL_VERSION  = '3.18.5';
+const PORTAL_BUILD    = 378;
+const PORTAL_BUILD_AT = '2026-05-27T02:44:55Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -15794,31 +15794,79 @@ function _rcOLSubTab(tab) {
   else _rcDrawOLTracker(sub);
 }
 
-function _rcDrawOLForm(container) {
-  const mrfs = (_rcMRFs||[]).filter(m => m.status === 'Open');
-  const d    = _rcOLDraft;
+// ── Designation Master state ──────────────────────────────────
+let _rcDesigMaster = null; // [{desig, grade, dept}]
 
-  // Auto-generate Ref No if not set
-  if (!d.refNo) {
-    const n = ((_rcOffers||[]).length + 1).toString().padStart(3,'0');
-    d.refNo = `EG/M-1/HO-${n}/TAN-INDIA`;
+async function _rcLoadDesigMaster() {
+  if (_rcDesigMaster !== null) return;
+  try {
+    // Try Designation Master tab in Employee Register
+    const rows = await fetchSheet('Designation Master', null, EMP_SHEET_ID);
+    if (rows.length > 0) {
+      _rcDesigMaster = rows
+        .filter(r => r['Designation'] || r['DESIGNATION'] || r['designation'])
+        .map(r => ({
+          desig: r['Designation'] || r['DESIGNATION'] || r['designation'] || '',
+          grade: r['Grade'] || r['GRADE'] || r['grade'] || '',
+          dept:  r['Department'] || r['DEPARTMENT'] || r['dept'] || '',
+        }))
+        .filter(r => r.desig);
+    }
+  } catch(e) {}
+
+  // Fallback: derive unique designations from loaded employee masters
+  if (!_rcDesigMaster || !_rcDesigMaster.length) {
+    const seen = {};
+    (STATE.masters.users || []).forEach(u => {
+      if (u.desig && !seen[u.desig]) {
+        seen[u.desig] = { desig: u.desig, grade: u.grade || '', dept: u.dept || '' };
+      }
+    });
+    _rcDesigMaster = Object.values(seen).sort((a,b) => a.desig.localeCompare(b.desig));
   }
+}
+
+function _rcDrawOLForm(container) {
+  // Ensure masters are loaded, then render
+  Promise.all([_rcLoadDesigMaster()]).then(() => _rcDrawOLFormInner(container));
+}
+
+function _rcDrawOLFormInner(container) {
+  const mrfs  = (_rcMRFs || []).filter(m => m.status === 'Open');
+  const d     = _rcOLDraft;
+  const desigs = _rcDesigMaster || [];
+  const users  = (STATE.masters.users || [])
+    .filter(u => u.status === 'ACTIVE' && u.empCode && u.name)
+    .sort((a,b) => a.name.localeCompare(b.name));
+
+  if (!d.refNo) {
+    const seq = String((_rcOffers||[]).length + 1).padStart(3,'0');
+    d.refNo = `EG/M-1/HO-${seq}/TAN-INDIA`;
+  }
+
+  const desigOpts = desigs.map(ds =>
+    `<option value="${ds.desig}" data-grade="${ds.grade}" ${d.position===ds.desig?'selected':''}>${ds.desig}</option>`
+  ).join('');
+
+  const userOpts = users.map(u =>
+    `<option value="${u.empCode}" data-name="${u.name}" ${d.reportingToCode===u.empCode?'selected':''}>${u.name} — ${u.empCode}${u.desig?' ('+u.desig+')':''}</option>`
+  ).join('');
 
   container.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;align-items:start">
 
-      <!-- LEFT: FORM -->
-      <div class="card card-pad" style="max-height:80vh;overflow-y:auto">
-        <div style="font-weight:600;font-size:.85rem;color:var(--g7);margin-bottom:1rem;border-bottom:1px solid var(--border);padding-bottom:.5rem;position:sticky;top:0;background:var(--surface1,#fff);z-index:1">
-          Candidate &amp; Appointment Details
+      <!-- ═══ LEFT: FORM ═══ -->
+      <div class="card card-pad" style="max-height:82vh;overflow-y:auto">
+        <div style="font-weight:600;font-size:.85rem;color:var(--g7);padding-bottom:.5rem;margin-bottom:.9rem;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface1,#fff);z-index:2">
+          Appointment Letter Details
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.65rem">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
 
-          <!-- MRF link -->
+          <!-- Linked MRF -->
           <div style="grid-column:1/-1">
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Linked MRF (optional)</label>
-            <select id="ol-mrf" onchange="_rcOLMRFChange()" style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">Linked MRF</label>
+            <select id="ol-mrf" onchange="_rcOLMRFChange()"  class="rc-inp">
               <option value="">— Select MRF or fill manually —</option>
               ${mrfs.map(m=>`<option value="${m.id}" ${d.mrfId===m.id?'selected':''}>${m.id} · ${m.position} · ${m.site}</option>`).join('')}
             </select>
@@ -15826,196 +15874,291 @@ function _rcDrawOLForm(container) {
 
           <!-- Ref No -->
           <div>
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Ref No.</label>
-            <input id="ol-refno" value="${d.refNo||''}" oninput="_rcOLField('refNo',this.value)"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.78rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">Ref No. *</label>
+            <input id="ol-refno" value="${d.refNo||''}" oninput="_rcOLField('refNo',this.value)" class="rc-inp">
           </div>
 
-          <!-- Date -->
+          <!-- Offer Date -->
           <div>
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Offer Date</label>
-            <input id="ol-offerdate" type="date" value="${d.offerDate||new Date().toISOString().slice(0,10)}" oninput="_rcOLField('offerDate',this.value)"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">Offer / Letter Date *</label>
+            <input id="ol-offerdate" type="date" value="${d.offerDate||new Date().toISOString().slice(0,10)}" oninput="_rcOLField('offerDate',this.value)" class="rc-inp">
           </div>
 
           <!-- Name -->
           <div style="grid-column:1/-1">
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Candidate Name *</label>
-            <input id="ol-name" value="${d.candidateName||''}" oninput="_rcOLField('candidateName',this.value);_rcOLUpdatePreview()" placeholder="Full name"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">Candidate Name *</label>
+            <input id="ol-name" value="${d.candidateName||''}" oninput="_rcOLField('candidateName',this.value);_rcOLLiveSync('candidateName',this.value)" placeholder="Full name" class="rc-inp">
           </div>
 
-          <!-- Address -->
+          <!-- Address 4-line -->
           <div style="grid-column:1/-1">
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Address (4 lines)</label>
-            ${[1,2,3,4].map(n=>`<input id="ol-addr${n}" value="${d['addr'+n]||''}" oninput="_rcOLField('addr${n}',this.value)" placeholder="Line ${n}${n===1?' (Street / Door No)':n===2?' (Area / Locality)':n===3?' (City, State)':' (PIN)'}"
-              style="width:100%;margin-top:.2rem;padding:.35rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.78rem;background:var(--surface1);color:var(--txt1)">`).join('')}
+            <label class="rc-lbl">Address</label>
+            ${[1,2,3,4].map(n=>`
+            <input id="ol-addr${n}" value="${d['addr'+n]||''}" oninput="_rcOLField('addr${n}',this.value)"
+              placeholder="${n===1?'Door No / Street':n===2?'Area / Locality':n===3?'City, State':'PIN Code'}"
+              class="rc-inp" style="margin-top:${n>1?'.2rem':'0'}">`).join('')}
           </div>
 
-          <!-- Designation -->
+          <!-- ── DESIGNATION from Designation Master ── -->
           <div>
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Designation *</label>
-            <input id="ol-desig" value="${d.position||''}" oninput="_rcOLField('position',this.value)"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">Designation * <span style="font-size:.68rem;color:var(--txt3)">(Designation Master)</span></label>
+            <select id="ol-desig" onchange="_rcOLDesigChange()" class="rc-inp">
+              <option value="">— Select —</option>
+              ${desigOpts}
+            </select>
           </div>
 
-          <!-- Grade -->
+          <!-- GRADE — auto-fills from Designation Master -->
           <div>
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Grade</label>
-            <input id="ol-grade" value="${d.grade||''}" oninput="_rcOLField('grade',this.value)" placeholder="e.g. M1, E2, S3…"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">Grade * <span style="font-size:.68rem;color:var(--txt3)">(auto from Designation)</span></label>
+            <select id="ol-grade" onchange="_rcOLField('grade',this.value)" class="rc-inp">
+              <option value="">— Select —</option>
+              ${[...new Set(desigs.map(ds=>ds.grade).filter(Boolean))].sort().map(g=>
+                `<option value="${g}" ${d.grade===g?'selected':''}>${g}</option>`
+              ).join('')}
+            </select>
+          </div>
+
+          <!-- Department -->
+          <div>
+            <label class="rc-lbl">Department</label>
+            <input id="ol-dept" value="${d.dept||''}" oninput="_rcOLField('dept',this.value)" class="rc-inp">
           </div>
 
           <!-- Site -->
           <div>
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Site / Location</label>
-            <input id="ol-site" value="${d.site||''}" oninput="_rcOLField('site',this.value)"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">Site / Location</label>
+            <input id="ol-site" value="${d.site||''}" oninput="_rcOLField('site',this.value)" class="rc-inp">
           </div>
 
-          <!-- Reporting To -->
-          <div>
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Reporting To</label>
-            <input id="ol-rpt" value="${d.reportingTo||''}" oninput="_rcOLField('reportingTo',this.value)"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+          <!-- ── REPORTS TO from Employee Register ── -->
+          <div style="grid-column:1/-1">
+            <label class="rc-lbl">Reports To * <span style="font-size:.68rem;color:var(--txt3)">(Employee Register)</span></label>
+            <div style="position:relative">
+              <input id="ol-rpt-search" value="${d.reportingTo||''}" oninput="_rcOLFilterRpt(this.value)" placeholder="Type name or EmpCode…" class="rc-inp" autocomplete="off">
+              <div id="ol-rpt-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface1);border:1px solid var(--border);border-radius:8px;z-index:10;max-height:180px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.15)">
+                ${users.slice(0,8).map(u=>`
+                  <div onclick="_rcOLSelectRpt('${u.empCode}','${u.name.replace(/'/g,"\\'")}','${u.desig||''}')"
+                    style="padding:8px 12px;cursor:pointer;font-size:.79rem;border-bottom:1px solid var(--border)"
+                    onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+                    <strong>${u.name}</strong> <span style="color:var(--txt3);font-size:.72rem">${u.empCode}${u.desig?' · '+u.desig:''}</span>
+                  </div>`).join('')}
+              </div>
+            </div>
+            <input type="hidden" id="ol-rpt-code" value="${d.reportingToCode||''}">
           </div>
 
           <!-- Working Hours -->
           <div>
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Start Time</label>
-            <input id="ol-starttime" value="${d.startTime||'9:30'}" oninput="_rcOLField('startTime',this.value)"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">Start Time (AM)</label>
+            <input id="ol-starttime" value="${d.startTime||'9:30'}" oninput="_rcOLField('startTime',this.value)" class="rc-inp" placeholder="9:30">
           </div>
           <div>
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">End Time</label>
-            <input id="ol-endtime" value="${d.endTime||'6:30'}" oninput="_rcOLField('endTime',this.value)"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">End Time (PM)</label>
+            <input id="ol-endtime" value="${d.endTime||'6:30'}" oninput="_rcOLField('endTime',this.value)" class="rc-inp" placeholder="6:30">
           </div>
 
-          <!-- Joining Date -->
+          <!-- Date of Appointment -->
           <div>
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Date of Appointment *</label>
-            <input id="ol-doj" type="date" value="${d.joiningDate||''}" oninput="_rcOLField('joiningDate',this.value)"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">Date of Appointment *</label>
+            <input id="ol-doj" type="date" value="${d.joiningDate||''}" oninput="_rcOLField('joiningDate',this.value)" class="rc-inp">
           </div>
 
           <!-- Notice Period -->
           <div>
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Notice Period (days)</label>
-            <input id="ol-notice" type="number" value="${d.noticePeriod||'30'}" oninput="_rcOLField('noticePeriod',this.value)"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">Notice Period (days)</label>
+            <input id="ol-notice" type="number" value="${d.noticePeriod||'30'}" oninput="_rcOLField('noticePeriod',this.value)" class="rc-inp">
           </div>
 
           <!-- Offer Valid Until -->
           <div>
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Offer Valid Until</label>
-            <input id="ol-valid" type="date" value="${d.validUntil||''}" oninput="_rcOLField('validUntil',this.value)"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">Offer Valid Until</label>
+            <input id="ol-valid" type="date" value="${d.validUntil||''}" oninput="_rcOLField('validUntil',this.value)" class="rc-inp">
           </div>
 
-          <!-- CTC Annual trigger -->
+          <!-- CTC Annual -->
           <div>
-            <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">CTC Annual (₹) — auto-splits</label>
-            <input id="ol-ctc" type="number" value="${d.ctcAnnual||''}" oninput="_rcOLField('ctcAnnual',this.value);_rcOLAutoCalc()" placeholder="e.g. 360000"
-              style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+            <label class="rc-lbl">Annual CTC (₹) — auto-splits monthly</label>
+            <input id="ol-ctc" type="number" value="${d.ctcAnnual||''}" oninput="_rcOLField('ctcAnnual',this.value);_rcOLAutoCalc()" placeholder="e.g. 420000" class="rc-inp">
           </div>
-
         </div>
 
-        <!-- SALARY TABLE -->
-        <div style="margin-top:.9rem;padding:.7rem;background:var(--surface2);border-radius:8px">
-          <div style="font-weight:600;font-size:.74rem;color:var(--txt2);margin-bottom:.5rem">Monthly Salary Breakup</div>
-          <div style="font-size:.72rem;color:var(--txt3);margin-bottom:.4rem">Edit individual components if auto-split needs adjustment</div>
-          <table style="width:100%;border-collapse:collapse;font-size:.77rem">
-            <thead><tr>
-              <th style="text-align:left;padding:3px 6px;color:var(--txt3);font-weight:500;border-bottom:1px solid var(--border)">Component</th>
-              <th style="text-align:right;padding:3px 6px;color:var(--txt3);font-weight:500;border-bottom:1px solid var(--border)">Monthly (₹)</th>
+        <!-- SALARY BREAKUP TABLE -->
+        <div style="margin-top:.9rem;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="background:var(--g7,#1A6038);color:#fff;padding:7px 12px;font-size:.76rem;font-weight:600;display:flex;justify-content:space-between">
+            <span>Monthly Salary Breakup</span>
+            <span style="font-size:.68rem;font-weight:400;opacity:.8">Edit individual values if needed</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:.78rem">
+            <thead><tr style="background:var(--surface2)">
+              <th style="padding:4px 10px;text-align:left;font-weight:500;color:var(--txt2);font-size:.72rem;border-bottom:1px solid var(--border)">Component</th>
+              <th style="padding:4px 10px;text-align:right;font-weight:500;color:var(--txt2);font-size:.72rem;border-bottom:1px solid var(--border)">Monthly (₹)</th>
             </tr></thead>
             <tbody>
               ${[
-                ['basic','Basic Salary'],
-                ['da','Dearness Allowance'],
-                ['hra','House Rent Allowance (HRA)'],
+                ['basic',       'Basic Salary'],
+                ['da',          'Dearness Allowance'],
+                ['hra',         'House Rent Allowance (HRA)'],
                 ['specialallow','Special Allowance'],
-                ['conveyance','Conveyance Allowance'],
-                ['education','Education Allowance'],
-                ['uniform','Uniform / Washing Allowance'],
-                ['lta','LTA'],
-                ['siteallow','Site Allowance'],
-              ].map(([id,label])=>`<tr>
-                <td style="padding:2px 6px;border-bottom:1px solid var(--border)">${label}</td>
-                <td style="padding:2px 6px;border-bottom:1px solid var(--border)">
+                ['conveyance',  'Conveyance Allowance'],
+                ['education',   'Education Allowance'],
+                ['uniform',     'Uniform / Washing Allowance'],
+                ['lta',         'LTA'],
+                ['siteallow',   'Site Allowance'],
+              ].map(([id,label],i)=>`
+              <tr style="background:${i%2?'var(--surface2)':''}">
+                <td style="padding:4px 10px;border-bottom:1px solid var(--border)">${label}</td>
+                <td style="padding:2px 10px 2px 0;border-bottom:1px solid var(--border);text-align:right">
                   <input id="ol-${id}" type="number" value="${d[id]||''}" oninput="_rcOLField('${id}',this.value);_rcOLCalcGross()"
-                    style="width:90px;padding:2px 5px;border:1px solid var(--border);border-radius:4px;font-size:.76rem;background:var(--surface1);color:var(--txt1);text-align:right;float:right">
+                    style="width:100px;padding:2px 6px;border:1px solid var(--border);border-radius:5px;font-size:.76rem;background:var(--surface1);color:var(--txt1);text-align:right">
                 </td>
               </tr>`).join('')}
-              <tr style="background:var(--surface1)">
-                <td style="padding:4px 6px;font-weight:600;border-bottom:1px solid var(--border)">Gross Salary</td>
-                <td style="padding:4px 6px;font-weight:600;text-align:right;border-bottom:1px solid var(--border)" id="ol-gross-disp">${d.gross?'₹'+Number(d.gross).toLocaleString('en-IN'):'—'}</td>
+
+              <!-- Gross -->
+              <tr style="background:var(--surface2);font-weight:600">
+                <td style="padding:5px 10px;border-bottom:1px solid var(--border)">Gross Salary</td>
+                <td style="padding:5px 10px;text-align:right;border-bottom:1px solid var(--border)" id="ol-gross-disp">${d.gross?'₹'+Math.round(d.gross).toLocaleString('en-IN'):'—'}</td>
               </tr>
+
+              <!-- Deductions -->
+              ${[
+                ['medical',    '(+) Medical Insurance Individual'],
+                ['pfemployer', 'Employer PF'],
+              ].map(([id,label])=>`
               <tr>
-                <td style="padding:2px 6px;color:var(--txt3);border-bottom:1px solid var(--border)">(+) Medical Insurance</td>
-                <td style="padding:2px 6px;border-bottom:1px solid var(--border)">
-                  <input id="ol-medical" type="number" value="${d.medical||''}" oninput="_rcOLField('medical',this.value);_rcOLCalcGross()"
-                    style="width:90px;padding:2px 5px;border:1px solid var(--border);border-radius:4px;font-size:.76rem;background:var(--surface1);color:var(--txt1);text-align:right;float:right">
+                <td style="padding:4px 10px;border-bottom:1px solid var(--border);color:var(--txt3);font-size:.75rem">${label}</td>
+                <td style="padding:2px 10px 2px 0;border-bottom:1px solid var(--border);text-align:right">
+                  <input id="ol-${id}" type="number" value="${d[id==='pfemployer'?'pfEmployer':id]||''}" oninput="_rcOLField('${id==='pfemployer'?'pfEmployer':id}',this.value);_rcOLCalcGross()"
+                    style="width:100px;padding:2px 6px;border:1px solid var(--border);border-radius:5px;font-size:.75rem;background:var(--surface1);color:var(--txt1);text-align:right">
                 </td>
+              </tr>`).join('')}
+
+              <!-- CTC -->
+              <tr style="background:#f0f7f2;font-weight:700;color:#1A6038">
+                <td style="padding:5px 10px;border-bottom:1px solid var(--border)">CTC</td>
+                <td style="padding:5px 10px;text-align:right;border-bottom:1px solid var(--border)" id="ol-ctc-disp">${d.ctcMonthly?'₹'+Math.round(d.ctcMonthly).toLocaleString('en-IN'):'—'}</td>
               </tr>
-              <tr>
-                <td style="padding:2px 6px;color:var(--txt3);border-bottom:1px solid var(--border)">Employer PF</td>
-                <td style="padding:2px 6px;border-bottom:1px solid var(--border)">
-                  <input id="ol-pfemployer" type="number" value="${d.pfEmployer||''}" oninput="_rcOLField('pfEmployer',this.value);_rcOLCalcGross()"
-                    style="width:90px;padding:2px 5px;border:1px solid var(--border);border-radius:4px;font-size:.76rem;background:var(--surface1);color:var(--txt1);text-align:right;float:right">
-                </td>
-              </tr>
-              <tr style="background:#f0f7f2">
-                <td style="padding:4px 6px;font-weight:700;color:var(--g7);border-bottom:1px solid var(--border)">CTC</td>
-                <td style="padding:4px 6px;font-weight:700;color:var(--g7);text-align:right;border-bottom:1px solid var(--border)" id="ol-ctc-disp">${d.ctcMonthly?'₹'+Number(d.ctcMonthly).toLocaleString('en-IN'):'—'}</td>
-              </tr>
-              <tr style="background:#f0f7f2">
-                <td style="padding:4px 6px;font-weight:700;color:var(--g7)">Net Salary (Take-Home)</td>
-                <td style="padding:4px 6px;font-weight:700;color:var(--g7);text-align:right" id="ol-net-disp">${d.net?'₹'+Number(d.net).toLocaleString('en-IN'):'—'}</td>
+
+              <!-- Net -->
+              <tr style="background:#f0f7f2;font-weight:700;color:#1A6038">
+                <td style="padding:5px 10px">Net Salary (Take-Home)</td>
+                <td style="padding:5px 10px;text-align:right" id="ol-net-disp">${d.net?'₹'+Math.round(d.net).toLocaleString('en-IN'):'—'}</td>
               </tr>
             </tbody>
           </table>
+          <div style="padding:5px 10px;font-size:.69rem;color:var(--txt3);border-top:1px solid var(--border)">*TDS deducted as per government norms. Net = Gross − Employee PF (12% of Basic)</div>
         </div>
 
-        <!-- Email -->
+        <!-- Candidate Email -->
         <div style="margin-top:.7rem">
-          <label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Candidate Email</label>
-          <input id="ol-email" type="email" value="${d.candidateEmail||''}" oninput="_rcOLField('candidateEmail',this.value)"
-            style="width:100%;margin-top:.2rem;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface1);color:var(--txt1)">
+          <label class="rc-lbl">Candidate Email</label>
+          <input id="ol-email" type="email" value="${d.candidateEmail||''}" oninput="_rcOLField('candidateEmail',this.value)" class="rc-inp">
         </div>
 
-        <!-- Buttons -->
-        <div style="display:flex;gap:.6rem;margin-top:1rem;flex-wrap:wrap;position:sticky;bottom:0;background:var(--surface1,#fff);padding-top:.5rem;border-top:1px solid var(--border)">
+        <!-- Action Buttons -->
+        <div style="display:flex;gap:.6rem;margin-top:1rem;flex-wrap:wrap;position:sticky;bottom:0;background:var(--surface1,#fff);padding-top:.6rem;border-top:1px solid var(--border)">
           <button onclick="_rcOLUpdatePreview()" class="btn btn-secondary btn-sm">↻ Refresh Preview</button>
           <button onclick="_rcOLGeneratePDF()" class="btn btn-primary btn-sm">🖨 Print / Save PDF</button>
-          <button onclick="_rcOLSendAndLog()" style="padding:.35rem .9rem;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:.78rem;font-weight:500;cursor:pointer">✉️ Log Offer Sent</button>
+          <button onclick="_rcOLSendAndLog()" style="padding:.35rem .9rem;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:.79rem;font-weight:500;cursor:pointer">✉️ Log Offer Sent</button>
         </div>
       </div>
 
-      <!-- RIGHT: LIVE PREVIEW -->
+      <!-- ═══ RIGHT: LIVE PREVIEW ═══ -->
       <div style="position:sticky;top:0">
-        <div style="font-size:.73rem;font-weight:600;color:var(--txt3);margin-bottom:.4rem;text-transform:uppercase;letter-spacing:.05em">Live Preview</div>
-        <div id="ol-preview-frame" style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#fff;height:78vh;overflow-y:auto">
+        <div style="font-size:.72rem;font-weight:600;color:var(--txt3);margin-bottom:.4rem;text-transform:uppercase;letter-spacing:.05em">Live Preview — matches print output</div>
+        <div id="ol-preview-frame" style="border:1px solid var(--border);border-radius:10px;overflow-y:auto;background:#fff;height:82vh">
           ${_rcOLPreviewHTML()}
         </div>
       </div>
 
-    </div>`;
+    </div>
+
+    <style>
+      .rc-lbl { display:block;font-size:.74rem;font-weight:600;color:var(--txt2);margin-bottom:.2rem }
+      .rc-inp { width:100%;padding:.38rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.81rem;background:var(--surface1);color:var(--txt1);box-sizing:border-box }
+      .rc-inp:focus { outline:none;border-color:var(--g7) }
+    </style>
+  `;
+
+  // Close rpt dropdown on outside click
+  document.addEventListener('click', function _rptClose(e) {
+    if (!e.target.closest('#ol-rpt-search') && !e.target.closest('#ol-rpt-dropdown')) {
+      const dd = document.getElementById('ol-rpt-dropdown');
+      if (dd) dd.style.display = 'none';
+      document.removeEventListener('click', _rptClose);
+    }
+  });
+}
+
+// ── Designation change → auto-fill Grade and Dept ──────────────
+function _rcOLDesigChange() {
+  const sel  = document.getElementById('ol-desig');
+  const desig= sel?.value || '';
+  const opt  = sel?.options[sel.selectedIndex];
+  const grade= opt?.dataset.grade || '';
+  _rcOLDraft.position = desig;
+  _rcOLDraft.grade    = grade;
+  const gradeEl = document.getElementById('ol-grade');
+  if (gradeEl && grade) gradeEl.value = grade;
+  // Auto-fill dept from designation master
+  const master = (_rcDesigMaster||[]).find(ds=>ds.desig===desig);
+  if (master?.dept) {
+    _rcOLDraft.dept = master.dept;
+    const dEl = document.getElementById('ol-dept');
+    if (dEl) dEl.value = master.dept;
+  }
+  _rcOLUpdatePreview();
+}
+
+// ── Reports To search/filter ───────────────────────────────────
+function _rcOLFilterRpt(q) {
+  const dd = document.getElementById('ol-rpt-dropdown');
+  if (!dd) return;
+  const users = (STATE.masters.users||[]).filter(u=>u.status==='ACTIVE'&&u.empCode&&u.name);
+  const filtered = q.length < 1 ? users.slice(0,8) :
+    users.filter(u =>
+      u.name.toLowerCase().includes(q.toLowerCase()) ||
+      u.empCode.toLowerCase().includes(q.toLowerCase())
+    ).slice(0,10);
+  if (!filtered.length) { dd.style.display='none'; return; }
+  dd.innerHTML = filtered.map(u=>`
+    <div onclick="_rcOLSelectRpt('${u.empCode}','${u.name.replace(/'/g,"\\'")}','${(u.desig||'').replace(/'/g,"\\'")}')"
+      style="padding:8px 12px;cursor:pointer;font-size:.79rem;border-bottom:1px solid var(--border)"
+      onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <strong>${u.name}</strong>
+      <span style="color:var(--txt3);font-size:.71rem;margin-left:.4rem">${u.empCode}${u.desig?' · '+u.desig:''}</span>
+    </div>`).join('');
+  dd.style.display = 'block';
+}
+
+function _rcOLSelectRpt(empCode, name, desig) {
+  _rcOLDraft.reportingToCode = empCode;
+  _rcOLDraft.reportingTo     = name;
+  const inp = document.getElementById('ol-rpt-search');
+  const hid = document.getElementById('ol-rpt-code');
+  if (inp) inp.value = `${name} (${empCode})`;
+  if (hid) hid.value = empCode;
+  const dd = document.getElementById('ol-rpt-dropdown');
+  if (dd) dd.style.display = 'none';
+  _rcOLUpdatePreview();
 }
 
 function _rcOLField(key, val) { _rcOLDraft[key] = val; }
+
+function _rcOLLiveSync(key, val) {
+  _rcOLDraft[key] = val;
+  _rcOLUpdatePreview();
+}
 
 function _rcOLMRFChange() {
   const id  = document.getElementById('ol-mrf')?.value;
   const mrf = (_rcMRFs||[]).find(m => m.id === id);
   if (!mrf) return;
   Object.assign(_rcOLDraft, { mrfId:id, position:mrf.position||'', site:mrf.site||'', reportingTo:mrf.reportingTo||'' });
-  [['desig','position'],['site','site'],['rpt','reportingTo']].forEach(([elId,key]) => {
-    const el = document.getElementById('ol-'+elId);
-    if (el) el.value = _rcOLDraft[key] || '';
-  });
+  const selDesig = document.getElementById('ol-desig');
+  if (selDesig && mrf.position) selDesig.value = mrf.position;
+  const siteEl = document.getElementById('ol-site');
+  if (siteEl) siteEl.value = mrf.site||'';
   _rcOLUpdatePreview();
 }
 
@@ -16023,7 +16166,6 @@ function _rcOLAutoCalc() {
   const annual = parseFloat(document.getElementById('ol-ctc')?.value || 0);
   if (!annual) return;
   const m = Math.round(annual / 12);
-  // Split: Basic 40%, DA 5%, HRA 20%, Special 10%, Conveyance 5%, Education 2%, Uniform 2%, LTA 3%, Site 8%, Medical 2%, PF 3%
   const basic       = Math.round(m * 0.40);
   const da          = Math.round(m * 0.05);
   const hra         = Math.round(m * 0.20);
@@ -16039,233 +16181,246 @@ function _rcOLAutoCalc() {
   const ctcMonthly  = gross + medical + pfEmployer;
   const pfEmployee  = Math.round(basic * 0.12);
   const net         = gross - pfEmployee;
-
   Object.assign(_rcOLDraft,{basic,da,hra,specialallow,conveyance,education,uniform,lta,siteallow,medical,pfEmployer,gross,ctcMonthly,net,ctcAnnual:annual});
-
-  const ids = {basic,da,hra,specialallow,conveyance,education,uniform,lta,siteallow,medical,pfemployer:pfEmployer};
-  Object.entries(ids).forEach(([id,val]) => { const el=document.getElementById('ol-'+id); if(el) el.value=val; });
+  const idMap = {basic,da,hra,specialallow,conveyance,education,uniform,lta,siteallow,medical,pfemployer:pfEmployer};
+  Object.entries(idMap).forEach(([id,val])=>{ const el=document.getElementById('ol-'+id); if(el) el.value=val; });
   _rcOLUpdateDisplays(gross, ctcMonthly, net);
   _rcOLUpdatePreview();
 }
 
 function _rcOLCalcGross() {
-  const ids = ['basic','da','hra','specialallow','conveyance','education','uniform','lta','siteallow'];
-  const gross = ids.reduce((s,id) => s + (parseFloat(document.getElementById('ol-'+id)?.value||0)||0), 0);
-  const medical = parseFloat(document.getElementById('ol-medical')?.value||0)||0;
-  const pfEmployer = parseFloat(document.getElementById('ol-pfemployer')?.value||0)||0;
-  const pfEmployee = Math.round((parseFloat(document.getElementById('ol-basic')?.value||0)||0)*0.12);
-  const ctcMonthly = gross + medical + pfEmployer;
-  const net = gross - pfEmployee;
-  _rcOLDraft.gross=gross; _rcOLDraft.ctcMonthly=ctcMonthly; _rcOLDraft.net=net;
-  _rcOLUpdateDisplays(gross, ctcMonthly, net);
+  const ids=['basic','da','hra','specialallow','conveyance','education','uniform','lta','siteallow'];
+  const gross    = ids.reduce((s,id)=>s+(parseFloat(document.getElementById('ol-'+id)?.value||0)||0),0);
+  const medical  = parseFloat(document.getElementById('ol-medical')?.value||0)||0;
+  const pfEmp    = parseFloat(document.getElementById('ol-pfemployer')?.value||0)||0;
+  const pfEe     = Math.round((parseFloat(document.getElementById('ol-basic')?.value||0)||0)*0.12);
+  const ctc      = gross + medical + pfEmp;
+  const net      = gross - pfEe;
+  _rcOLDraft.gross=gross; _rcOLDraft.ctcMonthly=ctc; _rcOLDraft.net=net;
+  _rcOLUpdateDisplays(gross, ctc, net);
 }
 
 function _rcOLUpdateDisplays(gross, ctc, net) {
-  const f = v => v ? '₹'+Math.round(v).toLocaleString('en-IN') : '—';
+  const f=v=>v?'₹'+Math.round(v).toLocaleString('en-IN'):'—';
   const g=document.getElementById('ol-gross-disp'); if(g) g.textContent=f(gross);
   const c=document.getElementById('ol-ctc-disp');   if(c) c.textContent=f(ctc);
   const n=document.getElementById('ol-net-disp');   if(n) n.textContent=f(net);
 }
 
 function _rcOLUpdatePreview() {
-  // Sync all text fields to draft
   const map = {
     'ol-refno':'refNo','ol-offerdate':'offerDate','ol-name':'candidateName',
     'ol-addr1':'addr1','ol-addr2':'addr2','ol-addr3':'addr3','ol-addr4':'addr4',
-    'ol-desig':'position','ol-grade':'grade','ol-site':'site','ol-rpt':'reportingTo',
-    'ol-starttime':'startTime','ol-endtime':'endTime','ol-doj':'joiningDate',
-    'ol-notice':'noticePeriod','ol-valid':'validUntil','ol-ctc':'ctcAnnual',
-    'ol-email':'candidateEmail',
+    'ol-desig':'position','ol-grade':'grade','ol-dept':'dept','ol-site':'site',
+    'ol-starttime':'startTime','ol-endtime':'endTime',
+    'ol-doj':'joiningDate','ol-notice':'noticePeriod','ol-valid':'validUntil',
+    'ol-ctc':'ctcAnnual','ol-email':'candidateEmail',
     'ol-basic':'basic','ol-da':'da','ol-hra':'hra','ol-specialallow':'specialallow',
     'ol-conveyance':'conveyance','ol-education':'education','ol-uniform':'uniform',
     'ol-lta':'lta','ol-siteallow':'siteallow','ol-medical':'medical','ol-pfemployer':'pfEmployer',
   };
-  Object.entries(map).forEach(([id,key]) => { const el=document.getElementById(id); if(el) _rcOLDraft[key]=el.value; });
+  Object.entries(map).forEach(([id,key])=>{ const el=document.getElementById(id); if(el) _rcOLDraft[key]=el.value; });
+  // Sync Reports To from hidden field
+  const code=document.getElementById('ol-rpt-code'); if(code) _rcOLDraft.reportingToCode=code.value;
+  const srch=document.getElementById('ol-rpt-search'); if(srch) _rcOLDraft.reportingTo=srch.value.split(' (')[0].trim();
   _rcOLCalcGross();
-  const frame = document.getElementById('ol-preview-frame');
-  if (frame) frame.innerHTML = _rcOLPreviewHTML();
+  const frame=document.getElementById('ol-preview-frame');
+  if(frame) frame.innerHTML=_rcOLPreviewHTML();
 }
 
 function _rcOLPreviewHTML() {
   const d   = _rcOLDraft;
-  const fmt = v => v ? new Date(v).toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'}) : '___________';
-  const m   = v => v ? '₹'+Math.round(Number(v)).toLocaleString('en-IN') : '—';
-  const fld = (v, placeholder='___________') => v || `<span style="color:#bbb">${placeholder}</span>`;
-  const today = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
+  const fmt = v => {
+    if (!v) return '___________';
+    const dt = new Date(v);
+    return isNaN(dt) ? v : dt.toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
+  };
+  const m   = v => v && Number(v) ? '₹'+Math.round(Number(v)).toLocaleString('en-IN') : '—';
+  const f   = (v,ph='___________') => (v && String(v).trim()) ? String(v).trim() : `<span style="color:#bbb;font-style:italic">${ph}</span>`;
+  const today = d.offerDate ? fmt(d.offerDate) : new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
 
-  const salaryRows = [
-    ['Basic', d.basic],
-    ['Dearness Allowance', d.da],
+  const addr = [d.addr1,d.addr2,d.addr3,d.addr4].filter(Boolean);
+
+  const salaryComponents = [
+    ['Basic',                    d.basic],
+    ['Dearness Allowance',       d.da],
     ['House Rent Allowance (HRA)', d.hra],
-    ['Special Allowance', d.specialallow],
-    ['Conveyance Allowance', d.conveyance],
-    ['Education Allowance', d.education],
+    ['Special Allowance',        d.specialallow],
+    ['Conveyance Allowance',     d.conveyance],
+    ['Education Allowance',      d.education],
     ['Uniform / Washing Allowance', d.uniform],
-    ['LTA', d.lta],
-    ['Site Allowance', d.siteallow],
+    ['LTA',                      d.lta],
+    ['Site Allowance',           d.siteallow],
   ];
 
+  const clause = (num, title, body) => `
+    <p style="margin:0 0 3px"><strong>${num}${title ? '.\t'+title+':' : '.'}</strong></p>
+    <p style="margin:0 0 10px;text-align:justify">${body}</p>`;
+
   return `
-  <div id="rc-ol-printable" style="font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;padding:32px 36px;line-height:1.65">
+  <div id="rc-ol-printable" style="font-family:'Times New Roman',serif;font-size:11.5px;color:#000;background:#fff;padding:28px 40px 36px;line-height:1.7">
 
-    <!-- Header border top -->
-    <div style="border-top:4px solid #1A6038;margin-bottom:0"></div>
-
-    <!-- Company title bar -->
-    <div style="background:#1A6038;color:#fff;text-align:center;padding:8px 12px;display:flex;align-items:center;justify-content:space-between">
-      <img src="https://evgcpladmin.github.io/evgcpl-portal/EG.jpg" style="height:36px;object-fit:contain;filter:brightness(10)" onerror="this.style.display='none'">
-      <span style="font-size:15px;font-weight:700;letter-spacing:.5px">EVERGREEN ENTERPRISES</span>
-      <span style="font-size:10px;opacity:.8">Civil &amp; Infrastructure Contractor</span>
-    </div>
-    <div style="border-bottom:2px solid #1A6038;margin-bottom:16px"></div>
+    <!-- Company Header -->
+    <table style="width:100%;border-collapse:collapse;margin-bottom:0">
+      <tr>
+        <td style="text-align:center;font-size:16px;font-weight:700;letter-spacing:1px;padding:6px 12px;border:2px solid #000">
+          <img src="https://evgcpladmin.github.io/evgcpl-portal/EG.jpg" style="height:28px;vertical-align:middle;margin-right:8px" onerror="this.style.display='none'">
+          Evergreen Enterprises
+        </td>
+      </tr>
+    </table>
+    <div style="height:4px;background:#1A6038;margin-bottom:10px"></div>
 
     <!-- Ref + Date -->
-    <div style="display:flex;justify-content:space-between;margin-bottom:14px;font-size:11px">
-      <div><strong>REF NO:</strong> ${fld(d.refNo)}</div>
-      <div>${d.offerDate ? fmt(d.offerDate) : today}</div>
-    </div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+      <tr>
+        <td style="font-size:11px"><strong>REF NO: ${f(d.refNo)}</strong></td>
+        <td style="text-align:right;font-size:11px">${today}</td>
+      </tr>
+    </table>
 
-    <!-- Addressee -->
-    <div style="margin-bottom:14px;line-height:1.8;font-size:11.5px">
-      <div><strong>Name &nbsp;&nbsp;&nbsp;:</strong> ${fld(d.candidateName)}</div>
-      <div style="display:flex"><span style="white-space:nowrap"><strong>Address :</strong></span>
-        <div style="margin-left:6px">
-          ${[d.addr1,d.addr2,d.addr3,d.addr4].filter(Boolean).join(',<br>') || '<span style="color:#bbb">___________</span>'}
-        </div>
-      </div>
-    </div>
+    <!-- Addressee block — matches template exactly -->
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11.5px">
+      <tr>
+        <td style="width:80px;vertical-align:top;padding-bottom:4px"><strong>Name</strong></td>
+        <td style="vertical-align:top;padding-bottom:4px">: &nbsp;${f(d.candidateName)}</td>
+      </tr>
+      <tr>
+        <td style="vertical-align:top"><strong>Address</strong></td>
+        <td style="vertical-align:top">: &nbsp;${addr.length ? addr.join(',<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;') : '<span style="color:#bbb;font-style:italic">___________</span>'}</td>
+      </tr>
+    </table>
 
     <!-- Title -->
-    <div style="font-size:13px;font-weight:700;text-align:center;text-decoration:underline;margin:18px 0 14px">Letter of Appointment</div>
+    <p style="text-align:center;font-weight:700;font-size:12.5px;text-decoration:underline;margin:16px 0 14px">Letter of Appointment</p>
 
-    <p style="margin-bottom:10px">Dear <strong>${fld(d.candidateName)}</strong>,</p>
+    <p style="margin-bottom:12px">Dear <strong>${f(d.candidateName)}</strong>,</p>
 
-    <p style="margin-bottom:14px">
-      We are pleased to offer you a job as a <strong>${fld(d.position)}</strong> <strong>${fld(d.grade,'')}</strong> at <strong>Evergreen Enterprises</strong>.
+    <p style="margin-bottom:12px;text-align:justify">
+      We are pleased to offer you a job as a <strong>${f(d.position)}</strong>${d.grade?` <strong>${d.grade}</strong>`:''} at <strong>Evergreen Enterprises</strong>.
       We think that your experience and skills will be a valuable asset to our company.
     </p>
 
-    <p style="font-weight:700;margin-bottom:10px">Your employment will be governed by the following terms and conditions:</p>
+    <p style="margin-bottom:10px"><strong>Your employment will be governed by the following terms and conditions:</strong></p>
 
-    <!-- Clauses -->
-    ${[
-      ['1. Working Hours', `Your working hours will be <strong>${fld(d.startTime,'9:30')} AM</strong> to <strong>${fld(d.endTime,'6:30')} PM</strong> as per the current company policy.`],
-      ['2. Date of Appointment', `Your date of appointment as per company records is <strong>${fmt(d.joiningDate)}</strong>.`],
-      ['3. Salary Increase', 'An increase in your salary will be reviewed periodically as per the policy of the Company. Increments will be based on demonstrated results and effectiveness of performance during the period of review.'],
-      ['4. Probation Period', `You will be on probation for a period of <strong>6 months</strong> from the date of joining. The company has full rights to terminate the employee during the probationary period. You will be confirmed in service upon satisfactory completion of the probation period.`],
-      ['5. Tax Liability', 'Income Tax Liability, if any, will be borne by you.'],
-    ].map(([title, body]) => `
-      <div style="margin-bottom:10px">
-        <div style="font-weight:700;font-size:11.5px">${title}</div>
-        <div style="margin-top:3px">${body}</div>
-      </div>`).join('')}
+    ${clause('1',  'Working Hours',     `Your working hours will be <strong>${f(d.startTime,'9:30')} AM</strong> to <strong>${f(d.endTime,'6:30')}PM</strong> as per the current company policy.`)}
+    ${clause('2',  'Date of Appointment', `Your date of appointment as per company records is <strong>${fmt(d.joiningDate)}</strong>`)}
+    ${clause('3',  'Salary Increase',   `An increase in your salary will be reviewed periodically as per the policy of the Company. Increments in the salary range will be based on demonstrated results and effectiveness of performance during the period of review.`)}
+    ${clause('4',  'Probation Period',  `You will be on probation for a period of <strong>6</strong> month from the date of Joining. The company has full rights to terminate the employee during the probationary period. You will be confirmed in service upon satisfactory completion of the probation period.`)}
+    ${clause('5',  'Tax Liability',     `Income Tax Liability, if any, will be borne by you.`)}
 
-    <!-- Salary section -->
-    <div style="margin-bottom:10px">
-      <div style="font-weight:700;font-size:11.5px;margin-bottom:6px">6. Salary Break Up</div>
-      <p>You will be paid a monthly gross salary as mentioned in Annexure.</p>
+    <!-- Clause 6 — Salary with Annexure -->
+    <p style="margin:0 0 3px"><strong>6.\tMonthly Gross Salary:</strong></p>
+    <p style="margin:0 0 8px;text-align:justify">You will be paid a monthly gross salary as mentioned in Annexure.</p>
 
-      <div style="margin:10px 0 4px;font-weight:700;font-size:11px;text-decoration:underline;text-align:center">Annexure to Letter of Appointment</div>
-      <div style="font-size:11px;margin-bottom:6px;text-align:center">
-        <strong>Name:</strong> ${fld(d.candidateName)} &nbsp;&nbsp;
-        <strong>Designation:</strong> ${fld(d.position)}
-      </div>
+    <!-- Annexure -->
+    <p style="text-align:center;font-weight:700;font-size:11px;text-decoration:underline;margin:8px 0 4px">Annexure to Letter of Appointment</p>
+    <p style="font-size:11px;margin-bottom:6px">
+      &nbsp;&nbsp;&nbsp;&nbsp;Name:&nbsp; <strong>${f(d.candidateName)}</strong>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+      Designation:&nbsp; <strong>${f(d.position)}</strong>
+    </p>
 
-      <table style="width:100%;border-collapse:collapse;font-size:11px">
-        <thead>
-          <tr style="background:#1A6038;color:#fff">
-            <th style="padding:5px 8px;text-align:left;border:1px solid #1A6038">Particulars</th>
-            <th style="padding:5px 8px;text-align:right;border:1px solid #1A6038">Monthly Salary (₹)</th>
-            <th style="padding:5px 8px;text-align:left;border:1px solid #1A6038">Deductions</th>
-            <th style="padding:5px 8px;text-align:right;border:1px solid #1A6038">Amount (₹)</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${salaryRows.map(([label, val], i) => {
-            const deductLabel = i===0 ? '(+) Medical Insurance' : i===1 ? 'Employer PF' : '';
-            const deductVal   = i===0 ? m(d.medical) : i===1 ? m(d.pfEmployer) : '';
-            return `<tr style="background:${i%2?'#f9fafb':'#fff'}">
-              <td style="padding:4px 8px;border:1px solid #ddd">${label}</td>
-              <td style="padding:4px 8px;text-align:right;border:1px solid #ddd">${m(val)}</td>
-              <td style="padding:4px 8px;border:1px solid #ddd;font-size:10.5px;color:#555">${deductLabel}</td>
-              <td style="padding:4px 8px;text-align:right;border:1px solid #ddd;font-size:10.5px;color:#555">${deductVal}</td>
-            </tr>`;
-          }).join('')}
-          <tr style="background:#f0f7f2;font-weight:700">
-            <td style="padding:5px 8px;border:1px solid #ccc">Gross Salary</td>
-            <td style="padding:5px 8px;text-align:right;border:1px solid #ccc">${m(d.gross)}</td>
-            <td style="padding:5px 8px;border:1px solid #ccc"></td>
-            <td style="padding:5px 8px;border:1px solid #ccc"></td>
-          </tr>
-          <tr style="background:#f0f7f2">
-            <td style="padding:4px 8px;border:1px solid #ccc;font-size:10.5px">(+) Medical Insurance</td>
-            <td style="padding:4px 8px;text-align:right;border:1px solid #ccc;font-size:10.5px">${m(d.medical)}</td>
-            <td style="padding:4px 8px;border:1px solid #ccc;font-size:10.5px">Employer PF</td>
-            <td style="padding:4px 8px;text-align:right;border:1px solid #ccc;font-size:10.5px">${m(d.pfEmployer)}</td>
-          </tr>
-          <tr style="background:#1A6038;color:#fff;font-weight:700">
-            <td style="padding:5px 8px;border:1px solid #1A6038">CTC</td>
-            <td style="padding:5px 8px;text-align:right;border:1px solid #1A6038">${m(d.ctcMonthly)}</td>
-            <td style="padding:5px 8px;border:1px solid #1A6038" colspan="2"></td>
-          </tr>
-          <tr style="background:#1A6038;color:#fff;font-weight:700">
-            <td style="padding:5px 8px;border:1px solid #1A6038">Net Salary</td>
-            <td style="padding:5px 8px;text-align:right;border:1px solid #1A6038">${m(d.net)}</td>
-            <td style="padding:5px 8px;border:1px solid #1A6038;font-size:10px;font-weight:400" colspan="2">*TDS deducted as per government norms</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:8px">
+      <thead>
+        <tr style="background:#1A6038;color:#fff">
+          <th style="padding:5px 8px;border:1px solid #999;text-align:left">S.No</th>
+          <th style="padding:5px 8px;border:1px solid #999;text-align:left">Particulars</th>
+          <th style="padding:5px 8px;border:1px solid #999;text-align:right">Monthly Salary (Rs.)</th>
+          <th style="padding:5px 8px;border:1px solid #999;text-align:left">Deductions</th>
+          <th style="padding:5px 8px;border:1px solid #999;text-align:right">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${salaryComponents.map(([label, val], i) => {
+          const deductLabel = i===0 ? '(+) Medical Insurance Individual' : i===1 ? 'Employer PF' : '';
+          const deductVal   = i===0 ? m(d.medical) : i===1 ? m(d.pfEmployer) : '';
+          return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
+            <td style="padding:3px 8px;border:1px solid #ddd;text-align:center">${i+1}</td>
+            <td style="padding:3px 8px;border:1px solid #ddd">${label}</td>
+            <td style="padding:3px 8px;border:1px solid #ddd;text-align:right">${m(val)}</td>
+            <td style="padding:3px 8px;border:1px solid #ddd;font-size:10px">${deductLabel}</td>
+            <td style="padding:3px 8px;border:1px solid #ddd;text-align:right;font-size:10px">${deductVal}</td>
+          </tr>`;
+        }).join('')}
+        <tr style="font-weight:700;background:#e8f5e9">
+          <td style="padding:4px 8px;border:1px solid #999" colspan="2">Gross Salary</td>
+          <td style="padding:4px 8px;border:1px solid #999;text-align:right">${m(d.gross)}</td>
+          <td style="padding:4px 8px;border:1px solid #999" colspan="2"></td>
+        </tr>
+        <tr style="background:#f5f5f5">
+          <td style="padding:3px 8px;border:1px solid #ddd" colspan="2">(+) Medical Insurance Individual</td>
+          <td style="padding:3px 8px;border:1px solid #ddd;text-align:right">${m(d.medical)}</td>
+          <td style="padding:3px 8px;border:1px solid #ddd">Employer PF</td>
+          <td style="padding:3px 8px;border:1px solid #ddd;text-align:right">${m(d.pfEmployer)}</td>
+        </tr>
+        <tr style="font-weight:700;background:#1A6038;color:#fff">
+          <td style="padding:4px 8px;border:1px solid #1A6038" colspan="2">CTC</td>
+          <td style="padding:4px 8px;border:1px solid #1A6038;text-align:right">${m(d.ctcMonthly)}</td>
+          <td style="padding:4px 8px;border:1px solid #1A6038" colspan="2"></td>
+        </tr>
+        <tr style="font-weight:700;background:#1A6038;color:#fff">
+          <td style="padding:4px 8px;border:1px solid #1A6038" colspan="2">Net Salary</td>
+          <td style="padding:4px 8px;border:1px solid #1A6038;text-align:right">${m(d.net)}</td>
+          <td style="padding:4px 8px;border:1px solid #1A6038;font-size:10px;font-weight:400" colspan="2">*Note: TDS will be deducted as per government norms</td>
+        </tr>
+      </tbody>
+    </table>
 
     <!-- Remaining clauses -->
-    ${[
-      ['7.', 'Furthermore, your monthly salary will be credited during the second or third week of each month.'],
-      ['8. Leave Terms and Conditions', '<strong>Eligibility:</strong> You will be governed by the Company\'s current Leave Policy applicable to permanent employees upon successful completion of your probation period. After completion of the probation period, Casual Leave (CL) will be calculated on pro-rata basis 0.5 days/month throughout the current financial year. The next financial year from the date of joining, your PL will be calculated as per the Company\'s Leave Policy.<br><br><strong>Return to work/extension of Leave:</strong> An employee is required to return from unpaid personal leave on the originally scheduled return date. Extensions of leave will be considered on a case-by-case basis.<br><br><strong>Travel:</strong> Whenever you are required to travel on Company work for outstation duties, you will be reimbursed for travel expenses as per Company rules.'],
-      ['9. Responsibilities', 'In view of your office, you must effectively perform to ensure results. Your performance would be reviewed as per the Company\'s Performance Management System.'],
-      ['10. Retirement Age', 'The normal retirement age for all employees is 60 years.'],
-      ['11. Notice Period', `While on probation, this appointment may be terminated by giving <strong>${fld(d.noticePeriod,'30')} days\'</strong> notice. Should you resign after confirmation, the Company will have the option to accept your resignation either with immediate effect, salary in lieu of notice period, or accept it effective any day up to the end of the notice period.`],
-      ['12. Transfer', 'You will be liable to be transferred to any other department, establishment, branch or subsidiary of the Company. In such a case, you will be governed by the terms and conditions of service applicable to the new assignment.'],
-      ['13. Other Work', 'Your position with the Company calls for whole-time employment and you will devote yourself exclusively to the business of the Company.'],
-      ['14. Conflict of Interest', 'You will not seek full-time or part-time job or be involved in any way with competitor\'s business activities either directly or indirectly during your employment, and for a period of 12 months after cessation of employment.'],
-      ['15. Confidential Information', 'You will not, at any time, without the consent of the Company disclose or divulge any information regarding the Company\'s affairs. The company shall have the right to terminate this agreement without notice in the event of: breach of conditions, misconduct, failure to carry out duties, or continuous absence for 10 days without permission.'],
-      ['16. Violation Policy', 'Your salary, allowances, benefits, and the affairs of the Company and its customers are strictly confidential. Violation will be viewed as a serious breach of conduct.'],
-      ['17. Change of Residing Address', 'You will keep us informed of your local contact address whenever there is any change.'],
-      ['18. Role', `On completing the <strong>6 month</strong> probation period to the Company\'s satisfaction, you will be considered for appointment in the Company as a <strong>${fld(d.position)}</strong>.`],
-      ['19. Contract / Bond with Previous Employers', 'It will be your responsibility to discharge all obligations arising out of any contract or bond with previous employers.'],
-      ['20. On Termination', 'On termination of this contract, you will immediately give up to the Company all correspondence, specifications, formulae, books, documents, market data, cost data, literature, drawings, records, etc. belonging to the Company.'],
-      ['21. General', 'The above terms and conditions are based on Company Policy, Procedures and other Rules and Regulations currently applicable and are subject to amendments from time to time. You are to treat the terms and conditions of this agreement as confidential.'],
-      ['22. Disputes & Arbitration', 'Any dispute or difference arising in connection with this contract shall be resolved by arbitration by a sole arbitrator appointed by Evergreen Enterprises. The Arbitration & Conciliation Act, 1996 shall govern the proceedings. The venue of arbitration shall be at <strong>Erode</strong>. The award shall be final and binding. Governing law: laws of India.'],
-      ['23. Background Check and Verification', 'The company reserves the right to verify your documents and background through internal or external agencies including current/previous employment history and educational credentials.<br><br><em>"Please note that this offer will stand immediately withdrawn / employment summarily terminated if any negative factor is brought to our knowledge during employment verification."</em>'],
-    ].map(([title, body]) => `
-      <div style="margin-bottom:9px">
-        <div style="font-weight:700;font-size:11.5px">${title}</div>
-        <div style="margin-top:3px">${body}</div>
-      </div>`).join('')}
+    ${clause('7',  '', `Furthermore, your monthly salary will be credited during the second or third week of each month.`)}
+    ${clause('8',  'Leave Terms and Conditions', `<u>Eligibility:</u><br>
+      Leave Policy Clause – Probation Completion &amp; Eligibility. You will be governed by the Company's current Leave Policy applicable to permanent employees upon successful completion of your probation period.<br><br>
+      After completion of the probation period, Casual Leave (CL) will be calculated on pro-rata basis 0.5 days/month throughout the current financial year.<br><br>
+      The next financial year from the joining of date, your PL will be calculated as per the Company's Leave Policy and same will be credited as the opening balance of next financial year.<br><br>
+      Job performance, absenteeism, and departmental requirements all will be taken into consideration before a request is approved. Approvals of the immediate supervisor, department director and human resources are required.<br><br>
+      <u>Return to work/extension of Leave</u><br>
+      An employee is required to return from the unpaid personal leave on the originally scheduled return date. If unable to return, he or she must request an extension in writing. Extensions of leave will be considered on a case-by-case basis.<br><br>
+      <u>Travel:</u><br>
+      Whenever you are required to undertake travel on Company work for outstation, you will be reimbursed for travel expenses as per Company rules.`)}
+    ${clause('9',  'Responsibilities',   `In view of your office, you must effectively perform to ensure results. Your performance would be reviewed as per the Company's Performance Management System.`)}
+    ${clause('10', 'Retirement Age',     `The normal retirement age for all employees is 60 years.`)}
+    ${clause('11', 'Notice Period',      `While on probation, this appointment may be terminated by giving <strong>${f(d.noticePeriod,'30')} days'</strong> notice. Should you resign after confirmation, the Company will have the option to accept your resignation either with immediate effect salary in lieu of notice period or accept it effective any day up to the end of the notice period and pay you salary for the remaining period.`)}
+    ${clause('12', 'Transfer',           `You will be liable to be transferred to any other department or establishment or branch or subsidiary of the Company in Head Office. In such a case, you will be governed by the terms and conditions of service as applicable to the new assignment.`)}
+    ${clause('13', 'Other work',         `Your position with the Company calls for whole time employment and you will devote yourself exclusively to the business of the Company. You will not take up any other work for remuneration (part time or otherwise) or work on advisory capacity or be interested directly or indirectly (except as shareholder or debenture holder) in any other trade or business during your employment with the Company, without written permission from the Company.`)}
+    ${clause('14', 'Conflict of Interest', `You will not seek full time or part time job or be involved in any way with competitor's business activities either directly or indirectly during your employment with the Company, and for a period of 12 months in the event of cessation of your employment with the Company.`)}
+    ${clause('15', 'Confidential Information', `You will not, at any time, without the consent of the Company disclose or divulge or make public except under legal obligation, any information regarding the Company's affairs of administration or research carried out, whether the same may be confided to you or become known to you, in the course of your service or otherwise.<br><br>
+      The company shall have the right to terminate this agreement forthwith without any notice in the event of the following:<br>
+      &nbsp;&nbsp;&nbsp;&bull;&nbsp;Breach of any of the conditions of this agreement<br>
+      &nbsp;&nbsp;&nbsp;&bull;&nbsp;Any misconduct on your part<br>
+      &nbsp;&nbsp;&nbsp;&bull;&nbsp;Failure to carry out any of your duties and obligations<br>
+      &nbsp;&nbsp;&nbsp;&bull;&nbsp;Being continuously absent from or omitting to attend to your work for 10 days without the Company's previous permission in writing whatever is the cause of such absence or omission.`)}
+    ${clause('16', 'Violation Policy',   `You are to treat the following as strictly confidential.<br>
+      &nbsp;&nbsp;&nbsp;&bull;&nbsp;Your salary, allowances, benefits, and rewards.<br>
+      &nbsp;&nbsp;&nbsp;&bull;&nbsp;The affairs of the Company and its customers of which you may be cognizant, particularly the drawings, quotations, specifications, and other manufacturing information.<br><br>
+      By accepting employment with the company, you undertake not to disclose the above to anyone. Violation of this would be viewed as a serious breach of conduct.`)}
+    ${clause('17', 'Change of Residing Address', `You will keep us informed of your local contact address whenever there is any change.`)}
+    ${clause('18', 'Role', `On completing the <strong>6 MONTH</strong> probation period to the company's satisfaction, you will be considered for appointment in the Company as an <strong>${f(d.position)}</strong>.`)}
+    ${clause('19', 'Contract/Bond with Previous Employers', `It will be your responsibility to discharge all obligations arising out of any contract or bond with previous employers.`)}
+    ${clause('20', 'On termination', `On termination of this contract, you will immediately give up to the Company all correspondence, specifications, formulae, books, documents, market data, cost data, literature, drawings, effect or records, etc. belonging to the Company or relating to its business and shall not make or retain any copies of these items.`)}
+    ${clause('21', 'General', `The above terms and conditions are based on Company Policy, Procedures and other Rules and Regulations currently applicable to the Company's employees and are subject to amendments and adjustments from time to time.<br>You are to treat the terms and conditions of this agreement as confidential.`)}
+    ${clause('22', 'Disputes & Arbitration', `Any dispute or difference or claim arising in connection with this contract shall be resolved by reference to arbitration by a sole arbitrator appointed by Evergreen Enterprises at its sole discretion. The arbitration proceedings shall be governed by the Arbitration &amp; Conciliation Act, 1996. The language of arbitration shall be English. The venue of arbitration shall be at <strong>Erode</strong>. The award of the arbitrator shall be final and binding on the parties. The governing law shall be the laws of India.`)}
+    ${clause('23', 'Background Check and Verification', `The company reserves the right to verify your documents and background through internal or external agencies. These may include your current/previous employment history, educational/professional credentials, and background checks.<br><br>
+      <em><strong>"Please note that this offer will stand immediately withdrawn / employment summarily terminated if any negative factor is brought to our knowledge during employment verification of your past employments. Any costs incurred on you will be recovered from you".</strong></em>`)}
 
-    <p style="margin:16px 0">Please communicate your acceptance of this appointment by signing a copy of this letter and returning it to us.</p>
-    <p>We are looking forward to having you in our company and to seeing you achieve great things at Evergreen Enterprises.</p>
+    <p style="margin:14px 0;text-align:justify">Please communicate your acceptance of this appointment by signing a copy of this letter and returning it to us.</p>
+    <p style="margin-bottom:20px;text-align:justify">We are looking forward to having you in our company and to seeing you achieve great things at Evergreen Enterprises.</p>
 
-    <!-- Signatures -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:36px">
+    <!-- Signature block — matches template -->
+    <div style="margin-top:30px;display:flex;justify-content:space-between;align-items:flex-end">
       <div>
-        <div style="border-top:1px solid #333;padding-top:8px">
-          <div style="font-weight:700;font-size:11px">For EVERGREEN ENTERPRISES,</div>
-          <div style="margin-top:20px;font-weight:700">KESAVAMOORTHY.N</div>
-          <div style="font-size:10.5px">MANAGING PARTNER</div>
+        <p style="font-weight:700;margin:0">For EVERGREEN ENTERPRISES,</p>
+        <div style="margin-top:36px">
+          <p style="font-weight:700;margin:0">KESAVAMOORTHY.N</p>
+          <p style="font-weight:700;margin:0">MANAGING PARTNER</p>
         </div>
       </div>
-      <div>
-        <div style="border-top:1px solid #333;padding-top:8px">
-          <div style="font-size:11px;color:#555">Candidate Acceptance</div>
-          <div style="margin-top:20px;font-size:11px">Name: ${fld(d.candidateName)}</div>
-          <div style="font-size:11px">Date: ___________</div>
-          <div style="font-size:11px">Signature: ___________</div>
+      <div style="text-align:center">
+        <div style="width:200px;border-top:1px solid #000;padding-top:6px">
+          <p style="font-size:10.5px;margin:0">Candidate Signature &amp; Date</p>
+          <p style="font-size:10.5px;color:#555;margin:4px 0 0">${f(d.candidateName,'Name')}</p>
         </div>
       </div>
-    </div>
-
-    <div style="margin-top:24px;text-align:center;font-size:9.5px;color:#bbb;border-top:1px solid #eee;padding-top:8px">
-      Evergreen Enterprises · Confidential · ${d.refNo || ''}
     </div>
   </div>`;
 }
