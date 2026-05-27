@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.8';
-const PORTAL_BUILD    = 381;
-const PORTAL_BUILD_AT = '2026-05-27T09:43:55Z';
+const PORTAL_VERSION  = '3.18.9';
+const PORTAL_BUILD    = 382;
+const PORTAL_BUILD_AT = '2026-05-27T09:57:39Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4830,6 +4830,13 @@ function loadPortalConfig() {
           dirty = true;
         }
       });
+      // One-time: Recruitment shipped hidden in some older saved configs — restore it
+      // to its registry default (Live for MD / HR / Dept-Head / Site) once.
+      if (!saved._recruitMigV1) {
+        saved.modules['recruitment'] = { status: 'live', roles: ['md','hr','dept_head','site'] };
+        saved._recruitMigV1 = true;
+        dirty = true;
+      }
       if (dirty) {
         try { localStorage.setItem(CONFIG_KEY, JSON.stringify(saved)); } catch(e) {}
       }
