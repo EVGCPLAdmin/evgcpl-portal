@@ -26,7 +26,13 @@ const RC_OFFER_HEADERS = [
   'Joining Date','Probation Period','Offer Valid Until',
   'Candidate Email','Dispatch Method',
   'Status','Sent Date','Acceptance Date','Remarks',
-  'Created By','Created At'
+  'Created By','Created At',
+  // Appended for full letter rendering (offer + appointment templates)
+  'Offer Date','Grade','Department',
+  'Address Line 1','Address Line 2','Address Line 3','Address Line 4',
+  'Start Time','End Time','Notice Period','Reporting Manager',
+  'DA','Special Allowance','Conveyance','Education Allowance',
+  'Uniform Allowance','LTA','Site Allowance','Medical','PF Employer','CTC (Monthly)'
 ];
 
 const RC_PREJOIN_HEADERS = [
@@ -236,30 +242,38 @@ function saveOffer(payload) {
     const seq     = String(Math.max(lastRow, 1)).padStart(3, '0');
     const olId    = o.olId || `OL-${year}-${seq}`;
 
-    const row = [
-      olId,
-      o.mrfId        || '',
-      o.candidateName|| '',
-      o.position     || '',
-      o.site         || '',
-      o.ctcAnnual    || '',
-      o.basic        || '',
-      o.hra          || '',
-      o.allowances   || '',
-      o.pf           || '',
-      o.gross        || '',
-      o.net          || '',
-      o.joiningDate  || '',
-      o.probation    || '3 months',
-      o.validUntil   || '',
-      o.candidateEmail|| '',
-      o.dispatchMethod|| '',
-      'Sent',
-      now,
-      '', '',
-      o.createdBy    || '',
-      now,
-    ];
+    // Header-aware write: ensure every RC_OFFER_HEADERS column exists in row 1
+    // (append any missing — preserves existing columns/order), then write by name.
+    let headers = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0].map(String);
+    let added = false;
+    RC_OFFER_HEADERS.forEach(h => { if (headers.indexOf(h) === -1) { headers.push(h); added = true; } });
+    if (added) {
+      sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sh.setFrozenRows(1);
+      sh.getRange(1, 1, 1, headers.length)
+        .setBackground('#1A6038').setFontColor('#FFFFFF').setFontWeight('bold');
+    }
+
+    const vals = {
+      'OL ID': olId, 'MRF ID': o.mrfId || '', 'Candidate Name': o.candidateName || '',
+      'Position': o.position || '', 'Site': o.site || '', 'CTC (Annual)': o.ctcAnnual || '',
+      'Basic': o.basic || '', 'HRA': o.hra || '', 'Allowances': o.allowances || '',
+      'PF': o.pf || '', 'Gross': o.gross || '', 'Net': o.net || '',
+      'Joining Date': o.joiningDate || '', 'Probation Period': o.probation || '6',
+      'Offer Valid Until': o.validUntil || '', 'Candidate Email': o.candidateEmail || '',
+      'Dispatch Method': o.dispatchMethod || '', 'Status': 'Sent', 'Sent Date': now,
+      'Acceptance Date': '', 'Remarks': '', 'Created By': o.createdBy || '', 'Created At': now,
+      'Offer Date': o.offerDate || '', 'Grade': o.grade || '', 'Department': o.department || '',
+      'Address Line 1': o.addr1 || '', 'Address Line 2': o.addr2 || '',
+      'Address Line 3': o.addr3 || '', 'Address Line 4': o.addr4 || '',
+      'Start Time': o.startTime || '', 'End Time': o.endTime || '', 'Notice Period': o.noticePeriod || '',
+      'Reporting Manager': o.reportingManager || '',
+      'DA': o.da || '', 'Special Allowance': o.specialallow || '', 'Conveyance': o.conveyance || '',
+      'Education Allowance': o.education || '', 'Uniform Allowance': o.uniform || '', 'LTA': o.lta || '',
+      'Site Allowance': o.siteallow || '', 'Medical': o.medical || '', 'PF Employer': o.pfEmployer || '',
+      'CTC (Monthly)': o.ctcMonthly || '',
+    };
+    const row = headers.map(h => (h in vals) ? vals[h] : '');
 
     sh.appendRow(row);
     return { success: true, olId };
