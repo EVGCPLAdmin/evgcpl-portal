@@ -461,11 +461,18 @@ function assignEmpCode(payload) {
 // ─────────────────────────────────────────────────────────────
 function sendOfferEmail(payload) {
   try {
-    const blob = Utilities.newBlob(
-      Utilities.base64Decode(payload.pdfBase64),
-      'application/pdf',
-      `OfferLetter_${(payload.candidateName||'Candidate').replace(/\s+/g,'_')}_${payload.olId||''}.pdf`
-    );
+    if (!payload.to) return { success: false, message: 'No recipient email address' };
+    const fname = `OfferLetter_${(payload.candidateName||'Candidate').replace(/\s+/g,'_')}_${payload.olId||''}.pdf`;
+    let blob;
+    if (payload.html) {
+      // Convert the offer-letter HTML to PDF server-side
+      blob = Utilities.newBlob(payload.html, 'text/html', fname.replace(/\.pdf$/, '.html'))
+        .getAs('application/pdf').setName(fname);
+    } else if (payload.pdfBase64) {
+      blob = Utilities.newBlob(Utilities.base64Decode(payload.pdfBase64), 'application/pdf', fname);
+    } else {
+      return { success: false, message: 'No html or pdfBase64 provided' };
+    }
     MailApp.sendEmail({
       to:          payload.to,
       subject:     `Offer Letter — ${payload.position || 'Position'} at Evergreen Enterprises`,
