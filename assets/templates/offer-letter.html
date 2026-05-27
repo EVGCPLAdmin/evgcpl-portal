@@ -265,30 +265,25 @@ table.sal .rnet td{border-top:none;font-family:"Montserrat",sans-serif;font-size
   <div class="annex-meta">
     <span><strong>Name:</strong> {{candidateName}}</span>
     <span><strong>Designation:</strong> {{position}}</span>
+    <span><strong>Agreed Salary:</strong> {{agreedSalary}}</span>
   </div>
   <table class="sal">
     <thead><tr>
-      <th>Particulars</th><th>Monthly Salary (Rs.)</th><th>Deductions</th><th></th>
+      <th>Component</th><th>Group</th><th style="text-align:right">Monthly (Rs.)</th>
     </tr></thead>
     <tbody>
-      <tr><td>Basic</td><td>{{basic}}</td><td>(+) Medical Insurance Individual</td><td>{{medical}}</td></tr>
-      <tr><td>Dearness Allowance</td><td>{{da}}</td><td>Employer PF</td><td>{{pfEmployer}}</td></tr>
-      <tr><td>House Rent Allowance (HRA)</td><td>{{hra}}</td><td></td><td></td></tr>
-      <tr><td>Special Allowance</td><td>{{specialallow}}</td><td></td><td></td></tr>
-      <tr><td>Conveyance Allowance</td><td>{{conveyance}}</td><td></td><td></td></tr>
-      <tr><td>Education Allowance</td><td>{{education}}</td><td></td><td></td></tr>
-      <tr><td>Uniform / Washing Allowance</td><td>{{uniform}}</td><td></td><td></td></tr>
-      <tr><td>LTA</td><td>{{lta}}</td><td></td><td></td></tr>
-      <tr><td>Site Allowance</td><td>{{siteallow}}</td><td></td><td></td></tr>
+      {{salaryRows}}
     </tbody>
     <tfoot>
-      <tr class="rtotal"><td>Gross Salary</td><td>{{gross}}</td><td></td><td></td></tr>
-      <tr><td>(+) Medical Insurance Individual</td><td>{{medical}}</td><td></td><td></td></tr>
-      <tr><td>Employer PF</td><td>{{pfEmployer}}</td><td></td><td></td></tr>
-      <tr class="rtotal"><td>CTC</td><td>{{ctc}}</td><td><strong>Net Salary</strong></td><td class="rnet">{{net}}</td></tr>
+      <tr class="rtotal"><td>Basic Salary</td><td>Basic</td><td style="text-align:right">{{basicTotal}}</td></tr>
+      <tr class="rtotal"><td>Other Elements</td><td>Other</td><td style="text-align:right">{{otherTotal}}</td></tr>
+      <tr class="rtotal"><td>Calculated Salary</td><td></td><td style="text-align:right">{{calculatedSalary}}</td></tr>
+      <tr><td>(+) Medical Insurance</td><td></td><td style="text-align:right">{{medical}}</td></tr>
+      <tr><td>(+) Employer PF</td><td></td><td style="text-align:right">{{pfEmployer}}</td></tr>
+      <tr class="rnet"><td>Cost to Company (CTC)</td><td></td><td style="text-align:right">{{ctc}}</td></tr>
     </tfoot>
   </table>
-  <p class="sal-note">* TDS will be deducted as per government norms.</p>
+  <p class="sal-note">* TDS will be deducted as per government norms. Calculated Salary is the sum of all components above.</p>
 </div>
 
 <div class="closing">
