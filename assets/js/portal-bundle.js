@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.13';
-const PORTAL_BUILD    = 386;
-const PORTAL_BUILD_AT = '2026-05-27T16:58:02Z';
+const PORTAL_VERSION  = '3.18.14';
+const PORTAL_BUILD    = 387;
+const PORTAL_BUILD_AT = '2026-05-27T21:36:47Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -15198,6 +15198,11 @@ async function _rcLoadOffers(force=false) {
       gross:         r['Gross']          || '',
       net:           r['Net']            || '',
       ctcMonthly:    r['CTC (Monthly)']  || '',
+      agreedSalary:    r['Agreed Salary']     || '',
+      calculatedSalary:r['Calculated Salary'] || '',
+      basicTotal:      r['Basic Total']       || '',
+      otherTotal:      r['Other Total']       || '',
+      salRows:         (()=>{ try { return JSON.parse(r['Salary JSON']||'[]'); } catch(e){ return []; } })(),
     }));
   } catch(e) { _rcOffers = []; }
 }
@@ -15815,6 +15820,7 @@ function _rcDrawOLFormInner(container) {
     const seq = String((_rcOffers||[]).length + 1).padStart(3,'0');
     d.refNo = `EG/M-1/HO-${seq}/TAN-INDIA`;
   }
+  _rcOLSeedSalRows();
 
   const desigOpts = desigs.map(ds =>
     `<option value="${ds.desig}" data-grade="${ds.grade}" ${d.position===ds.desig?'selected':''}>${ds.desig}</option>`
@@ -15954,77 +15960,44 @@ function _rcDrawOLFormInner(container) {
             <input id="ol-valid" type="date" value="${d.validUntil||''}" oninput="_rcOLField('validUntil',this.value)" class="rc-inp">
           </div>
 
-          <!-- CTC Annual -->
-          <div>
-            <label class="rc-lbl">Annual CTC (₹) — auto-splits monthly</label>
-            <input id="ol-ctc" type="number" value="${d.ctcAnnual||''}" oninput="_rcOLField('ctcAnnual',this.value);_rcOLAutoCalc()" placeholder="e.g. 420000" class="rc-inp">
-          </div>
         </div>
 
-        <!-- SALARY BREAKUP TABLE -->
-        <div style="margin-top:.9rem;border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="background:var(--g7,#1A6038);color:#fff;padding:7px 12px;font-size:.76rem;font-weight:600;display:flex;justify-content:space-between">
-            <span>Monthly Salary Breakup</span>
-            <span style="font-size:.68rem;font-weight:400;opacity:.8">Edit individual values if needed</span>
+        <!-- ═══ AGREED SALARY + DYNAMIC COMPONENTS ═══ -->
+        <div style="margin-top:.9rem">
+          <label class="rc-lbl">Agreed Monthly Salary (₹) *</label>
+          <input id="ol-agreed" type="number" value="${d.agreedSalary||''}" oninput="_rcOLAgreedChange(this.value)" placeholder="e.g. 25000" class="rc-inp" style="font-weight:600">
+        </div>
+
+        <div style="margin-top:.7rem;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="background:var(--g7,#1A6038);color:#fff;padding:7px 12px;font-size:.76rem;font-weight:600;display:flex;justify-content:space-between;align-items:center">
+            <span>Salary Components</span>
+            <button type="button" onclick="_rcOLSalAdd()" style="background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:6px;font-size:.7rem;padding:2px 8px;cursor:pointer">➕ Add Element</button>
           </div>
-          <table style="width:100%;border-collapse:collapse;font-size:.78rem">
+          <table style="width:100%;border-collapse:collapse;font-size:.76rem">
             <thead><tr style="background:var(--surface2)">
-              <th style="padding:4px 10px;text-align:left;font-weight:500;color:var(--txt2);font-size:.72rem;border-bottom:1px solid var(--border)">Component</th>
-              <th style="padding:4px 10px;text-align:right;font-weight:500;color:var(--txt2);font-size:.72rem;border-bottom:1px solid var(--border)">Monthly (₹)</th>
+              <th style="padding:4px 8px;text-align:left;font-size:.7rem;color:var(--txt2);border-bottom:1px solid var(--border)">Component</th>
+              <th style="padding:4px 6px;text-align:left;font-size:.7rem;color:var(--txt2);border-bottom:1px solid var(--border)">Group</th>
+              <th style="padding:4px 6px;text-align:left;font-size:.7rem;color:var(--txt2);border-bottom:1px solid var(--border)">Basis</th>
+              <th style="padding:4px 6px;text-align:right;font-size:.7rem;color:var(--txt2);border-bottom:1px solid var(--border)">Value</th>
+              <th style="padding:4px 8px;text-align:right;font-size:.7rem;color:var(--txt2);border-bottom:1px solid var(--border)">Amount</th>
+              <th style="border-bottom:1px solid var(--border)"></th>
             </tr></thead>
-            <tbody>
-              ${[
-                ['basic',       'Basic Salary'],
-                ['da',          'Dearness Allowance'],
-                ['hra',         'House Rent Allowance (HRA)'],
-                ['specialallow','Special Allowance'],
-                ['conveyance',  'Conveyance Allowance'],
-                ['education',   'Education Allowance'],
-                ['uniform',     'Uniform / Washing Allowance'],
-                ['lta',         'LTA'],
-                ['siteallow',   'Site Allowance'],
-              ].map(([id,label],i)=>`
-              <tr style="background:${i%2?'var(--surface2)':''}">
-                <td style="padding:4px 10px;border-bottom:1px solid var(--border)">${label}</td>
-                <td style="padding:2px 10px 2px 0;border-bottom:1px solid var(--border);text-align:right">
-                  <input id="ol-${id}" type="number" value="${d[id]||''}" oninput="_rcOLField('${id}',this.value);_rcOLCalcGross()"
-                    style="width:100px;padding:2px 6px;border:1px solid var(--border);border-radius:5px;font-size:.76rem;background:var(--surface1);color:var(--txt1);text-align:right">
-                </td>
-              </tr>`).join('')}
-
-              <!-- Gross -->
-              <tr style="background:var(--surface2);font-weight:600">
-                <td style="padding:5px 10px;border-bottom:1px solid var(--border)">Gross Salary</td>
-                <td style="padding:5px 10px;text-align:right;border-bottom:1px solid var(--border)" id="ol-gross-disp">${d.gross?'₹'+Math.round(d.gross).toLocaleString('en-IN'):'—'}</td>
-              </tr>
-
-              <!-- Deductions -->
-              ${[
-                ['medical',    '(+) Medical Insurance Individual'],
-                ['pfemployer', 'Employer PF'],
-              ].map(([id,label])=>`
-              <tr>
-                <td style="padding:4px 10px;border-bottom:1px solid var(--border);color:var(--txt3);font-size:.75rem">${label}</td>
-                <td style="padding:2px 10px 2px 0;border-bottom:1px solid var(--border);text-align:right">
-                  <input id="ol-${id}" type="number" value="${d[id==='pfemployer'?'pfEmployer':id]||''}" oninput="_rcOLField('${id==='pfemployer'?'pfEmployer':id}',this.value);_rcOLCalcGross()"
-                    style="width:100px;padding:2px 6px;border:1px solid var(--border);border-radius:5px;font-size:.75rem;background:var(--surface1);color:var(--txt1);text-align:right">
-                </td>
-              </tr>`).join('')}
-
-              <!-- CTC -->
-              <tr style="background:#f0f7f2;font-weight:700;color:#1A6038">
-                <td style="padding:5px 10px;border-bottom:1px solid var(--border)">CTC</td>
-                <td style="padding:5px 10px;text-align:right;border-bottom:1px solid var(--border)" id="ol-ctc-disp">${d.ctcMonthly?'₹'+Math.round(d.ctcMonthly).toLocaleString('en-IN'):'—'}</td>
-              </tr>
-
-              <!-- Net -->
-              <tr style="background:#f0f7f2;font-weight:700;color:#1A6038">
-                <td style="padding:5px 10px">Net Salary (Take-Home)</td>
-                <td style="padding:5px 10px;text-align:right" id="ol-net-disp">${d.net?'₹'+Math.round(d.net).toLocaleString('en-IN'):'—'}</td>
-              </tr>
-            </tbody>
+            <tbody id="ol-sal-tbody"></tbody>
+            <tfoot>
+              <tr style="background:var(--surface2);font-weight:600"><td colspan="4" style="padding:5px 8px">Calculated Salary</td><td id="ol-calc-disp" style="padding:5px 8px;text-align:right">—</td><td></td></tr>
+              <tr><td colspan="4" style="padding:3px 8px;color:var(--txt3);font-size:.72rem">↳ Basic Salary</td><td id="ol-basic-disp" style="padding:3px 8px;text-align:right;font-size:.72rem">—</td><td></td></tr>
+              <tr><td colspan="4" style="padding:3px 8px;color:var(--txt3);font-size:.72rem">↳ Other Elements</td><td id="ol-other-disp" style="padding:3px 8px;text-align:right;font-size:.72rem">—</td><td></td></tr>
+            </tfoot>
           </table>
-          <div style="padding:5px 10px;font-size:.69rem;color:var(--txt3);border-top:1px solid var(--border)">*TDS deducted as per government norms. Net = Gross − Employee PF (12% of Basic)</div>
+        </div>
+
+        <!-- Medical + PF (CTC inputs) -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:.7rem">
+          <div><label class="rc-lbl">Medical Insurance (₹/mo)</label><input id="ol-medical" type="number" value="${d.medical||''}" oninput="_rcOLField('medical',this.value);_rcOLRecalc()" class="rc-inp"></div>
+          <div><label class="rc-lbl">Employer PF (₹/mo)</label><input id="ol-pfemployer" type="number" value="${d.pfEmployer||''}" oninput="_rcOLField('pfEmployer',this.value);_rcOLRecalc()" class="rc-inp"></div>
+        </div>
+        <div style="margin-top:.6rem;background:#f0f7f2;border:1px solid var(--g5,#cde7d6);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;font-weight:700;color:#1A6038">
+          <span>Cost to Company (CTC) / month</span><span id="ol-ctc-disp2">—</span>
         </div>
 
         <!-- Candidate Email -->
@@ -16069,6 +16042,7 @@ function _rcDrawOLFormInner(container) {
   });
 
   // Populate the preview iframe once the form is in the DOM
+  _rcOLRenderSalTable();
   _rcOLUpdatePreview();
 }
 
@@ -16146,50 +16120,91 @@ function _rcOLMRFChange() {
   _rcOLUpdatePreview();
 }
 
-function _rcOLAutoCalc() {
-  const annual = parseFloat(document.getElementById('ol-ctc')?.value || 0);
-  if (!annual) return;
-  const m = Math.round(annual / 12);
-  const basic       = Math.round(m * 0.40);
-  const da          = Math.round(m * 0.05);
-  const hra         = Math.round(m * 0.20);
-  const specialallow= Math.round(m * 0.10);
-  const conveyance  = Math.round(m * 0.05);
-  const education   = Math.round(m * 0.02);
-  const uniform     = Math.round(m * 0.02);
-  const lta         = Math.round(m * 0.03);
-  const siteallow   = Math.round(m * 0.08);
-  const medical     = Math.round(m * 0.02);
-  const pfEmployer  = Math.round(m * 0.03);
-  const gross       = basic+da+hra+specialallow+conveyance+education+uniform+lta+siteallow;
-  const ctcMonthly  = gross + medical + pfEmployer;
-  const pfEmployee  = Math.round(basic * 0.12);
-  const net         = gross - pfEmployee;
-  Object.assign(_rcOLDraft,{basic,da,hra,specialallow,conveyance,education,uniform,lta,siteallow,medical,pfEmployer,gross,ctcMonthly,net,ctcAnnual:annual});
-  const idMap = {basic,da,hra,specialallow,conveyance,education,uniform,lta,siteallow,medical,pfemployer:pfEmployer};
-  Object.entries(idMap).forEach(([id,val])=>{ const el=document.getElementById('ol-'+id); if(el) el.value=val; });
-  _rcOLUpdateDisplays(gross, ctcMonthly, net);
-  _rcOLUpdatePreview();
+// Fixed "designed" components (% of Agreed Salary). Editable per offer; recruiter
+// adds flat extras (Other Elements only). CONFIRMable master list.
+const _RC_SAL_COMPONENTS = [
+  { name:'Basic Salary',                group:'Basic', pct:40 },
+  { name:'House Rent Allowance (HRA)',  group:'Other', pct:20 },
+  { name:'Dearness Allowance',          group:'Other', pct:10 },
+  { name:'Special Allowance',           group:'Other', pct:8  },
+  { name:'Conveyance Allowance',        group:'Other', pct:5  },
+  { name:'Medical Allowance',           group:'Other', pct:5  },
+  { name:'Leave Travel Allowance (LTA)',group:'Other', pct:3  },
+  { name:'Site Allowance',              group:'Other', pct:3  },
+  { name:'Education Allowance',         group:'Other', pct:2  },
+  { name:'Uniform / Washing Allowance', group:'Other', pct:2  },
+  { name:'Flexi Allowance',             group:'Other', pct:2  },
+];
+
+function _rcOLSeedSalRows() {
+  if (!_rcOLDraft.salRows || !_rcOLDraft.salRows.length) {
+    _rcOLDraft.salRows = _RC_SAL_COMPONENTS.map(c => ({ name:c.name, group:c.group, basis:'pct', value:c.pct }));
+  }
 }
 
-function _rcOLCalcGross() {
-  const ids=['basic','da','hra','specialallow','conveyance','education','uniform','lta','siteallow'];
-  const gross    = ids.reduce((s,id)=>s+(parseFloat(document.getElementById('ol-'+id)?.value||0)||0),0);
-  const medical  = parseFloat(document.getElementById('ol-medical')?.value||0)||0;
-  const pfEmp    = parseFloat(document.getElementById('ol-pfemployer')?.value||0)||0;
-  const pfEe     = Math.round((parseFloat(document.getElementById('ol-basic')?.value||0)||0)*0.12);
-  const ctc      = gross + medical + pfEmp;
-  const net      = gross - pfEe;
-  _rcOLDraft.gross=gross; _rcOLDraft.ctcMonthly=ctc; _rcOLDraft.net=net;
-  _rcOLUpdateDisplays(gross, ctc, net);
+// Recompute amounts + rollups from Agreed Salary. Does NOT trigger the preview.
+function _rcOLRecalc() {
+  const d = _rcOLDraft;
+  const agreed = parseFloat(d.agreedSalary||0)||0;
+  let calc=0, basic=0, other=0, basicAmt=0;
+  (d.salRows||[]).forEach(r => {
+    const v = parseFloat(r.value||0)||0;
+    r.amount = (r.basis==='flat') ? Math.round(v) : Math.round(agreed*v/100);
+    calc += r.amount;
+    if (r.group==='Basic') { basic += r.amount; basicAmt += r.amount; } else { other += r.amount; }
+  });
+  const medical = parseFloat(d.medical||0)||0;
+  const pfEmp   = parseFloat(d.pfEmployer||0)||0;
+  d.calculatedSalary = calc;
+  d.basicTotal = basic;
+  d.otherTotal = other;
+  d.gross      = calc;                                  // back-compat
+  d.ctcMonthly = calc + medical + pfEmp;
+  d.ctcAnnual  = d.ctcMonthly * 12;
+  d.net        = calc - Math.round(basicAmt * 0.12);    // employee PF 12% of basic
+  _rcOLUpdateSalDisplays();
 }
 
-function _rcOLUpdateDisplays(gross, ctc, net) {
-  const f=v=>v?'₹'+Math.round(v).toLocaleString('en-IN'):'—';
-  const g=document.getElementById('ol-gross-disp'); if(g) g.textContent=f(gross);
-  const c=document.getElementById('ol-ctc-disp');   if(c) c.textContent=f(ctc);
-  const n=document.getElementById('ol-net-disp');   if(n) n.textContent=f(net);
+function _rcOLUpdateSalDisplays() {
+  const d = _rcOLDraft;
+  const f = v => v ? '₹'+Math.round(v).toLocaleString('en-IN') : '—';
+  const set = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=f(v); };
+  set('ol-calc-disp',  d.calculatedSalary);
+  set('ol-basic-disp', d.basicTotal);
+  set('ol-other-disp', d.otherTotal);
+  set('ol-ctc-disp2',  d.ctcMonthly);
+  (d.salRows||[]).forEach((r,i)=>{ const e=document.getElementById('sal-amt-'+i); if(e) e.textContent=f(r.amount); });
 }
+
+function _rcOLRenderSalTable() {
+  const tb = document.getElementById('ol-sal-tbody'); if (!tb) return;
+  const rows = _rcOLDraft.salRows || [];
+  const nDesigned = _RC_SAL_COMPONENTS.length;
+  tb.innerHTML = rows.map((r,i) => {
+    const designed = i < nDesigned;
+    const amt = Math.round(r.amount||0);
+    const inp = 'padding:2px 5px;border:1px solid var(--border);border-radius:5px;font-size:.74rem;background:var(--surface1);color:var(--txt1)';
+    const sel = 'font-size:.72rem;padding:1px 3px;border:1px solid var(--border);border-radius:5px;background:var(--surface1);color:var(--txt1)';
+    const nameCell = designed
+      ? `<td style="padding:3px 8px">${escapeHtml_(r.name||'')}</td>`
+      : `<td style="padding:2px 8px"><input value="${escapeHtml_(r.name||'')}" oninput="_rcOLSalName(${i},this.value)" placeholder="Element name" style="width:100%;${inp}"></td>`;
+    const grpCell = `<td style="padding:2px 6px"><select onchange="_rcOLSalGroup(${i},this.value)" ${designed?'':'disabled'} style="${sel}"><option value="Basic" ${r.group==='Basic'?'selected':''}>Basic</option><option value="Other" ${r.group!=='Basic'?'selected':''}>Other</option></select></td>`;
+    const basisCell = `<td style="padding:2px 6px"><select onchange="_rcOLSalBasis(${i},this.value)" style="${sel}"><option value="pct" ${r.basis==='pct'?'selected':''}>%</option><option value="flat" ${r.basis==='flat'?'selected':''}>Flat ₹</option></select></td>`;
+    const valCell = `<td style="padding:2px 6px;text-align:right"><input type="number" value="${r.value!=null?r.value:''}" oninput="_rcOLSalVal(${i},this.value)" style="width:70px;text-align:right;${inp}">${r.basis==='pct'?' %':''}</td>`;
+    const amtCell = `<td id="sal-amt-${i}" style="padding:3px 8px;text-align:right">${amt?'₹'+amt.toLocaleString('en-IN'):'—'}</td>`;
+    const delCell = `<td style="padding:2px 6px;text-align:center">${designed?'':`<button type="button" onclick="_rcOLSalDel(${i})" title="Remove" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:.85rem">✕</button>`}</td>`;
+    return `<tr style="border-bottom:1px solid var(--border)">${nameCell}${grpCell}${basisCell}${valCell}${amtCell}${delCell}</tr>`;
+  }).join('');
+  _rcOLUpdateSalDisplays();
+}
+
+function _rcOLAgreedChange(v){ _rcOLDraft.agreedSalary = v; _rcOLRecalc(); _rcOLPreviewSoon(); }
+function _rcOLSalVal(i,v){ if(_rcOLDraft.salRows[i]) _rcOLDraft.salRows[i].value = v; _rcOLRecalc(); _rcOLPreviewSoon(); }
+function _rcOLSalName(i,v){ if(_rcOLDraft.salRows[i]) _rcOLDraft.salRows[i].name = v; _rcOLPreviewSoon(); }
+function _rcOLSalGroup(i,v){ if(_rcOLDraft.salRows[i]) _rcOLDraft.salRows[i].group = (v==='Basic'?'Basic':'Other'); _rcOLRecalc(); _rcOLRenderSalTable(); _rcOLPreviewSoon(); }
+function _rcOLSalBasis(i,v){ if(_rcOLDraft.salRows[i]) _rcOLDraft.salRows[i].basis = (v==='flat'?'flat':'pct'); _rcOLRecalc(); _rcOLRenderSalTable(); _rcOLPreviewSoon(); }
+function _rcOLSalAdd(){ (_rcOLDraft.salRows = _rcOLDraft.salRows||[]).push({ name:'', group:'Other', basis:'flat', value:'' }); _rcOLRenderSalTable(); _rcOLRecalc(); }
+function _rcOLSalDel(i){ if(i >= _RC_SAL_COMPONENTS.length && _rcOLDraft.salRows[i]) { _rcOLDraft.salRows.splice(i,1); _rcOLRenderSalTable(); _rcOLRecalc(); _rcOLPreviewSoon(); } }
 
 function _rcOLUpdatePreview() {
   const map = {
@@ -16198,23 +16213,31 @@ function _rcOLUpdatePreview() {
     'ol-desig':'position','ol-grade':'grade','ol-dept':'dept','ol-site':'site',
     'ol-starttime':'startTime','ol-endtime':'endTime',
     'ol-doj':'joiningDate','ol-notice':'noticePeriod','ol-valid':'validUntil',
-    'ol-probation':'probation',
-    'ol-ctc':'ctcAnnual','ol-email':'candidateEmail',
-    'ol-basic':'basic','ol-da':'da','ol-hra':'hra','ol-specialallow':'specialallow',
-    'ol-conveyance':'conveyance','ol-education':'education','ol-uniform':'uniform',
-    'ol-lta':'lta','ol-siteallow':'siteallow','ol-medical':'medical','ol-pfemployer':'pfEmployer',
+    'ol-probation':'probation','ol-agreed':'agreedSalary','ol-email':'candidateEmail',
+    'ol-medical':'medical','ol-pfemployer':'pfEmployer',
   };
   Object.entries(map).forEach(([id,key])=>{ const el=document.getElementById(id); if(el) _rcOLDraft[key]=el.value; });
   // Sync Reports To from hidden field
   const code=document.getElementById('ol-rpt-code'); if(code) _rcOLDraft.reportingToCode=code.value;
   const srch=document.getElementById('ol-rpt-search'); if(srch) _rcOLDraft.reportingTo=srch.value.split(' (')[0].trim();
-  _rcOLCalcGross();
+  _rcOLRecalc();
   const iframe=document.getElementById('ol-preview-iframe');
   if(iframe) iframe.srcdoc=_rcOLPreviewHTML();
 }
 
 // Build the offer-letter token map from any offer-like object (live draft or a saved offer)
 function _rcOfferTokenMap(d) {
+  const agreed = parseFloat(d.agreedSalary||0)||0;
+  const rows = (d.salRows||[]);
+  const amtOf = r => (r.amount != null) ? Math.round(r.amount)
+    : (r.basis==='flat' ? Math.round(parseFloat(r.value)||0) : Math.round(agreed*(parseFloat(r.value)||0)/100));
+  const salaryRows = rows.length
+    ? rows.map(r => {
+        const grp = r.group==='Basic' ? 'Basic Salary' : 'Other Elements';
+        const a = amtOf(r);
+        return `<tr><td>${escapeHtml_(r.name||'')}</td><td style="color:#6a6a70">${grp}</td><td style="text-align:right">${a?'₹'+a.toLocaleString('en-IN'):'—'}</td></tr>`;
+      }).join('')
+    : `<tr><td colspan="3" style="text-align:center;color:#999">No components</td></tr>`;
   return {
     refNo:       _rcF(d.refNo, '<<Ref No>>'),
     offerDate:   _rcFmtDMY(d.offerDate || new Date().toISOString().slice(0,10)),
@@ -16228,11 +16251,13 @@ function _rcOfferTokenMap(d) {
     company:  'Evergreen Enterprises',
     appointmentDate: _rcFmtDMY(d.joiningDate, 'Appointment Date'),
     probation: _rcF(d.probation || '6'),
-    basic: _rcMoney(d.basic), da: _rcMoney(d.da), hra: _rcMoney(d.hra),
-    specialallow: _rcMoney(d.specialallow), conveyance: _rcMoney(d.conveyance),
-    education: _rcMoney(d.education), uniform: _rcMoney(d.uniform), lta: _rcMoney(d.lta),
-    siteallow: _rcMoney(d.siteallow), medical: _rcMoney(d.medical), pfEmployer: _rcMoney(d.pfEmployer),
-    gross: _rcMoney(d.gross), ctc: _rcMoney(d.ctcMonthly), net: _rcMoney(d.net),
+    agreedSalary: _rcMoney(d.agreedSalary),
+    salaryRows,
+    basicTotal: _rcMoney(d.basicTotal),
+    otherTotal: _rcMoney(d.otherTotal),
+    calculatedSalary: _rcMoney(d.calculatedSalary),
+    medical: _rcMoney(d.medical), pfEmployer: _rcMoney(d.pfEmployer),
+    ctc: _rcMoney(d.ctcMonthly),
   };
 }
 
@@ -16303,7 +16328,8 @@ function _rcOLBuildOfferRecord(dispatchMethod) {
   const olId=`OL-${year}-${seq}`;
   const now=new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
   return {olId,refNo:d.refNo||'',mrfId:d.mrfId||'',candidateName:d.candidateName,position:d.position,site:d.site,ctcAnnual:d.ctcAnnual||((d.gross||0)*12),joiningDate:d.joiningDate,candidateEmail:d.candidateEmail,dispatchMethod,status:'Sent',sentDate:now,basic:d.basic,hra:d.hra,allowances:d.allowances,pf:d.pf,gross:d.gross,net:d.net,probation:d.probation||'6',validUntil:d.validUntil,createdBy:STATE.user?.email||'',createdAt:now,
-    offerDate:d.offerDate||'',grade:d.grade||'',department:d.dept||'',addr1:d.addr1||'',addr2:d.addr2||'',addr3:d.addr3||'',addr4:d.addr4||'',startTime:d.startTime||'',endTime:d.endTime||'',noticePeriod:d.noticePeriod||'',reportingManager:d.reportingTo||'',da:d.da||'',specialallow:d.specialallow||'',conveyance:d.conveyance||'',education:d.education||'',uniform:d.uniform||'',lta:d.lta||'',siteallow:d.siteallow||'',medical:d.medical||'',pfEmployer:d.pfEmployer||'',ctcMonthly:d.ctcMonthly||''};
+    offerDate:d.offerDate||'',grade:d.grade||'',department:d.dept||'',addr1:d.addr1||'',addr2:d.addr2||'',addr3:d.addr3||'',addr4:d.addr4||'',startTime:d.startTime||'',endTime:d.endTime||'',noticePeriod:d.noticePeriod||'',reportingManager:d.reportingTo||'',da:d.da||'',specialallow:d.specialallow||'',conveyance:d.conveyance||'',education:d.education||'',uniform:d.uniform||'',lta:d.lta||'',siteallow:d.siteallow||'',medical:d.medical||'',pfEmployer:d.pfEmployer||'',ctcMonthly:d.ctcMonthly||'',
+    agreedSalary:d.agreedSalary||'',calculatedSalary:d.calculatedSalary||'',basicTotal:d.basicTotal||'',otherTotal:d.otherTotal||'',salJSON:JSON.stringify(d.salRows||[])};
 }
 
 // Apply a saved offer to local state (optimistic) + link the MRF.
