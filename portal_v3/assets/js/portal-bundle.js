@@ -28,7 +28,6 @@ const STATE = {
   sidebarOpen: false,
   notifOpen: false,
   vendorRecord: null,   // populated on vendor/SC login
-  isDemo: false,        // true only for demo mode — hides demo bar for real Google logins
   isDevMode: false,     // true when Admin activates Dev Mode to see WIP nav items
   deptHeadDept: '',     // populated for dept_head role e.g. 'HR', 'Finance'
   userAllRoles: [],     // all matched role labels from hierarchy resolver e.g. ['Department Head','RM']
@@ -107,12 +106,7 @@ function handleGoogleLogin() {
   }
 }
 
-function handleDemoLogin() {
-  STATE.role = 'md'; STATE.selectedRole = 'md';
-  STATE.user = { email: 'admin@evgcpl.com', name: 'Demo User' };
-  STATE.isDemo = true;
-  launchApp();
-}
+
 
 // ── PIN Login ──────────────────────────────────────────────
 async function handlePINLogin() {
@@ -186,7 +180,6 @@ async function handlePINLogin() {
     STATE.user         = { email, name: userName };
     STATE.role         = resolved.portalRole;
     STATE.selectedRole = resolved.portalRole;
-    STATE.isDemo       = false;
     launchApp();
 
   } catch(err) {
@@ -232,28 +225,7 @@ async function verifyVendorLogin() {
   launchApp();
 }
 
-function selectRole(role) {
-  // For demo mode — populate role labels from selection
-  const roleMap = {
-    md: ['MD / Director'], hr: ['HR'], site: ['Site-In-Charge'],
-    purchase: ['Department Head','Process Owner'], accounts: ['Accounts'],
-    employee: ['User'], dept_head: ['Department Head'],
-  };
-  STATE.userAllRoles = roleMap[role] || ['User'];
-  STATE.userTopRoleLabel = (roleMap[role]||['User'])[0];
-  STATE.selectedRole = role;
-  document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('selected'));
-  const btn = document.getElementById('role-' + role);
-  if (btn) btn.classList.add('selected');
-}
-function confirmRole() {
-  if (!STATE.selectedRole) { selectRole('md'); STATE.selectedRole = 'md'; }
-  STATE.role = STATE.selectedRole;
-  if (!STATE.user) STATE.user = { email: 'staff@evgcpl.com', name: 'Staff User' };
-  STATE.isDemo = true;
-  document.getElementById('roleSelect').classList.remove('show');
-  launchApp();
-}
+
 
 // ── DEV MODE ──────────────────────────────────────────────
 function toggleDevMode() {
@@ -317,17 +289,7 @@ function launchApp() {
   const isExternal = STATE.role === 'vendor' || STATE.role === 'sc';
   // Nav visibility handled fully by applyRoleNavRestrictions below
 
-  // Demo bar only shown for demo/manual logins — hidden for real Google sign-in
-  const showDemoBar = STATE.isDemo && !isExternal;
-  document.getElementById('demoBar').style.display = showDemoBar ? '' : 'none';
-  if (showDemoBar) {
-    document.body.classList.add('demo-active');
-    document.querySelectorAll('.demo-role-btn').forEach(b => b.classList.remove('active'));
-    const ab = document.getElementById('dr-' + STATE.role);
-    if (ab) ab.classList.add('active');
-  } else {
-    document.body.classList.remove('demo-active');
-  }
+
 
   applyPortalConfig();
   applyRoleNavRestrictions(STATE.role);
@@ -430,33 +392,7 @@ function updateAllMasterUI() {
 
 const updateSiteUI = updateAllMasterUI;
 
-function switchDemoRole(role) {
-  STATE.isDemo = true;
-  STATE.role = role; STATE.selectedRole = role;
-  // Keep admin@evgcpl.com for md role so emp lookup works
-  if (role === 'md') STATE.user = { email: 'admin@evgcpl.com', name: 'Demo User' };
-  else STATE.user = { email: 'demo@evgcpl.com', name: 'Demo User' };
-  const r = ROLES[role] || ROLES.employee;
-  document.getElementById('roleBadge').textContent     = r.badge;
-  document.getElementById('userName').textContent      = 'Demo User';
-  document.getElementById('userRoleLabel').textContent = r.label;
-  document.getElementById('userAvatar').textContent    = r.avatar;
-  document.querySelectorAll('.demo-role-btn').forEach(b => b.classList.remove('active'));
-  const ab = document.getElementById('dr-' + role);
-  if (ab) ab.classList.add('active');
-  // Show/hide sidebar for vendor/sc demo
-  const isExternal = role === 'vendor' || role === 'sc';
-  document.querySelectorAll('[data-internal="true"]').forEach(s => s.style.display = isExternal ? 'none' : '');
-  document.getElementById('nav-vendor-section').style.display = isExternal ? '' : 'none';
-  applyRoleNavRestrictions(role);
-  // Set demo vendor record for testing
-  if (role === 'vendor' && STATE.masters.vendors.length > 0) {
-    STATE.vendorRecord = { ...STATE.masters.vendors[0], loginEmail: 'demo@vendor.com', type: 'vendor' };
-  } else if (role === 'sc' && STATE.masters.subcontractors.length > 0) {
-    STATE.vendorRecord = { ...STATE.masters.subcontractors[0], loginEmail: 'demo@sc.com', type: 'sc' };
-  }
-  navigate(isExternal ? 'my-portal' : 'dashboard');
-}
+
 
 // ══════════════════════════════════════════════════
 //  NAVIGATION
@@ -1588,12 +1524,7 @@ function renderEmployeeDashboard() {
 
   // Find employee record
   let emp = STATE.masters.users.find(u => u.email && email && u.email.toLowerCase() === email.toLowerCase());
-  if (!emp && STATE.isDemo && STATE.masters.users.length > 0) {
-    const roleKey = (STATE.role || '').toLowerCase();
-    emp = STATE.masters.users.find(u =>
-      u.status === 'ACTIVE' && (u.role || '').toLowerCase().includes(roleKey)
-    ) || STATE.masters.users.find(u => u.empCode && u.empCode.startsWith('EG')) || STATE.masters.users[3];
-  }
+
 
   const dept     = (emp?.dept || STATE.deptHeadDept || '').toLowerCase().trim();
   const deptDisp = emp?.dept || STATE.deptHeadDept || 'My Department';
@@ -1640,7 +1571,7 @@ function renderEmployeeDashboard() {
     : [];
 
   // Photo
-  const photoKey   = `evg_photo_${emp?.empCode || 'demo'}`;
+  const photoKey   = `evg_photo_${emp?.empCode || ''}`;
   const savedPhoto = localStorage.getItem(photoKey);
   const avatarHtml = savedPhoto
     ? `<img src="${savedPhoto}" alt="Photo" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
@@ -7056,13 +6987,7 @@ function renderMyProfile() {
     u.email && email && u.email.toLowerCase() === email.toLowerCase()
   );
 
-  // Demo fallback — only for demo mode, never for real Google logins
-  if (!emp && STATE.isDemo && STATE.masters.users.length > 0) {
-    const roleKey = (STATE.role || '').toLowerCase();
-    emp = STATE.masters.users.find(u =>
-      u.status === 'ACTIVE' && (u.role || '').toLowerCase().includes(roleKey) && u.empCode?.startsWith('EG')
-    ) || STATE.masters.users.find(u => u.empCode && u.empCode.startsWith('EG')) || STATE.masters.users[3];
-  }
+
 
   // Mess/accommodation for this employee
   const messInfo = emp ? (STATE.masters.messUnique || []).find(m => m.empCode === emp.empCode) : null;
@@ -7075,7 +7000,7 @@ function renderMyProfile() {
   }
 
   // Photo: stored in localStorage per empCode
-  const photoKey = `evg_photo_${emp?.empCode || 'demo'}`;
+  const photoKey = `evg_photo_${emp?.empCode || ''}`;
   const savedPhoto = localStorage.getItem(photoKey);
   const avatarContent = savedPhoto
     ? `<img src="${savedPhoto}" alt="Profile Photo">`
@@ -7125,7 +7050,7 @@ function renderMyProfile() {
         <div class="profile-avatar-wrap">
           <div class="profile-avatar" id="profileAvatarEl">${avatarContent}</div>
           <label class="profile-upload-btn" title="Change photo" style="cursor:pointer">
-            📷<input type="file" accept="image/*" style="display:none" onchange="uploadProfilePhoto(event,'${emp?.empCode||'demo'}')">
+            📷<input type="file" accept="image/*" style="display:none" onchange="uploadProfilePhoto(event,'${emp?.empCode||''}')">
           </label>
         </div>
         <div class="profile-info" style="flex:1;min-width:0;padding-top:.5rem">
@@ -10952,18 +10877,10 @@ function renderVINVTable() {
 
 function renderExternalPortal() {
   const el = document.getElementById('mainContent');
-  const rec = STATE.vendorRecord;
   const isVendor = STATE.role === 'vendor';
   const typeLabel = isVendor ? 'Vendor' : 'Sub-Contractor';
   const typeIcon  = isVendor ? '🏢' : '🤝';
 
-  if (!rec && STATE.mastersLoaded) {
-    // Demo mode — pick first record
-    if (isVendor && STATE.masters.vendors.length > 0)
-      STATE.vendorRecord = { ...STATE.masters.vendors[0], type: 'vendor' };
-    else if (!isVendor && STATE.masters.subcontractors.length > 0)
-      STATE.vendorRecord = { ...STATE.masters.subcontractors[0], type: 'sc' };
-  }
   const r = STATE.vendorRecord || {};
   const name  = r.name || 'Your Company';
   const id    = r.id   || '—';
@@ -11767,12 +11684,6 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// ══════════════════════════════════════════════════
-//  INIT — auto demo for quick preview
-// ════════════════════════�
-// Demo Mode is DISABLED for production.
-// Login via Google OAuth or Email + PIN.
-// Admin (md role) activates Dev Mode via the </> button in the header.
 
 // ════════════════════════════════════════════════════════════════
 //  APPS HUB — All external app & tool links in one place
@@ -12298,7 +12209,7 @@ window.wallToggleComments = function(postId) {
 
 // ── Toggle reaction ───────────────────────────────────────────────
 window.wallToggleReaction = function(postId, emoji) {
-  const myEmail = STATE.user?.email || 'demo@evgcpl.com';
+  const myEmail = STATE.user?.email || '';
   if (!myEmail) return;
 
   const reactions = _wallReactions[postId] || [];
@@ -12340,7 +12251,7 @@ window.wallSubmitComment = function(postId) {
   if (!body) return;
 
   const myName  = STATE.user?.name  || 'Anonymous';
-  const myEmail = STATE.user?.email || 'demo@evgcpl.com';
+  const myEmail = STATE.user?.email || '';
   const ts      = new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
   const cmtId   = 'cmt-' + Date.now();
 
@@ -12385,7 +12296,7 @@ window.wallSubmitPost = function() {
   if (!body) return showMsg('Please write something before posting.', false);
 
   const myName  = STATE.user?.name  || 'Anonymous';
-  const myEmail = STATE.user?.email || 'demo@evgcpl.com';
+  const myEmail = STATE.user?.email || '';
   const emp     = (STATE.masters.users||[]).find(u => u.email?.toLowerCase() === myEmail.toLowerCase());
   const ts      = new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
   const postId  = 'post-' + Date.now();
@@ -14026,7 +13937,7 @@ function aiSystemPrompt() {
   // Current user
   const userInfo = STATE.user
     ? `Name: ${STATE.user.name||'Unknown'}, Email: ${STATE.user.email||''}, Role: ${STATE.role}`
-    : `Role: ${STATE.role} (Demo mode)`;
+    : `Role: ${STATE.role}`;
 
   return `You are EG Assistant, the AI-powered assistant for EVGCPL (Evergreen Enterprises) Intranet Portal. You have real-time access to the company's operational data loaded in this session.
 

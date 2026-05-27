@@ -1,0 +1,205 @@
+<!--
+  EVGCPL Offer Letter / Letter of Appointment template.
+  Rendered by _rcOLPreviewHTML() in assets/js/portal-bundle.js via token substitution.
+  Keep the id="rc-ol-printable" root — _rcOLGeneratePDF() extracts it for printing.
+  Tokens: refNo today candidateName candidateNameSig address position gradeSuffix
+          startTime endTime joiningDate noticePeriod salaryRows gross medical
+          pfEmployer ctcMonthly net
+-->
+<div id="rc-ol-printable" style="font-family:'Times New Roman',serif;font-size:11.5px;color:#000;background:#fff;padding:28px 40px 36px;line-height:1.7">
+
+  <!-- Company Header -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:0">
+    <tr>
+      <td style="text-align:center;font-size:16px;font-weight:700;letter-spacing:1px;padding:6px 12px;border:2px solid #000">
+        <img src="https://evgcpladmin.github.io/evgcpl-portal/EG.jpg" style="height:28px;vertical-align:middle;margin-right:8px" onerror="this.style.display='none'">
+        Evergreen Enterprises
+      </td>
+    </tr>
+  </table>
+  <div style="height:4px;background:#1A6038;margin-bottom:10px"></div>
+
+  <!-- Ref + Date -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+    <tr>
+      <td style="font-size:11px"><strong>REF NO: {{refNo}}</strong></td>
+      <td style="text-align:right;font-size:11px">{{today}}</td>
+    </tr>
+  </table>
+
+  <!-- Addressee block -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11.5px">
+    <tr>
+      <td style="width:80px;vertical-align:top;padding-bottom:4px"><strong>Name</strong></td>
+      <td style="vertical-align:top;padding-bottom:4px">: &nbsp;{{candidateName}}</td>
+    </tr>
+    <tr>
+      <td style="vertical-align:top"><strong>Address</strong></td>
+      <td style="vertical-align:top">: &nbsp;{{address}}</td>
+    </tr>
+  </table>
+
+  <!-- Title -->
+  <p style="text-align:center;font-weight:700;font-size:12.5px;text-decoration:underline;margin:16px 0 14px">Letter of Appointment</p>
+
+  <p style="margin-bottom:12px">Dear <strong>{{candidateName}}</strong>,</p>
+
+  <p style="margin-bottom:12px;text-align:justify">
+    We are pleased to offer you a job as a <strong>{{position}}</strong>{{gradeSuffix}} at <strong>Evergreen Enterprises</strong>.
+    We think that your experience and skills will be a valuable asset to our company.
+  </p>
+
+  <p style="margin-bottom:10px"><strong>Your employment will be governed by the following terms and conditions:</strong></p>
+
+  <p style="margin:0 0 3px"><strong>1.	Working Hours:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">Your working hours will be <strong>{{startTime}} AM</strong> to <strong>{{endTime}}PM</strong> as per the current company policy.</p>
+
+  <p style="margin:0 0 3px"><strong>2.	Date of Appointment:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">Your date of appointment as per company records is <strong>{{joiningDate}}</strong></p>
+
+  <p style="margin:0 0 3px"><strong>3.	Salary Increase:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">An increase in your salary will be reviewed periodically as per the policy of the Company. Increments in the salary range will be based on demonstrated results and effectiveness of performance during the period of review.</p>
+
+  <p style="margin:0 0 3px"><strong>4.	Probation Period:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">You will be on probation for a period of <strong>6</strong> month from the date of Joining. The company has full rights to terminate the employee during the probationary period. You will be confirmed in service upon satisfactory completion of the probation period.</p>
+
+  <p style="margin:0 0 3px"><strong>5.	Tax Liability:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">Income Tax Liability, if any, will be borne by you.</p>
+
+  <!-- Clause 6 — Salary with Annexure -->
+  <p style="margin:0 0 3px"><strong>6.	Monthly Gross Salary:</strong></p>
+  <p style="margin:0 0 8px;text-align:justify">You will be paid a monthly gross salary as mentioned in Annexure.</p>
+
+  <!-- Annexure -->
+  <p style="text-align:center;font-weight:700;font-size:11px;text-decoration:underline;margin:8px 0 4px">Annexure to Letter of Appointment</p>
+  <p style="font-size:11px;margin-bottom:6px">
+    &nbsp;&nbsp;&nbsp;&nbsp;Name:&nbsp; <strong>{{candidateName}}</strong>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+    Designation:&nbsp; <strong>{{position}}</strong>
+  </p>
+
+  <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:8px">
+    <thead>
+      <tr style="background:#1A6038;color:#fff">
+        <th style="padding:5px 8px;border:1px solid #999;text-align:left">S.No</th>
+        <th style="padding:5px 8px;border:1px solid #999;text-align:left">Particulars</th>
+        <th style="padding:5px 8px;border:1px solid #999;text-align:right">Monthly Salary (Rs.)</th>
+        <th style="padding:5px 8px;border:1px solid #999;text-align:left">Deductions</th>
+        <th style="padding:5px 8px;border:1px solid #999;text-align:right">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{salaryRows}}
+      <tr style="font-weight:700;background:#e8f5e9">
+        <td style="padding:4px 8px;border:1px solid #999" colspan="2">Gross Salary</td>
+        <td style="padding:4px 8px;border:1px solid #999;text-align:right">{{gross}}</td>
+        <td style="padding:4px 8px;border:1px solid #999" colspan="2"></td>
+      </tr>
+      <tr style="background:#f5f5f5">
+        <td style="padding:3px 8px;border:1px solid #ddd" colspan="2">(+) Medical Insurance Individual</td>
+        <td style="padding:3px 8px;border:1px solid #ddd;text-align:right">{{medical}}</td>
+        <td style="padding:3px 8px;border:1px solid #ddd">Employer PF</td>
+        <td style="padding:3px 8px;border:1px solid #ddd;text-align:right">{{pfEmployer}}</td>
+      </tr>
+      <tr style="font-weight:700;background:#1A6038;color:#fff">
+        <td style="padding:4px 8px;border:1px solid #1A6038" colspan="2">CTC</td>
+        <td style="padding:4px 8px;border:1px solid #1A6038;text-align:right">{{ctcMonthly}}</td>
+        <td style="padding:4px 8px;border:1px solid #1A6038" colspan="2"></td>
+      </tr>
+      <tr style="font-weight:700;background:#1A6038;color:#fff">
+        <td style="padding:4px 8px;border:1px solid #1A6038" colspan="2">Net Salary</td>
+        <td style="padding:4px 8px;border:1px solid #1A6038;text-align:right">{{net}}</td>
+        <td style="padding:4px 8px;border:1px solid #1A6038;font-size:10px;font-weight:400" colspan="2">*Note: TDS will be deducted as per government norms</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Remaining clauses -->
+  <p style="margin:0 0 3px"><strong>7.</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">Furthermore, your monthly salary will be credited during the second or third week of each month.</p>
+
+  <p style="margin:0 0 3px"><strong>8.	Leave Terms and Conditions:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify"><u>Eligibility:</u><br>
+    Leave Policy Clause – Probation Completion &amp; Eligibility. You will be governed by the Company's current Leave Policy applicable to permanent employees upon successful completion of your probation period.<br><br>
+    After completion of the probation period, Casual Leave (CL) will be calculated on pro-rata basis 0.5 days/month throughout the current financial year.<br><br>
+    The next financial year from the joining of date, your PL will be calculated as per the Company's Leave Policy and same will be credited as the opening balance of next financial year.<br><br>
+    Job performance, absenteeism, and departmental requirements all will be taken into consideration before a request is approved. Approvals of the immediate supervisor, department director and human resources are required.<br><br>
+    <u>Return to work/extension of Leave</u><br>
+    An employee is required to return from the unpaid personal leave on the originally scheduled return date. If unable to return, he or she must request an extension in writing. Extensions of leave will be considered on a case-by-case basis.<br><br>
+    <u>Travel:</u><br>
+    Whenever you are required to undertake travel on Company work for outstation, you will be reimbursed for travel expenses as per Company rules.</p>
+
+  <p style="margin:0 0 3px"><strong>9.	Responsibilities:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">In view of your office, you must effectively perform to ensure results. Your performance would be reviewed as per the Company's Performance Management System.</p>
+
+  <p style="margin:0 0 3px"><strong>10.	Retirement Age:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">The normal retirement age for all employees is 60 years.</p>
+
+  <p style="margin:0 0 3px"><strong>11.	Notice Period:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">While on probation, this appointment may be terminated by giving <strong>{{noticePeriod}} days'</strong> notice. Should you resign after confirmation, the Company will have the option to accept your resignation either with immediate effect salary in lieu of notice period or accept it effective any day up to the end of the notice period and pay you salary for the remaining period.</p>
+
+  <p style="margin:0 0 3px"><strong>12.	Transfer:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">You will be liable to be transferred to any other department or establishment or branch or subsidiary of the Company in Head Office. In such a case, you will be governed by the terms and conditions of service as applicable to the new assignment.</p>
+
+  <p style="margin:0 0 3px"><strong>13.	Other work:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">Your position with the Company calls for whole time employment and you will devote yourself exclusively to the business of the Company. You will not take up any other work for remuneration (part time or otherwise) or work on advisory capacity or be interested directly or indirectly (except as shareholder or debenture holder) in any other trade or business during your employment with the Company, without written permission from the Company.</p>
+
+  <p style="margin:0 0 3px"><strong>14.	Conflict of Interest:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">You will not seek full time or part time job or be involved in any way with competitor's business activities either directly or indirectly during your employment with the Company, and for a period of 12 months in the event of cessation of your employment with the Company.</p>
+
+  <p style="margin:0 0 3px"><strong>15.	Confidential Information:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">You will not, at any time, without the consent of the Company disclose or divulge or make public except under legal obligation, any information regarding the Company's affairs of administration or research carried out, whether the same may be confided to you or become known to you, in the course of your service or otherwise.<br><br>
+    The company shall have the right to terminate this agreement forthwith without any notice in the event of the following:<br>
+    &nbsp;&nbsp;&nbsp;&bull;&nbsp;Breach of any of the conditions of this agreement<br>
+    &nbsp;&nbsp;&nbsp;&bull;&nbsp;Any misconduct on your part<br>
+    &nbsp;&nbsp;&nbsp;&bull;&nbsp;Failure to carry out any of your duties and obligations<br>
+    &nbsp;&nbsp;&nbsp;&bull;&nbsp;Being continuously absent from or omitting to attend to your work for 10 days without the Company's previous permission in writing whatever is the cause of such absence or omission.</p>
+
+  <p style="margin:0 0 3px"><strong>16.	Violation Policy:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">You are to treat the following as strictly confidential.<br>
+    &nbsp;&nbsp;&nbsp;&bull;&nbsp;Your salary, allowances, benefits, and rewards.<br>
+    &nbsp;&nbsp;&nbsp;&bull;&nbsp;The affairs of the Company and its customers of which you may be cognizant, particularly the drawings, quotations, specifications, and other manufacturing information.<br><br>
+    By accepting employment with the company, you undertake not to disclose the above to anyone. Violation of this would be viewed as a serious breach of conduct.</p>
+
+  <p style="margin:0 0 3px"><strong>17.	Change of Residing Address:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">You will keep us informed of your local contact address whenever there is any change.</p>
+
+  <p style="margin:0 0 3px"><strong>18.	Role:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">On completing the <strong>6 MONTH</strong> probation period to the company's satisfaction, you will be considered for appointment in the Company as an <strong>{{position}}</strong>.</p>
+
+  <p style="margin:0 0 3px"><strong>19.	Contract/Bond with Previous Employers:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">It will be your responsibility to discharge all obligations arising out of any contract or bond with previous employers.</p>
+
+  <p style="margin:0 0 3px"><strong>20.	On termination:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">On termination of this contract, you will immediately give up to the Company all correspondence, specifications, formulae, books, documents, market data, cost data, literature, drawings, effect or records, etc. belonging to the Company or relating to its business and shall not make or retain any copies of these items.</p>
+
+  <p style="margin:0 0 3px"><strong>21.	General:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">The above terms and conditions are based on Company Policy, Procedures and other Rules and Regulations currently applicable to the Company's employees and are subject to amendments and adjustments from time to time.<br>You are to treat the terms and conditions of this agreement as confidential.</p>
+
+  <p style="margin:0 0 3px"><strong>22.	Disputes &amp; Arbitration:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">Any dispute or difference or claim arising in connection with this contract shall be resolved by reference to arbitration by a sole arbitrator appointed by Evergreen Enterprises at its sole discretion. The arbitration proceedings shall be governed by the Arbitration &amp; Conciliation Act, 1996. The language of arbitration shall be English. The venue of arbitration shall be at <strong>Erode</strong>. The award of the arbitrator shall be final and binding on the parties. The governing law shall be the laws of India.</p>
+
+  <p style="margin:0 0 3px"><strong>23.	Background Check and Verification:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">The company reserves the right to verify your documents and background through internal or external agencies. These may include your current/previous employment history, educational/professional credentials, and background checks.<br><br>
+    <em><strong>"Please note that this offer will stand immediately withdrawn / employment summarily terminated if any negative factor is brought to our knowledge during employment verification of your past employments. Any costs incurred on you will be recovered from you".</strong></em></p>
+
+  <p style="margin:14px 0;text-align:justify">Please communicate your acceptance of this appointment by signing a copy of this letter and returning it to us.</p>
+  <p style="margin-bottom:20px;text-align:justify">We are looking forward to having you in our company and to seeing you achieve great things at Evergreen Enterprises.</p>
+
+  <!-- Signature block -->
+  <div style="margin-top:30px;display:flex;justify-content:space-between;align-items:flex-end">
+    <div>
+      <p style="font-weight:700;margin:0">For EVERGREEN ENTERPRISES,</p>
+      <div style="margin-top:36px">
+        <p style="font-weight:700;margin:0">KESAVAMOORTHY.N</p>
+        <p style="font-weight:700;margin:0">MANAGING PARTNER</p>
+      </div>
+    </div>
+    <div style="text-align:center">
+      <div style="width:200px;border-top:1px solid #000;padding-top:6px">
+        <p style="font-size:10.5px;margin:0">Candidate Signature &amp; Date</p>
+        <p style="font-size:10.5px;color:#555;margin:4px 0 0">{{candidateNameSig}}</p>
+      </div>
+    </div>
+  </div>
+</div>

@@ -26,10 +26,10 @@
     <h1 class="login-title">Welcome to Intranet</h1>
     <p class="login-subtitle">Your unified enterprise workspace.<br/>Sign in to access your dashboard.</p>
 
-    <!-- ROW 1: Two columns — Left: Google+Demo+Vendor | Right: Email & PIN -->
+    <!-- ROW 1: Two columns — Left: Google+Vendor | Right: Email & PIN -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;align-items:stretch">
 
-      <!-- LEFT: Google + Demo + Vendor stacked -->
+      <!-- LEFT: Google + Vendor stacked -->
       <div style="display:flex;flex-direction:column;gap:.55rem">
         <div style="font-size:.73rem;color:rgba(255,255,255,.45);text-align:center;letter-spacing:.04em;text-transform:uppercase;margin-bottom:.1rem">Sign in with Google</div>
         <button class="btn-google" onclick="handleGoogleLogin()" style="margin:0">
@@ -41,8 +41,6 @@
           </svg>
           Sign in with Google
         </button>
-        <button class="btn-demo" onclick="handleDemoLogin()" style="margin:0">🚀 Demo Mode</button>
-        <!-- Demo Mode disabled for production -->
         <button class="btn-demo" onclick="showVendorLogin()" style="margin:0;background:rgba(240,165,0,.15);border-color:rgba(240,165,0,.4);color:var(--gold)">🏢 Vendor / Sub-Contractor Login</button>
       </div>
 
@@ -91,46 +89,6 @@
 </div>
 
 
-<!-- ═══════════════════ ROLE SELECTOR ═══════════════════ -->
-<div id="roleSelect">
-  <div class="role-card">
-    <h2>Select Your Role</h2>
-    <p>Choose your role to continue with the appropriate dashboard.</p>
-    <div class="role-grid">
-      <button class="role-btn" onclick="selectRole('md')" id="role-md">
-        <div class="role-icon">👑</div>
-        <div class="role-name">MD / Director</div>
-        <div class="role-desc">Command center & approvals</div>
-      </button>
-      <button class="role-btn" onclick="selectRole('hr')" id="role-hr">
-        <div class="role-icon">👥</div>
-        <div class="role-name">HR Manager</div>
-        <div class="role-desc">People & onboarding</div>
-      </button>
-      <button class="role-btn" onclick="selectRole('site')" id="role-site">
-        <div class="role-icon">🏗️</div>
-        <div class="role-name">Site Manager</div>
-        <div class="role-desc">Site operations & safety</div>
-      </button>
-      <button class="role-btn" onclick="selectRole('employee')" id="role-employee">
-        <div class="role-icon">👤</div>
-        <div class="role-name">Employee</div>
-        <div class="role-desc">Personal dashboard</div>
-      </button>
-      <button class="role-btn" onclick="selectRole('purchase')" id="role-purchase">
-        <div class="role-icon">🛒</div>
-        <div class="role-name">Purchase</div>
-        <div class="role-desc">PRs, POs & vendors</div>
-      </button>
-      <button class="role-btn" onclick="selectRole('accounts')" id="role-accounts">
-        <div class="role-icon">💰</div>
-        <div class="role-name">Accounts</div>
-        <div class="role-desc">Finance & payments</div>
-      </button>
-    </div>
-    <button class="role-confirm" onclick="confirmRole()">Continue →</button>
-  </div>
-</div>
 
 <!-- ═══════════════════ VENDOR / SC LOGIN MODAL ═══════════════════ -->
 <div id="vendorLoginModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;display:none;align-items:center;justify-content:center">

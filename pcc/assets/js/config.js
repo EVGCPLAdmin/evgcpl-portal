@@ -3,9 +3,9 @@
 ═══════════════════════════════════════════════════════════════ */
 
 // ── Build constants — patched by build-portal.js at build time ──
-const PCC_VERSION  = '3.18.6';
-const PCC_BUILD    = 379;
-const PCC_BUILD_AT = '2026-05-27T07:52:04Z';
+const PCC_VERSION  = '3.18.7';
+const PCC_BUILD    = 380;
+const PCC_BUILD_AT = '2026-05-27T09:02:25Z';
 
 // ── Apps Script URL: read parent portal's endpoint registry ──
 // The PCC subapp loads in an iframe on the same origin. Its parent stores
@@ -123,5 +123,4 @@ window.CONFIG = {
     { id: 'variations', file: 'variations.html',  step: 8,  title: 'Variations',     icon: '🔄', desc: 'Scope/Design/Quantity changes · workflow tracking',      status: 'live'    },
   ],
 
-  DEMO_MODE: false,
 };

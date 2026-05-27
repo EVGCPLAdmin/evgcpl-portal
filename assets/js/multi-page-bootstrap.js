@@ -41,7 +41,6 @@
             role:         STATE.role,
             selectedRole: STATE.selectedRole,
             user:         STATE.user,
-            isDemo:       !!STATE.isDemo,
             deptHeadDept: STATE.deptHeadDept || null,
           }));
         } catch (_) {}
@@ -73,7 +72,6 @@
         STATE.role         = saved.role || 'employee';
         STATE.selectedRole = saved.selectedRole || saved.role || 'employee';
         STATE.user         = saved.user;
-        STATE.isDemo       = !!saved.isDemo;
         STATE.deptHeadDept = saved.deptHeadDept || null;
       } else {
         // No login state — bounce to login
@@ -86,8 +84,7 @@
   restoreState();
 
   // ── Run the UI-population parts of launchApp without the redirect.
-  //    On a main-app page, all the DOM elements (header, sidebar, demo
-  //    bar) DO exist, so we can safely run those bits. We skip the
+  //    On a main-app page, all the DOM elements (header, sidebar) DO exist, so we can safely run those bits. We skip the
   //    fade-out / setTimeout / navigate(default) path because we're
   //    already on the right page and the bootstrap below will call
   //    renderPage() with the route from data-page or hash.
@@ -109,16 +106,6 @@
       setText('userRoleLabel', _roleLabel);
       setText('userAvatar',    r.avatar);
 
-      const isExternal = STATE.role === 'vendor' || STATE.role === 'sc';
-      const showDemoBar = STATE.isDemo && !isExternal;
-      const demoBar = document.getElementById('demoBar');
-      if (demoBar) demoBar.style.display = showDemoBar ? '' : 'none';
-      if (showDemoBar) {
-        document.body.classList.add('demo-active');
-        document.querySelectorAll('.demo-role-btn').forEach(b => b.classList.remove('active'));
-        const ab = document.getElementById('dr-' + STATE.role);
-        if (ab) ab.classList.add('active');
-      }
 
       if (typeof applyPortalConfig === 'function') applyPortalConfig();
       if (typeof applyRoleNavRestrictions === 'function') applyRoleNavRestrictions(STATE.role);
