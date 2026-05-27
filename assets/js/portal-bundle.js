@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.1';
-const PORTAL_BUILD    = 374;
-const PORTAL_BUILD_AT = '2026-05-26T18:53:58Z';
+const PORTAL_VERSION  = '3.18.2';
+const PORTAL_BUILD    = 375;
+const PORTAL_BUILD_AT = '2026-05-27T02:17:57Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4824,7 +4824,7 @@ const MODULE_REGISTRY = [
   { route:'personal',          label:'Personal Dashboard',     section:'HR & People',      defStatus:'live', defRoles:['md','hr','dept_head'] },
   { route:'my-profile',        label:'My Profile',             section:'HR & People',      defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
   { route:'onboarding',        label:'Onboarding',             section:'HR & People',      defStatus:'live', defRoles:['md','hr'] },
-  { route:'recruitment',       label:'Recruitment',            section:'HR & People',      defStatus:'dev',  defRoles:['md','hr','dept_head','site'] },
+  { route:'recruitment',       label:'Recruitment',            section:'HR & People',      defStatus:'live', defRoles:['md','hr','dept_head','site'] },
   { route:'policies',          label:'Policies Hub',           section:'HR & People',      defStatus:'live', defRoles:['md','hr','site','employee','dept_head'] },
 
   // ── Site Ops ──────────────────────────────────────────────────
