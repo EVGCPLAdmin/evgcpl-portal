@@ -14,20 +14,6 @@
 <!-- ═══════════════════ MAIN APP ═══════════════════ -->
 <div id="app">
 
-  <!-- DEMO ROLE SWITCHER BAR -->
-  <div id="demoBar" style="background:var(--g9);color:rgba(255,255,255,.8);font-size:.75rem;padding:6px 1.4rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:fixed;top:0;left:0;right:0;z-index:600">
-    <span style="font-weight:700;color:var(--gold)">🚀 DEMO MODE</span>
-    <span style="opacity:.5">|  Switch Role:</span>
-    <button onclick="switchDemoRole('md')" class="demo-role-btn" id="dr-md">👑 MD</button>
-    <button onclick="switchDemoRole('hr')" class="demo-role-btn" id="dr-hr">👥 HR</button>
-    <button onclick="switchDemoRole('site')" class="demo-role-btn" id="dr-site">🏗️ Site Mgr</button>
-    <button onclick="switchDemoRole('purchase')" class="demo-role-btn" id="dr-purchase">🛒 Purchase</button>
-    <button onclick="switchDemoRole('accounts')" class="demo-role-btn" id="dr-accounts">💰 Accounts</button>
-    <button onclick="switchDemoRole('employee')" class="demo-role-btn" id="dr-employee">👤 Employee</button>
-    <button onclick="switchDemoRole('vendor')" class="demo-role-btn" id="dr-vendor" style="border-color:rgba(240,165,0,.4);color:var(--gold)">🏢 Vendor</button>
-    <button onclick="switchDemoRole('sc')" class="demo-role-btn" id="dr-sc" style="border-color:rgba(240,165,0,.4);color:var(--gold)">🤝 SC</button>
-    <button onclick="document.getElementById('demoBar').style.display='none'" style="margin-left:auto;background:none;border:none;color:rgba(255,255,255,.4);cursor:pointer;font-size:1rem">✕</button>
-  </div>
     <!-- TOP NAV -->
   <nav id="topNav">
 
@@ -281,7 +267,7 @@
       <div class="user-pill" onclick="toggleUserMenu()">
         <div class="user-avatar" id="userAvatar">EG</div>
         <div class="user-info">
-          <div class="u-name" id="userName">Demo User</div>
+          <div class="u-name" id="userName">User</div>
           <div class="u-role" id="userRoleLabel">MD / Director</div>
         </div>
       </div>

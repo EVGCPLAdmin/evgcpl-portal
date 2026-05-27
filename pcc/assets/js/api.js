@@ -40,10 +40,6 @@ window.API = (function() {
    * CORS-safe pattern: text/plain content-type with JSON body.
    */
   async function scriptCall(action, payload) {
-    if (window.CONFIG.DEMO_MODE) {
-      await new Promise(r => setTimeout(r, 400));
-      return { success: true, message: 'Demo mode — not saved' };
-    }
     try {
       // Spread payload at top level alongside action so Apps Script handlers
       // can read p.projectCode, p.nodes, etc. directly (no wrapper object).

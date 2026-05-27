@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.6';
-const PORTAL_BUILD    = 379;
-const PORTAL_BUILD_AT = '2026-05-27T07:52:04Z';
+const PORTAL_VERSION  = '3.18.7';
+const PORTAL_BUILD    = 380;
+const PORTAL_BUILD_AT = '2026-05-27T09:02:25Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -154,7 +154,6 @@ const STATE = {
   sidebarOpen: false,
   notifOpen: false,
   vendorRecord: null,   // populated on vendor/SC login
-  isDemo: false,        // true only for demo mode — hides demo bar for real Google logins
   isDevMode: false,     // true when Admin activates Dev Mode to see WIP nav items
   deptHeadDept: '',     // populated for dept_head role e.g. 'HR', 'Finance'
   userAllRoles: [],     // all matched role labels from hierarchy resolver e.g. ['Department Head','RM']
@@ -233,12 +232,7 @@ function handleGoogleLogin() {
   }
 }
 
-function handleDemoLogin() {
-  STATE.role = 'md'; STATE.selectedRole = 'md';
-  STATE.user = { email: 'admin@evgcpl.com', name: 'Demo User' };
-  STATE.isDemo = true;
-  launchApp();
-}
+
 
 // ── PIN Login ──────────────────────────────────────────────
 async function handlePINLogin() {
@@ -312,7 +306,6 @@ async function handlePINLogin() {
     STATE.user         = { email, name: userName };
     STATE.role         = resolved.portalRole;
     STATE.selectedRole = resolved.portalRole;
-    STATE.isDemo       = false;
     launchApp();
 
   } catch(err) {
@@ -358,28 +351,7 @@ async function verifyVendorLogin() {
   launchApp();
 }
 
-function selectRole(role) {
-  // For demo mode — populate role labels from selection
-  const roleMap = {
-    md: ['MD / Director'], hr: ['HR'], site: ['Site-In-Charge'],
-    purchase: ['Department Head','Process Owner'], accounts: ['Accounts'],
-    employee: ['User'], dept_head: ['Department Head'],
-  };
-  STATE.userAllRoles = roleMap[role] || ['User'];
-  STATE.userTopRoleLabel = (roleMap[role]||['User'])[0];
-  STATE.selectedRole = role;
-  document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('selected'));
-  const btn = document.getElementById('role-' + role);
-  if (btn) btn.classList.add('selected');
-}
-function confirmRole() {
-  if (!STATE.selectedRole) { selectRole('md'); STATE.selectedRole = 'md'; }
-  STATE.role = STATE.selectedRole;
-  if (!STATE.user) STATE.user = { email: 'staff@evgcpl.com', name: 'Staff User' };
-  STATE.isDemo = true;
-  document.getElementById('roleSelect').classList.remove('show');
-  launchApp();
-}
+
 
 // ── DEV MODE ──────────────────────────────────────────────
 function toggleDevMode() {
@@ -443,17 +415,7 @@ function launchApp() {
   const isExternal = STATE.role === 'vendor' || STATE.role === 'sc';
   // Nav visibility handled fully by applyRoleNavRestrictions below
 
-  // Demo bar only shown for demo/manual logins — hidden for real Google sign-in
-  const showDemoBar = STATE.isDemo && !isExternal;
-  document.getElementById('demoBar').style.display = showDemoBar ? '' : 'none';
-  if (showDemoBar) {
-    document.body.classList.add('demo-active');
-    document.querySelectorAll('.demo-role-btn').forEach(b => b.classList.remove('active'));
-    const ab = document.getElementById('dr-' + STATE.role);
-    if (ab) ab.classList.add('active');
-  } else {
-    document.body.classList.remove('demo-active');
-  }
+
 
   applyPortalConfig();
   applyRoleNavRestrictions(STATE.role);
@@ -556,33 +518,7 @@ function updateAllMasterUI() {
 
 const updateSiteUI = updateAllMasterUI;
 
-function switchDemoRole(role) {
-  STATE.isDemo = true;
-  STATE.role = role; STATE.selectedRole = role;
-  // Keep admin@evgcpl.com for md role so emp lookup works
-  if (role === 'md') STATE.user = { email: 'admin@evgcpl.com', name: 'Demo User' };
-  else STATE.user = { email: 'demo@evgcpl.com', name: 'Demo User' };
-  const r = ROLES[role] || ROLES.employee;
-  document.getElementById('roleBadge').textContent     = r.badge;
-  document.getElementById('userName').textContent      = 'Demo User';
-  document.getElementById('userRoleLabel').textContent = r.label;
-  document.getElementById('userAvatar').textContent    = r.avatar;
-  document.querySelectorAll('.demo-role-btn').forEach(b => b.classList.remove('active'));
-  const ab = document.getElementById('dr-' + role);
-  if (ab) ab.classList.add('active');
-  // Show/hide sidebar for vendor/sc demo
-  const isExternal = role === 'vendor' || role === 'sc';
-  document.querySelectorAll('[data-internal="true"]').forEach(s => s.style.display = isExternal ? 'none' : '');
-  document.getElementById('nav-vendor-section').style.display = isExternal ? '' : 'none';
-  applyRoleNavRestrictions(role);
-  // Set demo vendor record for testing
-  if (role === 'vendor' && STATE.masters.vendors.length > 0) {
-    STATE.vendorRecord = { ...STATE.masters.vendors[0], loginEmail: 'demo@vendor.com', type: 'vendor' };
-  } else if (role === 'sc' && STATE.masters.subcontractors.length > 0) {
-    STATE.vendorRecord = { ...STATE.masters.subcontractors[0], loginEmail: 'demo@sc.com', type: 'sc' };
-  }
-  navigate(isExternal ? 'my-portal' : 'dashboard');
-}
+
 
 // ══════════════════════════════════════════════════
 //  NAVIGATION
@@ -1715,12 +1651,7 @@ function renderEmployeeDashboard() {
 
   // Find employee record
   let emp = STATE.masters.users.find(u => u.email && email && u.email.toLowerCase() === email.toLowerCase());
-  if (!emp && STATE.isDemo && STATE.masters.users.length > 0) {
-    const roleKey = (STATE.role || '').toLowerCase();
-    emp = STATE.masters.users.find(u =>
-      u.status === 'ACTIVE' && (u.role || '').toLowerCase().includes(roleKey)
-    ) || STATE.masters.users.find(u => u.empCode && u.empCode.startsWith('EG')) || STATE.masters.users[3];
-  }
+
 
   const dept     = (emp?.dept || STATE.deptHeadDept || '').toLowerCase().trim();
   const deptDisp = emp?.dept || STATE.deptHeadDept || 'My Department';
@@ -1767,7 +1698,7 @@ function renderEmployeeDashboard() {
     : [];
 
   // Photo
-  const photoKey   = `evg_photo_${emp?.empCode || 'demo'}`;
+  const photoKey   = `evg_photo_${emp?.empCode || ''}`;
   const savedPhoto = localStorage.getItem(photoKey);
   const avatarHtml = savedPhoto
     ? `<img src="${savedPhoto}" alt="Photo" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
@@ -7578,13 +7509,7 @@ function renderMyProfile() {
     u.email && email && u.email.toLowerCase() === email.toLowerCase()
   );
 
-  // Demo fallback — only for demo mode, never for real Google logins
-  if (!emp && STATE.isDemo && STATE.masters.users.length > 0) {
-    const roleKey = (STATE.role || '').toLowerCase();
-    emp = STATE.masters.users.find(u =>
-      u.status === 'ACTIVE' && (u.role || '').toLowerCase().includes(roleKey) && u.empCode?.startsWith('EG')
-    ) || STATE.masters.users.find(u => u.empCode && u.empCode.startsWith('EG')) || STATE.masters.users[3];
-  }
+
 
   // Mess/accommodation for this employee
   const messInfo = emp ? (STATE.masters.messUnique || []).find(m => m.empCode === emp.empCode) : null;
@@ -7597,7 +7522,7 @@ function renderMyProfile() {
   }
 
   // Photo: stored in localStorage per empCode
-  const photoKey = `evg_photo_${emp?.empCode || 'demo'}`;
+  const photoKey = `evg_photo_${emp?.empCode || ''}`;
   const savedPhoto = localStorage.getItem(photoKey);
   const avatarContent = savedPhoto
     ? `<img src="${savedPhoto}" alt="Profile Photo">`
@@ -7647,7 +7572,7 @@ function renderMyProfile() {
         <div class="profile-avatar-wrap">
           <div class="profile-avatar" id="profileAvatarEl">${avatarContent}</div>
           <label class="profile-upload-btn" title="Change photo" style="cursor:pointer">
-            📷<input type="file" accept="image/*" style="display:none" onchange="uploadProfilePhoto(event,'${emp?.empCode||'demo'}')">
+            📷<input type="file" accept="image/*" style="display:none" onchange="uploadProfilePhoto(event,'${emp?.empCode||''}')">
           </label>
         </div>
         <div class="profile-info" style="flex:1;min-width:0;padding-top:.5rem">
@@ -11474,18 +11399,10 @@ function renderVINVTable() {
 
 function renderExternalPortal() {
   const el = document.getElementById('mainContent');
-  const rec = STATE.vendorRecord;
   const isVendor = STATE.role === 'vendor';
   const typeLabel = isVendor ? 'Vendor' : 'Sub-Contractor';
   const typeIcon  = isVendor ? '🏢' : '🤝';
 
-  if (!rec && STATE.mastersLoaded) {
-    // Demo mode — pick first record
-    if (isVendor && STATE.masters.vendors.length > 0)
-      STATE.vendorRecord = { ...STATE.masters.vendors[0], type: 'vendor' };
-    else if (!isVendor && STATE.masters.subcontractors.length > 0)
-      STATE.vendorRecord = { ...STATE.masters.subcontractors[0], type: 'sc' };
-  }
   const r = STATE.vendorRecord || {};
   const name  = r.name || 'Your Company';
   const id    = r.id   || '—';
@@ -12305,12 +12222,6 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// ══════════════════════════════════════════════════
-//  INIT — auto demo for quick preview
-// ════════════════════════�
-// Demo Mode is DISABLED for production.
-// Login via Google OAuth or Email + PIN.
-// Admin (md role) activates Dev Mode via the </> button in the header.
 
 // ════════════════════════════════════════════════════════════════
 //  APPS HUB — All external app & tool links in one place
@@ -12836,7 +12747,7 @@ window.wallToggleComments = function(postId) {
 
 // ── Toggle reaction ───────────────────────────────────────────────
 window.wallToggleReaction = function(postId, emoji) {
-  const myEmail = STATE.user?.email || 'demo@evgcpl.com';
+  const myEmail = STATE.user?.email || '';
   if (!myEmail) return;
 
   const reactions = _wallReactions[postId] || [];
@@ -12878,7 +12789,7 @@ window.wallSubmitComment = function(postId) {
   if (!body) return;
 
   const myName  = STATE.user?.name  || 'Anonymous';
-  const myEmail = STATE.user?.email || 'demo@evgcpl.com';
+  const myEmail = STATE.user?.email || '';
   const ts      = new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
   const cmtId   = 'cmt-' + Date.now();
 
@@ -12923,7 +12834,7 @@ window.wallSubmitPost = function() {
   if (!body) return showMsg('Please write something before posting.', false);
 
   const myName  = STATE.user?.name  || 'Anonymous';
-  const myEmail = STATE.user?.email || 'demo@evgcpl.com';
+  const myEmail = STATE.user?.email || '';
   const emp     = (STATE.masters.users||[]).find(u => u.email?.toLowerCase() === myEmail.toLowerCase());
   const ts      = new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
   const postId  = 'post-' + Date.now();
@@ -14692,7 +14603,7 @@ function aiSystemPrompt() {
   // Current user
   const userInfo = STATE.user
     ? `Name: ${STATE.user.name||'Unknown'}, Email: ${STATE.user.email||''}, Role: ${STATE.role}`
-    : `Role: ${STATE.role} (Demo mode)`;
+    : `Role: ${STATE.role}`;
 
   return `You are EG Assistant, the AI-powered assistant for EVGCPL (Evergreen Enterprises) Intranet Portal. You have real-time access to the company's operational data loaded in this session.
 
@@ -15168,6 +15079,19 @@ function _rcRenderRequisitions() {
 let _rcOffers      = null;
 let _rcJoiningData = null;
 let _rcOLDraft     = {};      // offer letter draft in progress
+
+// ── HTML template loader (offer / appointment letters) ──────────
+const _tplCache = {};
+async function _loadHtmlTemplate(name){
+  if (_tplCache[name]) return _tplCache[name];
+  const ver = (typeof PORTAL_BUILD !== 'undefined') ? PORTAL_BUILD : 'dev';
+  const txt = await (await fetch(`assets/templates/${name}.html?v=${ver}`)).text();
+  return (_tplCache[name] = txt);
+}
+function _fillTemplate(tpl, map){
+  return tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => (k in map ? map[k] : ''));
+}
+let _rcOLTpl = '';
 
 async function _rcLoadMRFs(force=false) {
   if (_rcMRFs !== null && !force) return;
@@ -15830,8 +15754,8 @@ async function _rcLoadDesigMaster() {
 }
 
 function _rcDrawOLForm(container) {
-  // Ensure masters are loaded, then render
-  Promise.all([_rcLoadDesigMaster()]).then(() => _rcDrawOLFormInner(container));
+  // Ensure masters + letter template are loaded, then render
+  Promise.all([_rcLoadDesigMaster(), _loadHtmlTemplate('offer-letter').then(t => _rcOLTpl = t)]).then(() => _rcDrawOLFormInner(container));
 }
 
 function _rcDrawOLFormInner(container) {
@@ -16233,213 +16157,84 @@ function _rcOLUpdatePreview() {
 
 function _rcOLPreviewHTML() {
   const d   = _rcOLDraft;
-  const fmt = v => {
-    if (!v) return '___________';
-    const dt = new Date(v);
-    return isNaN(dt) ? v : dt.toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
-  };
+  const fmt = v => { if (!v) return '___________'; const dt = new Date(v); return isNaN(dt) ? v : dt.toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'}); };
   const m   = v => v && Number(v) ? '₹'+Math.round(Number(v)).toLocaleString('en-IN') : '—';
   const f   = (v,ph='___________') => (v && String(v).trim()) ? String(v).trim() : `<span style="color:#bbb;font-style:italic">${ph}</span>`;
   const today = d.offerDate ? fmt(d.offerDate) : new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
-
   const addr = [d.addr1,d.addr2,d.addr3,d.addr4].filter(Boolean);
-
   const salaryComponents = [
-    ['Basic',                    d.basic],
-    ['Dearness Allowance',       d.da],
-    ['House Rent Allowance (HRA)', d.hra],
-    ['Special Allowance',        d.specialallow],
-    ['Conveyance Allowance',     d.conveyance],
-    ['Education Allowance',      d.education],
-    ['Uniform / Washing Allowance', d.uniform],
-    ['LTA',                      d.lta],
-    ['Site Allowance',           d.siteallow],
+    ['Basic', d.basic],['Dearness Allowance', d.da],['House Rent Allowance (HRA)', d.hra],
+    ['Special Allowance', d.specialallow],['Conveyance Allowance', d.conveyance],['Education Allowance', d.education],
+    ['Uniform / Washing Allowance', d.uniform],['LTA', d.lta],['Site Allowance', d.siteallow],
   ];
-
-  const clause = (num, title, body) => `
-    <p style="margin:0 0 3px"><strong>${num}${title ? '.\t'+title+':' : '.'}</strong></p>
-    <p style="margin:0 0 10px;text-align:justify">${body}</p>`;
-
-  return `
-  <div id="rc-ol-printable" style="font-family:'Times New Roman',serif;font-size:11.5px;color:#000;background:#fff;padding:28px 40px 36px;line-height:1.7">
-
-    <!-- Company Header -->
-    <table style="width:100%;border-collapse:collapse;margin-bottom:0">
-      <tr>
-        <td style="text-align:center;font-size:16px;font-weight:700;letter-spacing:1px;padding:6px 12px;border:2px solid #000">
-          <img src="https://evgcpladmin.github.io/evgcpl-portal/EG.jpg" style="height:28px;vertical-align:middle;margin-right:8px" onerror="this.style.display='none'">
-          Evergreen Enterprises
-        </td>
-      </tr>
-    </table>
-    <div style="height:4px;background:#1A6038;margin-bottom:10px"></div>
-
-    <!-- Ref + Date -->
-    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
-      <tr>
-        <td style="font-size:11px"><strong>REF NO: ${f(d.refNo)}</strong></td>
-        <td style="text-align:right;font-size:11px">${today}</td>
-      </tr>
-    </table>
-
-    <!-- Addressee block — matches template exactly -->
-    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11.5px">
-      <tr>
-        <td style="width:80px;vertical-align:top;padding-bottom:4px"><strong>Name</strong></td>
-        <td style="vertical-align:top;padding-bottom:4px">: &nbsp;${f(d.candidateName)}</td>
-      </tr>
-      <tr>
-        <td style="vertical-align:top"><strong>Address</strong></td>
-        <td style="vertical-align:top">: &nbsp;${addr.length ? addr.join(',<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;') : '<span style="color:#bbb;font-style:italic">___________</span>'}</td>
-      </tr>
-    </table>
-
-    <!-- Title -->
-    <p style="text-align:center;font-weight:700;font-size:12.5px;text-decoration:underline;margin:16px 0 14px">Letter of Appointment</p>
-
-    <p style="margin-bottom:12px">Dear <strong>${f(d.candidateName)}</strong>,</p>
-
-    <p style="margin-bottom:12px;text-align:justify">
-      We are pleased to offer you a job as a <strong>${f(d.position)}</strong>${d.grade?` <strong>${d.grade}</strong>`:''} at <strong>Evergreen Enterprises</strong>.
-      We think that your experience and skills will be a valuable asset to our company.
-    </p>
-
-    <p style="margin-bottom:10px"><strong>Your employment will be governed by the following terms and conditions:</strong></p>
-
-    ${clause('1',  'Working Hours',     `Your working hours will be <strong>${f(d.startTime,'9:30')} AM</strong> to <strong>${f(d.endTime,'6:30')}PM</strong> as per the current company policy.`)}
-    ${clause('2',  'Date of Appointment', `Your date of appointment as per company records is <strong>${fmt(d.joiningDate)}</strong>`)}
-    ${clause('3',  'Salary Increase',   `An increase in your salary will be reviewed periodically as per the policy of the Company. Increments in the salary range will be based on demonstrated results and effectiveness of performance during the period of review.`)}
-    ${clause('4',  'Probation Period',  `You will be on probation for a period of <strong>6</strong> month from the date of Joining. The company has full rights to terminate the employee during the probationary period. You will be confirmed in service upon satisfactory completion of the probation period.`)}
-    ${clause('5',  'Tax Liability',     `Income Tax Liability, if any, will be borne by you.`)}
-
-    <!-- Clause 6 — Salary with Annexure -->
-    <p style="margin:0 0 3px"><strong>6.\tMonthly Gross Salary:</strong></p>
-    <p style="margin:0 0 8px;text-align:justify">You will be paid a monthly gross salary as mentioned in Annexure.</p>
-
-    <!-- Annexure -->
-    <p style="text-align:center;font-weight:700;font-size:11px;text-decoration:underline;margin:8px 0 4px">Annexure to Letter of Appointment</p>
-    <p style="font-size:11px;margin-bottom:6px">
-      &nbsp;&nbsp;&nbsp;&nbsp;Name:&nbsp; <strong>${f(d.candidateName)}</strong>
-      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-      Designation:&nbsp; <strong>${f(d.position)}</strong>
-    </p>
-
-    <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:8px">
-      <thead>
-        <tr style="background:#1A6038;color:#fff">
-          <th style="padding:5px 8px;border:1px solid #999;text-align:left">S.No</th>
-          <th style="padding:5px 8px;border:1px solid #999;text-align:left">Particulars</th>
-          <th style="padding:5px 8px;border:1px solid #999;text-align:right">Monthly Salary (Rs.)</th>
-          <th style="padding:5px 8px;border:1px solid #999;text-align:left">Deductions</th>
-          <th style="padding:5px 8px;border:1px solid #999;text-align:right">Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${salaryComponents.map(([label, val], i) => {
-          const deductLabel = i===0 ? '(+) Medical Insurance Individual' : i===1 ? 'Employer PF' : '';
-          const deductVal   = i===0 ? m(d.medical) : i===1 ? m(d.pfEmployer) : '';
-          return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
+  const salaryRows = salaryComponents.map(([label, val], i) => {
+    const deductLabel = i===0 ? '(+) Medical Insurance Individual' : i===1 ? 'Employer PF' : '';
+    const deductVal   = i===0 ? m(d.medical) : i===1 ? m(d.pfEmployer) : '';
+    return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
             <td style="padding:3px 8px;border:1px solid #ddd;text-align:center">${i+1}</td>
             <td style="padding:3px 8px;border:1px solid #ddd">${label}</td>
             <td style="padding:3px 8px;border:1px solid #ddd;text-align:right">${m(val)}</td>
             <td style="padding:3px 8px;border:1px solid #ddd;font-size:10px">${deductLabel}</td>
             <td style="padding:3px 8px;border:1px solid #ddd;text-align:right;font-size:10px">${deductVal}</td>
           </tr>`;
-        }).join('')}
-        <tr style="font-weight:700;background:#e8f5e9">
-          <td style="padding:4px 8px;border:1px solid #999" colspan="2">Gross Salary</td>
-          <td style="padding:4px 8px;border:1px solid #999;text-align:right">${m(d.gross)}</td>
-          <td style="padding:4px 8px;border:1px solid #999" colspan="2"></td>
-        </tr>
-        <tr style="background:#f5f5f5">
-          <td style="padding:3px 8px;border:1px solid #ddd" colspan="2">(+) Medical Insurance Individual</td>
-          <td style="padding:3px 8px;border:1px solid #ddd;text-align:right">${m(d.medical)}</td>
-          <td style="padding:3px 8px;border:1px solid #ddd">Employer PF</td>
-          <td style="padding:3px 8px;border:1px solid #ddd;text-align:right">${m(d.pfEmployer)}</td>
-        </tr>
-        <tr style="font-weight:700;background:#1A6038;color:#fff">
-          <td style="padding:4px 8px;border:1px solid #1A6038" colspan="2">CTC</td>
-          <td style="padding:4px 8px;border:1px solid #1A6038;text-align:right">${m(d.ctcMonthly)}</td>
-          <td style="padding:4px 8px;border:1px solid #1A6038" colspan="2"></td>
-        </tr>
-        <tr style="font-weight:700;background:#1A6038;color:#fff">
-          <td style="padding:4px 8px;border:1px solid #1A6038" colspan="2">Net Salary</td>
-          <td style="padding:4px 8px;border:1px solid #1A6038;text-align:right">${m(d.net)}</td>
-          <td style="padding:4px 8px;border:1px solid #1A6038;font-size:10px;font-weight:400" colspan="2">*Note: TDS will be deducted as per government norms</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <!-- Remaining clauses -->
-    ${clause('7',  '', `Furthermore, your monthly salary will be credited during the second or third week of each month.`)}
-    ${clause('8',  'Leave Terms and Conditions', `<u>Eligibility:</u><br>
-      Leave Policy Clause – Probation Completion &amp; Eligibility. You will be governed by the Company's current Leave Policy applicable to permanent employees upon successful completion of your probation period.<br><br>
-      After completion of the probation period, Casual Leave (CL) will be calculated on pro-rata basis 0.5 days/month throughout the current financial year.<br><br>
-      The next financial year from the joining of date, your PL will be calculated as per the Company's Leave Policy and same will be credited as the opening balance of next financial year.<br><br>
-      Job performance, absenteeism, and departmental requirements all will be taken into consideration before a request is approved. Approvals of the immediate supervisor, department director and human resources are required.<br><br>
-      <u>Return to work/extension of Leave</u><br>
-      An employee is required to return from the unpaid personal leave on the originally scheduled return date. If unable to return, he or she must request an extension in writing. Extensions of leave will be considered on a case-by-case basis.<br><br>
-      <u>Travel:</u><br>
-      Whenever you are required to undertake travel on Company work for outstation, you will be reimbursed for travel expenses as per Company rules.`)}
-    ${clause('9',  'Responsibilities',   `In view of your office, you must effectively perform to ensure results. Your performance would be reviewed as per the Company's Performance Management System.`)}
-    ${clause('10', 'Retirement Age',     `The normal retirement age for all employees is 60 years.`)}
-    ${clause('11', 'Notice Period',      `While on probation, this appointment may be terminated by giving <strong>${f(d.noticePeriod,'30')} days'</strong> notice. Should you resign after confirmation, the Company will have the option to accept your resignation either with immediate effect salary in lieu of notice period or accept it effective any day up to the end of the notice period and pay you salary for the remaining period.`)}
-    ${clause('12', 'Transfer',           `You will be liable to be transferred to any other department or establishment or branch or subsidiary of the Company in Head Office. In such a case, you will be governed by the terms and conditions of service as applicable to the new assignment.`)}
-    ${clause('13', 'Other work',         `Your position with the Company calls for whole time employment and you will devote yourself exclusively to the business of the Company. You will not take up any other work for remuneration (part time or otherwise) or work on advisory capacity or be interested directly or indirectly (except as shareholder or debenture holder) in any other trade or business during your employment with the Company, without written permission from the Company.`)}
-    ${clause('14', 'Conflict of Interest', `You will not seek full time or part time job or be involved in any way with competitor's business activities either directly or indirectly during your employment with the Company, and for a period of 12 months in the event of cessation of your employment with the Company.`)}
-    ${clause('15', 'Confidential Information', `You will not, at any time, without the consent of the Company disclose or divulge or make public except under legal obligation, any information regarding the Company's affairs of administration or research carried out, whether the same may be confided to you or become known to you, in the course of your service or otherwise.<br><br>
-      The company shall have the right to terminate this agreement forthwith without any notice in the event of the following:<br>
-      &nbsp;&nbsp;&nbsp;&bull;&nbsp;Breach of any of the conditions of this agreement<br>
-      &nbsp;&nbsp;&nbsp;&bull;&nbsp;Any misconduct on your part<br>
-      &nbsp;&nbsp;&nbsp;&bull;&nbsp;Failure to carry out any of your duties and obligations<br>
-      &nbsp;&nbsp;&nbsp;&bull;&nbsp;Being continuously absent from or omitting to attend to your work for 10 days without the Company's previous permission in writing whatever is the cause of such absence or omission.`)}
-    ${clause('16', 'Violation Policy',   `You are to treat the following as strictly confidential.<br>
-      &nbsp;&nbsp;&nbsp;&bull;&nbsp;Your salary, allowances, benefits, and rewards.<br>
-      &nbsp;&nbsp;&nbsp;&bull;&nbsp;The affairs of the Company and its customers of which you may be cognizant, particularly the drawings, quotations, specifications, and other manufacturing information.<br><br>
-      By accepting employment with the company, you undertake not to disclose the above to anyone. Violation of this would be viewed as a serious breach of conduct.`)}
-    ${clause('17', 'Change of Residing Address', `You will keep us informed of your local contact address whenever there is any change.`)}
-    ${clause('18', 'Role', `On completing the <strong>6 MONTH</strong> probation period to the company's satisfaction, you will be considered for appointment in the Company as an <strong>${f(d.position)}</strong>.`)}
-    ${clause('19', 'Contract/Bond with Previous Employers', `It will be your responsibility to discharge all obligations arising out of any contract or bond with previous employers.`)}
-    ${clause('20', 'On termination', `On termination of this contract, you will immediately give up to the Company all correspondence, specifications, formulae, books, documents, market data, cost data, literature, drawings, effect or records, etc. belonging to the Company or relating to its business and shall not make or retain any copies of these items.`)}
-    ${clause('21', 'General', `The above terms and conditions are based on Company Policy, Procedures and other Rules and Regulations currently applicable to the Company's employees and are subject to amendments and adjustments from time to time.<br>You are to treat the terms and conditions of this agreement as confidential.`)}
-    ${clause('22', 'Disputes & Arbitration', `Any dispute or difference or claim arising in connection with this contract shall be resolved by reference to arbitration by a sole arbitrator appointed by Evergreen Enterprises at its sole discretion. The arbitration proceedings shall be governed by the Arbitration &amp; Conciliation Act, 1996. The language of arbitration shall be English. The venue of arbitration shall be at <strong>Erode</strong>. The award of the arbitrator shall be final and binding on the parties. The governing law shall be the laws of India.`)}
-    ${clause('23', 'Background Check and Verification', `The company reserves the right to verify your documents and background through internal or external agencies. These may include your current/previous employment history, educational/professional credentials, and background checks.<br><br>
-      <em><strong>"Please note that this offer will stand immediately withdrawn / employment summarily terminated if any negative factor is brought to our knowledge during employment verification of your past employments. Any costs incurred on you will be recovered from you".</strong></em>`)}
-
-    <p style="margin:14px 0;text-align:justify">Please communicate your acceptance of this appointment by signing a copy of this letter and returning it to us.</p>
-    <p style="margin-bottom:20px;text-align:justify">We are looking forward to having you in our company and to seeing you achieve great things at Evergreen Enterprises.</p>
-
-    <!-- Signature block — matches template -->
-    <div style="margin-top:30px;display:flex;justify-content:space-between;align-items:flex-end">
-      <div>
-        <p style="font-weight:700;margin:0">For EVERGREEN ENTERPRISES,</p>
-        <div style="margin-top:36px">
-          <p style="font-weight:700;margin:0">KESAVAMOORTHY.N</p>
-          <p style="font-weight:700;margin:0">MANAGING PARTNER</p>
-        </div>
-      </div>
-      <div style="text-align:center">
-        <div style="width:200px;border-top:1px solid #000;padding-top:6px">
-          <p style="font-size:10.5px;margin:0">Candidate Signature &amp; Date</p>
-          <p style="font-size:10.5px;color:#555;margin:4px 0 0">${f(d.candidateName,'Name')}</p>
-        </div>
-      </div>
-    </div>
-  </div>`;
+  }).join('');
+  if (!_rcOLTpl) return '<div id="rc-ol-printable" style="padding:20px;color:#888">Loading letter template…</div>';
+  const map = {
+    refNo: f(d.refNo), today,
+    candidateName: f(d.candidateName),
+    candidateNameSig: f(d.candidateName,'Name'),
+    address: addr.length ? addr.join(',<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;') : '<span style="color:#bbb;font-style:italic">___________</span>',
+    position: f(d.position),
+    gradeSuffix: d.grade ? ` <strong>${d.grade}</strong>` : '',
+    startTime: f(d.startTime,'9:30'),
+    endTime: f(d.endTime,'6:30'),
+    joiningDate: fmt(d.joiningDate),
+    noticePeriod: f(d.noticePeriod,'30'),
+    salaryRows,
+    gross: m(d.gross), medical: m(d.medical), pfEmployer: m(d.pfEmployer),
+    ctcMonthly: m(d.ctcMonthly), net: m(d.net),
+  };
+  return _fillTemplate(_rcOLTpl, map);
 }
 
+
+function _rcPrintDoc(innerHTML, filename){
+  const w = window.open('','_blank','width=860,height=700');
+  w.document.write(`<!DOCTYPE html><html><head><title>${filename}</title>
+    <style>@media print{body{margin:0}}body{margin:0;font-family:Arial,sans-serif}</style>
+    </head><body>${innerHTML}<script>window.onload=function(){window.print()}<\/script></body></html>`);
+  w.document.close();
+}
 
 function _rcOLGeneratePDF() {
   _rcOLUpdatePreview();
   const html = document.getElementById('rc-ol-printable')?.outerHTML;
   if (!html) { alert('Fill candidate details first.'); return; }
   const d = _rcOLDraft;
-  const fname = `OfferLetter_${(d.candidateName||'Candidate').replace(/\s+/g,'_')}_${d.mrfId||'EVGCPL'}.pdf`;
-  const w = window.open('','_blank','width=860,height=700');
-  w.document.write(`<!DOCTYPE html><html><head><title>${fname}</title>
-    <style>@media print{body{margin:0}}body{margin:0;font-family:Arial,sans-serif}</style>
-    </head><body>${html}<script>window.onload=function(){window.print()}<\/script></body></html>`);
-  w.document.close();
+  _rcPrintDoc(html, `OfferLetter_${(d.candidateName||'Candidate').replace(/\s+/g,'_')}_${d.mrfId||'EVGCPL'}.pdf`);
+}
+
+async function _rcALGeneratePDF(jc){
+  const row = (_rcJoiningData||[]).find(r => (r['Joining Code']||r['joiningCode']||r['JC'])===jc) || {};
+  const offer = (_rcOffers||[]).find(o => o.olId && (o.olId===row['OL ID'] || o.candidateName===(row['Candidate Name']||row['Employee Name']))) || {};
+  let tpl; try { tpl = await _loadHtmlTemplate('appointment-letter'); } catch(e){ alert('Could not load the appointment letter template.'); return; }
+  const m   = v => v && Number(v) ? '₹'+Math.round(Number(v)).toLocaleString('en-IN') : '—';
+  const f   = (v,ph='___________') => (v && String(v).trim()) ? String(v).trim() : `<span style="color:#bbb;font-style:italic">${ph}</span>`;
+  const fmt = v => { if(!v) return '___________'; const dt=new Date(v); return isNaN(dt)?v:dt.toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'}); };
+  const nm  = row['Candidate Name']||row['Employee Name']||row['Name']||offer.candidateName||'';
+  const map = {
+    today: new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'}),
+    refNo: f(row['Appointment Letter Ref']),
+    candidateName: f(nm), candidateNameSig: f(nm,'Name'),
+    empCode: f(row['EmpCode']||row['Employee Code']),
+    position: f(row['Position']||offer.position),
+    department: f(row['Department']||row['Dept']),
+    site: f(row['Site']||offer.site),
+    reportingManager: f(row['Reporting Manager']||row['Reporting To']),
+    joiningDate: fmt(row['Actual DOJ']||row['Expected DOJ']||offer.joiningDate),
+    ctc: m(offer.ctcAnnual),
+  };
+  _rcPrintDoc(_fillTemplate(tpl, map), `AppointmentLetter_${(nm||'Employee').replace(/\s+/g,'_')}_${jc}.pdf`);
 }
 
 async function _rcOLSendAndLog() {
@@ -16710,6 +16505,7 @@ function _rcJLApptLetter(jc,name) {
     </div>
     <div style="margin-top:.8rem;display:flex;gap:.6rem">
       <button onclick="_rcJLSaveAL('${jc}','${name}')" class="btn btn-primary btn-sm">Save Record</button>
+      <button onclick="_rcALGeneratePDF('${jc}')" class="btn btn-secondary btn-sm">🖨 Generate Letter</button>
       <button onclick="document.getElementById('rc-jl-appt-panel').innerHTML=''" class="btn btn-secondary btn-sm">Cancel</button>
     </div>
   </div>`;

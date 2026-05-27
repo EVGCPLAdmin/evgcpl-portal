@@ -1,0 +1,85 @@
+<!--
+  EVGCPL Appointment Letter template (first draft — refine clause wording as needed).
+  Rendered by _rcALGeneratePDF() in assets/js/portal-bundle.js via token substitution.
+  Keep the id="rc-al-printable" root — _rcPrintDoc() prints this element.
+  Tokens: refNo today candidateName candidateNameSig empCode position department
+          site reportingManager joiningDate ctc
+-->
+<div id="rc-al-printable" style="font-family:'Times New Roman',serif;font-size:11.5px;color:#000;background:#fff;padding:28px 40px 36px;line-height:1.7">
+
+  <!-- Company Header -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:0">
+    <tr>
+      <td style="text-align:center;font-size:16px;font-weight:700;letter-spacing:1px;padding:6px 12px;border:2px solid #000">
+        <img src="https://evgcpladmin.github.io/evgcpl-portal/EG.jpg" style="height:28px;vertical-align:middle;margin-right:8px" onerror="this.style.display='none'">
+        Evergreen Enterprises
+      </td>
+    </tr>
+  </table>
+  <div style="height:4px;background:#1A6038;margin-bottom:10px"></div>
+
+  <!-- Ref + Date -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+    <tr>
+      <td style="font-size:11px"><strong>REF NO: {{refNo}}</strong></td>
+      <td style="text-align:right;font-size:11px">{{today}}</td>
+    </tr>
+  </table>
+
+  <!-- Addressee block -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11.5px">
+    <tr>
+      <td style="width:110px;vertical-align:top;padding-bottom:4px"><strong>Name</strong></td>
+      <td style="vertical-align:top;padding-bottom:4px">: &nbsp;{{candidateName}}</td>
+    </tr>
+    <tr>
+      <td style="vertical-align:top"><strong>Employee Code</strong></td>
+      <td style="vertical-align:top">: &nbsp;{{empCode}}</td>
+    </tr>
+  </table>
+
+  <!-- Title -->
+  <p style="text-align:center;font-weight:700;font-size:12.5px;text-decoration:underline;margin:16px 0 14px">Letter of Appointment Confirmation</p>
+
+  <p style="margin-bottom:12px">Dear <strong>{{candidateName}}</strong>,</p>
+
+  <p style="margin-bottom:12px;text-align:justify">
+    We are pleased to confirm your appointment with <strong>Evergreen Enterprises</strong> as
+    <strong>{{position}}</strong> in the <strong>{{department}}</strong> department, posted at
+    <strong>{{site}}</strong>, with effect from <strong>{{joiningDate}}</strong>.
+  </p>
+
+  <p style="margin:0 0 3px"><strong>1.	Employee Code:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">Your Employee Code is <strong>{{empCode}}</strong>. Please quote this reference in all official communication with the Company.</p>
+
+  <p style="margin:0 0 3px"><strong>2.	Reporting:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">You will report to <strong>{{reportingManager}}</strong>. Your duties and responsibilities will be communicated to you by your reporting manager and may be revised from time to time as per business requirements.</p>
+
+  <p style="margin:0 0 3px"><strong>3.	Terms of Employment:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">Your employment is governed by the terms and conditions set out in your Letter of Appointment and the Company's policies, procedures, rules and regulations currently in force and as amended from time to time.</p>
+
+  <p style="margin:0 0 3px"><strong>4.	Compensation:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">Your annual cost to company (CTC) is <strong>{{ctc}}</strong>, payable as per the salary structure communicated in your Letter of Appointment. Income tax and other statutory deductions will apply as per government norms.</p>
+
+  <p style="margin:0 0 3px"><strong>5.	Conduct &amp; Confidentiality:</strong></p>
+  <p style="margin:0 0 10px;text-align:justify">You are expected to maintain the highest standards of conduct and to treat all Company information as strictly confidential, both during and after your employment with the Company.</p>
+
+  <p style="margin:14px 0;text-align:justify">Please sign and return a copy of this letter as a token of your acceptance. We look forward to a long and mutually rewarding association.</p>
+
+  <!-- Signature block -->
+  <div style="margin-top:30px;display:flex;justify-content:space-between;align-items:flex-end">
+    <div>
+      <p style="font-weight:700;margin:0">For EVERGREEN ENTERPRISES,</p>
+      <div style="margin-top:36px">
+        <p style="font-weight:700;margin:0">KESAVAMOORTHY.N</p>
+        <p style="font-weight:700;margin:0">MANAGING PARTNER</p>
+      </div>
+    </div>
+    <div style="text-align:center">
+      <div style="width:200px;border-top:1px solid #000;padding-top:6px">
+        <p style="font-size:10.5px;margin:0">Employee Signature &amp; Date</p>
+        <p style="font-size:10.5px;color:#555;margin:4px 0 0">{{candidateNameSig}}</p>
+      </div>
+    </div>
+  </div>
+</div>

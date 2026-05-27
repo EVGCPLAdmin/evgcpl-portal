@@ -560,9 +560,6 @@ th.sort-desc .sort-arrow::after{content:'▼';opacity:1}
 .kpi-val{font-size:1.6rem;font-weight:700;color:var(--g9);line-height:1}
 
 /* ══ MISC ═══════════════════════════════════════════════════ */
-.demo-role-btn{padding:.4rem .8rem;border:1px solid var(--border);border-radius:7px;background:var(--surface2);font-size:.78rem;cursor:pointer;font-family:inherit;transition:all .15s;color:var(--txt2)}
-.demo-role-btn:hover{border-color:var(--g6);color:var(--g7)}
-.demo-role-btn.active-role{background:var(--g7);color:#fff;border-color:var(--g7)}
 .as-btn{display:inline-flex;align-items:center;gap:.4rem;padding:.4rem .85rem;background:var(--g7);color:#fff;border:none;border-radius:7px;font-size:.78rem;font-weight:600;cursor:pointer;text-decoration:none;transition:background .15s}
 .as-btn:hover{background:var(--g6)}
 .mp-icon{font-size:1.4rem;margin-bottom:.3rem}
@@ -584,7 +581,6 @@ th.sort-desc .sort-arrow::after{content:'▼';opacity:1}
   box-shadow:-4px 0 20px rgba(0,0,0,.08);
 }
 #notifPanel.open { right:0; }
-body.demo-active #notifPanel{top:calc(var(--header-h) + 32px);height:calc(100vh - var(--header-h) - 32px)}
 
 /* ══ AI CHAT PANEL ═══════════════════════════════════════════ */
 #aiChatPanel {
@@ -596,7 +592,6 @@ body.demo-active #notifPanel{top:calc(var(--header-h) + 32px);height:calc(100vh 
   box-shadow:-4px 0 24px rgba(0,0,0,.08);
 }
 #aiChatPanel.open { right:0; }
-body.demo-active #aiChatPanel { top:calc(var(--header-h) + 32px); height:calc(100vh - var(--header-h) - 32px); }
 
 .ai-chat-head {
   background:linear-gradient(135deg, var(--g9), var(--g7));
@@ -1000,21 +995,9 @@ body.dev-mode .tnav-item[data-status="dev"] { display:flex; }
   /* Notification & AI panels start below header+topnav */
   #notifPanel { top:calc(var(--header-h) + var(--topnav-h)); height:calc(100vh - var(--header-h) - var(--topnav-h)); }
   #aiChatPanel { top:calc(var(--header-h) + var(--topnav-h)); height:calc(100vh - var(--header-h) - var(--topnav-h)); }
-  /* Demo bar adjustments */
-  body.demo-active .layout { padding-top:calc(var(--header-h) + var(--topnav-h) + 32px); }
-  body.demo-active #topNav { top:calc(var(--header-h) + 32px); }
-  body.demo-active #notifPanel { top:calc(var(--header-h) + var(--topnav-h) + 32px); }
-  body.demo-active #aiChatPanel { top:calc(var(--header-h) + var(--topnav-h) + 32px); }
 }
 
 /* ── Inline secondary styles from v88 ── */
-    .demo-role-btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;padding:3px 10px;border-radius:20px;cursor:pointer;font-size:.72rem;transition:all .2s}
-    .demo-role-btn:hover,.demo-role-btn.active{background:var(--gold);color:var(--g9);border-color:var(--gold);font-weight:700}
-    /* Offset header & sidebar for demo bar */
-    body.demo-active .header{top:32px}
-    body.demo-active .sidebar{top:calc(var(--header-h) + 32px)}
-    body.demo-active .layout{padding-top:calc(var(--header-h) + 32px)}
-    body.demo-active #notifPanel{top:calc(var(--header-h) + 32px)}
 
 /* ── Dashboard absorbs Command Center for MD — hide every legacy entry ── */
 #tnav-md-command,
