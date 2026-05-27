@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.7';
-const PORTAL_BUILD    = 380;
-const PORTAL_BUILD_AT = '2026-05-27T09:02:25Z';
+const PORTAL_VERSION  = '3.18.8';
+const PORTAL_BUILD    = 381;
+const PORTAL_BUILD_AT = '2026-05-27T09:43:55Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -15986,6 +15986,7 @@ function _rcDrawOLFormInner(container) {
         <div style="display:flex;gap:.6rem;margin-top:1rem;flex-wrap:wrap;position:sticky;bottom:0;background:var(--surface1,#fff);padding-top:.6rem;border-top:1px solid var(--border)">
           <button onclick="_rcOLUpdatePreview()" class="btn btn-secondary btn-sm">↻ Refresh Preview</button>
           <button onclick="_rcOLGeneratePDF()" class="btn btn-primary btn-sm">🖨 Print / Save PDF</button>
+          <button onclick="_rcOLEmailOffer()" style="padding:.35rem .9rem;background:#1A6038;color:#fff;border:none;border-radius:8px;font-size:.79rem;font-weight:500;cursor:pointer">📧 Email to Candidate</button>
           <button onclick="_rcOLSendAndLog()" style="padding:.35rem .9rem;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:.79rem;font-weight:500;cursor:pointer">✉️ Log Offer Sent</button>
         </div>
       </div>
@@ -16237,22 +16238,43 @@ async function _rcALGeneratePDF(jc){
   _rcPrintDoc(_fillTemplate(tpl, map), `AppointmentLetter_${(nm||'Employee').replace(/\s+/g,'_')}_${jc}.pdf`);
 }
 
-async function _rcOLSendAndLog() {
-  _rcOLUpdatePreview();
+function _rcOLBuildOfferRecord(dispatchMethod) {
   const d = _rcOLDraft;
-  if (!d.candidateName||!d.position) { alert('Candidate name and designation are required.'); return; }
   const year=new Date().getFullYear();
   const seq=String((_rcOffers||[]).filter(o=>o.olId.startsWith('OL-'+year)).length+1).padStart(3,'0');
   const olId=`OL-${year}-${seq}`;
   const now=new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
-  const offer={olId,mrfId:d.mrfId||'',candidateName:d.candidateName,position:d.position,site:d.site,ctcAnnual:d.ctcAnnual||((d.gross||0)*12),joiningDate:d.joiningDate,candidateEmail:d.candidateEmail,dispatchMethod:'Manual',status:'Sent',sentDate:now,basic:d.basic,hra:d.hra,allowances:d.allowances,pf:d.pf,gross:d.gross,net:d.net,probation:d.probation,validUntil:d.validUntil,createdBy:STATE.user?.email||'',createdAt:now};
+  const offer={olId,mrfId:d.mrfId||'',candidateName:d.candidateName,position:d.position,site:d.site,ctcAnnual:d.ctcAnnual||((d.gross||0)*12),joiningDate:d.joiningDate,candidateEmail:d.candidateEmail,dispatchMethod,status:'Sent',sentDate:now,basic:d.basic,hra:d.hra,allowances:d.allowances,pf:d.pf,gross:d.gross,net:d.net,probation:d.probation,validUntil:d.validUntil,createdBy:STATE.user?.email||'',createdAt:now};
   if (!_rcOffers) _rcOffers=[];
   _rcOffers.unshift(offer);
   _rcPostAction({action:'saveOffer',offer});
   if (d.mrfId) { const mrf=(_rcMRFs||[]).find(m=>m.id===d.mrfId); if(mrf){mrf.offerSent=olId; _rcPersist();} }
+  return offer;
+}
+
+async function _rcOLSendAndLog() {
+  _rcOLUpdatePreview();
+  const d = _rcOLDraft;
+  if (!d.candidateName||!d.position) { alert('Candidate name and designation are required.'); return; }
+  const offer = _rcOLBuildOfferRecord('Manual');
   _rcOLDraft={};
   _rcOLSubTab('tracker');
-  _showRcToast(`📄 Offer logged — ${olId}`);
+  _showRcToast(`📄 Offer logged — ${offer.olId}`);
+}
+
+async function _rcOLEmailOffer() {
+  _rcOLUpdatePreview();
+  const d = _rcOLDraft;
+  if (!d.candidateName||!d.position) { alert('Candidate name and designation are required.'); return; }
+  const email = (d.candidateEmail||'').trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert('Enter a valid Candidate Email before emailing the offer.'); return; }
+  const html = document.getElementById('rc-ol-printable')?.outerHTML;
+  if (!html) { alert('Fill candidate details first.'); return; }
+  const offer = _rcOLBuildOfferRecord('Email');
+  _rcPostAction({ action:'sendOfferEmail', to:email, candidateName:d.candidateName, position:d.position, olId:offer.olId, html });
+  _rcOLDraft={};
+  _rcOLSubTab('tracker');
+  _showRcToast(`📧 Offer emailed to ${email} — ${offer.olId}`);
 }
 
 function _rcDrawOLTracker(container) {
