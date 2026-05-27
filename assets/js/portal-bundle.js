@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.12';
-const PORTAL_BUILD    = 385;
-const PORTAL_BUILD_AT = '2026-05-27T16:49:16Z';
+const PORTAL_VERSION  = '3.18.13';
+const PORTAL_BUILD    = 386;
+const PORTAL_BUILD_AT = '2026-05-27T16:58:02Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -16295,19 +16295,32 @@ async function _rcALGeneratePDF(jc){
   _rcPrintDoc(_fillTemplate(tpl, map), `AppointmentLetter_${(nm||'Employee').replace(/\s+/g,'_')}_${jc}.pdf`);
 }
 
+// Build the offer object from the current draft (no side effects).
 function _rcOLBuildOfferRecord(dispatchMethod) {
   const d = _rcOLDraft;
   const year=new Date().getFullYear();
-  const seq=String((_rcOffers||[]).filter(o=>o.olId.startsWith('OL-'+year)).length+1).padStart(3,'0');
+  const seq=String((_rcOffers||[]).filter(o=>o.olId&&o.olId.startsWith('OL-'+year)).length+1).padStart(3,'0');
   const olId=`OL-${year}-${seq}`;
   const now=new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
-  const offer={olId,refNo:d.refNo||'',mrfId:d.mrfId||'',candidateName:d.candidateName,position:d.position,site:d.site,ctcAnnual:d.ctcAnnual||((d.gross||0)*12),joiningDate:d.joiningDate,candidateEmail:d.candidateEmail,dispatchMethod,status:'Sent',sentDate:now,basic:d.basic,hra:d.hra,allowances:d.allowances,pf:d.pf,gross:d.gross,net:d.net,probation:d.probation||'6',validUntil:d.validUntil,createdBy:STATE.user?.email||'',createdAt:now,
+  return {olId,refNo:d.refNo||'',mrfId:d.mrfId||'',candidateName:d.candidateName,position:d.position,site:d.site,ctcAnnual:d.ctcAnnual||((d.gross||0)*12),joiningDate:d.joiningDate,candidateEmail:d.candidateEmail,dispatchMethod,status:'Sent',sentDate:now,basic:d.basic,hra:d.hra,allowances:d.allowances,pf:d.pf,gross:d.gross,net:d.net,probation:d.probation||'6',validUntil:d.validUntil,createdBy:STATE.user?.email||'',createdAt:now,
     offerDate:d.offerDate||'',grade:d.grade||'',department:d.dept||'',addr1:d.addr1||'',addr2:d.addr2||'',addr3:d.addr3||'',addr4:d.addr4||'',startTime:d.startTime||'',endTime:d.endTime||'',noticePeriod:d.noticePeriod||'',reportingManager:d.reportingTo||'',da:d.da||'',specialallow:d.specialallow||'',conveyance:d.conveyance||'',education:d.education||'',uniform:d.uniform||'',lta:d.lta||'',siteallow:d.siteallow||'',medical:d.medical||'',pfEmployer:d.pfEmployer||'',ctcMonthly:d.ctcMonthly||''};
+}
+
+// Apply a saved offer to local state (optimistic) + link the MRF.
+function _rcOLApplyLocal(offer) {
   if (!_rcOffers) _rcOffers=[];
   _rcOffers.unshift(offer);
-  _rcPostAction({action:'saveOffer',offer});
-  if (d.mrfId) { const mrf=(_rcMRFs||[]).find(m=>m.id===d.mrfId); if(mrf){mrf.offerSent=olId; _rcPersist();} }
-  return offer;
+  if (offer.mrfId) { const mrf=(_rcMRFs||[]).find(m=>m.id===offer.mrfId); if(mrf){mrf.offerSent=offer.olId; _rcPersist();} }
+}
+
+// POST that AWAITS and returns the backend's parsed JSON {success, ...}.
+async function _rcPostActionAwait(payload) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method:'POST', headers:{'Content-Type':'text/plain'},
+    body: JSON.stringify({ ...payload, sheetId: RECRUITMENT_SHEET_ID })
+  });
+  try { return await res.json(); }
+  catch(e) { return { success:false, message:`Backend returned a non-JSON response (HTTP ${res.status}). Check the Apps Script deployment.` }; }
 }
 
 async function _rcOLSaveOffer() {
@@ -16315,10 +16328,20 @@ async function _rcOLSaveOffer() {
   const d = _rcOLDraft;
   if (!d.candidateName||!d.position) { alert('Candidate name and designation are required.'); return; }
   const offer = _rcOLBuildOfferRecord('Saved');
+  _showRcToast('💾 Saving offer…');
+  let resp;
+  try { resp = await _rcPostActionAwait({action:'saveOffer', offer}); }
+  catch(e) { alert('Save failed — could not reach the backend:\n'+e.message); return; }
+  if (!resp || resp.success === false) {
+    alert('Save failed — backend did not accept it:\n'+((resp&&resp.message)||'unknown error')+'\n\n(Check that the main Apps Script /exec is deployed with the recruitment routes.)');
+    return;
+  }
+  if (resp.olId) offer.olId = resp.olId;
+  _rcOLApplyLocal(offer);
   _rcOLDraft={};
   _rcOLSubTab('tracker');
-  _showRcToast(`💾 Offer saved — ${offer.olId}`);
-  _rcResyncOffers(offer);          // POST done; pull back from the sheet to stay in sync
+  _showRcToast(`✅ Offer saved to sheet — ${offer.olId}`);
+  _rcResyncOffers(offer);
 }
 
 // Re-fetch offers from the sheet after a write so the portal mirrors the backend.
@@ -16343,10 +16366,17 @@ async function _rcOLEmailOffer() {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert('Enter a valid Candidate Email before emailing the offer.'); return; }
   const html = _rcOLPreviewHTML();
   const offer = _rcOLBuildOfferRecord('Email');
+  _showRcToast('📧 Saving & emailing…');
+  let resp;
+  try { resp = await _rcPostActionAwait({action:'saveOffer', offer}); }
+  catch(e){ alert('Could not reach the backend:\n'+e.message); return; }
+  if (!resp || resp.success === false) { alert('Save failed — backend did not accept it:\n'+((resp&&resp.message)||'unknown error')); return; }
+  if (resp.olId) offer.olId = resp.olId;
   _rcPostAction({ action:'sendOfferEmail', to:email, candidateName:d.candidateName, position:d.position, olId:offer.olId, html });
+  _rcOLApplyLocal(offer);
   _rcOLDraft={};
   _rcOLSubTab('tracker');
-  _showRcToast(`📧 Offer emailed to ${email} — ${offer.olId}`);
+  _showRcToast(`📧 Offer saved & emailed to ${email} — ${offer.olId}`);
   _rcResyncOffers(offer);
 }
 
