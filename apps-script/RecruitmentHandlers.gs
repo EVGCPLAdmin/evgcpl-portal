@@ -140,7 +140,7 @@ function updateMRFStatus(payload) {
         sh.getRange(rowNum, updAt+1).setValue(now);
         sh.getRange(rowNum, updBy+1).setValue(payload.actor || '');
         if (payload.remarks) {
-          const rmkCol = payload.actor?.role === 'hr' ? hrRmk : mdRmk;
+          const rmkCol = payload.role === 'hr' ? hrRmk : mdRmk;
           sh.getRange(rowNum, rmkCol+1).setValue(payload.remarks);
         }
         const closed = ['Closed – Filled','Closed – Cancelled'].includes(payload.status);
@@ -522,24 +522,25 @@ function getJoiningList() {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  ROUTER ENTRIES  —  add these cases to your Router.gs doPost
+//  ROUTER ENTRIES  —  already wired into Router.gs doPost
 // ─────────────────────────────────────────────────────────────
 /*
-  Add to Router.gs switch(action) block:
+  Registered in Router.gs doPost (if/_wrap style — this project has no switch):
 
-  case 'saveMRF':               return wrap(saveMRF(p));
-  case 'updateMRF':             return wrap(updateMRF(p));
-  case 'updateMRFStatus':       return wrap(updateMRFStatus(p));
-  case 'getMRFs':               return wrap(getMRFs(p));
-  case 'saveOffer':             return wrap(saveOffer(p));
-  case 'updateOfferStatus':     return wrap(updateOfferStatus(p));
-  case 'createJoiningEntry':    return wrap(createJoiningEntry(p));
-  case 'getJoiningList':        return wrap(getJoiningList(p));
-  case 'getJoiningListSchema':  return wrap(getJoiningListSchema());
-  case 'savePreJoining':        return wrap(savePreJoining(p));
-  case 'markAsJoined':          return wrap(markAsJoined(p));
-  case 'assignEmpCode':         return wrap(assignEmpCode(p));
-  case 'sendOfferEmail':        return wrap(sendOfferEmail(p));
+  if (action === 'saveMRF')                  return _wrap(saveMRF(body));
+  if (action === 'updateMRF')                return _wrap(updateMRF(body));
+  if (action === 'updateMRFStatus')          return _wrap(updateMRFStatus(body));
+  if (action === 'getMRFs')                  return _wrap(getMRFs(body));
+  if (action === 'saveOffer')                return _wrap(saveOffer(body));
+  if (action === 'updateOfferStatus')        return _wrap(updateOfferStatus(body));
+  if (action === 'createJoiningEntry')       return _wrap(createJoiningEntry(body));
+  if (action === 'getJoiningList')           return _wrap(getJoiningList(body));
+  if (action === 'getJoiningListSchema')     return _wrap(getJoiningListSchema());
+  if (action === 'savePreJoining')           return _wrap(savePreJoining(body));
+  if (action === 'markAsJoined')             return _wrap(markAsJoined(body));
+  if (action === 'assignEmpCode')            return _wrap(assignEmpCode(body));
+  if (action === 'sendOfferEmail')           return _wrap(sendOfferEmail(body));
+  if (action === 'updateApptLetter')         return _wrap(updateApptLetter(body));
 */
 
 // ─────────────────────────────────────────────────────────────
