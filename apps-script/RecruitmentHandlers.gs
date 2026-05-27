@@ -28,7 +28,7 @@ const RC_OFFER_HEADERS = [
   'Status','Sent Date','Acceptance Date','Remarks',
   'Created By','Created At',
   // Appended for full letter rendering (offer + appointment templates)
-  'Offer Date','Grade','Department',
+  'Ref No','Offer Date','Grade','Department',
   'Address Line 1','Address Line 2','Address Line 3','Address Line 4',
   'Start Time','End Time','Notice Period','Reporting Manager',
   'DA','Special Allowance','Conveyance','Education Allowance',
@@ -263,6 +263,7 @@ function saveOffer(payload) {
       'Offer Valid Until': o.validUntil || '', 'Candidate Email': o.candidateEmail || '',
       'Dispatch Method': o.dispatchMethod || '', 'Status': 'Sent', 'Sent Date': now,
       'Acceptance Date': '', 'Remarks': '', 'Created By': o.createdBy || '', 'Created At': now,
+      'Ref No': o.refNo || '',
       'Offer Date': o.offerDate || '', 'Grade': o.grade || '', 'Department': o.department || '',
       'Address Line 1': o.addr1 || '', 'Address Line 2': o.addr2 || '',
       'Address Line 3': o.addr3 || '', 'Address Line 4': o.addr4 || '',
