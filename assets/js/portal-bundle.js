@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.10';
-const PORTAL_BUILD    = 383;
-const PORTAL_BUILD_AT = '2026-05-27T10:42:40Z';
+const PORTAL_VERSION  = '3.18.11';
+const PORTAL_BUILD    = 384;
+const PORTAL_BUILD_AT = '2026-05-27T16:27:47Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -15100,6 +15100,17 @@ function _fillTemplate(tpl, map){
 }
 let _rcOLTpl = '';
 
+// ── Letter-template fill helpers: a clean value, or a gray-italic .ph placeholder ──
+function _rcF(v, ph){ return (v != null && String(v).trim()) ? escapeHtml_(String(v).trim()) : `<span class="ph">${ph || '—'}</span>`; }
+function _rcMoney(v){ return (v && Number(v)) ? '₹' + Math.round(Number(v)).toLocaleString('en-IN') : `<span class="ph">—</span>`; }
+function _rcFmtDMY(v, ph){
+  if (!v) return `<span class="ph">${ph || '—'}</span>`;
+  const dt = new Date(v);
+  if (isNaN(dt)) return escapeHtml_(String(v));
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.getMonth()];
+  return `${String(dt.getDate()).padStart(2,'0')}-${mon}-${dt.getFullYear()}`;
+}
+
 async function _rcLoadMRFs(force=false) {
   if (_rcMRFs !== null && !force) return;
   _rcLoading = true;
@@ -15160,6 +15171,32 @@ async function _rcLoadOffers(force=false) {
       acceptanceDate:r['Acceptance Date']|| '',
       remarks:       r['Remarks']        || '',
       createdAt:     r['Created At']     || '',
+      offerDate:     r['Offer Date']     || '',
+      grade:         r['Grade']          || '',
+      department:    r['Department']     || '',
+      addr1:         r['Address Line 1'] || '',
+      addr2:         r['Address Line 2'] || '',
+      addr3:         r['Address Line 3'] || '',
+      addr4:         r['Address Line 4'] || '',
+      startTime:     r['Start Time']     || '',
+      endTime:       r['End Time']       || '',
+      noticePeriod:  r['Notice Period']  || '',
+      probation:     r['Probation Period']|| '',
+      reportingManager: r['Reporting Manager'] || '',
+      basic:         r['Basic']          || '',
+      da:            r['DA']             || '',
+      hra:           r['HRA']            || '',
+      specialallow:  r['Special Allowance'] || '',
+      conveyance:    r['Conveyance']     || '',
+      education:     r['Education Allowance'] || '',
+      uniform:       r['Uniform Allowance']  || '',
+      lta:           r['LTA']            || '',
+      siteallow:     r['Site Allowance'] || '',
+      medical:       r['Medical']        || '',
+      pfEmployer:    r['PF Employer']    || '',
+      gross:         r['Gross']          || '',
+      net:           r['Net']            || '',
+      ctcMonthly:    r['CTC (Monthly)']  || '',
     }));
   } catch(e) { _rcOffers = []; }
 }
@@ -15904,6 +15941,12 @@ function _rcDrawOLFormInner(container) {
             <input id="ol-notice" type="number" value="${d.noticePeriod||'30'}" oninput="_rcOLField('noticePeriod',this.value)" class="rc-inp">
           </div>
 
+          <!-- Probation Period -->
+          <div>
+            <label class="rc-lbl">Probation (months)</label>
+            <input id="ol-probation" type="number" value="${d.probation||'6'}" oninput="_rcOLLiveSync('probation',this.value)" class="rc-inp">
+          </div>
+
           <!-- Offer Valid Until -->
           <div>
             <label class="rc-lbl">Offer Valid Until</label>
@@ -16001,8 +16044,8 @@ function _rcDrawOLFormInner(container) {
       <!-- ═══ RIGHT: LIVE PREVIEW ═══ -->
       <div style="position:sticky;top:0">
         <div style="font-size:.72rem;font-weight:600;color:var(--txt3);margin-bottom:.4rem;text-transform:uppercase;letter-spacing:.05em">Live Preview — matches print output</div>
-        <div id="ol-preview-frame" style="border:1px solid var(--border);border-radius:10px;overflow-y:auto;background:#fff;height:82vh">
-          ${_rcOLPreviewHTML()}
+        <div id="ol-preview-frame" style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#fff;height:82vh">
+          <iframe id="ol-preview-iframe" title="Offer letter preview" sandbox="allow-same-origin" style="width:100%;height:100%;border:0;background:#fff"></iframe>
         </div>
       </div>
 
@@ -16023,6 +16066,9 @@ function _rcDrawOLFormInner(container) {
       document.removeEventListener('click', _rptClose);
     }
   });
+
+  // Populate the preview iframe once the form is in the DOM
+  _rcOLUpdatePreview();
 }
 
 // ── Designation change → auto-fill Grade and Dept ──────────────
@@ -16149,6 +16195,7 @@ function _rcOLUpdatePreview() {
     'ol-desig':'position','ol-grade':'grade','ol-dept':'dept','ol-site':'site',
     'ol-starttime':'startTime','ol-endtime':'endTime',
     'ol-doj':'joiningDate','ol-notice':'noticePeriod','ol-valid':'validUntil',
+    'ol-probation':'probation',
     'ol-ctc':'ctcAnnual','ol-email':'candidateEmail',
     'ol-basic':'basic','ol-da':'da','ol-hra':'hra','ol-specialallow':'specialallow',
     'ol-conveyance':'conveyance','ol-education':'education','ol-uniform':'uniform',
@@ -16159,88 +16206,77 @@ function _rcOLUpdatePreview() {
   const code=document.getElementById('ol-rpt-code'); if(code) _rcOLDraft.reportingToCode=code.value;
   const srch=document.getElementById('ol-rpt-search'); if(srch) _rcOLDraft.reportingTo=srch.value.split(' (')[0].trim();
   _rcOLCalcGross();
-  const frame=document.getElementById('ol-preview-frame');
-  if(frame) frame.innerHTML=_rcOLPreviewHTML();
+  const iframe=document.getElementById('ol-preview-iframe');
+  if(iframe) iframe.srcdoc=_rcOLPreviewHTML();
 }
 
 function _rcOLPreviewHTML() {
-  const d   = _rcOLDraft;
-  const fmt = v => { if (!v) return '___________'; const dt = new Date(v); return isNaN(dt) ? v : dt.toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'}); };
-  const m   = v => v && Number(v) ? '₹'+Math.round(Number(v)).toLocaleString('en-IN') : '—';
-  const f   = (v,ph='___________') => (v && String(v).trim()) ? String(v).trim() : `<span style="color:#bbb;font-style:italic">${ph}</span>`;
-  const today = d.offerDate ? fmt(d.offerDate) : new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
-  const addr = [d.addr1,d.addr2,d.addr3,d.addr4].filter(Boolean);
-  const salaryComponents = [
-    ['Basic', d.basic],['Dearness Allowance', d.da],['House Rent Allowance (HRA)', d.hra],
-    ['Special Allowance', d.specialallow],['Conveyance Allowance', d.conveyance],['Education Allowance', d.education],
-    ['Uniform / Washing Allowance', d.uniform],['LTA', d.lta],['Site Allowance', d.siteallow],
-  ];
-  const salaryRows = salaryComponents.map(([label, val], i) => {
-    const deductLabel = i===0 ? '(+) Medical Insurance Individual' : i===1 ? 'Employer PF' : '';
-    const deductVal   = i===0 ? m(d.medical) : i===1 ? m(d.pfEmployer) : '';
-    return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
-            <td style="padding:3px 8px;border:1px solid #ddd;text-align:center">${i+1}</td>
-            <td style="padding:3px 8px;border:1px solid #ddd">${label}</td>
-            <td style="padding:3px 8px;border:1px solid #ddd;text-align:right">${m(val)}</td>
-            <td style="padding:3px 8px;border:1px solid #ddd;font-size:10px">${deductLabel}</td>
-            <td style="padding:3px 8px;border:1px solid #ddd;text-align:right;font-size:10px">${deductVal}</td>
-          </tr>`;
-  }).join('');
-  if (!_rcOLTpl) return '<div id="rc-ol-printable" style="padding:20px;color:#888">Loading letter template…</div>';
+  if (!_rcOLTpl) return '<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:24px;color:#888">Loading letter template…</body></html>';
+  const d = _rcOLDraft;
   const map = {
-    refNo: f(d.refNo), today,
-    candidateName: f(d.candidateName),
-    candidateNameSig: f(d.candidateName,'Name'),
-    address: addr.length ? addr.join(',<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;') : '<span style="color:#bbb;font-style:italic">___________</span>',
-    position: f(d.position),
-    gradeSuffix: d.grade ? ` <strong>${d.grade}</strong>` : '',
-    startTime: f(d.startTime,'9:30'),
-    endTime: f(d.endTime,'6:30'),
-    joiningDate: fmt(d.joiningDate),
-    noticePeriod: f(d.noticePeriod,'30'),
-    salaryRows,
-    gross: m(d.gross), medical: m(d.medical), pfEmployer: m(d.pfEmployer),
-    ctcMonthly: m(d.ctcMonthly), net: m(d.net),
+    refNo:       _rcF(d.refNo, '<<Ref No>>'),
+    offerDate:   _rcFmtDMY(d.offerDate || new Date().toISOString().slice(0,10)),
+    candidateName: _rcF(d.candidateName, 'Name'),
+    addr1: _rcF(d.addr1, 'Address Line 1'),
+    addr2: _rcF(d.addr2, 'Address Line 2'),
+    addr3: _rcF(d.addr3, 'Address Line 3'),
+    addr4: _rcF(d.addr4, 'Address Line 4'),
+    position: _rcF(d.position, 'Designation'),
+    grade:    _rcF(d.grade, 'Grade'),
+    company:  'Evergreen Enterprises',
+    appointmentDate: _rcFmtDMY(d.joiningDate, 'Appointment Date'),
+    probation: _rcF(d.probation || '6'),
+    basic: _rcMoney(d.basic), da: _rcMoney(d.da), hra: _rcMoney(d.hra),
+    specialallow: _rcMoney(d.specialallow), conveyance: _rcMoney(d.conveyance),
+    education: _rcMoney(d.education), uniform: _rcMoney(d.uniform), lta: _rcMoney(d.lta),
+    siteallow: _rcMoney(d.siteallow), medical: _rcMoney(d.medical), pfEmployer: _rcMoney(d.pfEmployer),
+    gross: _rcMoney(d.gross), ctc: _rcMoney(d.ctcMonthly), net: _rcMoney(d.net),
   };
   return _fillTemplate(_rcOLTpl, map);
 }
 
 
-function _rcPrintDoc(innerHTML, filename){
-  const w = window.open('','_blank','width=860,height=700');
-  w.document.write(`<!DOCTYPE html><html><head><title>${filename}</title>
+function _rcPrintDoc(html, filename){
+  const printScript = '<script>window.onload=function(){window.print()}<\/script>';
+  const isFullDoc = /^\s*<(!doctype|html)/i.test(html);
+  const doc = isFullDoc
+    ? (/<\/body>/i.test(html) ? html.replace(/<\/body>/i, printScript + '</body>') : html + printScript)
+    : `<!DOCTYPE html><html><head><title>${filename}</title>
     <style>@media print{body{margin:0}}body{margin:0;font-family:Arial,sans-serif}</style>
-    </head><body>${innerHTML}<script>window.onload=function(){window.print()}<\/script></body></html>`);
+    </head><body>${html}${printScript}</body></html>`;
+  const w = window.open('','_blank','width=860,height=700');
+  w.document.write(doc);
   w.document.close();
 }
 
 function _rcOLGeneratePDF() {
   _rcOLUpdatePreview();
-  const html = document.getElementById('rc-ol-printable')?.outerHTML;
-  if (!html) { alert('Fill candidate details first.'); return; }
   const d = _rcOLDraft;
-  _rcPrintDoc(html, `OfferLetter_${(d.candidateName||'Candidate').replace(/\s+/g,'_')}_${d.mrfId||'EVGCPL'}.pdf`);
+  if (!d.candidateName) { alert('Fill candidate details first.'); return; }
+  _rcPrintDoc(_rcOLPreviewHTML(), `OfferLetter_${(d.candidateName||'Candidate').replace(/\s+/g,'_')}_${d.mrfId||'EVGCPL'}.pdf`);
 }
 
 async function _rcALGeneratePDF(jc){
   const row = (_rcJoiningData||[]).find(r => (r['Joining Code']||r['joiningCode']||r['JC'])===jc) || {};
   const offer = (_rcOffers||[]).find(o => o.olId && (o.olId===row['OL ID'] || o.candidateName===(row['Candidate Name']||row['Employee Name']))) || {};
   let tpl; try { tpl = await _loadHtmlTemplate('appointment-letter'); } catch(e){ alert('Could not load the appointment letter template.'); return; }
-  const m   = v => v && Number(v) ? '₹'+Math.round(Number(v)).toLocaleString('en-IN') : '—';
-  const f   = (v,ph='___________') => (v && String(v).trim()) ? String(v).trim() : `<span style="color:#bbb;font-style:italic">${ph}</span>`;
-  const fmt = v => { if(!v) return '___________'; const dt=new Date(v); return isNaN(dt)?v:dt.toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'}); };
-  const nm  = row['Candidate Name']||row['Employee Name']||row['Name']||offer.candidateName||'';
+  const nm = row['Candidate Name']||row['Employee Name']||row['Name']||offer.candidateName||'';
   const map = {
-    today: new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'}),
-    refNo: f(row['Appointment Letter Ref']),
-    candidateName: f(nm), candidateNameSig: f(nm,'Name'),
-    empCode: f(row['EmpCode']||row['Employee Code']),
-    position: f(row['Position']||offer.position),
-    department: f(row['Department']||row['Dept']),
-    site: f(row['Site']||offer.site),
-    reportingManager: f(row['Reporting Manager']||row['Reporting To']),
-    joiningDate: fmt(row['Actual DOJ']||row['Expected DOJ']||offer.joiningDate),
-    ctc: m(offer.ctcAnnual),
+    refNo:     _rcF(row['Appointment Letter Ref'], '<<Ref No>>'),
+    offerDate: _rcFmtDMY(row['Appointment Letter Date'] || offer.offerDate || new Date().toISOString().slice(0,10)),
+    candidateName: _rcF(nm, 'Name'),
+    addr1: _rcF(offer.addr1, 'Address Line 1'),
+    addr2: _rcF(offer.addr2, 'Address Line 2'),
+    addr3: _rcF(offer.addr3, 'Address Line 3'),
+    addr4: _rcF(offer.addr4, 'Address Line 4'),
+    position: _rcF(row['Position']||offer.position, 'Designation'),
+    grade:    _rcF(offer.grade, 'Grade'),
+    company:  'Evergreen Enterprises',
+    startTime: _rcF(offer.startTime, 'Start Time'),
+    endTime:   _rcF(offer.endTime, 'End Time'),
+    appointmentDate: _rcFmtDMY(row['Actual DOJ']||row['Expected DOJ']||offer.joiningDate, 'Appointment Date'),
+    probation: _rcF(offer.probation || '6'),
+    noticePeriod: _rcF(offer.noticePeriod, 'Notice Period'),
   };
   _rcPrintDoc(_fillTemplate(tpl, map), `AppointmentLetter_${(nm||'Employee').replace(/\s+/g,'_')}_${jc}.pdf`);
 }
@@ -16251,7 +16287,8 @@ function _rcOLBuildOfferRecord(dispatchMethod) {
   const seq=String((_rcOffers||[]).filter(o=>o.olId.startsWith('OL-'+year)).length+1).padStart(3,'0');
   const olId=`OL-${year}-${seq}`;
   const now=new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
-  const offer={olId,mrfId:d.mrfId||'',candidateName:d.candidateName,position:d.position,site:d.site,ctcAnnual:d.ctcAnnual||((d.gross||0)*12),joiningDate:d.joiningDate,candidateEmail:d.candidateEmail,dispatchMethod,status:'Sent',sentDate:now,basic:d.basic,hra:d.hra,allowances:d.allowances,pf:d.pf,gross:d.gross,net:d.net,probation:d.probation,validUntil:d.validUntil,createdBy:STATE.user?.email||'',createdAt:now};
+  const offer={olId,mrfId:d.mrfId||'',candidateName:d.candidateName,position:d.position,site:d.site,ctcAnnual:d.ctcAnnual||((d.gross||0)*12),joiningDate:d.joiningDate,candidateEmail:d.candidateEmail,dispatchMethod,status:'Sent',sentDate:now,basic:d.basic,hra:d.hra,allowances:d.allowances,pf:d.pf,gross:d.gross,net:d.net,probation:d.probation||'6',validUntil:d.validUntil,createdBy:STATE.user?.email||'',createdAt:now,
+    offerDate:d.offerDate||'',grade:d.grade||'',department:d.dept||'',addr1:d.addr1||'',addr2:d.addr2||'',addr3:d.addr3||'',addr4:d.addr4||'',startTime:d.startTime||'',endTime:d.endTime||'',noticePeriod:d.noticePeriod||'',reportingManager:d.reportingTo||'',da:d.da||'',specialallow:d.specialallow||'',conveyance:d.conveyance||'',education:d.education||'',uniform:d.uniform||'',lta:d.lta||'',siteallow:d.siteallow||'',medical:d.medical||'',pfEmployer:d.pfEmployer||'',ctcMonthly:d.ctcMonthly||''};
   if (!_rcOffers) _rcOffers=[];
   _rcOffers.unshift(offer);
   _rcPostAction({action:'saveOffer',offer});
@@ -16275,8 +16312,7 @@ async function _rcOLEmailOffer() {
   if (!d.candidateName||!d.position) { alert('Candidate name and designation are required.'); return; }
   const email = (d.candidateEmail||'').trim();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert('Enter a valid Candidate Email before emailing the offer.'); return; }
-  const html = document.getElementById('rc-ol-printable')?.outerHTML;
-  if (!html) { alert('Fill candidate details first.'); return; }
+  const html = _rcOLPreviewHTML();
   const offer = _rcOLBuildOfferRecord('Email');
   _rcPostAction({ action:'sendOfferEmail', to:email, candidateName:d.candidateName, position:d.position, olId:offer.olId, html });
   _rcOLDraft={};
