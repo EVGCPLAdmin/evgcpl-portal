@@ -79,6 +79,22 @@ function doPost(e) {
     if (action === 'verifyPin')                return verifyPin(body);
     if (action === 'resetPin')                 return resetPin(body);
 
+    // ── Recruitment (RecruitmentHandlers.gs) ───────────────────
+    if (action === 'saveMRF')                  return _wrap(saveMRF(body));
+    if (action === 'updateMRF')                return _wrap(updateMRF(body));
+    if (action === 'updateMRFStatus')          return _wrap(updateMRFStatus(body));
+    if (action === 'getMRFs')                  return _wrap(getMRFs(body));
+    if (action === 'saveOffer')                return _wrap(saveOffer(body));
+    if (action === 'updateOfferStatus')        return _wrap(updateOfferStatus(body));
+    if (action === 'createJoiningEntry')       return _wrap(createJoiningEntry(body));
+    if (action === 'getJoiningList')           return _wrap(getJoiningList(body));
+    if (action === 'getJoiningListSchema')     return _wrap(getJoiningListSchema());
+    if (action === 'savePreJoining')           return _wrap(savePreJoining(body));
+    if (action === 'markAsJoined')             return _wrap(markAsJoined(body));
+    if (action === 'assignEmpCode')            return _wrap(assignEmpCode(body));
+    if (action === 'sendOfferEmail')           return _wrap(sendOfferEmail(body));
+    if (action === 'updateApptLetter')         return _wrap(updateApptLetter(body));
+
     return _err('Unknown POST action: ' + action);
 
   } catch (err) {

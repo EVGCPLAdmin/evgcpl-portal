@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.5';
-const PORTAL_BUILD    = 378;
-const PORTAL_BUILD_AT = '2026-05-27T02:44:55Z';
+const PORTAL_VERSION  = '3.18.6';
+const PORTAL_BUILD    = 379;
+const PORTAL_BUILD_AT = '2026-05-27T07:52:04Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -15684,7 +15684,7 @@ function _rcUpdateStatus(id, newStatus, remarks) {
   if (['Closed – Filled','Closed – Cancelled'].includes(newStatus)) mrf.closedAt = now;
 
   _rcPersist();
-  _rcPostAction({ action:'updateMRFStatus', id, status:newStatus, remarks, actor, updatedAt:now });
+  _rcPostAction({ action:'updateMRFStatus', id, status:newStatus, remarks, actor, role:STATE.role, updatedAt:now });
 }
 
 function _rcHRApprove(id) {
@@ -15800,8 +15800,11 @@ let _rcDesigMaster = null; // [{desig, grade, dept}]
 async function _rcLoadDesigMaster() {
   if (_rcDesigMaster !== null) return;
   try {
-    // Try Designation Master tab in Employee Register
-    const rows = await fetchSheet('Designation Master', null, EMP_SHEET_ID);
+    // Try Designation Master tab in Employee Register (tolerate name variants)
+    let rows = [];
+    for (const tab of ['Designation Master','Designation_Master','DesignationMaster','Designations','Designation']) {
+      try { rows = await fetchSheet(tab, null, EMP_SHEET_ID); if (rows.length) break; } catch(e) {}
+    }
     if (rows.length > 0) {
       _rcDesigMaster = rows
         .filter(r => r['Designation'] || r['DESIGNATION'] || r['designation'])
