@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.19';
-const PORTAL_BUILD    = 392;
-const PORTAL_BUILD_AT = '2026-05-28T06:27:41Z';
+const PORTAL_VERSION  = '3.18.20';
+const PORTAL_BUILD    = 393;
+const PORTAL_BUILD_AT = '2026-05-28T11:25:46Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -15390,7 +15390,7 @@ function _rcOpenMRFForm(editId) {
   const isEdit = !!mrf;
   if (title) title.textContent = isEdit ? '✏️ Edit MRF — ' + mrf.id : '📋 Manpower Requisition Form';
 
-  const users = (STATE.masters.users||[]).filter(u => u.status==='ACTIVE').sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const users = (STATE.masters.users||[]).filter(u => u.empCode && u.name && (!u.empStatus || /^active$/i.test(String(u.empStatus).trim()))).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   const sites = (STATE.masters.sites||[]).filter(s=>s.status==='ACTIVE').map(s=>s.name).sort();
   const depts = [...new Set((STATE.masters.users||[]).map(u=>u.dept).filter(Boolean))].sort();
 
@@ -15843,8 +15843,9 @@ function _rcDrawOLFormInner(container) {
   const mrfs  = (_rcMRFs || []).filter(m => m.status === 'Open');
   const d     = _rcOLDraft;
   const desigs = _rcDesigMaster || [];
+  // Employees field on user records is `empStatus` ("Active"/"Inactive"); accept blank as active.
   const users  = (STATE.masters.users || [])
-    .filter(u => u.status === 'ACTIVE' && u.empCode && u.name)
+    .filter(u => u.empCode && u.name && (!u.empStatus || /^active$/i.test(String(u.empStatus).trim())))
     .sort((a,b) => a.name.localeCompare(b.name));
 
   if (!d.refNo) {
@@ -16164,7 +16165,7 @@ function _rcOLSelectRptDD(empCode) {
 function _rcOLFilterRpt(q) {
   const dd = document.getElementById('ol-rpt-dropdown');
   if (!dd) return;
-  const users = (STATE.masters.users||[]).filter(u=>u.status==='ACTIVE'&&u.empCode&&u.name);
+  const users = (STATE.masters.users||[]).filter(u => u.empCode && u.name && (!u.empStatus || /^active$/i.test(String(u.empStatus).trim())));
   const filtered = q.length < 1 ? users.slice(0,8) :
     users.filter(u =>
       u.name.toLowerCase().includes(q.toLowerCase()) ||
