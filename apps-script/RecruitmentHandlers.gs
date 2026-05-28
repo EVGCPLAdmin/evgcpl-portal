@@ -49,7 +49,9 @@ const RC_JOINING_HEADERS = [
   'Joining Code','Path','MRF ID','OL ID','Candidate Name','Position','Department',
   'Site','Reporting Manager','Expected DOJ','Actual DOJ',
   'Status','EmpCode','Appointment Letter Ref','Appointment Letter Date',
-  'Signed Copy Received','Remarks','Created By','Created At','Updated At'
+  'Signed Copy Received','Remarks','Created By','Created At','Updated At',
+  // Phase 3 — HR onboarding handoff
+  'Onboarding Triggered At','Onboarding Triggered By','Onboarding Status'
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -599,8 +601,18 @@ function getJoiningList() {
 function updateApptLetter(payload) {
   try {
     const sh     = _rcTab(RC_TABS.JOINING, RC_JOINING_HEADERS);
+
+    // Header-aware: ensure all RC_JOINING_HEADERS columns exist in row 1
+    let headers = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(),1)).getValues()[0].map(String);
+    let added = false;
+    RC_JOINING_HEADERS.forEach(h => { if (headers.indexOf(h) === -1) { headers.push(h); added = true; } });
+    if (added) {
+      sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sh.setFrozenRows(1);
+      sh.getRange(1, 1, 1, headers.length).setBackground('#1A6038').setFontColor('#FFFFFF').setFontWeight('bold');
+    }
+
     const data   = sh.getDataRange().getValues();
-    const headers= data[0];
     const jcCol  = headers.indexOf('Joining Code');
     const now    = _fmtTimestamp(new Date());
     for (let i = 1; i < data.length; i++) {
@@ -611,6 +623,11 @@ function updateApptLetter(payload) {
           'Signed Copy Received':    payload.signed,
           'Updated At':              now,
         };
+        if (payload.triggerOnboarding === true) {
+          map['Onboarding Triggered At'] = now;
+          map['Onboarding Triggered By'] = payload.updatedBy || '';
+          map['Onboarding Status']       = 'Pending HR';
+        }
         Object.entries(map).forEach(([col, val]) => {
           const ci = headers.indexOf(col);
           if (ci >= 0 && val !== undefined) sh.getRange(i+1, ci+1).setValue(val);

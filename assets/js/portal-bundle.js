@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.16';
-const PORTAL_BUILD    = 389;
-const PORTAL_BUILD_AT = '2026-05-28T03:15:48Z';
+const PORTAL_VERSION  = '3.18.17';
+const PORTAL_BUILD    = 390;
+const PORTAL_BUILD_AT = '2026-05-28T03:18:20Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -16789,9 +16789,10 @@ function _rcJLApptLetter(jc,name) {
       <div><label style="font-size:.74rem;font-weight:600;color:var(--txt2)">Signed Copy Received</label>
         <select id="al-signed" style="width:100%;margin-top:.2rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;font-size:.8rem;background:var(--surface1);color:var(--txt1)"><option>No</option><option>Yes</option></select></div>
     </div>
-    <div style="margin-top:.8rem;display:flex;gap:.6rem">
+    <div style="margin-top:.8rem;display:flex;gap:.6rem;flex-wrap:wrap">
       <button onclick="_rcJLSaveAL('${jc}','${name}')" class="btn btn-primary btn-sm">Save Record</button>
       <button onclick="_rcALGeneratePDF('${jc}')" class="btn btn-secondary btn-sm">🖨 Generate Letter</button>
+      <button onclick="_rcJLTriggerOnboarding('${jc}','${name}')" style="padding:.35rem .9rem;background:#1A6038;color:#fff;border:none;border-radius:8px;font-size:.79rem;font-weight:600;cursor:pointer">🤝 Issue Letter &amp; Trigger HR Onboarding</button>
       <button onclick="document.getElementById('rc-jl-appt-panel').innerHTML=''" class="btn btn-secondary btn-sm">Cancel</button>
     </div>
   </div>`;
@@ -16805,4 +16806,36 @@ function _rcJLSaveAL(jc,name) {
   _rcPostAction({action:'updateApptLetter',joiningCode:jc,ref,date,signed,updatedBy:STATE.user?.email||''});
   _showRcToast(`📋 Appointment Letter record saved for ${name}`);
   document.getElementById('rc-jl-appt-panel').innerHTML='';
+}
+
+// Phase 3 — saves the appointment letter ref/date and flags the joining row
+// "Pending HR" so HR picks it up for onboarding (EmpCode, masters, accommodation/site/mess).
+async function _rcJLTriggerOnboarding(jc, name) {
+  const ref    = document.getElementById('al-ref')?.value || '';
+  const date   = document.getElementById('al-date')?.value || '';
+  const signed = document.getElementById('al-signed')?.value || 'No';
+  _showRcToast('🤝 Triggering HR onboarding…');
+  let resp;
+  try {
+    resp = await _rcPostActionAwait({
+      action:'updateApptLetter',
+      joiningCode: jc, ref, date, signed,
+      updatedBy: STATE.user?.email || '',
+      triggerOnboarding: true,
+    });
+  } catch(e) { alert('Could not reach the backend:\n'+e.message); return; }
+  if (!resp || resp.success === false) { alert('Trigger failed: '+((resp&&resp.message)||'unknown error')); return; }
+  // Update local row optimistically
+  const row = (_rcJoiningData||[]).find(r => (r['Joining Code']||r['joiningCode'])===jc);
+  if (row) {
+    row['Onboarding Triggered At'] = new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
+    row['Onboarding Triggered By'] = STATE.user?.email || '';
+    row['Onboarding Status']       = 'Pending HR';
+    if (ref)    row['Appointment Letter Ref']  = ref;
+    if (date)   row['Appointment Letter Date'] = date;
+    if (signed) row['Signed Copy Received']    = signed;
+  }
+  document.getElementById('rc-jl-appt-panel').innerHTML='';
+  _rcDrawJoiningTab();
+  _showRcToast(`✅ ${name}: appointment letter issued & HR onboarding triggered`);
 }
