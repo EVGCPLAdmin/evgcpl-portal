@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.17';
-const PORTAL_BUILD    = 390;
-const PORTAL_BUILD_AT = '2026-05-28T03:18:20Z';
+const PORTAL_VERSION  = '3.18.18';
+const PORTAL_BUILD    = 391;
+const PORTAL_BUILD_AT = '2026-05-28T03:31:11Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -16110,6 +16110,12 @@ function _rcOLSelectRpt(empCode, name, desig) {
 
 let _rcOLPrevTimer = null;
 function _rcOLPreviewSoon(){ clearTimeout(_rcOLPrevTimer); _rcOLPrevTimer = setTimeout(_rcOLUpdatePreview, 250); }
+
+// Tracker + joining-tab filter state (used by status chips / onboarding filter)
+let _rcOLStatusFilter = '';   // '' = uninit; first draw sets default for the user's role
+let _rcJLOnbFilter    = false;
+function _rcOLSetStatusFilter(s){ _rcOLStatusFilter = s; _rcDrawOLTracker(document.getElementById('rc-ol-sub')); }
+function _rcJLToggleOnbFilter(){ _rcJLOnbFilter = !_rcJLOnbFilter; _rcDrawJoiningTab(); }
 function _rcOLField(key, val) { _rcOLDraft[key] = val; _rcOLPreviewSoon(); }
 
 function _rcOLLiveSync(key, val) {
@@ -16518,6 +16524,11 @@ function _rcDrawOLTracker(container) {
     if ((o.status==='Released' || o.status==='Sent') && o.acceptBy && o.acceptBy < today) return 'Expired';
     return o.status || 'Draft';
   };
+  // Default filter: MD lands on Pending Approval, everyone else on All
+  if (!_rcOLStatusFilter) _rcOLStatusFilter = isMD ? 'Pending Approval' : 'All';
+  const fStatus = _rcOLStatusFilter;
+  const countBy = s => offers.filter(o => displayStatus(o)===s).length;
+  const visible = (fStatus==='All') ? offers : offers.filter(o => displayStatus(o)===fStatus);
   const sc = {
     'Draft':            ['#6b7280','#f3f4f6'],
     'Pending Approval': ['#d97706','#fffbeb'],
@@ -16528,16 +16539,23 @@ function _rcDrawOLTracker(container) {
     'Declined':         ['#dc2626','#fef2f2'],
     'Expired':          ['#6b7280','#f9fafb'],
   };
+  const chips = ['All','Draft','Pending Approval','Released','Accepted','Declined','Expired'];
+  const chipRow = chips.map(s => {
+    const active = s===fStatus;
+    const n = s==='All' ? offers.length : countBy(s);
+    return `<button onclick="_rcOLSetStatusFilter('${s}')" style="font-size:.72rem;padding:3px 11px;border-radius:20px;border:1px solid ${active?'#1A6038':'var(--border)'};background:${active?'#1A6038':'var(--surface1)'};color:${active?'#fff':'var(--txt2)'};cursor:pointer;font-weight:${active?'600':'400'}">${s}${n?' ('+n+')':''}</button>`;
+  }).join('');
   container.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;gap:.5rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;gap:.5rem;flex-wrap:wrap">
       <div style="font-size:.75rem;color:var(--txt3)">${isMD?'<strong style="color:#d97706">MD view</strong> · approve or reject pending offers':'<strong>Recruiter view</strong> · Draft → Send for Approval → MD approves → Released'}</div>
       <button class="btn btn-sm btn-secondary" onclick="_rcLoadOffers(true).then(()=>_rcDrawOLTracker(document.getElementById('rc-ol-sub')))">↻ Refresh from Sheet</button>
     </div>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.7rem">${chipRow}</div>
     <div style="overflow-x:auto;border-radius:10px;border:1px solid var(--border)">
     <table class="emp-table" style="min-width:920px">
       <thead><tr><th>OL ID</th><th>MRF</th><th>Candidate</th><th>Position</th><th>Site</th><th>CTC</th><th>Joining</th><th>Status</th><th>Actions</th></tr></thead>
-      <tbody>${offers.length===0?`<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--txt3)">No offers yet.</td></tr>`:
-      offers.map(o=>{
+      <tbody>${visible.length===0?`<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--txt3)">${fStatus==='All'?'No offers yet.':'No offers in '+fStatus+'.'}</td></tr>`:
+      visible.map(o=>{
         const st = displayStatus(o);
         const [c,bg] = sc[st] || ['#6b7280','#f9fafb'];
         const btn = (fn,label,color) => `<button class="btn btn-sm btn-secondary" onclick="${fn}('${o.olId}')" style="font-size:.7rem;padding:2px 7px${color?';color:'+color:''}">${label}</button>`;
@@ -16703,6 +16721,8 @@ function _rcDrawJoiningTab() {
   let filtered=joiners;
   if(fStatus!=='All') filtered=filtered.filter(j=>(j['Type']||j['Status']||'')===fStatus);
   if(fQ) filtered=filtered.filter(j=>Object.values(j).some(v=>String(v||'').toLowerCase().includes(fQ)));
+  const onbCount=joiners.filter(j=>j['Onboarding Status']==='Pending HR').length;
+  if(_rcJLOnbFilter) filtered=filtered.filter(j=>j['Onboarding Status']==='Pending HR');
   const s0=joiners[0]||{};
   const nameCol=['Employee Name','Candidate Name','Name'].find(k=>k in s0)||'Employee Name';
   const jcCol=['Joining Code','joiningCode','JC'].find(k=>k in s0)||'Joining Code';
@@ -16721,6 +16741,7 @@ function _rcDrawJoiningTab() {
       </select>
       <input id="rc-jl-fq" value="${fQ}" oninput="_rcDrawJoiningTab()" placeholder="Search name, code, site…"
         style="font-size:.78rem;padding:.35rem .7rem;border:1px solid var(--border);border-radius:8px;background:var(--surface1);color:var(--txt1);min-width:200px">
+      <button onclick="_rcJLToggleOnbFilter()" style="font-size:.73rem;padding:3px 11px;border-radius:20px;border:1px solid ${_rcJLOnbFilter?'#c2410c':'var(--border)'};background:${_rcJLOnbFilter?'#fff7ed':'var(--surface1)'};color:${_rcJLOnbFilter?'#c2410c':'var(--txt2)'};cursor:pointer;font-weight:${_rcJLOnbFilter?'600':'400'}">🤝 Pending HR Onboarding${onbCount?' ('+onbCount+')':''}</button>
       <button class="btn btn-sm btn-secondary" onclick="_rcLoadJoiningData(true).then(()=>_rcDrawJoiningTab())">↻ Refresh</button>
       <span style="font-size:.73rem;color:var(--txt3);margin-left:auto">${filtered.length} of ${joiners.length}</span>
     </div>
@@ -16745,7 +16766,7 @@ function _rcDrawJoiningTab() {
               <td style="font-size:.77rem">${j[siteCol]||'—'}</td>
               <td style="font-size:.75rem">${j[dojCol]||'—'}</td>
               <td style="font-family:monospace;font-size:.74rem;color:var(--g7)">${ec}</td>
-              <td><span style="font-size:.71rem;padding:2px 8px;border-radius:20px;background:${bg};color:${c};white-space:nowrap">${status}</span></td>
+              <td><span style="font-size:.71rem;padding:2px 8px;border-radius:20px;background:${bg};color:${c};white-space:nowrap">${status}</span>${j['Onboarding Status']==='Pending HR'?'<span title="HR onboarding triggered" style="display:inline-block;margin-left:4px;font-size:.65rem;padding:1px 6px;border-radius:20px;background:#fff7ed;color:#c2410c;font-weight:600;white-space:nowrap">🤝 HR</span>':''}</td>
               <td style="white-space:nowrap;display:flex;gap:4px;flex-wrap:wrap">
                 ${canMark?`<button onclick="_rcJLMarkJoined('${jc}','${j[nameCol]||''}')" style="padding:2px 7px;background:#16a34a;color:#fff;border:none;border-radius:6px;font-size:.71rem;cursor:pointer">🎯 Mark Joined</button>`:''}
                 ${canAssign?`<button onclick="_rcJLAssignEC('${jc}','${j[nameCol]||''}')" class="btn btn-sm btn-secondary" style="font-size:.71rem;padding:2px 7px">Assign EmpCode</button>`:''}
