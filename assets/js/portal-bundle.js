@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.18';
-const PORTAL_BUILD    = 391;
-const PORTAL_BUILD_AT = '2026-05-28T03:31:11Z';
+const PORTAL_VERSION  = '3.18.19';
+const PORTAL_BUILD    = 392;
+const PORTAL_BUILD_AT = '2026-05-28T06:27:41Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -15175,6 +15175,10 @@ async function _rcLoadOffers(force=false) {
       offerDate:     r['Offer Date']     || '',
       grade:         r['Grade']          || '',
       department:    r['Department']     || '',
+      address:       r['Address']        || '',
+      company:       r['Company']        || '',
+      empType:       r['Employee Type']  || '',
+      contractPeriod:r['Contractual Period'] || '',
       addr1:         r['Address Line 1'] || '',
       addr2:         r['Address Line 2'] || '',
       addr3:         r['Address Line 3'] || '',
@@ -15811,9 +15815,28 @@ async function _rcLoadDesigMaster() {
   }
 }
 
+// Billing master (1-BillingMaster on the main MASTER sheet) — for the offer "Company" dropdown.
+let _rcBillingMaster = null;
+async function _rcLoadBillingMaster() {
+  if (_rcBillingMaster !== null) return;
+  try {
+    const rows = await fetchSheet('1-BillingMaster', null, SHEET_ID);
+    _rcBillingMaster = rows
+      .map(r => ({
+        name: r['Billing Name'] || r['Name'] || r['Company'] || r['Company Name'] || '',
+        gst:  r['GST'] || r['GSTIN'] || '',
+      }))
+      .filter(r => r.name);
+  } catch(e) { _rcBillingMaster = []; }
+}
+
 function _rcDrawOLForm(container) {
   // Ensure masters + letter template are loaded, then render
-  Promise.all([_rcLoadDesigMaster(), _loadHtmlTemplate('offer-letter').then(t => _rcOLTpl = t)]).then(() => _rcDrawOLFormInner(container));
+  Promise.all([
+    _rcLoadDesigMaster(),
+    _rcLoadBillingMaster(),
+    _loadHtmlTemplate('offer-letter').then(t => _rcOLTpl = t),
+  ]).then(() => _rcDrawOLFormInner(container));
 }
 
 function _rcDrawOLFormInner(container) {
@@ -15829,6 +15852,22 @@ function _rcDrawOLFormInner(container) {
     d.refNo = `EG/M-1/HO-${seq}/TAN-INDIA`;
   }
   _rcOLSeedSalRows();
+  // Back-compat: if loaded from a legacy offer with addr1-4, join into a single paragraph
+  if (!d.address && (d.addr1||d.addr2||d.addr3||d.addr4)) {
+    d.address = [d.addr1,d.addr2,d.addr3,d.addr4].filter(Boolean).join('\n');
+  }
+  // Offer Valid Until default → Offer Date + 7 days
+  const od = d.offerDate || new Date().toISOString().slice(0,10);
+  if (!d.validUntil && od) {
+    const dt = new Date(od); dt.setDate(dt.getDate()+7);
+    if (!isNaN(dt)) d.validUntil = dt.toISOString().slice(0,10);
+  }
+  // Pre-compute dependent grade list for the initial render
+  const desigGrades = [...new Set((desigs||[]).filter(ds=>!d.position||ds.desig===d.position).map(ds=>ds.grade).filter(Boolean))].sort();
+  const allDepts    = [...new Set([...desigs.map(ds=>ds.dept).filter(Boolean), ...(STATE.masters.users||[]).map(u=>u.dept).filter(Boolean)])].sort();
+  const siteOpts    = (STATE.masters.sites||[]).filter(s=>s.status==='ACTIVE').map(s=>s.name).filter(Boolean).sort();
+  const userSelOpts = users.map(u => `<option value="${u.empCode}" ${d.reportingToCode===u.empCode?'selected':''}>${u.name}${u.desig?' — '+u.desig:''} (${u.empCode})</option>`).join('');
+  const billOpts    = (_rcBillingMaster||[]).map(b => `<option value="${escapeHtml_(b.name)}" ${d.company===b.name?'selected':''}>${escapeHtml_(b.name)}</option>`).join('');
 
   const desigOpts = desigs.map(ds =>
     `<option value="${ds.desig}" data-grade="${ds.grade}" ${d.position===ds.desig?'selected':''}>${ds.desig}</option>`
@@ -15867,7 +15906,7 @@ function _rcDrawOLFormInner(container) {
           <!-- Offer Date -->
           <div>
             <label class="rc-lbl">Offer / Letter Date *</label>
-            <input id="ol-offerdate" type="date" value="${d.offerDate||new Date().toISOString().slice(0,10)}" oninput="_rcOLField('offerDate',this.value)" class="rc-inp">
+            <input id="ol-offerdate" type="date" value="${d.offerDate||new Date().toISOString().slice(0,10)}" oninput="_rcOLOfferDateChange(this.value)" class="rc-inp">
           </div>
 
           <!-- Name -->
@@ -15876,13 +15915,28 @@ function _rcDrawOLFormInner(container) {
             <input id="ol-name" value="${d.candidateName||''}" oninput="_rcOLField('candidateName',this.value);_rcOLLiveSync('candidateName',this.value)" placeholder="Full name" class="rc-inp">
           </div>
 
-          <!-- Address 4-line -->
+          <!-- Address — single paragraph -->
           <div style="grid-column:1/-1">
             <label class="rc-lbl">Address</label>
-            ${[1,2,3,4].map(n=>`
-            <input id="ol-addr${n}" value="${d['addr'+n]||''}" oninput="_rcOLField('addr${n}',this.value)"
-              placeholder="${n===1?'Door No / Street':n===2?'Area / Locality':n===3?'City, State':'PIN Code'}"
-              class="rc-inp" style="margin-top:${n>1?'.2rem':'0'}">`).join('')}
+            <textarea id="ol-address" oninput="_rcOLField('address',this.value)" rows="3" placeholder="Full address — street, area, city, state, PIN code" class="rc-inp" style="resize:vertical;line-height:1.5;min-height:64px">${escapeHtml_(d.address||'')}</textarea>
+          </div>
+
+          <!-- Company — Billing Master -->
+          <div>
+            <label class="rc-lbl">Company * <span style="font-size:.68rem;color:var(--txt3)">(Billing Master)</span></label>
+            <select id="ol-company" onchange="_rcOLField('company',this.value)" class="rc-inp">
+              <option value="">— Select —</option>
+              ${billOpts}
+            </select>
+          </div>
+
+          <!-- Employee Type -->
+          <div>
+            <label class="rc-lbl">Employee Type *</label>
+            <select id="ol-emptype" onchange="_rcOLField('empType',this.value)" class="rc-inp">
+              <option value="">— Select —</option>
+              ${['On Role','Contractual','Head Office'].map(t=>`<option value="${t}" ${d.empType===t?'selected':''}>${t}</option>`).join('')}
+            </select>
           </div>
 
           <!-- ── DESIGNATION from Designation Master ── -->
@@ -15894,43 +15948,40 @@ function _rcDrawOLFormInner(container) {
             </select>
           </div>
 
-          <!-- GRADE — auto-fills from Designation Master -->
+          <!-- GRADE — dependent dropdown filtered by Designation -->
           <div>
-            <label class="rc-lbl">Grade * <span style="font-size:.68rem;color:var(--txt3)">(auto from Designation)</span></label>
+            <label class="rc-lbl">Grade * <span style="font-size:.68rem;color:var(--txt3)">(by Designation)</span></label>
             <select id="ol-grade" onchange="_rcOLField('grade',this.value)" class="rc-inp">
               <option value="">— Select —</option>
-              ${[...new Set(desigs.map(ds=>ds.grade).filter(Boolean))].sort().map(g=>
-                `<option value="${g}" ${d.grade===g?'selected':''}>${g}</option>`
-              ).join('')}
+              ${desigGrades.map(g => `<option value="${g}" ${d.grade===g?'selected':''}>${g}</option>`).join('')}
             </select>
           </div>
 
-          <!-- Department -->
+          <!-- Department — dropdown -->
           <div>
             <label class="rc-lbl">Department</label>
-            <input id="ol-dept" value="${d.dept||''}" oninput="_rcOLField('dept',this.value)" class="rc-inp">
+            <select id="ol-dept" onchange="_rcOLField('dept',this.value)" class="rc-inp">
+              <option value="">— Select —</option>
+              ${allDepts.map(dp => `<option value="${escapeHtml_(dp)}" ${d.dept===dp?'selected':''}>${escapeHtml_(dp)}</option>`).join('')}
+            </select>
           </div>
 
-          <!-- Site -->
+          <!-- Site — Site Master -->
           <div>
-            <label class="rc-lbl">Site / Location</label>
-            <input id="ol-site" value="${d.site||''}" oninput="_rcOLField('site',this.value)" class="rc-inp">
+            <label class="rc-lbl">Site / Location <span style="font-size:.68rem;color:var(--txt3)">(Site Master)</span></label>
+            <select id="ol-site" onchange="_rcOLField('site',this.value)" class="rc-inp">
+              <option value="">— Select —</option>
+              ${siteOpts.map(s => `<option value="${escapeHtml_(s)}" ${d.site===s?'selected':''}>${escapeHtml_(s)}</option>`).join('')}
+            </select>
           </div>
 
-          <!-- ── REPORTS TO from Employee Register ── -->
+          <!-- Reports To — dropdown from Employee Register -->
           <div style="grid-column:1/-1">
             <label class="rc-lbl">Reports To * <span style="font-size:.68rem;color:var(--txt3)">(Employee Register)</span></label>
-            <div style="position:relative">
-              <input id="ol-rpt-search" value="${d.reportingTo||''}" oninput="_rcOLFilterRpt(this.value)" placeholder="Type name or EmpCode…" class="rc-inp" autocomplete="off">
-              <div id="ol-rpt-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface1);border:1px solid var(--border);border-radius:8px;z-index:10;max-height:180px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.15)">
-                ${users.slice(0,8).map(u=>`
-                  <div onclick="_rcOLSelectRpt('${u.empCode}','${u.name.replace(/'/g,"\\'")}','${u.desig||''}')"
-                    style="padding:8px 12px;cursor:pointer;font-size:.79rem;border-bottom:1px solid var(--border)"
-                    onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
-                    <strong>${u.name}</strong> <span style="color:var(--txt3);font-size:.72rem">${u.empCode}${u.desig?' · '+u.desig:''}</span>
-                  </div>`).join('')}
-              </div>
-            </div>
+            <select id="ol-rpt" onchange="_rcOLSelectRptDD(this.value)" class="rc-inp">
+              <option value="">— Select reporting manager —</option>
+              ${userSelOpts}
+            </select>
             <input type="hidden" id="ol-rpt-code" value="${d.reportingToCode||''}">
           </div>
 
@@ -15962,9 +16013,15 @@ function _rcDrawOLFormInner(container) {
             <input id="ol-probation" type="number" value="${d.probation||'6'}" oninput="_rcOLLiveSync('probation',this.value)" class="rc-inp">
           </div>
 
-          <!-- Offer Valid Until -->
+          <!-- Contractual Period (only meaningful when Employee Type = Contractual) -->
           <div>
-            <label class="rc-lbl">Offer Valid Until</label>
+            <label class="rc-lbl">Contractual Period (months) <span style="font-size:.68rem;color:var(--txt3)">(if Contractual)</span></label>
+            <input id="ol-contractperiod" type="number" value="${d.contractPeriod||''}" oninput="_rcOLField('contractPeriod',this.value)" class="rc-inp">
+          </div>
+
+          <!-- Offer Valid Until — defaults to Offer Date + 7 -->
+          <div>
+            <label class="rc-lbl">Offer Valid Until <span style="font-size:.68rem;color:var(--txt3)">(default: Offer Date + 7)</span></label>
             <input id="ol-valid" type="date" value="${d.validUntil||''}" oninput="_rcOLField('validUntil',this.value)" class="rc-inp">
           </div>
 
@@ -16055,24 +16112,52 @@ function _rcDrawOLFormInner(container) {
   _rcOLUpdatePreview();
 }
 
-// ── Designation change → auto-fill Grade and Dept ──────────────
+// ── Designation change → repopulate Grade options (dependent) + Dept ──────────
 function _rcOLDesigChange() {
-  const sel  = document.getElementById('ol-desig');
-  const desig= sel?.value || '';
-  const opt  = sel?.options[sel.selectedIndex];
-  const grade= opt?.dataset.grade || '';
+  const sel   = document.getElementById('ol-desig');
+  const desig = sel?.value || '';
+  const desigs = _rcDesigMaster || [];
   _rcOLDraft.position = desig;
-  _rcOLDraft.grade    = grade;
+  // Filter grades for this designation
+  const grades  = [...new Set(desigs.filter(ds => !desig || ds.desig===desig).map(ds=>ds.grade).filter(Boolean))].sort();
+  const defaultGrade = desigs.find(ds => ds.desig === desig)?.grade || '';
+  _rcOLDraft.grade = defaultGrade;
   const gradeEl = document.getElementById('ol-grade');
-  if (gradeEl && grade) gradeEl.value = grade;
+  if (gradeEl) {
+    gradeEl.innerHTML = '<option value="">— Select —</option>' +
+      grades.map(g => `<option value="${g}" ${g===defaultGrade?'selected':''}>${g}</option>`).join('');
+  }
   // Auto-fill dept from designation master
-  const master = (_rcDesigMaster||[]).find(ds=>ds.desig===desig);
+  const master = desigs.find(ds=>ds.desig===desig);
   if (master?.dept) {
     _rcOLDraft.dept = master.dept;
     const dEl = document.getElementById('ol-dept');
     if (dEl) dEl.value = master.dept;
   }
   _rcOLUpdatePreview();
+}
+
+// Offer Date change → also auto-set Offer Valid Until = Offer Date + 7
+function _rcOLOfferDateChange(v) {
+  _rcOLDraft.offerDate = v;
+  if (v) {
+    const dt = new Date(v); dt.setDate(dt.getDate()+7);
+    if (!isNaN(dt)) {
+      const iso = dt.toISOString().slice(0,10);
+      _rcOLDraft.validUntil = iso;
+      const el = document.getElementById('ol-valid'); if (el) el.value = iso;
+    }
+  }
+  _rcOLPreviewSoon();
+}
+
+// Reports To dropdown — selecting an empCode resolves the name from the user master
+function _rcOLSelectRptDD(empCode) {
+  const u = (STATE.masters.users||[]).find(x => x.empCode === empCode);
+  _rcOLDraft.reportingToCode = empCode || '';
+  _rcOLDraft.reportingTo     = u ? u.name : '';
+  const hid = document.getElementById('ol-rpt-code'); if (hid) hid.value = empCode || '';
+  _rcOLPreviewSoon();
 }
 
 // ── Reports To search/filter ───────────────────────────────────
@@ -16226,8 +16311,9 @@ function _rcOLSalDel(i){ if(i >= _RC_SAL_COMPONENTS.length && _rcOLDraft.salRows
 function _rcOLUpdatePreview() {
   const map = {
     'ol-refno':'refNo','ol-offerdate':'offerDate','ol-name':'candidateName',
-    'ol-addr1':'addr1','ol-addr2':'addr2','ol-addr3':'addr3','ol-addr4':'addr4',
+    'ol-address':'address',
     'ol-desig':'position','ol-grade':'grade','ol-dept':'dept','ol-site':'site',
+    'ol-company':'company','ol-emptype':'empType','ol-contractperiod':'contractPeriod',
     'ol-starttime':'startTime','ol-endtime':'endTime',
     'ol-doj':'joiningDate','ol-notice':'noticePeriod','ol-valid':'validUntil',
     'ol-probation':'probation','ol-agreed':'agreedSalary','ol-email':'candidateEmail',
@@ -16259,13 +16345,14 @@ function _rcOfferTokenMap(d) {
     refNo:       _rcF(d.refNo, '<<Ref No>>'),
     offerDate:   _rcFmtDMY(d.offerDate || new Date().toISOString().slice(0,10)),
     candidateName: _rcF(d.candidateName, 'Name'),
-    addr1: _rcF(d.addr1, 'Address Line 1'),
-    addr2: _rcF(d.addr2, 'Address Line 2'),
-    addr3: _rcF(d.addr3, 'Address Line 3'),
-    addr4: _rcF(d.addr4, 'Address Line 4'),
+    address: (d.address && String(d.address).trim())
+      ? escapeHtml_(String(d.address).trim()).replace(/\n/g,'<br>')
+      : (([d.addr1,d.addr2,d.addr3,d.addr4].filter(Boolean).join('\n').trim())
+          ? escapeHtml_([d.addr1,d.addr2,d.addr3,d.addr4].filter(Boolean).join('\n')).replace(/\n/g,'<br>')
+          : `<span class="ph">Address</span>`),
     position: _rcF(d.position, 'Designation'),
     grade:    _rcF(d.grade, 'Grade'),
-    company:  'Evergreen Enterprises',
+    company:  _rcF(d.company || 'Evergreen Enterprises', 'Company'),
     appointmentDate: _rcFmtDMY(d.joiningDate, 'Appointment Date'),
     probation: _rcF(d.probation || '6'),
     agreedSalary: _rcMoney(d.agreedSalary),
@@ -16346,7 +16433,7 @@ function _rcOLBuildOfferRecord(dispatchMethod) {
   const olId=`OL-${year}-${seq}`;
   const now=new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
   return {olId,refNo:d.refNo||'',mrfId:d.mrfId||'',candidateName:d.candidateName,position:d.position,site:d.site,ctcAnnual:d.ctcAnnual||((d.gross||0)*12),joiningDate:d.joiningDate,candidateEmail:d.candidateEmail,dispatchMethod,status:'Draft',sentDate:now,basic:d.basic,hra:d.hra,allowances:d.allowances,pf:d.pf,gross:d.gross,net:d.net,probation:d.probation||'6',validUntil:d.validUntil,createdBy:STATE.user?.email||'',createdAt:now,
-    offerDate:d.offerDate||'',grade:d.grade||'',department:d.dept||'',addr1:d.addr1||'',addr2:d.addr2||'',addr3:d.addr3||'',addr4:d.addr4||'',startTime:d.startTime||'',endTime:d.endTime||'',noticePeriod:d.noticePeriod||'',reportingManager:d.reportingTo||'',da:d.da||'',specialallow:d.specialallow||'',conveyance:d.conveyance||'',education:d.education||'',uniform:d.uniform||'',lta:d.lta||'',siteallow:d.siteallow||'',medical:d.medical||'',pfEmployer:d.pfEmployer||'',ctcMonthly:d.ctcMonthly||'',
+    offerDate:d.offerDate||'',grade:d.grade||'',department:d.dept||'',address:d.address||'',addr1:d.addr1||'',addr2:d.addr2||'',addr3:d.addr3||'',addr4:d.addr4||'',company:d.company||'',empType:d.empType||'',contractPeriod:d.contractPeriod||'',startTime:d.startTime||'',endTime:d.endTime||'',noticePeriod:d.noticePeriod||'',reportingManager:d.reportingTo||'',da:d.da||'',specialallow:d.specialallow||'',conveyance:d.conveyance||'',education:d.education||'',uniform:d.uniform||'',lta:d.lta||'',siteallow:d.siteallow||'',medical:d.medical||'',pfEmployer:d.pfEmployer||'',ctcMonthly:d.ctcMonthly||'',
     agreedSalary:d.agreedSalary||'',calculatedSalary:d.calculatedSalary||'',basicTotal:d.basicTotal||'',hraTotal:d.hraTotal||'',otherTotal:d.otherTotal||'',salJSON:JSON.stringify(d.salRows||[])};
 }
 
