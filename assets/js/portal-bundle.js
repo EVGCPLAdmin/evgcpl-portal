@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.21';
-const PORTAL_BUILD    = 394;
-const PORTAL_BUILD_AT = '2026-05-28T12:25:10Z';
+const PORTAL_VERSION  = '3.18.22';
+const PORTAL_BUILD    = 395;
+const PORTAL_BUILD_AT = '2026-05-28T12:37:23Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -11705,12 +11705,13 @@ async function loadAllMasters() {
   STATE.masters.users = empRows
     .filter(r => r['EMP CODE'] || r['Employee Name'])
     .map(r => ({
-      empCode:    r['EMP CODE'] || r['New Employee Code'] || '',
-      name:       r['Employee Name'] || '',
-      email:      r['Mail ID'] || '',
-      dept:       r['Department'] || '',
-      desig:      r['DESIGNATION'] || '',
-      grade:      r['Grade'] || '',
+      empCode:    r['EMP CODE'] || r['New Employee Code'] || r['Emp Code'] || r['EmpCode'] || r['Employee Code'] || '',
+      employeeRef:r['Employee_Ref'] || r['Employee Ref'] || r['EmployeeRef'] || '',
+      name:       r['Employee Name'] || r['Name'] || r['EMPLOYEE NAME'] || '',
+      email:      r['Mail ID'] || r['Email'] || r['Email ID'] || '',
+      dept:       r['Department'] || r['DEPARTMENT'] || r['Dept'] || '',
+      desig:      r['DESIGNATION'] || r['Designation'] || '',
+      grade:      r['Grade'] || r['GRADE'] || '',
       empType:    r['Employee Type'] || '',
       site:       r['Site Name'] || '',
       payroll:    r['PayRoll'] || '',
@@ -15821,12 +15822,20 @@ async function _rcLoadBillingMaster() {
   if (_rcBillingMaster !== null) return;
   try {
     const rows = await fetchSheet('1-BillingMaster', null, SHEET_ID);
+    const seen = new Set();
     _rcBillingMaster = rows
       .map(r => ({
         name: r['Billing Name'] || r['Name'] || r['Company'] || r['Company Name'] || '',
         gst:  r['GST'] || r['GSTIN'] || '',
       }))
-      .filter(r => r.name);
+      .filter(r => {
+        if (!r.name) return false;
+        const k = r.name.trim().toLowerCase();
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .sort((a,b) => a.name.localeCompare(b.name));
   } catch(e) { _rcBillingMaster = []; }
 }
 
@@ -15843,10 +15852,11 @@ function _rcDrawOLFormInner(container) {
   const mrfs  = (_rcMRFs || []).filter(m => m.status === 'Open');
   const d     = _rcOLDraft;
   const desigs = _rcDesigMaster || [];
-  // Employees field on user records is `empStatus` ("Active"/"Inactive"); accept blank as active.
+  // Permissive filter: any record with an identifier (Employee_Ref / EmpCode / name).
+  // empStatus filter: include blank (treated as active) or any "Active" variant.
   const users  = (STATE.masters.users || [])
-    .filter(u => u.empCode && u.name && (!u.empStatus || /^active$/i.test(String(u.empStatus).trim())))
-    .sort((a,b) => a.name.localeCompare(b.name));
+    .filter(u => (u.employeeRef || u.empCode || u.name) && (!u.empStatus || /^active$/i.test(String(u.empStatus).trim())))
+    .sort((a,b) => String(a.employeeRef||a.name||'').localeCompare(String(b.employeeRef||b.name||'')));
 
   if (!d.refNo) {
     const seq = String((_rcOffers||[]).length + 1).padStart(3,'0');
@@ -15867,7 +15877,12 @@ function _rcDrawOLFormInner(container) {
   const desigGrades = [...new Set((desigs||[]).filter(ds=>!d.position||ds.desig===d.position).map(ds=>ds.grade).filter(Boolean))].sort();
   const allDepts    = [...new Set([...desigs.map(ds=>ds.dept).filter(Boolean), ...(STATE.masters.users||[]).map(u=>u.dept).filter(Boolean)])].sort();
   const siteOpts    = (STATE.masters.sites||[]).filter(s=>s.status==='ACTIVE').map(s=>s.name).filter(Boolean).sort();
-  const userSelOpts = users.map(u => `<option value="${u.empCode}" ${d.reportingToCode===u.empCode?'selected':''}>${u.name}${u.desig?' — '+u.desig:''} (${u.empCode})</option>`).join('');
+  // Reports To dropdown uses Employee_Ref (column E) as the display; falls back to name (empCode) when missing.
+  const userSelOpts = users.map(u => {
+    const ref = u.employeeRef || `${u.name||''}${u.empCode?' ('+u.empCode+')':''}`.trim();
+    const val = u.employeeRef || u.empCode || u.name || '';
+    return `<option value="${escapeHtml_(val)}" ${d.reportingToCode===val?'selected':''}>${escapeHtml_(ref)}</option>`;
+  }).join('');
   const billOpts    = (_rcBillingMaster||[]).map(b => `<option value="${escapeHtml_(b.name)}" ${d.company===b.name?'selected':''}>${escapeHtml_(b.name)}</option>`).join('');
 
   const desigOpts = desigs.map(ds =>
@@ -16152,12 +16167,13 @@ function _rcOLOfferDateChange(v) {
   _rcOLPreviewSoon();
 }
 
-// Reports To dropdown — selecting an empCode resolves the name from the user master
-function _rcOLSelectRptDD(empCode) {
-  const u = (STATE.masters.users||[]).find(x => x.empCode === empCode);
-  _rcOLDraft.reportingToCode = empCode || '';
-  _rcOLDraft.reportingTo     = u ? u.name : '';
-  const hid = document.getElementById('ol-rpt-code'); if (hid) hid.value = empCode || '';
+// Reports To dropdown — `val` is the Employee_Ref string (or empCode/name fallback).
+// We persist it directly to reportingTo so the letter prints exactly what HR picked.
+function _rcOLSelectRptDD(val) {
+  const u = (STATE.masters.users||[]).find(x => (x.employeeRef||x.empCode||x.name) === val);
+  _rcOLDraft.reportingToCode = val || '';
+  _rcOLDraft.reportingTo     = val || '';
+  const hid = document.getElementById('ol-rpt-code'); if (hid) hid.value = val || '';
   _rcOLPreviewSoon();
 }
 
