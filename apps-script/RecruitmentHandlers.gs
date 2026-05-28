@@ -33,8 +33,8 @@ const RC_OFFER_HEADERS = [
   'Start Time','End Time','Notice Period','Reporting Manager',
   'DA','Special Allowance','Conveyance','Education Allowance',
   'Uniform Allowance','LTA','Site Allowance','Medical','PF Employer','CTC (Monthly)',
-  // Dynamic salary model
-  'Agreed Salary','Calculated Salary','Basic Total','Other Total','Salary JSON'
+  // Dynamic salary model (Basic / HRA / Other Allowance)
+  'Agreed Salary','Calculated Salary','Basic Total','HRA Total','Other Total','Salary JSON'
 ];
 
 const RC_PREJOIN_HEADERS = [
@@ -276,7 +276,8 @@ function saveOffer(payload) {
       'Site Allowance': o.siteallow || '', 'Medical': o.medical || '', 'PF Employer': o.pfEmployer || '',
       'CTC (Monthly)': o.ctcMonthly || '',
       'Agreed Salary': o.agreedSalary || '', 'Calculated Salary': o.calculatedSalary || '',
-      'Basic Total': o.basicTotal || '', 'Other Total': o.otherTotal || '', 'Salary JSON': o.salJSON || '',
+      'Basic Total': o.basicTotal || '', 'HRA Total': o.hraTotal || '',
+      'Other Total': o.otherTotal || '', 'Salary JSON': o.salJSON || '',
     };
     const row = headers.map(h => (h in vals) ? vals[h] : '');
 
