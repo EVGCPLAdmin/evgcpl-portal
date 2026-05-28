@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.22';
-const PORTAL_BUILD    = 395;
-const PORTAL_BUILD_AT = '2026-05-28T12:37:23Z';
+const PORTAL_VERSION  = '3.18.23';
+const PORTAL_BUILD    = 396;
+const PORTAL_BUILD_AT = '2026-05-28T12:56:43Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -15839,11 +15839,30 @@ async function _rcLoadBillingMaster() {
   } catch(e) { _rcBillingMaster = []; }
 }
 
+// Dedicated Employee_Ref/Department fetch — straight from 0_EmployeeRegister_Live (column E + J).
+// Used by the offer-letter form so Reports To & Department dropdowns work even when
+// STATE.masters.users isn't loaded or has mismatched column headers.
+let _rcEmpRefMaster = null;
+async function _rcLoadEmpRefMaster() {
+  if (_rcEmpRefMaster !== null) return;
+  try {
+    const rows = await fetchSheet('0_EmployeeRegister_Live', null, EMP_SHEET_ID);
+    _rcEmpRefMaster = rows
+      .map(r => ({
+        ref:    r['Employee_Ref'] || r['Employee Ref'] || r['EmployeeRef'] || '',
+        dept:   r['Department']  || r['DEPARTMENT'] || r['Dept'] || '',
+        status: r['Employee Status'] || '',
+      }))
+      .filter(r => r.ref);
+  } catch(e) { _rcEmpRefMaster = []; }
+}
+
 function _rcDrawOLForm(container) {
   // Ensure masters + letter template are loaded, then render
   Promise.all([
     _rcLoadDesigMaster(),
     _rcLoadBillingMaster(),
+    _rcLoadEmpRefMaster(),
     _loadHtmlTemplate('offer-letter').then(t => _rcOLTpl = t),
   ]).then(() => _rcDrawOLFormInner(container));
 }
@@ -15875,14 +15894,25 @@ function _rcDrawOLFormInner(container) {
   }
   // Pre-compute dependent grade list for the initial render
   const desigGrades = [...new Set((desigs||[]).filter(ds=>!d.position||ds.desig===d.position).map(ds=>ds.grade).filter(Boolean))].sort();
-  const allDepts    = [...new Set([...desigs.map(ds=>ds.dept).filter(Boolean), ...(STATE.masters.users||[]).map(u=>u.dept).filter(Boolean)])].sort();
+  // Reports To & Department source: dedicated Employee_Ref fetch (column E + Department col),
+  // with broad fallbacks so the dropdown is never empty as long as the sheet has data.
+  const empRefs = (_rcEmpRefMaster||[])
+    .filter(r => r.ref && (!r.status || /^active$/i.test(String(r.status).trim())))
+    .sort((a,b) => a.ref.localeCompare(b.ref));
+  const allDepts = [...new Set([
+    ...desigs.map(ds=>ds.dept).filter(Boolean),
+    ...(_rcEmpRefMaster||[]).map(r=>r.dept).filter(Boolean),
+    ...(STATE.masters.users||[]).map(u=>u.dept).filter(Boolean),
+  ])].sort();
   const siteOpts    = (STATE.masters.sites||[]).filter(s=>s.status==='ACTIVE').map(s=>s.name).filter(Boolean).sort();
-  // Reports To dropdown uses Employee_Ref (column E) as the display; falls back to name (empCode) when missing.
-  const userSelOpts = users.map(u => {
-    const ref = u.employeeRef || `${u.name||''}${u.empCode?' ('+u.empCode+')':''}`.trim();
-    const val = u.employeeRef || u.empCode || u.name || '';
-    return `<option value="${escapeHtml_(val)}" ${d.reportingToCode===val?'selected':''}>${escapeHtml_(ref)}</option>`;
-  }).join('');
+  // Reports To dropdown — prefer the dedicated Employee_Ref fetch; fall back to STATE.masters.users.
+  const userSelOpts = empRefs.length
+    ? empRefs.map(r => `<option value="${escapeHtml_(r.ref)}" ${d.reportingToCode===r.ref?'selected':''}>${escapeHtml_(r.ref)}</option>`).join('')
+    : users.map(u => {
+        const ref = u.employeeRef || `${u.name||''}${u.empCode?' ('+u.empCode+')':''}`.trim();
+        const val = u.employeeRef || u.empCode || u.name || '';
+        return `<option value="${escapeHtml_(val)}" ${d.reportingToCode===val?'selected':''}>${escapeHtml_(ref)}</option>`;
+      }).join('');
   const billOpts    = (_rcBillingMaster||[]).map(b => `<option value="${escapeHtml_(b.name)}" ${d.company===b.name?'selected':''}>${escapeHtml_(b.name)}</option>`).join('');
 
   const desigOpts = desigs.map(ds =>
