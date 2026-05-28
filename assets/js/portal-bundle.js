@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.15';
-const PORTAL_BUILD    = 388;
-const PORTAL_BUILD_AT = '2026-05-28T03:07:05Z';
+const PORTAL_VERSION  = '3.18.16';
+const PORTAL_BUILD    = 389;
+const PORTAL_BUILD_AT = '2026-05-28T03:15:48Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -15203,6 +15203,13 @@ async function _rcLoadOffers(force=false) {
       basicTotal:      r['Basic Total']       || '',
       hraTotal:        r['HRA Total']         || '',
       otherTotal:      r['Other Total']       || '',
+      submittedAt:     r['Submitted For Approval At'] || '',
+      submittedBy:     r['Submitted By']      || '',
+      approvedBy:      r['Approved By']       || '',
+      approvedAt:      r['Approved At']       || '',
+      acceptBy:        r['Accept By']         || '',
+      acceptedAt:      r['Accepted At']       || '',
+      declineReason:   r['Decline Reason']    || '',
       salRows:         (()=>{ try { return JSON.parse(r['Salary JSON']||'[]'); } catch(e){ return []; } })(),
     }));
   } catch(e) { _rcOffers = []; }
@@ -16012,8 +16019,8 @@ function _rcDrawOLFormInner(container) {
         <div style="display:flex;gap:.6rem;margin-top:1rem;flex-wrap:wrap;position:sticky;bottom:0;background:var(--surface1,#fff);padding-top:.6rem;border-top:1px solid var(--border)">
           <button onclick="_rcOLUpdatePreview()" class="btn btn-secondary btn-sm">↻ Refresh Preview</button>
           <button onclick="_rcOLGeneratePDF()" class="btn btn-primary btn-sm">🖨 Print / Save PDF</button>
-          <button onclick="_rcOLEmailOffer()" style="padding:.35rem .9rem;background:#1A6038;color:#fff;border:none;border-radius:8px;font-size:.79rem;font-weight:500;cursor:pointer">📧 Email to Candidate</button>
-          <button onclick="_rcOLSaveOffer()" style="padding:.35rem .9rem;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:.79rem;font-weight:600;cursor:pointer">💾 Save Offer</button>
+          <button onclick="_rcOLSaveOffer()" style="padding:.35rem .9rem;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:.79rem;font-weight:600;cursor:pointer">💾 Save as Draft</button>
+          <button onclick="_rcOLSendForApproval()" style="padding:.35rem .9rem;background:#1A6038;color:#fff;border:none;border-radius:8px;font-size:.79rem;font-weight:600;cursor:pointer">📤 Send for MD Approval</button>
         </div>
       </div>
 
@@ -16332,7 +16339,7 @@ function _rcOLBuildOfferRecord(dispatchMethod) {
   const seq=String((_rcOffers||[]).filter(o=>o.olId&&o.olId.startsWith('OL-'+year)).length+1).padStart(3,'0');
   const olId=`OL-${year}-${seq}`;
   const now=new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
-  return {olId,refNo:d.refNo||'',mrfId:d.mrfId||'',candidateName:d.candidateName,position:d.position,site:d.site,ctcAnnual:d.ctcAnnual||((d.gross||0)*12),joiningDate:d.joiningDate,candidateEmail:d.candidateEmail,dispatchMethod,status:'Sent',sentDate:now,basic:d.basic,hra:d.hra,allowances:d.allowances,pf:d.pf,gross:d.gross,net:d.net,probation:d.probation||'6',validUntil:d.validUntil,createdBy:STATE.user?.email||'',createdAt:now,
+  return {olId,refNo:d.refNo||'',mrfId:d.mrfId||'',candidateName:d.candidateName,position:d.position,site:d.site,ctcAnnual:d.ctcAnnual||((d.gross||0)*12),joiningDate:d.joiningDate,candidateEmail:d.candidateEmail,dispatchMethod,status:'Draft',sentDate:now,basic:d.basic,hra:d.hra,allowances:d.allowances,pf:d.pf,gross:d.gross,net:d.net,probation:d.probation||'6',validUntil:d.validUntil,createdBy:STATE.user?.email||'',createdAt:now,
     offerDate:d.offerDate||'',grade:d.grade||'',department:d.dept||'',addr1:d.addr1||'',addr2:d.addr2||'',addr3:d.addr3||'',addr4:d.addr4||'',startTime:d.startTime||'',endTime:d.endTime||'',noticePeriod:d.noticePeriod||'',reportingManager:d.reportingTo||'',da:d.da||'',specialallow:d.specialallow||'',conveyance:d.conveyance||'',education:d.education||'',uniform:d.uniform||'',lta:d.lta||'',siteallow:d.siteallow||'',medical:d.medical||'',pfEmployer:d.pfEmployer||'',ctcMonthly:d.ctcMonthly||'',
     agreedSalary:d.agreedSalary||'',calculatedSalary:d.calculatedSalary||'',basicTotal:d.basicTotal||'',hraTotal:d.hraTotal||'',otherTotal:d.otherTotal||'',salJSON:JSON.stringify(d.salRows||[])};
 }
@@ -16389,6 +16396,98 @@ function _rcResyncOffers(keepOffer) {
   }, 2000);
 }
 
+// ═══ Phase 2 — approval / lifecycle handlers ═══════════════════════
+function _rcNow(){ return new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}); }
+function _rcMe(){ return STATE.user?.email || ''; }
+
+// From the form: save current draft, then mark Pending Approval in one go.
+async function _rcOLSendForApproval() {
+  _rcOLUpdatePreview();
+  const d = _rcOLDraft;
+  if (!d.candidateName||!d.position) { alert('Candidate name and designation are required.'); return; }
+  const offer = _rcOLBuildOfferRecord('Saved');
+  _showRcToast('📤 Submitting for MD approval…');
+  let resp;
+  try { resp = await _rcPostActionAwait({action:'saveOffer', offer}); }
+  catch(e){ alert('Could not reach the backend:\n'+e.message); return; }
+  if (!resp || resp.success === false) { alert('Save failed: '+((resp&&resp.message)||'unknown error')); return; }
+  if (resp.olId) offer.olId = resp.olId;
+  const now = _rcNow(), me = _rcMe();
+  const up = await _rcPostActionAwait({ action:'updateOfferStatus', olId:offer.olId, status:'Pending Approval', fields:{'Submitted For Approval At':now,'Submitted By':me} });
+  if (!up || up.success===false) { alert('Saved but could not flag for approval:\n'+((up&&up.message)||'unknown error')); return; }
+  offer.status='Pending Approval'; offer.submittedAt=now; offer.submittedBy=me;
+  _rcOLApplyLocal(offer);
+  _rcOLDraft={};
+  _rcOLSubTab('tracker');
+  _showRcToast(`📤 Sent to MD for approval — ${offer.olId}`);
+  _rcResyncOffers(offer);
+}
+
+// Tracker action — submit an existing Draft offer for approval (no form involved).
+async function _rcOLSendForApprovalById(olId) {
+  const offer = (_rcOffers||[]).find(o=>o.olId===olId); if (!offer) return;
+  const now = _rcNow(), me = _rcMe();
+  const resp = await _rcPostActionAwait({ action:'updateOfferStatus', olId, status:'Pending Approval', fields:{'Submitted For Approval At':now,'Submitted By':me} });
+  if (!resp || resp.success===false) { alert('Send for Approval failed: '+((resp&&resp.message)||'')); return; }
+  offer.status='Pending Approval'; offer.submittedAt=now; offer.submittedBy=me;
+  _rcDrawOLTracker(document.getElementById('rc-ol-sub'));
+  _showRcToast(`📤 Sent to MD for approval — ${olId}`);
+}
+
+async function _rcOLApprove(olId) {
+  if (STATE.role !== 'md') { alert('Only the MD can approve offers.'); return; }
+  const offer = (_rcOffers||[]).find(o=>o.olId===olId); if (!offer) return;
+  const now = _rcNow(), me = _rcMe();
+  const acceptBy = offer.validUntil || '';
+  const resp = await _rcPostActionAwait({ action:'updateOfferStatus', olId, status:'Released', fields:{'Approved By':me,'Approved At':now,'Accept By':acceptBy} });
+  if (!resp || resp.success===false) { alert('Approve failed: '+((resp&&resp.message)||'')); return; }
+  offer.status='Released'; offer.approvedBy=me; offer.approvedAt=now; offer.acceptBy=acceptBy;
+  _rcDrawOLTracker(document.getElementById('rc-ol-sub'));
+  _showRcToast(`✅ Approved & released — ${olId}`);
+}
+
+async function _rcOLReject(olId) {
+  if (STATE.role !== 'md') { alert('Only the MD can reject offers.'); return; }
+  const reason = prompt('Reason for rejection (optional):',''); if (reason === null) return;
+  const resp = await _rcPostActionAwait({ action:'updateOfferStatus', olId, status:'Declined', fields:{'Decline Reason':reason||'Rejected by MD'} });
+  if (!resp || resp.success===false) { alert('Reject failed: '+((resp&&resp.message)||'')); return; }
+  const o = (_rcOffers||[]).find(x=>x.olId===olId); if (o){ o.status='Declined'; o.declineReason=reason; }
+  _rcDrawOLTracker(document.getElementById('rc-ol-sub'));
+  _showRcToast(`❌ Rejected — ${olId}`);
+}
+
+async function _rcOLMarkAccepted(olId) {
+  const offer = (_rcOffers||[]).find(o=>o.olId===olId); if (!offer) return;
+  const now = _rcNow();
+  const resp = await _rcPostActionAwait({ action:'updateOfferStatus', olId, status:'Accepted', fields:{'Accepted At':now} });
+  if (!resp || resp.success===false) { alert('Mark Accepted failed: '+((resp&&resp.message)||'')); return; }
+  offer.status='Accepted'; offer.acceptedAt=now;
+  if (offer.mrfId) { const mrf=(_rcMRFs||[]).find(m=>m.id===offer.mrfId); if(mrf) _rcUpdateStatus(offer.mrfId,'Closed – Filled'); }
+  _rcDrawOLTracker(document.getElementById('rc-ol-sub'));
+  _showRcToast(`✅ Offer accepted — ${olId}`);
+}
+
+async function _rcOLMarkDeclined(olId) {
+  const reason = prompt('Reason for decline (optional):',''); if (reason === null) return;
+  const resp = await _rcPostActionAwait({ action:'updateOfferStatus', olId, status:'Declined', fields:{'Decline Reason':reason||'Declined by candidate'} });
+  if (!resp || resp.success===false) { alert('Mark Declined failed: '+((resp&&resp.message)||'')); return; }
+  const o = (_rcOffers||[]).find(x=>x.olId===olId); if (o){ o.status='Declined'; o.declineReason=reason; }
+  _rcDrawOLTracker(document.getElementById('rc-ol-sub'));
+  _showRcToast(`❌ Declined — ${olId}`);
+}
+
+// Email the offer letter to the candidate from the tracker (Released offers only).
+async function _rcOLEmailFromTracker(olId) {
+  const o = (_rcOffers||[]).find(x=>x.olId===olId); if (!o) { alert('Offer not found.'); return; }
+  if (!(o.status==='Released' || o.status==='Accepted')) { alert('Email is available only after MD approval (Released).'); return; }
+  const email = (o.candidateEmail||'').trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert('Saved offer is missing a valid Candidate Email.'); return; }
+  let tpl; try { tpl = await _loadHtmlTemplate('offer-letter'); } catch(e){ alert('Could not load the offer letter template.'); return; }
+  const html = _fillTemplate(tpl, _rcOfferTokenMap(o));
+  _rcPostAction({ action:'sendOfferEmail', to:email, candidateName:o.candidateName, position:o.position, olId:o.olId, html });
+  _showRcToast(`📧 Emailing offer to ${email}`);
+}
+
 async function _rcOLEmailOffer() {
   _rcOLUpdatePreview();
   const d = _rcOLDraft;
@@ -16412,31 +16511,56 @@ async function _rcOLEmailOffer() {
 }
 
 function _rcDrawOLTracker(container) {
-  const offers=_rcOffers||[];
-  const sc={'Sent':['#2563eb','#eff6ff'],'Saved':['#2563eb','#eff6ff'],'Accepted':['#16a34a','#f0fdf4'],'Declined':['#dc2626','#fef2f2'],'Expired':['#6b7280','#f9fafb']};
-  container.innerHTML=`
-    <div style="display:flex;justify-content:flex-end;margin-bottom:.5rem">
+  const offers = _rcOffers||[];
+  const isMD = STATE.role === 'md';
+  const today = new Date().toISOString().slice(0,10);
+  const displayStatus = o => {
+    if ((o.status==='Released' || o.status==='Sent') && o.acceptBy && o.acceptBy < today) return 'Expired';
+    return o.status || 'Draft';
+  };
+  const sc = {
+    'Draft':            ['#6b7280','#f3f4f6'],
+    'Pending Approval': ['#d97706','#fffbeb'],
+    'Released':         ['#2563eb','#eff6ff'],
+    'Sent':             ['#2563eb','#eff6ff'],  // legacy
+    'Saved':            ['#2563eb','#eff6ff'],  // legacy
+    'Accepted':         ['#16a34a','#f0fdf4'],
+    'Declined':         ['#dc2626','#fef2f2'],
+    'Expired':          ['#6b7280','#f9fafb'],
+  };
+  container.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;gap:.5rem">
+      <div style="font-size:.75rem;color:var(--txt3)">${isMD?'<strong style="color:#d97706">MD view</strong> · approve or reject pending offers':'<strong>Recruiter view</strong> · Draft → Send for Approval → MD approves → Released'}</div>
       <button class="btn btn-sm btn-secondary" onclick="_rcLoadOffers(true).then(()=>_rcDrawOLTracker(document.getElementById('rc-ol-sub')))">↻ Refresh from Sheet</button>
     </div>
     <div style="overflow-x:auto;border-radius:10px;border:1px solid var(--border)">
-    <table class="emp-table" style="min-width:820px">
-      <thead><tr><th>OL ID</th><th>MRF</th><th>Candidate</th><th>Position</th><th>Site</th><th>CTC</th><th>Joining</th><th>Status</th><th>Action</th></tr></thead>
+    <table class="emp-table" style="min-width:920px">
+      <thead><tr><th>OL ID</th><th>MRF</th><th>Candidate</th><th>Position</th><th>Site</th><th>CTC</th><th>Joining</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>${offers.length===0?`<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--txt3)">No offers yet.</td></tr>`:
-      offers.map(o=>{const[c,bg]=sc[o.status]||['#6b7280','#f9fafb'];return`<tr>
-        <td style="font-family:monospace;font-size:.73rem;color:var(--g7)">${o.olId}</td>
-        <td style="font-size:.74rem">${o.mrfId||'—'}</td>
-        <td style="font-weight:500">${o.candidateName}</td>
-        <td style="font-size:.77rem">${o.position}</td>
-        <td style="font-size:.77rem">${o.site||'—'}</td>
-        <td style="font-size:.77rem">₹${Number(o.ctcAnnual||0).toLocaleString('en-IN')}</td>
-        <td style="font-size:.75rem">${o.joiningDate||'—'}</td>
-        <td><span style="font-size:.71rem;padding:2px 8px;border-radius:20px;background:${bg};color:${c}">${o.status}</span></td>
-        <td style="white-space:nowrap">
-          <button class="btn btn-sm btn-secondary" onclick="_rcOLViewSaved('${o.olId}')" style="font-size:.7rem;padding:2px 7px">📄 View</button>
-          ${(o.status==='Sent'||o.status==='Saved')?`
-          <button class="btn btn-sm btn-secondary" onclick="_rcOLUpdateStatus('${o.olId}','Accepted')" style="font-size:.7rem;padding:2px 7px">✓ Accept</button>
-          <button class="btn btn-sm btn-secondary" onclick="_rcOLUpdateStatus('${o.olId}','Declined')" style="font-size:.7rem;padding:2px 7px">✗ Decline</button>
-        `:''}</td></tr>`;}).join('')}
+      offers.map(o=>{
+        const st = displayStatus(o);
+        const [c,bg] = sc[st] || ['#6b7280','#f9fafb'];
+        const btn = (fn,label,color) => `<button class="btn btn-sm btn-secondary" onclick="${fn}('${o.olId}')" style="font-size:.7rem;padding:2px 7px${color?';color:'+color:''}">${label}</button>`;
+        const actions = [btn('_rcOLViewSaved','📄 View')];
+        if (st === 'Draft')                            actions.push(btn('_rcOLSendForApprovalById','📤 Send for Approval'));
+        if (st === 'Pending Approval' && isMD)        { actions.push(btn('_rcOLApprove','✓ Approve','#16a34a')); actions.push(btn('_rcOLReject','✗ Reject','#dc2626')); }
+        if (st === 'Released' || st === 'Sent' || st === 'Saved') {
+          actions.push(btn('_rcOLEmailFromTracker','📧 Email'));
+          actions.push(btn('_rcOLMarkAccepted','✓ Accepted','#16a34a'));
+          actions.push(btn('_rcOLMarkDeclined','✗ Declined','#dc2626'));
+        }
+        return `<tr>
+          <td style="font-family:monospace;font-size:.73rem;color:var(--g7)">${o.olId}</td>
+          <td style="font-size:.74rem">${o.mrfId||'—'}</td>
+          <td style="font-weight:500">${o.candidateName}</td>
+          <td style="font-size:.77rem">${o.position}</td>
+          <td style="font-size:.77rem">${o.site||'—'}</td>
+          <td style="font-size:.77rem">₹${Number(o.ctcAnnual||0).toLocaleString('en-IN')}</td>
+          <td style="font-size:.75rem">${o.joiningDate||'—'}</td>
+          <td><span style="font-size:.71rem;padding:2px 8px;border-radius:20px;background:${bg};color:${c}">${st}</span></td>
+          <td style="white-space:nowrap"><div style="display:flex;gap:4px;flex-wrap:wrap">${actions.join('')}</div></td>
+        </tr>`;
+      }).join('')}
       </tbody>
     </table></div>`;
   setTimeout(()=>{const t=container.querySelector('.emp-table');if(t){makeTableSortable(t);wrapTableScroll(t);}},80);

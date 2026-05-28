@@ -34,7 +34,10 @@ const RC_OFFER_HEADERS = [
   'DA','Special Allowance','Conveyance','Education Allowance',
   'Uniform Allowance','LTA','Site Allowance','Medical','PF Employer','CTC (Monthly)',
   // Dynamic salary model (Basic / HRA / Other Allowance)
-  'Agreed Salary','Calculated Salary','Basic Total','HRA Total','Other Total','Salary JSON'
+  'Agreed Salary','Calculated Salary','Basic Total','HRA Total','Other Total','Salary JSON',
+  // Approval / lifecycle (Phase 2)
+  'Submitted For Approval At','Submitted By','Approved By','Approved At',
+  'Accept By','Accepted At','Decline Reason'
 ];
 
 const RC_PREJOIN_HEADERS = [
@@ -295,8 +298,18 @@ function saveOffer(payload) {
 function updateOfferStatus(payload) {
   try {
     const sh     = _rcTab(RC_TABS.OFFERS, RC_OFFER_HEADERS);
+
+    // Ensure all RC_OFFER_HEADERS exist in row 1 so payload.fields can target new columns
+    let headers = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(),1)).getValues()[0].map(String);
+    let added = false;
+    RC_OFFER_HEADERS.forEach(h => { if (headers.indexOf(h) === -1) { headers.push(h); added = true; } });
+    if (added) {
+      sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sh.setFrozenRows(1);
+      sh.getRange(1, 1, 1, headers.length).setBackground('#1A6038').setFontColor('#FFFFFF').setFontWeight('bold');
+    }
+
     const data   = sh.getDataRange().getValues();
-    const headers= data[0];
     const idCol  = headers.indexOf('OL ID');
     const statCol= headers.indexOf('Status');
     const accCol = headers.indexOf('Acceptance Date');
@@ -304,9 +317,18 @@ function updateOfferStatus(payload) {
 
     for (let i = 1; i < data.length; i++) {
       if (data[i][idCol] === payload.olId) {
-        sh.getRange(i+1, statCol+1).setValue(payload.status);
-        if (['Accepted','Declined'].includes(payload.status)) {
-          sh.getRange(i+1, accCol+1).setValue(now);
+        if (payload.status) {
+          sh.getRange(i+1, statCol+1).setValue(payload.status);
+          if (['Accepted','Declined'].includes(payload.status) && accCol >= 0) {
+            sh.getRange(i+1, accCol+1).setValue(now);
+          }
+        }
+        // Write any extra fields by header name (e.g. Approved By, Accept By, ...)
+        if (payload.fields && typeof payload.fields === 'object') {
+          Object.keys(payload.fields).forEach(name => {
+            const c = headers.indexOf(name);
+            if (c >= 0) sh.getRange(i+1, c+1).setValue(payload.fields[name]);
+          });
         }
         return { success: true };
       }
