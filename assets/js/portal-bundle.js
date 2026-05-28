@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.14';
-const PORTAL_BUILD    = 387;
-const PORTAL_BUILD_AT = '2026-05-27T21:36:47Z';
+const PORTAL_VERSION  = '3.18.15';
+const PORTAL_BUILD    = 388;
+const PORTAL_BUILD_AT = '2026-05-28T03:07:05Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -15201,6 +15201,7 @@ async function _rcLoadOffers(force=false) {
       agreedSalary:    r['Agreed Salary']     || '',
       calculatedSalary:r['Calculated Salary'] || '',
       basicTotal:      r['Basic Total']       || '',
+      hraTotal:        r['HRA Total']         || '',
       otherTotal:      r['Other Total']       || '',
       salRows:         (()=>{ try { return JSON.parse(r['Salary JSON']||'[]'); } catch(e){ return []; } })(),
     }));
@@ -15985,8 +15986,9 @@ function _rcDrawOLFormInner(container) {
             <tbody id="ol-sal-tbody"></tbody>
             <tfoot>
               <tr style="background:var(--surface2);font-weight:600"><td colspan="4" style="padding:5px 8px">Calculated Salary</td><td id="ol-calc-disp" style="padding:5px 8px;text-align:right">—</td><td></td></tr>
-              <tr><td colspan="4" style="padding:3px 8px;color:var(--txt3);font-size:.72rem">↳ Basic Salary</td><td id="ol-basic-disp" style="padding:3px 8px;text-align:right;font-size:.72rem">—</td><td></td></tr>
-              <tr><td colspan="4" style="padding:3px 8px;color:var(--txt3);font-size:.72rem">↳ Other Elements</td><td id="ol-other-disp" style="padding:3px 8px;text-align:right;font-size:.72rem">—</td><td></td></tr>
+              <tr><td colspan="4" style="padding:3px 8px;color:var(--txt3);font-size:.72rem">↳ Basic</td><td id="ol-basic-disp" style="padding:3px 8px;text-align:right;font-size:.72rem">—</td><td></td></tr>
+              <tr><td colspan="4" style="padding:3px 8px;color:var(--txt3);font-size:.72rem">↳ HRA</td><td id="ol-hra-disp" style="padding:3px 8px;text-align:right;font-size:.72rem">—</td><td></td></tr>
+              <tr><td colspan="4" style="padding:3px 8px;color:var(--txt3);font-size:.72rem">↳ Other Allowance</td><td id="ol-other-disp" style="padding:3px 8px;text-align:right;font-size:.72rem">—</td><td></td></tr>
             </tfoot>
           </table>
         </div>
@@ -16121,19 +16123,17 @@ function _rcOLMRFChange() {
 }
 
 // Fixed "designed" components (% of Agreed Salary). Editable per offer; recruiter
-// adds flat extras (Other Elements only). CONFIRMable master list.
+// adds flat extras (Other Allowance only). Three groups: Basic / HRA / Other Allowance.
 const _RC_SAL_COMPONENTS = [
-  { name:'Basic Salary',                group:'Basic', pct:40 },
-  { name:'House Rent Allowance (HRA)',  group:'Other', pct:20 },
-  { name:'Dearness Allowance',          group:'Other', pct:10 },
-  { name:'Special Allowance',           group:'Other', pct:8  },
-  { name:'Conveyance Allowance',        group:'Other', pct:5  },
-  { name:'Medical Allowance',           group:'Other', pct:5  },
-  { name:'Leave Travel Allowance (LTA)',group:'Other', pct:3  },
-  { name:'Site Allowance',              group:'Other', pct:3  },
-  { name:'Education Allowance',         group:'Other', pct:2  },
-  { name:'Uniform / Washing Allowance', group:'Other', pct:2  },
-  { name:'Flexi Allowance',             group:'Other', pct:2  },
+  { name:'Basic',                       group:'Basic', pct:50 },
+  { name:'HRA',                         group:'HRA',   pct:10 },
+  { name:'Dearness Allowance',          group:'Other', pct:15 },
+  { name:'Special Allowance',           group:'Other', pct:15 },
+  { name:'Conveyance Allowance',        group:'Other', pct:4  },
+  { name:'Education Allowance',         group:'Other', pct:1  },
+  { name:'Uniform / Washing Allowance', group:'Other', pct:1  },
+  { name:'LTA',                         group:'Other', pct:2  },
+  { name:'Site Allowance',              group:'Other', pct:2  },
 ];
 
 function _rcOLSeedSalRows() {
@@ -16146,22 +16146,25 @@ function _rcOLSeedSalRows() {
 function _rcOLRecalc() {
   const d = _rcOLDraft;
   const agreed = parseFloat(d.agreedSalary||0)||0;
-  let calc=0, basic=0, other=0, basicAmt=0;
+  let calc=0, basic=0, hra=0, other=0;
   (d.salRows||[]).forEach(r => {
     const v = parseFloat(r.value||0)||0;
     r.amount = (r.basis==='flat') ? Math.round(v) : Math.round(agreed*v/100);
     calc += r.amount;
-    if (r.group==='Basic') { basic += r.amount; basicAmt += r.amount; } else { other += r.amount; }
+    if      (r.group==='Basic') basic += r.amount;
+    else if (r.group==='HRA')   hra   += r.amount;
+    else                        other += r.amount;
   });
   const medical = parseFloat(d.medical||0)||0;
   const pfEmp   = parseFloat(d.pfEmployer||0)||0;
   d.calculatedSalary = calc;
   d.basicTotal = basic;
+  d.hraTotal   = hra;
   d.otherTotal = other;
   d.gross      = calc;                                  // back-compat
   d.ctcMonthly = calc + medical + pfEmp;
   d.ctcAnnual  = d.ctcMonthly * 12;
-  d.net        = calc - Math.round(basicAmt * 0.12);    // employee PF 12% of basic
+  d.net        = calc - Math.round(basic * 0.12);       // employee PF 12% of basic
   _rcOLUpdateSalDisplays();
 }
 
@@ -16171,6 +16174,7 @@ function _rcOLUpdateSalDisplays() {
   const set = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=f(v); };
   set('ol-calc-disp',  d.calculatedSalary);
   set('ol-basic-disp', d.basicTotal);
+  set('ol-hra-disp',   d.hraTotal);
   set('ol-other-disp', d.otherTotal);
   set('ol-ctc-disp2',  d.ctcMonthly);
   (d.salRows||[]).forEach((r,i)=>{ const e=document.getElementById('sal-amt-'+i); if(e) e.textContent=f(r.amount); });
@@ -16188,7 +16192,7 @@ function _rcOLRenderSalTable() {
     const nameCell = designed
       ? `<td style="padding:3px 8px">${escapeHtml_(r.name||'')}</td>`
       : `<td style="padding:2px 8px"><input value="${escapeHtml_(r.name||'')}" oninput="_rcOLSalName(${i},this.value)" placeholder="Element name" style="width:100%;${inp}"></td>`;
-    const grpCell = `<td style="padding:2px 6px"><select onchange="_rcOLSalGroup(${i},this.value)" ${designed?'':'disabled'} style="${sel}"><option value="Basic" ${r.group==='Basic'?'selected':''}>Basic</option><option value="Other" ${r.group!=='Basic'?'selected':''}>Other</option></select></td>`;
+    const grpCell = `<td style="padding:2px 6px"><select onchange="_rcOLSalGroup(${i},this.value)" ${designed?'':'disabled'} style="${sel}"><option value="Basic" ${r.group==='Basic'?'selected':''}>Basic</option><option value="HRA" ${r.group==='HRA'?'selected':''}>HRA</option><option value="Other" ${(r.group!=='Basic'&&r.group!=='HRA')?'selected':''}>Other Allowance</option></select></td>`;
     const basisCell = `<td style="padding:2px 6px"><select onchange="_rcOLSalBasis(${i},this.value)" style="${sel}"><option value="pct" ${r.basis==='pct'?'selected':''}>%</option><option value="flat" ${r.basis==='flat'?'selected':''}>Flat ₹</option></select></td>`;
     const valCell = `<td style="padding:2px 6px;text-align:right"><input type="number" value="${r.value!=null?r.value:''}" oninput="_rcOLSalVal(${i},this.value)" style="width:70px;text-align:right;${inp}">${r.basis==='pct'?' %':''}</td>`;
     const amtCell = `<td id="sal-amt-${i}" style="padding:3px 8px;text-align:right">${amt?'₹'+amt.toLocaleString('en-IN'):'—'}</td>`;
@@ -16201,7 +16205,7 @@ function _rcOLRenderSalTable() {
 function _rcOLAgreedChange(v){ _rcOLDraft.agreedSalary = v; _rcOLRecalc(); _rcOLPreviewSoon(); }
 function _rcOLSalVal(i,v){ if(_rcOLDraft.salRows[i]) _rcOLDraft.salRows[i].value = v; _rcOLRecalc(); _rcOLPreviewSoon(); }
 function _rcOLSalName(i,v){ if(_rcOLDraft.salRows[i]) _rcOLDraft.salRows[i].name = v; _rcOLPreviewSoon(); }
-function _rcOLSalGroup(i,v){ if(_rcOLDraft.salRows[i]) _rcOLDraft.salRows[i].group = (v==='Basic'?'Basic':'Other'); _rcOLRecalc(); _rcOLRenderSalTable(); _rcOLPreviewSoon(); }
+function _rcOLSalGroup(i,v){ if(_rcOLDraft.salRows[i]) _rcOLDraft.salRows[i].group = (v==='Basic'?'Basic':(v==='HRA'?'HRA':'Other')); _rcOLRecalc(); _rcOLRenderSalTable(); _rcOLPreviewSoon(); }
 function _rcOLSalBasis(i,v){ if(_rcOLDraft.salRows[i]) _rcOLDraft.salRows[i].basis = (v==='flat'?'flat':'pct'); _rcOLRecalc(); _rcOLRenderSalTable(); _rcOLPreviewSoon(); }
 function _rcOLSalAdd(){ (_rcOLDraft.salRows = _rcOLDraft.salRows||[]).push({ name:'', group:'Other', basis:'flat', value:'' }); _rcOLRenderSalTable(); _rcOLRecalc(); }
 function _rcOLSalDel(i){ if(i >= _RC_SAL_COMPONENTS.length && _rcOLDraft.salRows[i]) { _rcOLDraft.salRows.splice(i,1); _rcOLRenderSalTable(); _rcOLRecalc(); _rcOLPreviewSoon(); } }
@@ -16233,7 +16237,7 @@ function _rcOfferTokenMap(d) {
     : (r.basis==='flat' ? Math.round(parseFloat(r.value)||0) : Math.round(agreed*(parseFloat(r.value)||0)/100));
   const salaryRows = rows.length
     ? rows.map(r => {
-        const grp = r.group==='Basic' ? 'Basic Salary' : 'Other Elements';
+        const grp = r.group==='Basic' ? 'Basic' : (r.group==='HRA' ? 'HRA' : 'Other Allowance');
         const a = amtOf(r);
         return `<tr><td>${escapeHtml_(r.name||'')}</td><td style="color:#6a6a70">${grp}</td><td style="text-align:right">${a?'₹'+a.toLocaleString('en-IN'):'—'}</td></tr>`;
       }).join('')
@@ -16254,6 +16258,7 @@ function _rcOfferTokenMap(d) {
     agreedSalary: _rcMoney(d.agreedSalary),
     salaryRows,
     basicTotal: _rcMoney(d.basicTotal),
+    hraTotal:   _rcMoney(d.hraTotal),
     otherTotal: _rcMoney(d.otherTotal),
     calculatedSalary: _rcMoney(d.calculatedSalary),
     medical: _rcMoney(d.medical), pfEmployer: _rcMoney(d.pfEmployer),
@@ -16329,7 +16334,7 @@ function _rcOLBuildOfferRecord(dispatchMethod) {
   const now=new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
   return {olId,refNo:d.refNo||'',mrfId:d.mrfId||'',candidateName:d.candidateName,position:d.position,site:d.site,ctcAnnual:d.ctcAnnual||((d.gross||0)*12),joiningDate:d.joiningDate,candidateEmail:d.candidateEmail,dispatchMethod,status:'Sent',sentDate:now,basic:d.basic,hra:d.hra,allowances:d.allowances,pf:d.pf,gross:d.gross,net:d.net,probation:d.probation||'6',validUntil:d.validUntil,createdBy:STATE.user?.email||'',createdAt:now,
     offerDate:d.offerDate||'',grade:d.grade||'',department:d.dept||'',addr1:d.addr1||'',addr2:d.addr2||'',addr3:d.addr3||'',addr4:d.addr4||'',startTime:d.startTime||'',endTime:d.endTime||'',noticePeriod:d.noticePeriod||'',reportingManager:d.reportingTo||'',da:d.da||'',specialallow:d.specialallow||'',conveyance:d.conveyance||'',education:d.education||'',uniform:d.uniform||'',lta:d.lta||'',siteallow:d.siteallow||'',medical:d.medical||'',pfEmployer:d.pfEmployer||'',ctcMonthly:d.ctcMonthly||'',
-    agreedSalary:d.agreedSalary||'',calculatedSalary:d.calculatedSalary||'',basicTotal:d.basicTotal||'',otherTotal:d.otherTotal||'',salJSON:JSON.stringify(d.salRows||[])};
+    agreedSalary:d.agreedSalary||'',calculatedSalary:d.calculatedSalary||'',basicTotal:d.basicTotal||'',hraTotal:d.hraTotal||'',otherTotal:d.otherTotal||'',salJSON:JSON.stringify(d.salRows||[])};
 }
 
 // Apply a saved offer to local state (optimistic) + link the MRF.
