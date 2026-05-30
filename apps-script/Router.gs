@@ -44,6 +44,9 @@ function doPost(e) {
     if (action === 'saveScheduledReport')      return saveScheduledReport(body);
     if (action === 'deleteScheduledReport')    return deleteScheduledReport(body);
     if (action === 'runReportNow')             return runReportNow(body);
+    // Schedule Diagnostics panel
+    if (action === 'runSchedulesNow')          return _ok(forceRunSchedules());
+    if (action === 'getScheduleLog')           return _ok(getScheduleLog_(body.limit || 30));
 
     // ── AI (AIChat.gs / AiProxy.gs) ────────────────────────────
     if (action === 'aiChat')                   return aiChat(body);
@@ -113,6 +116,7 @@ function doGet(e) {
   }
   if (action === 'diagnoseSheet')              return diagnoseSheet(e.parameter);
   if (action === 'listShares')                 return listShares(e.parameter);
+  if (action === 'getScheduleLog')             return _ok(getScheduleLog_(e.parameter.limit || 30));
   return _err('Unknown GET action: ' + action);
 }
 
