@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.23';
-const PORTAL_BUILD    = 396;
-const PORTAL_BUILD_AT = '2026-05-28T12:56:43Z';
+const PORTAL_VERSION  = '3.18.24';
+const PORTAL_BUILD    = 397;
+const PORTAL_BUILD_AT = '2026-05-30T10:14:57Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -7535,15 +7535,6 @@ function renderMyProfile() {
     ? `<img src="${savedPhoto}" alt="Profile Photo">`
     : `<span>${(emp?.name||'?').charAt(0)}</span>`;
 
-  const infoCards = emp ? `
-    <div class="info-card"><div class="ic-icon">🏢</div><div class="ic-label">Department</div><div class="ic-value">${emp.dept || '—'}</div></div>
-    <div class="info-card"><div class="ic-icon">🎯</div><div class="ic-label">Designation</div><div class="ic-value">${emp.desig || '—'}</div></div>
-    <div class="info-card"><div class="ic-icon">📊</div><div class="ic-label">Grade</div><div class="ic-value">${emp.grade || '—'}</div></div>
-    <div class="info-card"><div class="ic-icon">🏗️</div><div class="ic-label">Current Site</div><div class="ic-value">${emp.site || 'Head Office'}</div></div>
-    <div class="info-card"><div class="ic-icon">📅</div><div class="ic-label">Date of Joining</div><div class="ic-value">${fmtGvizDate(emp.doj)}</div></div>
-    <div class="info-card"><div class="ic-icon">⭐</div><div class="ic-label">EG Experience</div><div class="ic-value">${emp.expEG || emp.expTotal || '—'} yrs</div></div>
-  ` : `<div class="info-card" style="grid-column:1/-1;text-align:center;color:var(--txt3)">Employee record not found for your login email.</div>`;
-
   const messCard = messInfo ? `
     <div class="card" style="margin-bottom:1.4rem">
       <div class="card-head"><h3>🏠 Mess & Accommodation</h3><span class="hr-stat-pill">⬤ Live from Register</span></div>
@@ -7555,18 +7546,6 @@ function renderMyProfile() {
           <div class="info-card"><div class="ic-label">Per Day Food Allowance</div><div class="ic-value">${messInfo.perDayFood ? '₹'+messInfo.perDayFood : '—'}</div></div>
           <div class="info-card"><div class="ic-label">Special Site Allowance</div><div class="ic-value">${messInfo.specialAllow || '—'}</div></div>
           <div class="info-card"><div class="ic-label">Effective From</div><div class="ic-value">${fmtGvizDate(messInfo.fromDate)}</div></div>
-        </div>
-      </div>
-    </div>` : '';
-
-  const leaveCard = emp ? `
-    <div class="card" style="margin-bottom:1.4rem">
-      <div class="card-head"><h3>🌴 Leave Balance</h3></div>
-      <div class="card-body">
-        <div class="info-grid-3">
-          <div class="info-card"><div class="ic-label">PL Eligible?</div><div class="ic-value">${emp.plEligible || '—'}</div></div>
-          <div class="info-card"><div class="ic-label">PL Available Today</div><div class="ic-value" style="color:var(--g7)">${emp.plBalance || '—'}</div></div>
-          <div class="info-card"><div class="ic-label">Employee Type</div><div class="ic-value">${emp.empType || '—'}</div></div>
         </div>
       </div>
     </div>` : '';
@@ -7600,158 +7579,230 @@ function renderMyProfile() {
       </div>
     </div>
 
-    <!-- ══ QUICK STATS ROW ════════════════════════════════════ -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.75rem;margin-bottom:1.4rem">
-      ${[
-        ['🏢', 'Department', emp?.dept || '—'],
-        ['🎯', 'Designation', emp?.desig || '—'],
-        ['📊', 'Grade', emp?.grade || '—'],
-        ['⏱️', 'EG Experience', (emp?.expEG || emp?.expTotal || '—') + (emp?.expEG||emp?.expTotal ? ' yrs' : '')],
-        ['📅', 'Date of Joining', fmtGvizDate(emp?.doj)],
-        ['💼', 'Employee Type', emp?.empType || '—'],
-      ].map(([icon,label,val]) => `
-        <div style="background:var(--surface1);border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem">
-          <div style="font-size:.68rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.3rem">${icon} ${label}</div>
-          <div style="font-size:.88rem;font-weight:600;color:var(--txt)">${val}</div>
-        </div>`).join('')}
-    </div>
+    <!-- ══ WORKER PROFILE SHELL — left rail + tabbed panes ═══ -->
+    <div class="mp-shell">
+      <!-- LEFT RAIL ─────────────────────────────────────────── -->
+      <aside class="mp-rail">
+        <div class="mp-rail-avatar">${avatarContent}</div>
+        <div class="mp-rail-name">${emp?.name || STATE.user?.name || 'Employee'}</div>
+        <div class="mp-rail-title">${emp?.desig || '—'}${emp?.dept ? ' · ' + emp.dept : ''}</div>
+        <div class="mp-rail-divider"></div>
+        ${[
+          ['Reporting Manager', emp?.manager || emp?.reportingTo || '—'],
+          ['Site',              emp?.site || 'Head Office'],
+          ['Email',             emp?.email || STATE.user?.email || '—'],
+          ['Phone',             emp?.phone || emp?.mobile || '—'],
+          ['Date of Joining',   fmtGvizDate(emp?.doj)],
+          ['Emp Code',          emp?.empCode || '—'],
+          ['Grade',             emp?.grade || '—'],
+          ['Employee Type',     emp?.empType || '—'],
+        ].map(([label, val]) => `
+          <div class="mp-rail-fact">
+            <div class="mp-rail-fact-label">${label}</div>
+            <div class="mp-rail-fact-value">${val}</div>
+          </div>`).join('')}
+      </aside>
 
-    <!-- ══ TWO-COLUMN LAYOUT ══════════════════════════════════ -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.4rem">
+      <!-- RIGHT COLUMN ──────────────────────────────────────── -->
+      <div class="mp-right">
+        <div class="mp-tabs" role="tablist">
+          <button class="mp-tab" data-tab="summary"    onclick="_mpShowTab('summary')">Summary</button>
+          <button class="mp-tab" data-tab="job"        onclick="_mpShowTab('job')">Job</button>
+          <button class="mp-tab" data-tab="comp"       onclick="_mpShowTab('comp')">Compensation</button>
+          <button class="mp-tab" data-tab="timeoff"    onclick="_mpShowTab('timeoff')">Time Off</button>
+          <button class="mp-tab" data-tab="documents"  onclick="_mpShowTab('documents')">Documents</button>
+          <button class="mp-tab" data-tab="team"       onclick="_mpShowTab('team')">Team</button>
+        </div>
 
-      <!-- Leave Balance -->
-      ${emp ? `
-      <div class="card">
-        <div class="card-head"><h3>🌴 Leave Balance</h3></div>
-        <div class="card-body">
-          <div style="display:flex;flex-direction:column;gap:.7rem">
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .8rem;background:var(--surface2);border-radius:8px">
-              <span style="font-size:.82rem;color:var(--txt2)">PL Eligible?</span>
-              <span style="font-weight:700;font-size:.85rem">${emp.plEligible || '—'}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .8rem;background:#e8f5e9;border-radius:8px">
-              <span style="font-size:.82rem;color:#2e7d32">PL Available Today</span>
-              <span style="font-weight:700;font-size:1.1rem;color:#2e7d32">${emp.plBalance || '—'}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .8rem;background:var(--surface2);border-radius:8px">
-              <span style="font-size:.82rem;color:var(--txt2)">Payroll</span>
-              <span style="font-weight:600;font-size:.85rem">${emp.payroll || '—'}</span>
+        <!-- Summary ───────────────────────────────────────── -->
+        <section class="mp-pane" data-pane="summary">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.75rem;margin-bottom:1.2rem">
+            ${[
+              ['🏢', 'Department', emp?.dept || '—'],
+              ['🎯', 'Designation', emp?.desig || '—'],
+              ['📊', 'Grade', emp?.grade || '—'],
+              ['⏱️', 'EG Experience', (emp?.expEG || emp?.expTotal || '—') + (emp?.expEG||emp?.expTotal ? ' yrs' : '')],
+              ['📅', 'Date of Joining', fmtGvizDate(emp?.doj)],
+              ['💼', 'Employee Type', emp?.empType || '—'],
+            ].map(([icon,label,val]) => `
+              <div style="background:var(--surface1);border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem">
+                <div style="font-size:.68rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.3rem">${icon} ${label}</div>
+                <div style="font-size:.88rem;font-weight:600;color:var(--txt)">${val}</div>
+              </div>`).join('')}
+          </div>
+          ${messCard}
+        </section>
+
+        <!-- Job ───────────────────────────────────────────── -->
+        <section class="mp-pane" data-pane="job">
+          <div class="card">
+            <div class="card-head"><h3>💼 Job Details</h3></div>
+            <div class="card-body">
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.7rem">
+                ${[
+                  ['Department',        emp?.dept || '—'],
+                  ['Designation',       emp?.desig || '—'],
+                  ['Grade',             emp?.grade || '—'],
+                  ['Employee Type',     emp?.empType || '—'],
+                  ['Reporting Manager', emp?.manager || emp?.reportingTo || '—'],
+                  ['Site',              emp?.site || 'Head Office'],
+                  ['Date of Joining',   fmtGvizDate(emp?.doj)],
+                  ['EG Experience',     (emp?.expEG || emp?.expTotal || '—') + (emp?.expEG||emp?.expTotal ? ' yrs' : '')],
+                ].map(([label,val]) => `
+                  <div style="padding:.6rem .8rem;background:var(--surface2);border-radius:8px">
+                    <div style="font-size:.7rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">${label}</div>
+                    <div style="font-size:.88rem;font-weight:600;color:var(--txt)">${val}</div>
+                  </div>`).join('')}
+              </div>
             </div>
           </div>
-        </div>
-      </div>` : '<div></div>'}
+        </section>
 
-      <!-- Pay Slips -->
-      <div class="card">
-        <div class="card-head">
-          <h3>💰 Pay Slips</h3>
-          <span class="tag" style="background:#fff3e0;color:#e65100;font-size:.68rem">Phase 3</span>
-        </div>
-        <div class="card-body">
-          ${['Mar 2026','Feb 2026','Jan 2026'].map(m => `
-            <div class="payslip-row">
-              <div style="font-size:.82rem;font-weight:600">${m}</div>
-              <button class="btn btn-secondary btn-sm" style="opacity:.45" disabled>⬇ PDF</button>
-            </div>`).join('')}
-          <div style="font-size:.72rem;color:var(--txt3);margin-top:.5rem">Live in Phase 3 · Payroll integration pending</div>
-        </div>
+        <!-- Compensation ──────────────────────────────────── -->
+        <section class="mp-pane" data-pane="comp">
+          <div class="card">
+            <div class="card-head">
+              <h3>💰 Pay Slips</h3>
+              <span class="tag" style="background:#fff3e0;color:#e65100;font-size:.68rem">Phase 3</span>
+            </div>
+            <div class="card-body">
+              ${['Mar 2026','Feb 2026','Jan 2026'].map(m => `
+                <div class="payslip-row">
+                  <div style="font-size:.82rem;font-weight:600">${m}</div>
+                  <button class="btn btn-secondary btn-sm" style="opacity:.45" disabled>⬇ PDF</button>
+                </div>`).join('')}
+              <div style="font-size:.72rem;color:var(--txt3);margin-top:.5rem">Live in Phase 3 · Payroll integration pending</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Time Off ──────────────────────────────────────── -->
+        <section class="mp-pane" data-pane="timeoff">
+          ${emp ? `
+          <div class="card">
+            <div class="card-head"><h3>🌴 Leave Balance</h3></div>
+            <div class="card-body">
+              <div style="display:flex;flex-direction:column;gap:.7rem">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .8rem;background:var(--surface2);border-radius:8px">
+                  <span style="font-size:.82rem;color:var(--txt2)">PL Eligible?</span>
+                  <span style="font-weight:700;font-size:.85rem">${emp.plEligible || '—'}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .8rem;background:#e8f5e9;border-radius:8px">
+                  <span style="font-size:.82rem;color:#2e7d32">PL Available Today</span>
+                  <span style="font-weight:700;font-size:1.1rem;color:#2e7d32">${emp.plBalance || '—'}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .8rem;background:var(--surface2);border-radius:8px">
+                  <span style="font-size:.82rem;color:var(--txt2)">Payroll</span>
+                  <span style="font-weight:600;font-size:.85rem">${emp.payroll || '—'}</span>
+                </div>
+              </div>
+            </div>
+          </div>` : '<div style="text-align:center;padding:2rem;color:var(--txt3)">Employee record not found.</div>'}
+        </section>
+
+        <!-- Documents ─────────────────────────────────────── -->
+        <section class="mp-pane" data-pane="documents">
+          <div class="card" id="profile-docs-card">
+            <div class="card-head">
+              <h3>📂 My Documents</h3>
+              <div style="display:flex;align-items:center;gap:.6rem">
+                <span class="hr-stat-pill" id="profile-docs-badge" style="display:none"></span>
+                <button onclick="navigate('my-documents')" class="btn btn-secondary btn-sm">Full Page ↗</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="profile-docs-status" style="display:flex;align-items:center;gap:.6rem;font-size:.8rem;color:var(--txt3);padding:.2rem 0 .6rem">
+                <div style="width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite;flex-shrink:0"></div>
+                Looking up your employee record…
+              </div>
+              <div id="profile-docs-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.6rem"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Team ──────────────────────────────────────────── -->
+        <section class="mp-pane" data-pane="team">
+          <div id="my-reportees-section">
+            <div style="display:flex;align-items:center;gap:.6rem;padding:1rem;color:var(--txt3);font-size:.82rem">
+              <div style="width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite;flex-shrink:0"></div>
+              Loading your team…
+            </div>
+          </div>
+        </section>
       </div>
     </div>
-
-    <!-- ══ MESS & ACCOMMODATION ═══════════════════════════════ -->
-    ${messCard}
-
-    <!-- ══ MY DOCUMENTS ═══════════════════════════════════════ -->
-    <div class="card" id="profile-docs-card" style="margin-bottom:1.4rem">
-      <div class="card-head">
-        <h3>📂 My Documents</h3>
-        <div style="display:flex;align-items:center;gap:.6rem">
-          <span class="hr-stat-pill" id="profile-docs-badge" style="display:none"></span>
-          <button onclick="navigate('my-documents')" class="btn btn-secondary btn-sm">Full Page ↗</button>
-        </div>
-      </div>
-      <div class="card-body">
-        <div id="profile-docs-status" style="display:flex;align-items:center;gap:.6rem;font-size:.8rem;color:var(--txt3);padding:.2rem 0 .6rem">
-          <div style="width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite;flex-shrink:0"></div>
-          Looking up your employee record…
-        </div>
-        <div id="profile-docs-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.6rem"></div>
-      </div>
-    </div>
-
-    <!-- ══ MY TEAM — injected async at bottom ════════════════ -->
-    <div id="my-reportees-section"></div>
-
   `;
 
-  // Inject My Team (needs master data)
-  setTimeout(() => {
-    const sec = document.getElementById('my-reportees-section');
-    if (!sec) return;
-    // If masters haven't loaded yet, retry
-    if (!STATE.mastersLoaded || !STATE.masters.users?.length) {
-      setTimeout(arguments.callee, 500);
-      return;
-    }
-    if (!emp) {
-      sec.innerHTML = '';
-      return;
-    }
-    const myName    = (emp.name || '').toLowerCase().trim();
-    const myCode    = (emp.empCode || '').toUpperCase().trim();
-    // Primary match: managerCode (EGxxx from Reporting Manager column) === logged-in empCode
-    // Secondary: siteICCode (EGxxx from Site In-Charge Name column) === logged-in empCode
-    // Fallback: name match
-    const reportees = (STATE.masters.users || []).filter(u => {
-      if (u.status !== 'ACTIVE') return false;
-      const mCode  = (u.managerCode  || '').toUpperCase().trim();
-      const sCode  = (u.siteICCode   || '').toUpperCase().trim();
-      const mName  = (u.manager      || '').toLowerCase().trim();
-      return (myCode && (mCode === myCode || sCode === myCode)) || (myName && mName === myName);
-    });
-    window._myReportees = reportees; // store for CSV
-    window.reporteesDownloadCSV = function() {
-      downloadCSV((_myReportees||[]).map(u=>({
-        'Emp Code':u.empCode||'','Name':u.name||'','Designation':u.desig||'',
-        'Department':u.dept||'','Site':u.site||'','Type':u.empType||'',
-      })), 'My_Team_' + new Date().toISOString().slice(0,10) + '.csv');
-    };
-    if (!reportees.length) {
-      sec.innerHTML = `
-      <div class="card">
-        <div class="card-head"><h3>👥 My Team</h3></div>
-        <div class="card-body" style="text-align:center;padding:1.5rem;color:var(--txt3);font-size:.84rem">
-          No direct reportees found.<br>
-          <span style="font-size:.76rem">Check that your name in the Employee Register matches exactly in others' Reporting Manager field.</span>
-        </div>
-      </div>`;
-      return;
-    }
+  // Stash the resolved emp record for the lazy Team loader
+  window._mpEmp = emp;
+  window._mpDocsLoaded = false;
+  window._mpTeamLoaded = false;
+  // Restore last-opened tab (defaults to Summary)
+  let savedTab = 'summary';
+  try { savedTab = localStorage.getItem('evg_profile_tab') || 'summary'; } catch (e) {}
+  if (!['summary','job','comp','timeoff','documents','team'].includes(savedTab)) savedTab = 'summary';
+  _mpShowTab(savedTab);
+}
+
+// Team pane — lazy-loaded on first open
+function _loadProfileTeam() {
+  const sec = document.getElementById('my-reportees-section');
+  if (!sec) return;
+  if (!STATE.mastersLoaded || !STATE.masters.users?.length) {
+    setTimeout(_loadProfileTeam, 500);
+    return;
+  }
+  const emp = window._mpEmp;
+  if (!emp) { sec.innerHTML = ''; return; }
+  const myName = (emp.name || '').toLowerCase().trim();
+  const myCode = (emp.empCode || '').toUpperCase().trim();
+  const reportees = (STATE.masters.users || []).filter(u => {
+    if (u.status !== 'ACTIVE') return false;
+    const mCode = (u.managerCode || '').toUpperCase().trim();
+    const sCode = (u.siteICCode  || '').toUpperCase().trim();
+    const mName = (u.manager     || '').toLowerCase().trim();
+    return (myCode && (mCode === myCode || sCode === myCode)) || (myName && mName === myName);
+  });
+  window._myReportees = reportees;
+  window.reporteesDownloadCSV = function() {
+    downloadCSV((_myReportees||[]).map(u=>({
+      'Emp Code':u.empCode||'','Name':u.name||'','Designation':u.desig||'',
+      'Department':u.dept||'','Site':u.site||'','Type':u.empType||'',
+    })), 'My_Team_' + new Date().toISOString().slice(0,10) + '.csv');
+  };
+  if (!reportees.length) {
     sec.innerHTML = `
-    <div class="card" style="margin-top:1.4rem">
-      <div class="card-head">
-        <h3>👥 My Team <span style="font-weight:400;color:var(--txt3);font-size:.82rem">(${reportees.length} direct reportee${reportees.length!==1?'s':''})</span></h3>
-        <button class="csv-btn" onclick="window.reporteesDownloadCSV()">⬇ CSV</button>
-      </div>
-      <div class="card-body" style="padding:0;overflow-x:auto">
-        <table class="emp-table">
-          <thead><tr><th>Name</th><th>Emp Code</th><th>Designation</th><th>Department</th><th>Site</th><th>Type</th></tr></thead>
-          <tbody>${reportees.map(u=>`<tr>
-            <td style="font-weight:600;font-size:.82rem">${u.name||'—'}</td>
-            <td style="font-size:.77rem;color:var(--txt3)">${u.empCode||'—'}</td>
-            <td style="font-size:.79rem">${u.desig||'—'}</td>
-            <td style="font-size:.79rem">${u.dept||'—'}</td>
-            <td style="font-size:.79rem">${u.site||'—'}</td>
-            <td style="font-size:.75rem"><span style="padding:.18rem .45rem;background:#e8f5e9;color:#2e7d32;border-radius:10px">${u.empType||'—'}</span></td>
-          </tr>`).join('')}</tbody>
-        </table>
+    <div class="card">
+      <div class="card-head"><h3>👥 My Team</h3></div>
+      <div class="card-body" style="text-align:center;padding:1.5rem;color:var(--txt3);font-size:.84rem">
+        No direct reportees found.<br>
+        <span style="font-size:.76rem">Check that your name in the Employee Register matches exactly in others' Reporting Manager field.</span>
       </div>
     </div>`;
-    makeTableSortable(sec.querySelector('.emp-table')); wrapTableScroll(sec.querySelector('.emp-table'));
-  }, 300);
-
-  // ── Load Documents into Profile (reuse My Documents logic) ──────
-  loadProfileDocs();
+    return;
+  }
+  sec.innerHTML = `
+  <div class="card">
+    <div class="card-head">
+      <h3>👥 My Team <span style="font-weight:400;color:var(--txt3);font-size:.82rem">(${reportees.length} direct reportee${reportees.length!==1?'s':''})</span></h3>
+      <button class="csv-btn" onclick="window.reporteesDownloadCSV()">⬇ CSV</button>
+    </div>
+    <div class="card-body" style="padding:0;overflow-x:auto">
+      <table class="emp-table">
+        <thead><tr><th>Name</th><th>Emp Code</th><th>Designation</th><th>Department</th><th>Site</th><th>Type</th></tr></thead>
+        <tbody>${reportees.map(u=>`<tr>
+          <td style="font-weight:600;font-size:.82rem">${u.name||'—'}</td>
+          <td style="font-size:.77rem;color:var(--txt3)">${u.empCode||'—'}</td>
+          <td style="font-size:.79rem">${u.desig||'—'}</td>
+          <td style="font-size:.79rem">${u.dept||'—'}</td>
+          <td style="font-size:.79rem">${u.site||'—'}</td>
+          <td style="font-size:.75rem"><span style="padding:.18rem .45rem;background:#e8f5e9;color:#2e7d32;border-radius:10px">${u.empType||'—'}</span></td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>
+  </div>`;
+  makeTableSortable(sec.querySelector('.emp-table'));
+  wrapTableScroll(sec.querySelector('.emp-table'));
 }
 
 async function loadProfileDocs() {
@@ -11987,15 +12038,113 @@ function toggleNotifPanel() {
   STATE.notifOpen = !STATE.notifOpen;
   document.getElementById('notifPanel').classList.toggle('open', STATE.notifOpen);
 }
+// ── Workday-style user menu (badge dropdown) ─────────────────────
+function _evgToast(msg, ms) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(13,51,32,.95);color:#fff;padding:9px 20px;border-radius:8px;font-size:.82rem;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.3);pointer-events:none;';
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), ms || 2200);
+}
+
+function _ensureUserMenuPanel() {
+  let panel = document.getElementById('userMenuPanel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'userMenuPanel';
+    panel.className = 'user-menu-panel';
+    panel.setAttribute('role', 'menu');
+    document.body.appendChild(panel);
+  }
+  return panel;
+}
+
+function _renderUserMenuContent(panel) {
+  const role = ROLES[STATE.role] || ROLES.employee;
+  const roleLabel = STATE.role === 'dept_head' && STATE.deptHeadDept
+    ? 'Dept Head – ' + STATE.deptHeadDept : role.label;
+  const name  = STATE.user?.name || 'User';
+  const email = STATE.user?.email || '';
+  // Find emp record for designation/department/photo
+  const emp = (STATE.masters?.users || []).find(u =>
+    u.email && email && u.email.toLowerCase() === email.toLowerCase()
+  );
+  const sub = emp
+    ? `${emp.desig || '—'}${emp.dept ? ' · ' + emp.dept : ''}`
+    : email;
+  const photo = emp?.empCode ? localStorage.getItem('evg_photo_' + emp.empCode) : null;
+  const avatarInner = photo
+    ? `<img src="${photo}" alt="">`
+    : (name.charAt(0) || 'U').toUpperCase();
+  const isStaff = STATE.role !== 'vendor' && STATE.role !== 'sc';
+
+  panel.innerHTML = `
+    <div class="ump-head">
+      <div class="ump-avatar">${avatarInner}</div>
+      <div class="ump-name">${name}</div>
+      <div class="ump-sub">${sub}</div>
+      <span class="ump-role-chip">${roleLabel}</span>
+      ${isStaff
+        ? `<button class="ump-cta" onclick="navigate('my-profile');closeUserMenu()">View Profile</button>`
+        : ''}
+    </div>
+    <div class="ump-divider"></div>
+    <button class="ump-row" onclick="closeUserMenu();toggleNotifPanel()">🔔 Notifications</button>
+    ${isStaff ? `<button class="ump-row" onclick="navigate('my-documents');closeUserMenu()">📂 My Documents</button>` : ''}
+    ${isStaff ? `<button class="ump-row" onclick="_mpJumpTab('timeoff');navigate('my-profile');closeUserMenu()">🌴 Time Off</button>` : ''}
+    ${isStaff ? `<button class="ump-row" onclick="_mpJumpTab('team');navigate('my-profile');closeUserMenu()">👥 My Team</button>` : ''}
+    <button class="ump-row" onclick="_evgToast('Preferences coming soon');closeUserMenu()">⚙️ Preferences</button>
+    <div class="ump-divider"></div>
+    <button class="ump-row ump-row-danger" onclick="signOut()">🚪 Sign Out</button>
+  `;
+}
+
 function toggleUserMenu() {
-  // Role is auto-detected from Employee Register
-  const _em = STATE.user?.email || '';
-  const _rl = (ROLES[STATE.role] || ROLES.employee).label;
-  const _t = document.createElement('div');
-  _t.textContent = _em + '  ·  ' + _rl;
-  _t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(13,51,32,.95);color:#fff;padding:9px 20px;border-radius:8px;font-size:.82rem;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.3);pointer-events:none;';
-  document.body.appendChild(_t);
-  setTimeout(() => _t.remove(), 2500);
+  const panel = _ensureUserMenuPanel();
+  const isOpen = panel.classList.contains('open');
+  if (isOpen) {
+    panel.classList.remove('open');
+  } else {
+    _renderUserMenuContent(panel);
+    panel.classList.add('open');
+  }
+}
+
+function closeUserMenu() {
+  document.getElementById('userMenuPanel')?.classList.remove('open');
+}
+
+function signOut() {
+  closeUserMenu();
+  _evgToast('Signing out…', 1200);
+  try {
+    localStorage.removeItem('STATE');
+    localStorage.removeItem('evg_profile_tab');
+  } catch (e) { /* tolerate */ }
+  setTimeout(() => { window.location.href = 'index.html'; }, 400);
+}
+
+// Profile-tab helpers (used by the badge menu's quick-links + the profile page)
+function _mpJumpTab(id) {
+  try { localStorage.setItem('evg_profile_tab', id); } catch (e) {}
+}
+function _mpShowTab(id) {
+  try { localStorage.setItem('evg_profile_tab', id); } catch (e) {}
+  document.querySelectorAll('.mp-tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === id);
+  });
+  document.querySelectorAll('.mp-pane').forEach(p => {
+    p.classList.toggle('active', p.dataset.pane === id);
+  });
+  // Lazy-load Documents & Team panes the first time they're opened
+  if (id === 'documents' && !window._mpDocsLoaded) {
+    window._mpDocsLoaded = true;
+    try { loadProfileDocs(); } catch (e) {}
+  }
+  if (id === 'team' && !window._mpTeamLoaded) {
+    window._mpTeamLoaded = true;
+    try { _loadProfileTeam(); } catch (e) {}
+  }
 }
 
 // ══════════════════════════════════════════════════
@@ -12020,14 +12169,23 @@ function initTopNavClicks() {
   });
 
   // Click outside closes all
-  document.addEventListener('click', function() {
+  document.addEventListener('click', function(e) {
     topNav.querySelectorAll('.tnav-group.open').forEach(g => g.classList.remove('open'));
+    // Workday-style user menu — close on outside click
+    const ump = document.getElementById('userMenuPanel');
+    if (ump && ump.classList.contains('open')) {
+      const pill = document.querySelector('.user-pill');
+      if (!ump.contains(e.target) && !(pill && pill.contains(e.target))) {
+        ump.classList.remove('open');
+      }
+    }
   });
 
   // Esc key closes all
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
       topNav.querySelectorAll('.tnav-group.open').forEach(g => g.classList.remove('open'));
+      document.getElementById('userMenuPanel')?.classList.remove('open');
     }
   });
 }
