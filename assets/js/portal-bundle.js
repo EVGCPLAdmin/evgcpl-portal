@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.26';
-const PORTAL_BUILD    = 399;
-const PORTAL_BUILD_AT = '2026-05-30T11:25:22Z';
+const PORTAL_VERSION  = '3.18.27';
+const PORTAL_BUILD    = 400;
+const PORTAL_BUILD_AT = '2026-05-30T11:30:58Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1383,8 +1383,8 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','hr-dashboard','personal','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
-  hr:        new Set(['dashboard','hr-dashboard','personal','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','md-command','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   accounts:  new Set(['dashboard','my-profile','accounts','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
@@ -1558,7 +1558,6 @@ function renderPage(page) {
     'recruitment':    renderRecruitmentModule,
     'hr-dashboard':   renderHRDashboard,
     'my-profile':     renderMyProfile,
-    'personal':       () => renderAppSheetEmbed('Personal Dashboard','Your personal workspace — tasks, leave, payslips & more', 'personal'),
     'rewards':        renderRewardsModule,
     'apps':           renderAppsHub,
     'sheets':         renderSheetsHub,
@@ -2688,7 +2687,6 @@ function renderMDCommand() {
 // ── AppSheet app registry — add more apps here as they go live ──
 const APPSHEET_APPS = {
   hr:       { url: 'https://www.appsheet.com/start/9fcf3039-c992-4498-9647-2bcccca13ece', label: 'HR_v0',       icon: '👥' },
-  personal: { url: 'https://www.appsheet.com/start/9fcf3039-c992-4498-9647-2bcccca13ece', label: 'HR_v0',       icon: '🙋' },
   accounts: { url: 'https://www.appsheet.com/start/fcdba849-9f9d-435f-8e8a-ea0c975dbd21', label: 'Accounts',    icon: '💰' },
   scm:      { url: 'https://www.appsheet.com/start/06fd0117-1dd8-445b-aaee-e2ff6e68e36f', label: 'SCM',         icon: '📦' },
 };
@@ -4750,7 +4748,6 @@ const MODULE_REGISTRY = [
 
   // ── HR & People ───────────────────────────────────────────────
   { route:'hr-dashboard',      label:'HR Dashboard',           section:'HR & People',      defStatus:'live', defRoles:['md','hr','dept_head'] },
-  { route:'personal',          label:'Personal Dashboard',     section:'HR & People',      defStatus:'live', defRoles:['md','hr','dept_head'] },
   { route:'my-profile',        label:'My Profile',             section:'HR & People',      defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
   { route:'onboarding',        label:'Onboarding',             section:'HR & People',      defStatus:'live', defRoles:['md','hr'] },
   { route:'recruitment',       label:'Recruitment',            section:'HR & People',      defStatus:'live', defRoles:['md','hr','dept_head','site'] },
@@ -7360,9 +7357,15 @@ function renderHRDashboard() {
     </tr>`).join('');
 
   el.innerHTML = `
-    <div class="page-header">
-      <h1>👥 HR Command Centre</h1>
-      <p>Live workforce data · Employee Register + Mess & Accommodation</p>
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+      <div>
+        <h1>👥 HR Command Centre</h1>
+        <p>Live workforce data · Employee Register + Mess & Accommodation</p>
+      </div>
+      <button onclick="window.open('https://www.appsheet.com/start/9fcf3039-c992-4498-9647-2bcccca13ece','_blank')"
+        class="btn-hrapp" title="Open HR_v0 in AppSheet">
+        🚀 HR App
+      </button>
     </div>
 
     <!-- KPI Row -->
@@ -7586,6 +7589,13 @@ function renderMyProfile() {
           <div style="color:rgba(255,255,255,.7);font-size:.76rem">${emp?.email || STATE.user?.email || ''}</div>
           <div style="color:rgba(255,255,255,.5);font-size:.72rem;margin-top:.25rem">Joined ${fmtGvizDate(emp?.doj)}</div>
           ${emp?.plBalance ? `<div style="margin-top:.5rem;font-size:.72rem;background:rgba(255,255,255,.12);color:#fff;padding:.2rem .6rem;border-radius:8px;display:inline-block">🌴 ${emp.plBalance} PL days</div>` : ''}
+          <div style="margin-top:.6rem">
+            <button onclick="window.open('https://www.appsheet.com/start/9fcf3039-c992-4498-9647-2bcccca13ece','_blank')"
+              style="padding:.4rem .9rem;background:#fff;color:var(--g8);border:0;border-radius:6px;font-weight:700;font-size:.74rem;cursor:pointer;font-family:inherit"
+              title="Open HR_v0 in AppSheet">
+              🚀 HR App
+            </button>
+          </div>
         </div>
       </div>
     </div>
