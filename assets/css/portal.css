@@ -491,13 +491,6 @@ th.sort-desc .sort-arrow::after{content:'▼';opacity:1}
 .tw-clock{font-size:1.4rem;font-weight:700;color:var(--g8);font-family:monospace;letter-spacing:.05em}
 .tw-date{font-size:.72rem;color:var(--txt3)}
 
-/* ══ MOBILE NAV ═════════════════════════════════════════════ */
-.mob-nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;padding:.5rem .3rem;font-size:.62rem;color:var(--txt3);cursor:pointer;flex:1;border:none;background:none;font-family:inherit;transition:color .15s;position:relative}
-.mob-nav-item svg{width:22px;height:22px}
-.mob-nav-item.active,.mob-nav-item:hover{color:var(--g7)}
-.mob-dot{width:6px;height:6px;border-radius:50%;background:var(--danger);position:absolute;top:6px;right:calc(50% - 16px)}
-.mobile-nav-inner{display:flex;align-items:stretch;height:100%}
-
 /* ══ STATUS DOT ═════════════════════════════════════════════ */
 .status-dot{width:8px;height:8px;border-radius:50%;background:#9ca3af;display:inline-block}
 .status-dot.live{background:#16a34a}
@@ -958,9 +951,8 @@ th.sort-desc .sort-arrow::after{content:'▼';opacity:1}
   .header-logo{display:none}
   .sidebar{transform:translateX(-100%)}
   .sidebar.mobile-open{transform:translateX(0)}
-  .main-content{margin-left:0;padding:1.2rem 1rem 5rem}
+  .main-content{margin-left:0;padding:1.2rem 1rem 1.4rem}
   .hamburger{display:flex}
-  .mobile-nav{display:block}
   .header-search{display:none}
   .user-info{display:none}
   .kpi-grid{grid-template-columns:1fr 1fr}
@@ -1111,8 +1103,7 @@ body.dev-mode .tnav-item[data-status="dev"] { display:flex; }
 
 /* ── Dashboard absorbs Command Center for MD — hide every legacy entry ── */
 #tnav-md-command,
-#nav-md-command,
-.mob-nav-item[onclick*="md-command"] { display: none !important; }
+#nav-md-command { display: none !important; }
 
 /* ── Portal version footer (every page) ─────────────────────────── */
 #portalVersionFooter {
