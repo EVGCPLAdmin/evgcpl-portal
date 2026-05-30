@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.27';
-const PORTAL_BUILD    = 400;
-const PORTAL_BUILD_AT = '2026-05-30T11:30:58Z';
+const PORTAL_VERSION  = '3.18.28';
+const PORTAL_BUILD    = 401;
+const PORTAL_BUILD_AT = '2026-05-30T12:06:09Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1198,9 +1198,10 @@ function rptSchedRunNow() {
       out.innerHTML = '<div style="padding:.7rem 1rem;background:#ffebee;border-radius:8px;'
         + 'font-size:.78rem;color:#c62828"><b>❌ Error:</b> ' + (d?.message || 'Unknown error')
         + '<br><br><b>Most likely cause:</b> the <code>runSchedulesNow</code> action isn\'t wired '
-        + 'into your Apps Script <code>doPost()</code>. Open your Apps Script project, paste the '
-        + '<code>scheduledDailyReport.gs</code> file from this delivery, and add this case to your '
-        + 'doPost switch:<br><pre style="background:#fff;padding:.5rem;border-radius:6px;margin-top:.4rem;font-size:.72rem">case \'runSchedulesNow\': return jsonOut_(forceRunSchedules());</pre>'
+        + 'into your Apps Script <code>doPost()</code>. Open your Apps Script project, redeploy '
+        + 'the latest <code>ScheduledReports.gs</code> + <code>Router.gs</code> from this build, '
+        + 'and confirm this line is in <code>Router.gs</code>:'
+        + '<pre style="background:#fff;padding:.5rem;border-radius:6px;margin-top:.4rem;font-size:.72rem">if (action === \'runSchedulesNow\') return _ok(forceRunSchedules());</pre>'
         + '</div>';
       return;
     }
@@ -1247,8 +1248,8 @@ function rptSchedViewLog() {
   .then(d => {
     if (!d || !d.success) {
       out.innerHTML = '<div style="padding:.7rem 1rem;background:#ffebee;border-radius:8px;font-size:.78rem;color:#c62828">'
-        + '❌ <b>Could not fetch log.</b> Add this case to your Apps Script <code>doPost()</code>:'
-        + '<pre style="background:#fff;padding:.5rem;border-radius:6px;margin-top:.4rem;font-size:.72rem">case \'getScheduleLog\': return jsonOut_(getScheduleLog_(p.limit || 30));</pre>'
+        + '❌ <b>Could not fetch log.</b> Confirm this line is in <code>Router.gs</code> doPost:'
+        + '<pre style="background:#fff;padding:.5rem;border-radius:6px;margin-top:.4rem;font-size:.72rem">if (action === \'getScheduleLog\') return _ok(getScheduleLog_(body.limit || 30));</pre>'
         + '</div>';
       return;
     }

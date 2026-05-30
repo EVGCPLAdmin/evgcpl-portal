@@ -41,6 +41,7 @@
 // IMPORTANT: paste the same EMPLOYEE sheet ID used elsewhere in the portal.
 const REPORT_SCHED_SHEET_ID = '1HWKZPhKRhcuvxBgyyN8zRt8p-SzYmKjJWiOdCgykBHs';
 const REPORT_SCHED_TAB      = 'ReportSchedules';
+const SCHED_LOG_TAB         = 'ScheduleLog';
 
 // Optional: master sheet ID, purchase sheet ID, etc. — only needed by
 // _generateReportCSV below if you want server-side report generation.
@@ -181,8 +182,10 @@ function runScheduledReports() {
         });
       });
       Logger.log('Sent ' + reportId + ' to ' + recipients.length + ' recipient(s)');
+      _logSchedule(reportId, 'SENT', recipients.join(','), 'Hourly trigger');
     } catch (err) {
       Logger.log('Failed to send ' + reportId + ': ' + err.message);
+      _logSchedule(reportId, 'ERROR', recipients.join(','), err.message);
     }
   }
 }
@@ -274,6 +277,128 @@ function uninstallReportTrigger() {
     if (t.getHandlerFunction() === 'runScheduledReports') ScriptApp.deleteTrigger(t);
   });
   Logger.log('Trigger removed.');
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Schedule Diagnostics — called from portal Reports → 🛠️ Schedule
+   Diagnostics. Lives behind two Router actions:
+
+     doPost  action='runSchedulesNow'  → forceRunSchedules()
+     doGet   action='getScheduleLog'   → getScheduleLog_(limit)
+     doPost  action='getScheduleLog'   → getScheduleLog_(body.limit)
+
+   Both also fill / read a ScheduleLog tab so the hourly trigger leaves
+   a paper trail that the View Schedule Log panel can render.
+   ════════════════════════════════════════════════════════════════════ */
+
+function _getScheduleLogSheet() {
+  const ss = SpreadsheetApp.openById(REPORT_SCHED_SHEET_ID);
+  let sh = ss.getSheetByName(SCHED_LOG_TAB);
+  if (!sh) {
+    sh = ss.insertSheet(SCHED_LOG_TAB);
+    sh.appendRow(['ts', 'reportId', 'status', 'to', 'message']);
+    sh.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#e8f5e9');
+  }
+  return sh;
+}
+
+function _logSchedule(reportId, status, to, message) {
+  try {
+    const ts = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+    _getScheduleLogSheet().appendRow([ts, reportId || '—', status, to || '', message || '']);
+  } catch (_) { /* logging must never break the caller */ }
+}
+
+// Force-runs every active schedule, ignoring the time-of-day match. Used
+// by the diagnostics panel's "Run Schedules Now" button. Returns
+// { ran, skipped, errors, details } — the shape the frontend renders.
+function forceRunSchedules() {
+  const sh = _getReportSchedulesSheet();
+  const data = sh.getDataRange().getValues();
+  if (data.length < 2) {
+    _logSchedule('—', 'SUMMARY', '', 'No schedules configured');
+    return { ran: 0, skipped: 0, errors: 0, details: ['No schedules configured'] };
+  }
+
+  const headers = data[0];
+  const COL = {};
+  headers.forEach((h, i) => { COL[h] = i; });
+
+  let ran = 0, skipped = 0, errors = 0;
+  const details = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const reportId = String(row[COL.reportId] || '');
+
+    if (String(row[COL.active]) !== 'on') {
+      skipped++;
+      details.push('SKIP ' + reportId + ': inactive');
+      continue;
+    }
+
+    const recipients = String(row[COL.recipients] || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+    if (!recipients.length) {
+      skipped++;
+      details.push('SKIP ' + reportId + ': no recipients');
+      _logSchedule(reportId, 'SKIPPED', '', 'No recipients');
+      continue;
+    }
+
+    let filters = {};
+    try { filters = JSON.parse(row[COL.filters] || '{}'); } catch (_) {}
+
+    try {
+      const ist = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+      recipients.forEach(to => {
+        MailApp.sendEmail({
+          to: to,
+          subject: '[EVGCPL] ' + _reportTitle(reportId) + ' · forced @ ' + ist,
+          body: _buildEmailBody(reportId, filters, true),
+          name: 'EVGCPL Portal',
+        });
+      });
+      ran++;
+      details.push('SENT ' + reportId + ' → ' + recipients.length + ' recipient(s)');
+      _logSchedule(reportId, 'SENT', recipients.join(','), 'Forced run');
+    } catch (err) {
+      errors++;
+      details.push('ERROR ' + reportId + ': ' + err.message);
+      _logSchedule(reportId, 'ERROR', recipients.join(','), err.message);
+    }
+  }
+
+  _logSchedule('—', 'SUMMARY',
+    '',
+    'forced: ran=' + ran + ' skipped=' + skipped + ' errors=' + errors);
+
+  return { ran: ran, skipped: skipped, errors: errors, details: details };
+}
+
+// Reads the last N entries from the ScheduleLog tab, newest first.
+// Returns { rows: [{ts, reportId, status, to, message}, …] }.
+function getScheduleLog_(limit) {
+  limit = Math.max(1, Math.min(Number(limit) || 30, 500));
+  const sh = _getScheduleLogSheet();
+  const data = sh.getDataRange().getValues();
+  if (data.length < 2) return { rows: [] };
+
+  const headers = data[0];
+  const idx = h => headers.indexOf(h);
+  const I = { ts: idx('ts'), reportId: idx('reportId'), status: idx('status'), to: idx('to'), message: idx('message') };
+
+  // Take the last `limit` rows, then reverse so newest is first
+  const start = Math.max(1, data.length - limit);
+  return {
+    rows: data.slice(start).reverse().map(r => ({
+      ts: String(r[I.ts] || ''),
+      reportId: String(r[I.reportId] || ''),
+      status: String(r[I.status] || ''),
+      to: String(r[I.to] || ''),
+      message: String(r[I.message] || ''),
+    })),
+  };
 }
 
 function _dryRunNow() {
