@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.25';
-const PORTAL_BUILD    = 398;
-const PORTAL_BUILD_AT = '2026-05-30T10:33:42Z';
+const PORTAL_VERSION  = '3.18.26';
+const PORTAL_BUILD    = 399;
+const PORTAL_BUILD_AT = '2026-05-30T11:25:22Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1541,8 +1541,6 @@ function navigate(page) {
   if (tnavItem) tnavItem.classList.add('nav-active');
   const tnavSolo = document.querySelector(`#topNav .tnav-btn.solo[data-route="${page}"]`);
   if (tnavSolo) tnavSolo.classList.add('nav-active');
-  // Update mobile nav
-  document.querySelectorAll('.mob-nav-item').forEach(el => el.classList.remove('active'));
   // Close sidebar on mobile
   if (window.innerWidth <= 900) closeSidebar();
   // Render page
