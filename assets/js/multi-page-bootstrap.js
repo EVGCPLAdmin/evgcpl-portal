@@ -151,7 +151,6 @@
     // HR group
     'hr-dashboard':      'hr.html',
     'my-profile':        'hr.html',
-    'personal':          'hr.html',
     'onboarding':        'hr.html',
     'rewards':           'hr.html',
     'wall':              'hr.html',

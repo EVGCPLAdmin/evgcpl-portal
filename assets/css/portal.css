@@ -674,6 +674,19 @@ th.sort-desc .sort-arrow::after{content:'▼';opacity:1}
   .mp-rail { position:static; }
 }
 
+/* ══ HR APP LAUNCH BUTTON ═══════════════════════════════════ */
+.btn-hrapp {
+  padding:.55rem 1.1rem;
+  background:linear-gradient(135deg,var(--g7),var(--g5));
+  color:#fff; border:0; border-radius:8px;
+  font-weight:700; font-size:.84rem; cursor:pointer;
+  font-family:inherit;
+  box-shadow:0 2px 8px rgba(46,125,50,.25);
+  transition:transform .12s, box-shadow .12s;
+  white-space:nowrap; flex-shrink:0;
+}
+.btn-hrapp:hover { transform:translateY(-1px); box-shadow:0 4px 12px rgba(46,125,50,.35); }
+
 /* ══ NOTIFICATION PANEL ═════════════════════════════════════ */
 #notifPanel {
   position:fixed;right:-380px;top:var(--header-h);
