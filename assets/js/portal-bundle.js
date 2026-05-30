@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.24';
-const PORTAL_BUILD    = 397;
-const PORTAL_BUILD_AT = '2026-05-30T10:14:57Z';
+const PORTAL_VERSION  = '3.18.25';
+const PORTAL_BUILD    = 398;
+const PORTAL_BUILD_AT = '2026-05-30T10:33:42Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -7507,6 +7507,19 @@ function renderMyProfile() {
       <div style="font-weight:700;font-size:1rem;color:var(--txt2)">Access Restricted</div>
       <div style="font-size:.84rem;margin-top:.4rem">My Profile is not available for Vendor / Sub-Contractor accounts.</div>
     </div>`;
+    return;
+  }
+
+  // Wait for master data — landing here via cross-page redirect (e.g. View
+  // Profile from the dashboard popover) hits a fresh page where masters
+  // are still loading. Without this guard the rail and panes render as '—'.
+  if (!STATE.mastersLoaded || !STATE.masters?.users?.length) {
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:.9rem;color:var(--txt3)">
+        <div style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--g7);border-radius:50%;animation:spin 1s linear infinite"></div>
+        <div style="font-size:.86rem">Loading your profile…</div>
+      </div>`;
+    setTimeout(renderMyProfile, 300);
     return;
   }
 
