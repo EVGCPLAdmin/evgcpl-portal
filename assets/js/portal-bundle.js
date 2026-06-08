@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.30';
-const PORTAL_BUILD    = 403;
-const PORTAL_BUILD_AT = '2026-06-08T20:03:04Z';
+const PORTAL_VERSION  = '3.18.31';
+const PORTAL_BUILD    = 404;
+const PORTAL_BUILD_AT = '2026-06-08T20:06:45Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5152,8 +5152,9 @@ function _accOpenPRDetail(uuid) {
   }
   _accDrawPRDetail(dr, row);
   requestAnimationFrame(() => { dr.style.right = '0'; });
-  // Status Updates load asynchronously
+  // Status Updates + role-gated action bar load asynchronously
   _accDrawStatusUpdates(uuid);
+  _accRenderDetailActions(row);
 }
 
 function _accDrawPRDetail(dr, r) {
@@ -5300,6 +5301,189 @@ async function _accDrawStatusUpdates(uuid) {
         ${extra ? `<div style="margin-top:.35rem;display:flex;flex-direction:column;gap:2px">${extra}</div>` : ''}
       </div>`;
   }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ACCOUNTS — ACCOUNTS UPDATE FORM (Phase 3)
+//  Role-gated status changes. Every change is a NEW row in the
+//  AccountsUpdate tab — existing rows are never modified.
+// ══════════════════════════════════════════════════════════════
+let _accPayStatusMaster = null;   // [{ status, viewFor, role }]
+
+async function _accLoadPaymentStatusMaster() {
+  if (_accPayStatusMaster !== null) return;
+  try {
+    const rows = await fetchSheet('Payment_Status', null, PAYMENT_SHEET_ID);
+    _accPayStatusMaster = rows.map(r => ({
+      status:  r['Accounts Status'] || r['Status'] || '',
+      viewFor: r['View for'] || r['View For'] || r['ViewFor'] || '',
+      role:    r['Role'] || '',
+    })).filter(r => r.status);
+  } catch (e) { _accPayStatusMaster = []; }
+}
+
+// Is the current user allowed to post accounts updates?
+function _accCanUpdate() {
+  const role = STATE.role;
+  if (role === 'md' || role === 'accounts') return true;
+  if (role === 'dept_head') return /finance|account/i.test(STATE.deptHeadDept || '');
+  return false;
+}
+
+// Status values this user may SET — from Payment_Status master, with a
+// role-based fallback (handoff §5) if the master is empty or unmatched.
+function _accAllowedStatuses() {
+  const role = (STATE.role || '').toLowerCase();
+  const dept = (STATE.deptHeadDept || '').toLowerCase().trim();
+  const isFinance = role === 'accounts' || (role === 'dept_head' && /finance|account/.test(dept));
+
+  const fromMaster = (_accPayStatusMaster || []).filter(r => {
+    const vf = (r.viewFor || '').toLowerCase().trim();
+    const rl = (r.role || '').toLowerCase().trim();
+    if (rl && rl === role) return true;
+    if (vf && dept && vf === dept) return true;
+    if (vf && isFinance && /finance|account/.test(vf)) return true;
+    if (rl && isFinance && /account/.test(rl)) return true;
+    return false;
+  }).map(r => r.status);
+
+  const uniq = [...new Set(fromMaster.filter(Boolean))];
+  if (uniq.length) return uniq;
+
+  // Fallback — derived from the documented role matrix
+  if (role === 'md') {
+    return ['Process Payment, Move to Accounts', 'Rejected', 'Paid (MD_ED)'];
+  }
+  return ['Verified, Move to MD Queue', 'Pending Due to Queries', 'Payment Initiated',
+          'Paid (Initiated in Bank)', 'Payment Completed', 'Reject Payment (Accounts)'];
+}
+
+function _accRenderDetailActions(r) {
+  const host = document.getElementById('acc-detail-actions');
+  if (!host) return;
+  if (!_accCanUpdate()) { host.innerHTML = ''; return; }
+  host.innerHTML = `
+    <div style="display:flex;gap:.6rem;align-items:center;margin-bottom:1rem">
+      <button onclick="_accToggleUpdateForm('${(r.uuid || '').replace(/'/g, "\\'")}')" class="btn btn-primary btn-sm">&#9998; Update Status</button>
+      <span style="font-size:.72rem;color:var(--txt3)">Post a verification, approval, payment or rejection update</span>
+    </div>
+    <div id="acc-detail-updateform"></div>`;
+}
+
+async function _accToggleUpdateForm(uuid) {
+  const box = document.getElementById('acc-detail-updateform');
+  if (!box) return;
+  if (box.dataset.open === '1') { box.innerHTML = ''; box.dataset.open = '0'; return; }
+  box.dataset.open = '1';
+  box.innerHTML = '<div style="padding:.8rem;color:var(--txt3);font-size:.8rem">&#8987; Loading status options…</div>';
+  await _accLoadPaymentStatusMaster();
+  _accDrawUpdateForm(box, uuid);
+}
+
+function _accDrawUpdateForm(box, uuid) {
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const today = new Date().toLocaleDateString('en-CA');
+  const statuses = _accAllowedStatuses();
+  const opts = '<option value=""></option>' + statuses.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  const reasons = ['Wrong A/C Number', 'Ledger Mismatch', 'Benificery Pending'];
+  const ctrl = 'width:100%;box-sizing:border-box;font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 9px;background:var(--surface1)';
+
+  box.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:10px;padding:.9rem 1rem;margin-bottom:1rem;background:var(--surface1)">
+      <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:.6rem">
+        <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">New Status <span style="color:var(--danger)">*</span></label>
+        <select id="acc-up-status" onchange="_accUpdateFormOnStatusChange()" style="${ctrl}">${opts}</select>
+      </div>
+      <div id="acc-up-reason-wrap" style="display:none;flex-direction:column;gap:3px;margin-bottom:.6rem">
+        <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">Pending Reason <span style="color:var(--danger)">*</span></label>
+        <select id="acc-up-reason" style="${ctrl}"><option value=""></option>${reasons.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}</select>
+      </div>
+      <div id="acc-up-utr-wrap" style="display:none;flex-direction:column;gap:3px;margin-bottom:.6rem">
+        <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">UTR Details <span style="color:var(--danger)">*</span></label>
+        <input id="acc-up-utr" style="${ctrl}" placeholder="Bank UTR / transaction reference">
+      </div>
+      <div id="acc-up-comments-wrap" style="display:flex;flex-direction:column;gap:3px;margin-bottom:.6rem">
+        <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">Comments <span id="acc-up-comments-req" style="color:var(--danger);display:none">*</span></label>
+        <textarea id="acc-up-comments" rows="2" style="${ctrl};resize:vertical"></textarea>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:.8rem">
+        <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">Date</label>
+        <input id="acc-up-date" type="date" value="${today}" style="${ctrl}">
+      </div>
+      <div style="display:flex;gap:.6rem;justify-content:flex-end">
+        <button onclick="_accToggleUpdateForm('${(uuid || '').replace(/'/g, "\\'")}')" class="btn btn-secondary btn-sm">Cancel</button>
+        <button id="acc-up-submit" onclick="_accUpdateFormSubmit('${(uuid || '').replace(/'/g, "\\'")}')" class="btn btn-primary btn-sm">Save Update</button>
+      </div>
+    </div>`;
+}
+
+function _accUpdateFormOnStatusChange() {
+  const st = (document.getElementById('acc-up-status') || {}).value || '';
+  const norm = st.toLowerCase().trim();
+  const show = (id, on) => { const e = document.getElementById(id); if (e) e.style.display = on ? 'flex' : 'none'; };
+  show('acc-up-reason-wrap', /pending due to queries/.test(norm));
+  show('acc-up-utr-wrap', /payment completed/.test(norm));
+  const reqComments = /reject/.test(norm);
+  const rq = document.getElementById('acc-up-comments-req');
+  if (rq) rq.style.display = reqComments ? '' : 'none';
+}
+
+function _accUpdateBuildRow(prUuid) {
+  const rid = (crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0, 8) : String(Date.now()).slice(-8);
+  const email = STATE.user?.email || '';
+  const me = (STATE.masters.users || []).find(u => (u.email || '').toLowerCase() === email.toLowerCase());
+  const updatedBy = me ? (me.employeeRef || me.name) : (STATE.user?.name || '');
+  const pr = (window._accAllRows || []).find(r => r.uuid === prUuid);
+  const details = pr ? [pr.requestId, pr.payTo, pr.amount].filter(Boolean).join(' · ') : prUuid;
+  return {
+    'UUID': 'ACC-AU-' + rid,
+    'UserEmail': email,
+    'Updated By': updatedBy,
+    'Request ID': prUuid,
+    'Details of Request': details,
+    'Status': _accV('acc-up-status'),
+    'Pending Reason': _accV('acc-up-reason'),
+    'Date': _accV('acc-up-date'),
+    'UTR Details': _accV('acc-up-utr'),
+    'Comments (If Any)': _accV('acc-up-comments'),
+    'Timestamp': new Date().toISOString(),
+  };
+}
+
+async function _accUpdateFormSubmit(prUuid) {
+  const status = _accV('acc-up-status');
+  const norm = status.toLowerCase().trim();
+  const errors = [];
+  if (!status) errors.push('Please choose a status.');
+  if (/pending due to queries/.test(norm) && !_accV('acc-up-reason')) errors.push('Pending Reason is required.');
+  if (/payment completed/.test(norm) && !_accV('acc-up-utr')) errors.push('UTR Details are required to complete a payment.');
+  if (/reject/.test(norm) && !_accV('acc-up-comments')) errors.push('Comments are required when rejecting.');
+  if (errors.length) { alert('Please fix the following:\n\n• ' + errors.join('\n• ')); return; }
+
+  const btn = document.getElementById('acc-up-submit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  const row = _accUpdateBuildRow(prUuid);
+  const resp = await _accPostAwait({ action: 'saveAccountsUpdate', sheetId: PAYMENT_SHEET_ID, tab: 'AccountsUpdate', row: row });
+
+  if (!resp || resp.success === false) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Update'; }
+    const msg = (resp && resp.message) || 'unknown error';
+    if (/unknown (post )?action/i.test(msg)) {
+      alert('Apps Script redeploy required.\n\nThe "saveAccountsUpdate" backend action is in this build but the live Apps Script /exec has not been redeployed yet. Ask the admin to redeploy, then try again.');
+    } else {
+      alert('Could not save the update:\n\n' + msg);
+    }
+    return;
+  }
+
+  _accToast('✅ Status update posted');
+  const box = document.getElementById('acc-detail-updateform');
+  if (box) { box.innerHTML = ''; box.dataset.open = '0'; }
+  // Refresh the timeline so the new entry shows immediately. The list's
+  // derived status (col AL) is a sheet formula, so it reflects on the next
+  // list refresh; the drawer stays open on the updated PR.
+  _accDrawStatusUpdates(prUuid);
 }
 
 function accDeepLink(label, url) {
