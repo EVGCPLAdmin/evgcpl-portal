@@ -176,3 +176,86 @@ Diagnostics if a save isn't working:
   1. `_rcOLBuildOfferRecord` (write side)
   2. `_rcLoadOffers` (read side)
   3. `RC_OFFER_HEADERS` + the relevant handler's value map (backend persist)
+
+---
+
+## Backlog
+
+### Migrate Recruitment off Google Sheets → Supabase Postgres (~4 weeks)
+
+**Status:** Parked. Plan finalized 2026-06-08, awaiting kick-off.
+
+**Why:** Performance, real reporting/scale, RBAC + audit, clean API for future mobile work. Recruitment is the best first target — most self-contained module, dedicated sheet (`1Dw48OEDmI...`), 14 well-scoped Apps Script actions, workflow freshly built.
+
+**Decisions baked in:**
+- Target: **Supabase** (managed Postgres + REST + Edge Functions + Storage + Auth).
+- Cutover: **hard cutover + 1-week parallel-read safety net**.
+- Email + PDF: **Resend** (transactional email) + **Supabase Edge Function with puppeteer** (PDF). Fully off Apps Script.
+- Sequencing: Recruitment first → Accounts (~2 wks, infra reused) → re-evaluate the rest (HR, PCC, Safety, Stores, Reports).
+
+**Architecture (Recruitment only — everything else stays on Sheets):**
+```
+Frontend ──► assets/js/recruitmentDb.js ──► Supabase REST + Edge Functions
+                                              │
+                                              ▼
+                                       Postgres + Storage
+                                       (mrf · offer · joining · pre_joining
+                                        + 4 read-only master mirrors)
+
+Master mirrors fed by sync/mirror.js cron (15-min) reading
+designation, site, billing, employee from Sheets via gviz.
+
+Email out via Resend; PDFs via Edge Function w/ puppeteer.
+```
+
+**Phase 1 stages:**
+- **A — Foundation (~3 d):** Supabase project (Mumbai region), Google OAuth, Resend domain verification, GitHub secrets, auth bridge in `multi-page-bootstrap.js`.
+- **B — Schema (~2 d):** Tables for `mrf`, `offer`, `joining`, `pre_joining_checklist` (mirror current `RC_OFFER_HEADERS` / `RC_JOINING_HEADERS`). RLS policies derived from `ROLE_ROUTES` (portal-bundle.js:1386). Read-only master mirror tables.
+- **C — Backend (1 wk):** PostgREST auto-covers 12 of the 14 actions. Two Edge Functions:
+  - `sendOfferEmail` — Deno port of `_fillTemplate`, calls `generatePDF`, posts to Resend.
+  - `generatePDF` — puppeteer-core + chromium-aws-lambda; used by email + Download PDF.
+  - `sync/mirror.js` + `sync/schema.json` + `.github/workflows/mirror.yml` cron job for master tables.
+- **D — Data migration (~2 d):** `migrate/recruitment-oneshot.js` copies all rows from MRF_Register / Offer_Tracker / PreJoining_Checklist / v1_JoiningList into Postgres. Drop Sheet's editor share → archive.
+- **E — Frontend swap (~1 wk):** `assets/js/recruitmentDb.js` mirrors `_rc*` signatures. Behind `localStorage.evg_use_db_recruitment === '1'`. Roll out: you (day 1) → second recruiter (day 2–3) → all (day 4+). Parallel-read week: drift logged to `sync_drift`.
+- **F — Decommission (~3 d):** After 7 clean days, delete the 14 Recruitment routes from `Router.gs`. Archive `RecruitmentHandlers.gs` (don't delete file). Drop the feature flag.
+
+**Phase 2 — Accounts (~2 wks):** same recipe, skips Stage A. Tables for `payment_request`, oneshot from Payment sheet (`1mLddxLRf...`), `assets/js/accountsDb.js` behind `USE_DB_ACCOUNTS`.
+
+**Phase 3+:** deferred. Decide based on real numbers from Phase 1+2.
+
+**New files (Phase 1):**
+- `supabase/migrations/0001_recruitment_schema.sql`
+- `supabase/migrations/0002_master_mirrors.sql`
+- `supabase/migrations/0003_rls_recruitment.sql`
+- `supabase/functions/sendOfferEmail/index.ts`
+- `supabase/functions/generatePDF/index.ts`
+- `sync/mirror.js`, `sync/schema.json`, `sync/lib/gviz.js`
+- `.github/workflows/mirror.yml`
+- `migrate/recruitment-oneshot.js`
+- `assets/js/recruitmentDb.js`
+
+**Modify (Phase 1):**
+- `assets/js/multi-page-bootstrap.js` — Supabase auth bridge on boot.
+- `assets/js/portal-bundle.js` — route the 16 `_rc*` functions through `recruitmentDb.js` when flag is on.
+- `apps-script/Router.gs` (Stage F) — delete the 14 Recruitment action routes.
+- `apps-script/RecruitmentHandlers.gs` (Stage F) — archive, don't delete.
+
+**Reuse:**
+- `parseGvizDate` (portal-bundle.js:11713) → `sync/lib/gviz.js`.
+- HTML templates `assets/templates/offer-letter.html`, `appointment-letter.html` — unchanged; Edge Function consumes them.
+- `_fillTemplate` (portal-bundle.js:~15098) → Deno port in the Edge Function.
+- `ROLE_ROUTES` (portal-bundle.js:1386) → translated to RLS policies.
+
+**Cost:** $0–25/mo through Phase 1+2 (Supabase free tier covers 500MB DB / 1GB Storage / 50K MAU; Resend free is 3K mails/mo; GitHub Actions free).
+
+**Risk + rollback:**
+- Week 3 issues → flip `USE_DB_RECRUITMENT` off, instantly back on Apps Script + Sheets.
+- Post Stage F rollback = git revert + redeploy (~30 min).
+- Lock-in: low — Supabase is Postgres + PostgREST; schema is portable to any Postgres host.
+
+**Open decisions before kick-off:**
+- Region: Mumbai (ap-south-1) vs Singapore (ap-southeast-1).
+- Resend sender domain: `noreply@evgcpl.com`? Needs DNS access for DKIM/SPF.
+- Canary user for Day 2 of Stage E.
+
+**Verification checklist:** see full plan at `/root/.claude/plans/root-claude-uploads-2be5b1f0-e0f4-4848-sunny-crane.md` (this session's plan file).
