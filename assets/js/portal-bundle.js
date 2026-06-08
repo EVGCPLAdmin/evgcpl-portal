@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.29';
-const PORTAL_BUILD    = 402;
-const PORTAL_BUILD_AT = '2026-06-08T19:58:06Z';
+const PORTAL_VERSION  = '3.18.30';
+const PORTAL_BUILD    = 403;
+const PORTAL_BUILD_AT = '2026-06-08T20:03:04Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4683,7 +4683,7 @@ function renderAccountsModule() {
       const reqIdCell=`<td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">
         <div style="display:flex;align-items:center;gap:5px">
           <span style="font-family:monospace;font-size:.72rem;color:var(--g8);font-weight:600">${r.requestId||'\u2014'}</span>
-          <a href="${recUrl}" target="_blank" title="Open in AppSheet" style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;background:var(--g7);border-radius:4px;text-decoration:none;font-size:.65rem;flex-shrink:0;color:#fff">&#8599;</a>
+          <a href="${recUrl}" target="_blank" onclick="event.stopPropagation()" title="Open in AppSheet" style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;background:var(--g7);border-radius:4px;text-decoration:none;font-size:.65rem;flex-shrink:0;color:#fff">&#8599;</a>
         </div>
       </td>`;
 
@@ -4696,7 +4696,7 @@ function renderAccountsModule() {
       const rowBg=i%2===0?'':'background:#fafbfa';
       const amtStyle=`padding:7px 10px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:${r.amount>0?'var(--g8)':'var(--txt3)'};white-space:nowrap`;
 
-      return `<tr style="${rowBg}">
+      return `<tr style="cursor:pointer;${rowBg}" data-uuid="${(r.uuid||'').replace(/"/g,'&quot;')}" onclick="_accOpenPRDetail(this.dataset.uuid)" title="Click to view details">
         <td style="padding:7px 10px;border-bottom:1px solid var(--border);text-align:center">${maBadge}</td>
         <td style="padding:7px 10px;border-bottom:1px solid var(--border);text-align:center;color:var(--txt2)">${r.installment||'\u2014'}</td>
         ${reqIdCell}
@@ -5127,6 +5127,179 @@ async function _accPRSubmit() {
   _accToast('✅ Payment request submitted' + (resp.requestId ? (' — ' + resp.requestId) : ''));
   _accCloseNewPR();
   renderAccountsModule();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ACCOUNTS — PR DETAIL VIEW + STATUS UPDATES TIMELINE (Phase 2)
+//  Slide-in detail panel showing the full PR row plus the reverse
+//  relation of AccountsUpdate rows (status history) for that PR.
+// ══════════════════════════════════════════════════════════════
+function _accClosePRDetail() {
+  const dr = document.getElementById('accPRDetailDrawer');
+  if (dr) dr.style.right = '-760px';
+}
+
+function _accOpenPRDetail(uuid) {
+  if (!uuid) return;
+  const row = (window._accAllRows || []).find(r => r.uuid === uuid);
+  if (!row) return;
+  let dr = document.getElementById('accPRDetailDrawer');
+  if (!dr) {
+    dr = document.createElement('div');
+    dr.id = 'accPRDetailDrawer';
+    dr.style.cssText = 'position:fixed;top:var(--header-h);right:-760px;width:740px;max-width:96vw;height:calc(100vh - var(--header-h));background:#fff;border-left:1px solid var(--border);z-index:1100;transition:right .28s cubic-bezier(.4,0,.2,1);box-shadow:-4px 0 24px rgba(0,0,0,.1);display:flex;flex-direction:column';
+    document.body.appendChild(dr);
+  }
+  _accDrawPRDetail(dr, row);
+  requestAnimationFrame(() => { dr.style.right = '0'; });
+  // Status Updates load asynchronously
+  _accDrawStatusUpdates(uuid);
+}
+
+function _accDrawPRDetail(dr, r) {
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const s = r.status || { label: '', icon: '', color: '#6b7280', bg: '#f9fafb' };
+  const fmtAmt = (v, c) => { if (!v) return '—'; const n = Math.round(v).toLocaleString('en-IN'); return (c && c !== 'INR') ? (c + ' ' + n) : ('₹' + n); };
+
+  const badge = s.label
+    ? `<span style="display:inline-flex;align-items:center;gap:4px;background:${s.bg};color:${s.color};padding:4px 12px;border-radius:12px;font-size:.74rem;font-weight:600;border:1px solid ${s.color}22">${s.icon ? s.icon + '&thinsp;' : ''}${esc(s.label)}</span>`
+    : '<span style="color:var(--txt3)">—</span>';
+
+  const fieldsHtml = (pairs) => `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem 1.4rem">
+      ${pairs.filter(p => p).map(([label, val]) => `
+        <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+          <span style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">${label}</span>
+          <span style="font-size:.82rem;color:var(--txt1);word-break:break-word">${esc(val) || '—'}</span>
+        </div>`).join('')}
+    </div>`;
+  const block = (title, inner) => `
+    <div style="margin-bottom:1.1rem">
+      <div style="font-weight:700;font-size:.74rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.55rem;border-bottom:1px solid var(--border);padding-bottom:.3rem">${title}</div>
+      ${inner}
+    </div>`;
+
+  dr.innerHTML = `
+    <div style="padding:1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;flex-shrink:0;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff">
+      <div style="min-width:0">
+        <div style="font-size:.98rem;font-weight:700;font-family:monospace">${esc(r.requestId) || esc(r.uuid)}</div>
+        <div style="font-size:.74rem;opacity:.85;margin-top:3px">${esc(r.date) || '—'} &middot; ${esc(r.initiator) || '—'}</div>
+        <div style="margin-top:.5rem">${badge}</div>
+      </div>
+      <button onclick="_accClosePRDetail()" style="background:rgba(255,255,255,.18);border:none;color:#fff;width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:1rem;flex-shrink:0">&#10006;</button>
+    </div>
+
+    <div style="flex:1;overflow-y:auto;padding:1.1rem 1.3rem">
+      <div id="acc-detail-actions"></div>
+
+      ${block('Request', fieldsHtml([
+        ['Request ID', r.requestId],
+        ['Date of Request', r.date],
+        ['Initiator', r.initiator],
+        ['Manual / Auto', r.manualAuto],
+        ['Installment', r.installment],
+        ['Nature of Expenses', r.nature],
+        ['Account Code Desc.', r.accCode],
+        ['Cost Code', r.costCode],
+        ['Department', r.dept],
+        ['From Which Process', r.process],
+      ]))}
+
+      ${block('Payment To', fieldsHtml([
+        ['Payment To', r.payTo],
+        ['Paid To', r.paidTo],
+        ['Site Name', r.site],
+        ['Company', r.company],
+      ]))}
+
+      ${block('Bill &amp; PO Reference', fieldsHtml([
+        ['Order No', r.orderNo],
+        ['Bill No', r.billNo],
+        ['PO Value', fmtAmt(r.poValue, r.currency)],
+        ['Invoice Value', fmtAmt(r.invoiceVal, r.currency)],
+        ['Paid Value', fmtAmt(r.paidVal, r.currency)],
+        ['Pending Value', fmtAmt(r.pendingVal, r.currency)],
+      ]))}
+
+      ${block('Financial', fieldsHtml([
+        ['Currency', r.currency],
+        ['Amount', fmtAmt(r.amount, r.currency)],
+      ]) + `<div style="margin-top:.55rem"><span style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Narrative / Comments</span><div style="font-size:.82rem;color:var(--txt1);margin-top:2px;white-space:pre-wrap">${esc(r.narrative) || '—'}</div></div>`)}
+
+      ${block('Bank Details', fieldsHtml([
+        ['A/C Holder', r.acHolder],
+        ['A/C Number', r.acNumber],
+        ['IFSC Code', r.ifsc],
+        ['Bank Name', r.bank],
+      ]))}
+
+      ${block('Accounts', fieldsHtml([
+        ['Accounts Status', r.accStatus],
+        ['Accounts Date', r.accDate],
+        ['UTR Details', r.utr],
+        ['Remarks', r.remarks],
+      ]))}
+
+      <div style="margin-bottom:.4rem">
+        <div style="font-weight:700;font-size:.74rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.55rem;border-bottom:1px solid var(--border);padding-bottom:.3rem">Status Updates</div>
+        <div id="acc-detail-timeline"><div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">&#8987; Loading status history&hellip;</div></div>
+      </div>
+    </div>
+  `;
+}
+
+async function _accDrawStatusUpdates(uuid) {
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const el = () => document.getElementById('acc-detail-timeline');
+  let rows;
+  try {
+    rows = await fetchSheet('AccountsUpdate', null, PAYMENT_SHEET_ID);
+  } catch (e) {
+    if (el()) el().innerHTML = '<div style="padding:1rem;color:var(--danger);font-size:.8rem">&#9888; Could not load status history. Check the AccountsUpdate tab is shared as Anyone &rarr; Viewer.</div>';
+    return;
+  }
+  // Guard against a stale timeline if the user opened another PR meanwhile
+  if (!el()) return;
+
+  const get = (r, keys) => { for (const k of keys) { if (r[k] != null && r[k] !== '') return r[k]; } return ''; };
+  const updates = (rows || [])
+    .filter(r => get(r, ['Request ID', 'RequestID', 'Request Id']) === uuid)
+    .map(r => ({
+      ts:       get(r, ['Timestamp', 'TimeStamp']),
+      date:     get(r, ['Date']),
+      by:       get(r, ['Updated By', 'UpdatedBy']),
+      status:   get(r, ['Status', 'Accounts Status']),
+      utr:      get(r, ['UTR Details', 'UTR']),
+      comments: get(r, ['Comments (If Any)', 'Comments', 'Comments If Any']),
+      reason:   get(r, ['Pending Reason', 'PendingReason']),
+    }))
+    .sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+
+  if (!updates.length) {
+    el().innerHTML = '<div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">No status updates recorded yet.</div>';
+    return;
+  }
+
+  el().innerHTML = updates.map(u => {
+    const st = (typeof getPayStatus === 'function') ? getPayStatus(u.status) : { label: u.status, icon: '', color: '#6b7280', bg: '#f9fafb' };
+    const pill = st.label
+      ? `<span style="display:inline-flex;align-items:center;gap:3px;background:${st.bg};color:${st.color};padding:2px 9px;border-radius:10px;font-size:.68rem;font-weight:600;border:1px solid ${st.color}22">${st.icon ? st.icon + '&thinsp;' : ''}${esc(st.label)}</span>`
+      : `<span style="font-size:.72rem;color:var(--txt2)">${esc(u.status) || '—'}</span>`;
+    const meta = [u.ts || u.date, u.by].filter(Boolean).map(esc).join(' &middot; ');
+    const extra = [
+      u.utr ? `<div style="font-size:.74rem;color:var(--txt2)"><b>UTR:</b> ${esc(u.utr)}</div>` : '',
+      u.reason ? `<div style="font-size:.74rem;color:var(--txt2)"><b>Pending Reason:</b> ${esc(u.reason)}</div>` : '',
+      u.comments ? `<div style="font-size:.74rem;color:var(--txt2);white-space:pre-wrap"><b>Comments:</b> ${esc(u.comments)}</div>` : '',
+    ].filter(Boolean).join('');
+    return `
+      <div style="border-left:3px solid ${st.color || 'var(--border)'};padding:.5rem .8rem;margin-bottom:.6rem;background:var(--surface2);border-radius:0 8px 8px 0">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap">
+          ${pill}
+          <span style="font-size:.68rem;color:var(--txt3)">${meta}</span>
+        </div>
+        ${extra ? `<div style="margin-top:.35rem;display:flex;flex-direction:column;gap:2px">${extra}</div>` : ''}
+      </div>`;
+  }).join('');
 }
 
 function accDeepLink(label, url) {
