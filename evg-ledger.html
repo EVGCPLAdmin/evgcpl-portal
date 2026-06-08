@@ -1,0 +1,1236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EVG Ledger — EVGCPL</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Inter', sans-serif; }
+
+    :root {
+      --bg: #F0F4FF;
+      --surface: #FFFFFF;
+      --surface-2: #F8FAFF;
+      --surface-3: #EEF2FF;
+      --surface-elevated: #FFFFFF;
+      --border: #E2E8F0;
+      --border-strong: #CBD5E1;
+      --text: #0F172A;
+      --text-2: #1E293B;
+      --text-3: #64748B;
+      --text-4: #94A3B8;
+      --brand-1: #1D4ED8;
+      --brand-2: #0EA5E9;
+      --brand-3: #7C3AED;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
+      --shadow-lg: 0 8px 30px rgba(0,0,0,0.12);
+      --money-paid: #16A34A;
+      --money-recv: #2563EB;
+    }
+    [data-theme="dark"] {
+      --bg: #0B1120;
+      --surface: #131C2E;
+      --surface-2: #1A253A;
+      --surface-3: #1E2D44;
+      --surface-elevated: #1A253A;
+      --border: #243047;
+      --border-strong: #334155;
+      --text: #F1F5F9;
+      --text-2: #CBD5E1;
+      --text-3: #94A3B8;
+      --text-4: #64748B;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+      --shadow-lg: 0 8px 30px rgba(0,0,0,0.5);
+    }
+
+    body { background: var(--bg); color: var(--text); }
+    input, select, textarea { font-family: inherit; }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .fade-in { animation: fadeIn 0.2s ease both; }
+    .slide-in { animation: slideIn 0.2s ease both; }
+    .spin { animation: spin 0.8s linear infinite; }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+
+    /* Approval pipeline */
+    .pipeline-step { flex: 1; min-width: 0; }
+    .pipeline-connector { height: 2px; flex: 1; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+// ─── ICONS ────────────────────────────────────────────────────
+function Ic({ d, size = 16, className = '', style = {}, sw = 2 }) {
+  const paths = Array.isArray(d) ? d : [d];
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"
+         className={className} style={style}>
+      {paths.map((p, i) => <path key={i} d={p} />)}
+    </svg>
+  );
+}
+const Building2    = p => <Ic {...p} d={['M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18','M6 12H4a2 2 0 0 0-2 2v6h4','M18 9h2a2 2 0 0 1 2 2v9h-4','M10 6h4','M10 10h4','M10 14h4','M10 18h4']} />;
+const Plus         = p => <Ic {...p} d="M12 5v14M5 12h14" />;
+const FileText     = p => <Ic {...p} d={['M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z','M14 2v6h6','M16 13H8','M16 17H8','M10 9H8']} />;
+const Wallet       = p => <Ic {...p} d={['M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4','M4 6v12c0 1.1.9 2 2 2h14v-4','M18 12a2 2 0 0 0 0 4h2v-4z']} />;
+const Search       = p => <Ic {...p} d={['M21 21l-4.35-4.35','M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z']} />;
+const Calendar     = p => <Ic {...p} d={['M3 4h18v18H3z','M16 2v4','M8 2v4','M3 10h18']} />;
+const User         = p => <Ic {...p} d={['M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2','M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z']} />;
+const CreditCard   = p => <Ic {...p} d={['M2 5h20v14H2z','M2 10h20']} />;
+const Smartphone   = p => <Ic {...p} d={['M17 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z','M12 18h.01']} />;
+const Banknote     = p => <Ic {...p} d={['M2 6h20v12H2z','M12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z','M6 12H2','M22 12h-4']} />;
+const FileCheck    = p => <Ic {...p} d={['M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z','M14 2v6h6','M9 15l2 2 4-4']} />;
+const Trash2       = p => <Ic {...p} d={['M3 6h18','M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6','M10 11v6','M14 11v6','M9 6V4h6v2']} />;
+const X            = p => <Ic {...p} d="M18 6 6 18M6 6l12 12" />;
+const CheckCircle2 = p => <Ic {...p} d={['M22 11.08V12a10 10 0 1 1-5.93-9.14','M22 4 12 14.01l-3-3']} />;
+const Clock        = p => <Ic {...p} d={['M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z','M12 6v6l4 2']} />;
+const AlertCircle  = p => <Ic {...p} d={['M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z','M12 8v4','M12 16h.01']} />;
+const Sun          = p => <Ic {...p} d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z" />;
+const Moon         = p => <Ic {...p} d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />;
+const Pencil       = p => <Ic {...p} d={['M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7','M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z']} />;
+const Check        = p => <Ic {...p} d="M20 6 9 17l-5-5" />;
+const Settings     = p => <Ic {...p} d={['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z','M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z']} />;
+const ChevronDown  = p => <Ic {...p} d="M6 9l6 6 6-6" />;
+const ChevronUp    = p => <Ic {...p} d="M18 15l-6-6-6 6" />;
+const ChevronRight = p => <Ic {...p} d="M9 18l6-6-6-6" />;
+const TrendingUp   = p => <Ic {...p} d="M23 6l-9.5 9.5-5-5L1 18M17 6h6v6" />;
+const Users        = p => <Ic {...p} d={['M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2','M23 21v-2a4 4 0 0 0-3-3.87','M16 3.13a4 4 0 0 1 0 7.75','M9 7a4 4 0 1 0 0 8 4 4 0 0 0 0-8z']} />;
+const ShieldCheck  = p => <Ic {...p} d={['M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z','M9 12l2 2 4-4']} />;
+const Filter       = p => <Ic {...p} d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />;
+const Download     = p => <Ic {...p} d={['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4','M7 10l5 5 5-5','M12 15V3']} />;
+const AlertTriangle= p => <Ic {...p} d={['M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z','M12 9v4','M12 17h.01']} />;
+const ThumbsUp     = p => <Ic {...p} d={['M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z','M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3']} />;
+const ThumbsDown   = p => <Ic {...p} d={['M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z','M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17']} />;
+const BarChart3    = p => <Ic {...p} d="M18 20V10M12 20V4M6 20v-6" />;
+const Receipt      = p => <Ic {...p} d={['M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1z','M9 7h6M9 11h6','M9 15h4']} />;
+const ArrowRight   = p => <Ic {...p} d="M5 12h14M12 5l7 7-7 7" />;
+const Loader2      = p => <Ic {...p} d="M21 12a9 9 0 1 1-6.219-8.56" className={p.className + ' spin'} sw={2} size={p.size||16} />;
+const Eye          = p => <Ic {...p} d={['M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z','M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z']} />;
+const EyeOff       = p => <Ic {...p} d={['M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24','M1 1l22 22']} />;
+
+// ─── CONSTANTS ────────────────────────────────────────────────
+const BRAND = { name: 'EVG Ledger', tagline: 'EVGCPL Financial Management', copyright: 'EVGCPL' };
+
+const DEPARTMENTS = [
+  { name: 'Finance & Accounts',  color: '#1D4ED8', emoji: '💰' },
+  { name: 'Human Resources',     color: '#7C3AED', emoji: '👥' },
+  { name: 'Supply Chain & SCM',  color: '#0891B2', emoji: '🔗' },
+  { name: 'Operations',          color: '#059669', emoji: '⚙️' },
+  { name: 'Planning & Strategy', color: '#D97706', emoji: '📋' },
+  { name: 'IT & Technology',     color: '#4F46E5', emoji: '💻' },
+  { name: 'Marketing & PR',      color: '#DB2777', emoji: '📣' },
+  { name: 'Legal & Compliance',  color: '#DC2626', emoji: '⚖️' },
+  { name: 'Administration',      color: '#64748B', emoji: '🏢' },
+  { name: 'Plant & Maintenance', color: '#92400E', emoji: '🏭' },
+  { name: 'External / Vendor',   color: '#0D9488', emoji: '🤝' },
+  { name: 'Miscellaneous',       color: '#94A3B8', emoji: '📦' },
+];
+
+const PAYMENT_MODES = [
+  { value: 'cash',   label: 'Cash',       needs: [] },
+  { value: 'cheque', label: 'Cheque',     needs: ['chequeNo', 'bank'] },
+  { value: 'neft',   label: 'NEFT/RTGS',  needs: ['utr', 'bank'] },
+  { value: 'upi',    label: 'UPI',        needs: ['upiId', 'txnId'] },
+  { value: 'gpay',   label: 'GPay',       needs: ['txnId'] },
+  { value: 'card',   label: 'Card',       needs: ['cardLast4'] },
+];
+
+// 5-stage approval pipeline + rejected
+const STAGES = [
+  { key: 'draft',             label: 'Draft',            short: 'Draft',    color: '#64748B', bg: 'rgba(100,116,139,0.15)', Icon: FileText },
+  { key: 'pending',           label: 'Pending Review',   short: 'Pending',  color: '#D97706', bg: 'rgba(217,119,6,0.15)',   Icon: Clock },
+  { key: 'finance_approved',  label: 'Finance Approved', short: 'Finance ✓',color: '#2563EB', bg: 'rgba(37,99,235,0.15)',   Icon: ShieldCheck },
+  { key: 'director_approved', label: 'Director Approved',short: 'Dir. ✓',   color: '#7C3AED', bg: 'rgba(124,58,237,0.15)',  Icon: CheckCircle2 },
+  { key: 'paid',              label: 'Paid',             short: 'Paid',     color: '#16A34A', bg: 'rgba(22,163,74,0.15)',   Icon: Check },
+  { key: 'rejected',          label: 'Rejected',         short: 'Rejected', color: '#DC2626', bg: 'rgba(220,38,38,0.15)',   Icon: X },
+];
+// Pipeline stages (no rejected — it's a side branch)
+const PIPELINE = STAGES.slice(0, 5);
+
+const getStage = (key) => STAGES.find(s => s.key === key) || STAGES[0];
+
+const ADMIN_EMAIL = 'admin@evgcpl.com';
+const ADMIN_PIN   = '1234';
+
+// ─── UTILS ────────────────────────────────────────────────────
+const fmt = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
+const formatCurrency = (n) => fmt.format(Number(n) || 0);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const nowISO   = () => new Date().toISOString();
+const uid      = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+const fmtDate  = (iso) => { if (!iso) return '—'; const d = new Date(iso); return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }); };
+const fmtDateTime = (iso) => { if (!iso) return '—'; const d = new Date(iso); return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }); };
+const getDept  = (name) => DEPARTMENTS.find(d => d.name === name);
+
+// ─── STORAGE ──────────────────────────────────────────────────
+const LS = {
+  get: (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+// ─── EMPTY FORM ───────────────────────────────────────────────
+const emptyForm = {
+  project: '', date: todayISO(), billNumber: '', department: '', category: '',
+  paidBy: '', paidTo: '', amount: '', paymentMode: 'neft',
+  chequeNo: '', bank: '', txnId: '', upiId: '', utr: '', cardLast4: '',
+  description: '', status: 'draft',
+  financeApprovedBy: '', financeApprovedAt: '',
+  directorApprovedBy: '', directorApprovedAt: '',
+  rejectedBy: '', rejectedAt: '', rejectionNote: '',
+  attachments: [],
+};
+
+// ─── DEMO SEED ────────────────────────────────────────────────
+function getDemoSeed() {
+  const d = (n) => { const x = new Date(); x.setDate(x.getDate() - n); return x.toISOString().slice(0,10); };
+  const t = (n) => { const x = new Date(); x.setDate(x.getDate() - n); return x.toISOString(); };
+  const bills = [
+    { id: 'd1', project: 'Project Alpha', date: d(2),  billNumber: 'ALPH-001', department: 'Supply Chain & SCM',  category: 'Raw Materials',    paidBy: 'EVGCPL', paidTo: 'Tata Steel Ltd',      amount: 485000, paymentMode: 'neft',  utr: 'UTR001', bank: 'HDFC', status: 'paid',             financeApprovedBy: 'S. Mehta', financeApprovedAt: t(3), directorApprovedBy: 'R. Nair', directorApprovedAt: t(2), description: 'Q2 steel supply', rejectedBy:'', rejectedAt:'', rejectionNote:'', attachments:[], createdAt: t(5), billCounter: 0 },
+    { id: 'd2', project: 'Project Alpha', date: d(5),  billNumber: 'ALPH-002', department: 'Operations',          category: 'Contractor Labour', paidBy: 'EVGCPL', paidTo: 'BuildRight Services', amount: 220000, paymentMode: 'cheque',chequeNo:'CHQ-4421', bank:'SBI', status: 'director_approved', financeApprovedBy: 'S. Mehta', financeApprovedAt: t(6), directorApprovedBy: '', directorApprovedAt: '', description: 'Civil works Jul', rejectedBy:'', rejectedAt:'', rejectionNote:'', attachments:[], createdAt: t(7) },
+    { id: 'd3', project: 'Project Alpha', date: d(8),  billNumber: 'ALPH-003', department: 'Plant & Maintenance', category: 'Equipment Hire',   paidBy: 'EVGCPL', paidTo: 'PowerLift Co',        amount: 98500,  paymentMode: 'neft',  utr: 'UTR003', bank:'ICICI', status: 'finance_approved', financeApprovedBy: 'S. Mehta', financeApprovedAt: t(9), directorApprovedBy: '', directorApprovedAt: '', description: 'Crane hire 3 days', rejectedBy:'', rejectedAt:'', rejectionNote:'', attachments:[], createdAt: t(10) },
+    { id: 'd4', project: 'Project Beta',  date: d(3),  billNumber: 'BETA-001', department: 'IT & Technology',     category: 'Software License', paidBy: 'EVGCPL', paidTo: 'Microsoft India',     amount: 62000,  paymentMode: 'card',  cardLast4:'4521', status: 'pending',          financeApprovedBy: '', financeApprovedAt: '', directorApprovedBy: '', directorApprovedAt: '', description: 'M365 annual license', rejectedBy:'', rejectedAt:'', rejectionNote:'', attachments:[], createdAt: t(3) },
+    { id: 'd5', project: 'Project Beta',  date: d(10), billNumber: 'BETA-002', department: 'Administration',      category: 'Office Supplies',  paidBy: 'EVGCPL', paidTo: 'Staples India',       amount: 18400,  paymentMode: 'upi',   upiId:'staples@icici', txnId:'TXN8841', status: 'draft',            financeApprovedBy: '', financeApprovedAt: '', directorApprovedBy: '', directorApprovedAt: '', description: 'Stationery & supplies', rejectedBy:'', rejectedAt:'', rejectionNote:'', attachments:[], createdAt: t(10) },
+    { id: 'd6', project: 'Project Beta',  date: d(7),  billNumber: 'BETA-003', department: 'Human Resources',     category: 'Recruitment Fee',  paidBy: 'EVGCPL', paidTo: 'Manpower Solutions',  amount: 45000,  paymentMode: 'neft',  utr:'UTR006', bank:'HDFC', status: 'rejected',         financeApprovedBy: '', financeApprovedAt: '', directorApprovedBy: '', directorApprovedAt: '', rejectedBy: 'S. Mehta', rejectedAt: t(7), rejectionNote: 'Duplicate invoice — already processed as BETA-001', attachments:[], createdAt: t(8) },
+  ];
+  const projects = [
+    { id: 'dp1', name: 'Project Alpha', prefix: 'ALPH', color: '#1D4ED8', notes: 'Main infra project', enabled: true, createdAt: nowISO(), billCounter: 3 },
+    { id: 'dp2', name: 'Project Beta',  prefix: 'BETA', color: '#7C3AED', notes: 'IT upgrade project', enabled: true, createdAt: nowISO(), billCounter: 3 },
+  ];
+  const parties = ['EVGCPL','Tata Steel Ltd','BuildRight Services','PowerLift Co','Microsoft India','Staples India','Manpower Solutions','S. Mehta','R. Nair'].map((name,i) => ({ id:'dpa'+i, name }));
+  return { bills, projects, parties };
+}
+
+// ─── LOGIN SCREEN ─────────────────────────────────────────────
+function LoginScreen({ onLogin, theme, toggleTheme }) {
+  const [email, setEmail] = useState('');
+  const [pin, setPin]     = useState('');
+  const [show, setShow]   = useState(false);
+  const [err, setErr]     = useState('');
+  const [busy, setBusy]   = useState(false);
+
+  const submit = (e) => {
+    e && e.preventDefault();
+    setErr(''); setBusy(true);
+    setTimeout(() => {
+      const r = onLogin(email, pin);
+      setBusy(false);
+      if (!r.ok) setErr(r.error || 'Invalid credentials');
+    }, 180);
+  };
+
+  const inp = {
+    style: { background:'var(--surface-2)', border:'1px solid var(--border)', borderRadius:12, padding:'10px 14px', width:'100%', color:'var(--text)', fontSize:14, outline:'none' }
+  };
+
+  return (
+    <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'16px', background:'var(--bg)' }}>
+      <div style={{ position:'absolute', top:16, right:16 }}>
+        <button onClick={toggleTheme} style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:10, padding:'6px 10px', color:'var(--text-3)', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+          {theme === 'dark' ? <Sun size={14}/> : <Moon size={14}/>}
+        </button>
+      </div>
+
+      <div style={{ marginBottom:28, textAlign:'center' }}>
+        <div style={{ width:64, height:64, borderRadius:18, background:'linear-gradient(135deg,#1D4ED8,#7C3AED)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 14px', boxShadow:'0 8px 24px rgba(29,78,216,0.35)' }}>
+          <Building2 size={30} style={{ color:'#fff' }} />
+        </div>
+        <h1 style={{ fontFamily:'Inter', fontWeight:800, fontSize:28, margin:0, color:'var(--text)' }}>EVG Ledger</h1>
+        <p style={{ margin:'4px 0 0', fontSize:13, color:'var(--text-3)' }}>EVGCPL Financial Management</p>
+      </div>
+
+      <form onSubmit={submit} style={{ width:'100%', maxWidth:360, background:'var(--surface-elevated)', border:'1px solid var(--border)', borderRadius:20, padding:28, boxShadow:'var(--shadow-lg)' }}>
+        <h2 style={{ margin:'0 0 20px', fontWeight:700, fontSize:18, color:'var(--text)' }}>Sign In</h2>
+
+        <label style={{ display:'block', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-3)', marginBottom:6 }}>Email</label>
+        <input {...inp} type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="admin@evgcpl.com" style={{...inp.style, marginBottom:14}} autoFocus />
+
+        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6, alignItems:'center' }}>
+          <label style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-3)' }}>PIN</label>
+          <button type="button" onClick={()=>setShow(s=>!s)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:'var(--text-3)', display:'flex', alignItems:'center', gap:4 }}>
+            {show ? <EyeOff size={12}/> : <Eye size={12}/>} {show ? 'Hide':'Show'}
+          </button>
+        </div>
+        <input {...inp} type={show?'text':'password'} inputMode="numeric" value={pin} onChange={e=>setPin(e.target.value)} placeholder="••••" maxLength={12} style={{...inp.style, marginBottom:err?8:16, fontFamily:'"IBM Plex Mono",monospace', letterSpacing:'0.2em'}} />
+
+        {err && <div style={{ background:'rgba(220,38,38,0.10)', color:'#B91C1C', borderRadius:8, padding:'8px 12px', fontSize:12, marginBottom:12, display:'flex', gap:6, alignItems:'center' }}><AlertCircle size={13}/>{err}</div>}
+
+        <button type="submit" disabled={busy||!email||!pin} style={{ width:'100%', padding:'12px 0', borderRadius:12, border:'none', background:'linear-gradient(135deg,#1D4ED8,#7C3AED)', color:'#fff', fontWeight:700, fontSize:14, cursor:'pointer', opacity:(busy||!email||!pin)?0.5:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+          {busy ? <Loader2 size={16}/> : <FileCheck size={16}/>}{busy ? 'Verifying…':'Sign In'}
+        </button>
+
+        <div style={{ marginTop:14, padding:10, background:'var(--surface-2)', borderRadius:10, fontSize:11, color:'var(--text-3)', textAlign:'center', lineHeight:1.6 }}>
+          Demo: <span style={{fontFamily:'"IBM Plex Mono",monospace', color:'var(--text-2)'}}>admin@evgcpl.com</span> / <span style={{fontFamily:'"IBM Plex Mono",monospace', color:'var(--text-2)'}}>1234</span>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── APPROVAL TIMELINE ────────────────────────────────────────
+function ApprovalTimeline({ bill }) {
+  const stageOrder = ['draft','pending','finance_approved','director_approved','paid'];
+  const isRejected = bill.status === 'rejected';
+  const currentIdx = isRejected ? -1 : stageOrder.indexOf(bill.status);
+
+  const stageInfo = {
+    draft:             { by: '', at: '' },
+    pending:           { by: '', at: '' },
+    finance_approved:  { by: bill.financeApprovedBy,  at: bill.financeApprovedAt },
+    director_approved: { by: bill.directorApprovedBy, at: bill.directorApprovedAt },
+    paid:              { by: '', at: '' },
+  };
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      {isRejected && (
+        <div style={{ background:'rgba(220,38,38,0.10)', border:'1px solid rgba(220,38,38,0.25)', borderRadius:10, padding:'10px 14px', marginBottom:12 }}>
+          <div style={{ display:'flex', gap:8, alignItems:'center', color:'#DC2626', fontWeight:700, fontSize:12, marginBottom:4 }}>
+            <X size={13}/> Rejected{bill.rejectedBy ? ` by ${bill.rejectedBy}` : ''}
+          </div>
+          {bill.rejectedAt && <div style={{ fontSize:11, color:'var(--text-3)', marginBottom:4 }}>{fmtDateTime(bill.rejectedAt)}</div>}
+          {bill.rejectionNote && <div style={{ fontSize:12, color:'var(--text-2)', fontStyle:'italic' }}>"{bill.rejectionNote}"</div>}
+        </div>
+      )}
+      <div style={{ display:'flex', alignItems:'center', gap:0 }}>
+        {stageOrder.map((key, i) => {
+          const stage = getStage(key);
+          const done  = !isRejected && currentIdx >= i;
+          const active = !isRejected && currentIdx === i;
+          const info  = stageInfo[key];
+          const Icon  = stage.Icon;
+          return (
+            <React.Fragment key={key}>
+              <div className="pipeline-step" style={{ textAlign:'center' }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: '50%', margin: '0 auto 4px',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  background: done ? stage.color : 'var(--surface-3)',
+                  border: `2px solid ${done ? stage.color : 'var(--border)'}`,
+                  boxShadow: active ? `0 0 0 3px ${stage.color}33` : 'none',
+                  transition: 'all 0.2s',
+                }}>
+                  <Icon size={13} style={{ color: done ? '#fff' : 'var(--text-4)' }} />
+                </div>
+                <div style={{ fontSize: 9, fontWeight: 700, textTransform:'uppercase', letterSpacing:'0.05em', color: done ? stage.color : 'var(--text-4)', lineHeight:1.2 }}>{stage.short}</div>
+                {info.by && <div style={{ fontSize: 9, color:'var(--text-3)', marginTop:2 }}>{info.by}</div>}
+              </div>
+              {i < stageOrder.length - 1 && (
+                <div className="pipeline-connector" style={{ background: done && currentIdx > i ? stage.color : 'var(--border)', transition:'background 0.3s', marginBottom:20, flexShrink:0, minWidth:8 }} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── STATUS BADGE ─────────────────────────────────────────────
+function StatusBadge({ status }) {
+  const s = getStage(status);
+  const Icon = s.Icon;
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:999, fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', background:s.bg, color:s.color }}>
+      <Icon size={10} />{s.short}
+    </span>
+  );
+}
+
+// ─── STATUS SELECT ────────────────────────────────────────────
+function StatusSelect({ value, onChange }) {
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
+      {STAGES.map(s => {
+        const active = value === s.key;
+        const Icon = s.Icon;
+        return (
+          <button key={s.key} type="button" onClick={() => onChange(s.key)}
+            style={{ padding:'10px 8px', borderRadius:10, border:`1px solid ${active ? s.color+'88' : 'var(--border)'}`, background: active ? s.bg : 'var(--surface)', color: active ? s.color : 'var(--text-3)', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:4, fontSize:11, fontWeight:600, transition:'all 0.15s' }}>
+            <Icon size={14} />{s.short}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── APPROVAL ACTIONS PANEL ───────────────────────────────────
+function ApprovalActions({ bill, onUpdate }) {
+  const [finBy, setFinBy]           = useState('');
+  const [dirBy, setDirBy]           = useState('');
+  const [rejBy, setRejBy]           = useState('');
+  const [rejNote, setRejNote]       = useState('');
+  const [showReject, setShowReject] = useState(false);
+
+  if (!bill) return null;
+  const { status } = bill;
+  const canFinance  = status === 'pending';
+  const canDirector = status === 'finance_approved';
+  const canPay      = status === 'director_approved';
+  const canReject   = ['pending','finance_approved','director_approved'].includes(status);
+
+  if (!canFinance && !canDirector && !canPay && !canReject) return null;
+
+  const approve = (nextStatus, extraFields) => {
+    onUpdate({ ...bill, status: nextStatus, ...extraFields });
+  };
+
+  const btnBase = { border:'none', borderRadius:10, padding:'8px 16px', fontWeight:700, fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', gap:6 };
+
+  return (
+    <div style={{ marginTop:12, background:'var(--surface-2)', border:'1px solid var(--border)', borderRadius:12, padding:14 }}>
+      <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-3)', marginBottom:10 }}>Approval Actions</div>
+
+      {canFinance && (
+        <div style={{ marginBottom:10 }}>
+          <label style={{ fontSize:11, color:'var(--text-3)', fontWeight:600, display:'block', marginBottom:4 }}>Finance Approver Name</label>
+          <div style={{ display:'flex', gap:8 }}>
+            <input value={finBy} onChange={e=>setFinBy(e.target.value)} placeholder="e.g. S. Mehta"
+              style={{ flex:1, padding:'8px 12px', borderRadius:9, border:'1px solid var(--border)', background:'var(--surface)', color:'var(--text)', fontSize:13, outline:'none' }} />
+            <button disabled={!finBy.trim()} onClick={()=>approve('finance_approved',{ financeApprovedBy: finBy.trim(), financeApprovedAt: nowISO() })}
+              style={{ ...btnBase, background:'#2563EB', color:'#fff', opacity:finBy.trim()?1:0.5 }}>
+              <ThumbsUp size={13}/>Finance Approve
+            </button>
+          </div>
+        </div>
+      )}
+
+      {canDirector && (
+        <div style={{ marginBottom:10 }}>
+          <label style={{ fontSize:11, color:'var(--text-3)', fontWeight:600, display:'block', marginBottom:4 }}>Director / C-Level Approver Name</label>
+          <div style={{ display:'flex', gap:8 }}>
+            <input value={dirBy} onChange={e=>setDirBy(e.target.value)} placeholder="e.g. R. Nair"
+              style={{ flex:1, padding:'8px 12px', borderRadius:9, border:'1px solid var(--border)', background:'var(--surface)', color:'var(--text)', fontSize:13, outline:'none' }} />
+            <button disabled={!dirBy.trim()} onClick={()=>approve('director_approved',{ directorApprovedBy: dirBy.trim(), directorApprovedAt: nowISO() })}
+              style={{ ...btnBase, background:'#7C3AED', color:'#fff', opacity:dirBy.trim()?1:0.5 }}>
+              <ShieldCheck size={13}/>Director Approve
+            </button>
+          </div>
+        </div>
+      )}
+
+      {canPay && (
+        <button onClick={()=>approve('paid',{})} style={{ ...btnBase, background:'#16A34A', color:'#fff', marginBottom:10 }}>
+          <CheckCircle2 size={13}/>Mark as Paid
+        </button>
+      )}
+
+      {canReject && !showReject && (
+        <button onClick={()=>setShowReject(true)} style={{ ...btnBase, background:'rgba(220,38,38,0.10)', color:'#DC2626' }}>
+          <ThumbsDown size={13}/>Reject
+        </button>
+      )}
+
+      {canReject && showReject && (
+        <div style={{ background:'rgba(220,38,38,0.07)', border:'1px solid rgba(220,38,38,0.2)', borderRadius:10, padding:12, marginTop:4 }}>
+          <label style={{ fontSize:11, color:'#DC2626', fontWeight:600, display:'block', marginBottom:4 }}>Rejection Details</label>
+          <input value={rejBy} onChange={e=>setRejBy(e.target.value)} placeholder="Rejected by (name)"
+            style={{ width:'100%', padding:'7px 10px', borderRadius:8, border:'1px solid rgba(220,38,38,0.3)', background:'var(--surface)', color:'var(--text)', fontSize:12, outline:'none', marginBottom:6 }} />
+          <textarea value={rejNote} onChange={e=>setRejNote(e.target.value)} placeholder="Reason for rejection…" rows={2}
+            style={{ width:'100%', padding:'7px 10px', borderRadius:8, border:'1px solid rgba(220,38,38,0.3)', background:'var(--surface)', color:'var(--text)', fontSize:12, outline:'none', resize:'vertical', marginBottom:8 }} />
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={()=>setShowReject(false)} style={{ ...btnBase, background:'var(--surface-3)', color:'var(--text-3)' }}>Cancel</button>
+            <button disabled={!rejBy.trim()} onClick={()=>approve('rejected',{ rejectedBy:rejBy.trim(), rejectedAt:nowISO(), rejectionNote:rejNote.trim() })}
+              style={{ ...btnBase, background:'#DC2626', color:'#fff', opacity:rejBy.trim()?1:0.5 }}>
+              <X size={12}/>Confirm Reject
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── FIELD / INPUT PRIMITIVES ─────────────────────────────────
+const inputStyle = { background:'var(--surface-2)', border:'1px solid var(--border)', borderRadius:10, padding:'10px 13px', width:'100%', color:'var(--text)', fontSize:13, outline:'none', fontFamily:'inherit' };
+
+function Field({ label, children, wide }) {
+  return (
+    <div style={{ gridColumn: wide ? '1 / -1' : undefined }}>
+      <label style={{ display:'block', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-3)', marginBottom:5 }}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Input({ value, onChange, placeholder, type='text', maxLength, style:extraStyle={} }) {
+  return <input type={type} value={value} onChange={onChange} placeholder={placeholder} maxLength={maxLength} style={{...inputStyle,...extraStyle}} />;
+}
+
+function ComboBox({ value, onChange, options, placeholder, createLabel }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ]       = useState('');
+  const ref             = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = options.filter(o => o.toLowerCase().includes(q.toLowerCase()));
+  const showCreate = q.trim() && !options.some(o => o.toLowerCase() === q.toLowerCase());
+
+  return (
+    <div ref={ref} style={{ position:'relative' }}>
+      <input value={open ? q : value} onFocus={() => { setOpen(true); setQ(''); }}
+        onChange={e => { setQ(e.target.value); if (!open) setOpen(true); }}
+        placeholder={placeholder} style={{ ...inputStyle, cursor:'pointer' }} />
+      {open && (
+        <div style={{ position:'absolute', top:'100%', left:0, right:0, marginTop:4, background:'var(--surface-elevated)', border:'1px solid var(--border)', borderRadius:10, boxShadow:'var(--shadow-md)', zIndex:50, maxHeight:200, overflowY:'auto' }}>
+          {filtered.map(o => (
+            <div key={o} onClick={() => { onChange(o); setOpen(false); setQ(''); }}
+              style={{ padding:'8px 12px', cursor:'pointer', fontSize:13, color:'var(--text)', background: o === value ? 'var(--surface-3)' : 'transparent' }}
+              onMouseEnter={e => e.currentTarget.style.background='var(--surface-2)'}
+              onMouseLeave={e => e.currentTarget.style.background = o === value ? 'var(--surface-3)' : 'transparent'}>
+              {o}
+            </div>
+          ))}
+          {showCreate && (
+            <div onClick={() => { onChange(q.trim()); setOpen(false); setQ(''); }}
+              style={{ padding:'8px 12px', cursor:'pointer', fontSize:13, color:'var(--brand-1)', borderTop:'1px solid var(--border)' }}>
+              + Add "{q.trim()}" as new {createLabel}
+            </div>
+          )}
+          {filtered.length === 0 && !showCreate && (
+            <div style={{ padding:'8px 12px', fontSize:12, color:'var(--text-4)' }}>No matches</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Section({ title, accent, Icon: SIcon, children }) {
+  return (
+    <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:16, padding:18, boxShadow:'var(--shadow-sm)' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
+        {SIcon && <div style={{ width:26, height:26, borderRadius:8, background: accent+'22', display:'flex', alignItems:'center', justifyContent:'center' }}><SIcon size={13} style={{ color:accent }} /></div>}
+        <span style={{ fontSize:12, fontWeight:700, color:'var(--text)' }}>{title}</span>
+        <div style={{ flex:1, height:1, background:`linear-gradient(90deg,${accent}44,transparent)` }} />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ─── BILL FORM ────────────────────────────────────────────────
+function BillForm({ onSave, projects, parties, bills, onCreateProject, editingBill, onClose }) {
+  const [form, setForm] = useState(editingBill ? { ...emptyForm, ...editingBill } : { ...emptyForm });
+  const isEditing = !!editingBill;
+
+  const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const activeMode = PAYMENT_MODES.find(m => m.value === form.paymentMode) || PAYMENT_MODES[0];
+
+  const projectNames    = projects.filter(p=>p.enabled).map(p=>p.name);
+  const allPartyOptions = [...new Set([...parties.map(p=>p.name), form.paidBy, form.paidTo, form.financeApprovedBy, form.directorApprovedBy].filter(Boolean))];
+
+  const autoBillNumber = () => {
+    const proj = projects.find(p=>p.name===form.project);
+    if (!proj || form.billNumber) return;
+    const count = (bills.filter(b=>b.project===form.project).length) + 1;
+    update('billNumber', `${proj.prefix}-${String(count).padStart(3,'0')}`);
+  };
+
+  const save = (e) => {
+    e && e.preventDefault();
+    if (!form.project || !form.amount || !form.department) {
+      alert('Please fill in Project, Department, and Amount.'); return;
+    }
+    onSave({
+      ...form,
+      id: isEditing ? form.id : uid(),
+      amount: Number(form.amount),
+      createdAt: isEditing ? form.createdAt : nowISO(),
+      updatedAt: nowISO(),
+    });
+    if (!isEditing) setForm({ ...emptyForm });
+  };
+
+  const grd2 = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 };
+
+  return (
+    <form onSubmit={save} style={{ display:'flex', flexDirection:'column', gap:14 }}>
+      {/* Project & Date */}
+      <Section title="Transaction" accent="#1D4ED8" Icon={Receipt}>
+        <div style={grd2}>
+          <Field label="Project *">
+            <ComboBox value={form.project} onChange={v => { update('project',v); if (onCreateProject && !projects.find(p=>p.name===v)) onCreateProject(v); }}
+              options={projectNames} placeholder="Select project…" createLabel="project" />
+          </Field>
+          <Field label="Date">
+            <Input type="date" value={form.date} onChange={e=>update('date',e.target.value)} />
+          </Field>
+          <Field label="Bill / Invoice Number">
+            <Input value={form.billNumber} onChange={e=>update('billNumber',e.target.value)} placeholder="Auto or enter manually"
+              onFocus={autoBillNumber} />
+          </Field>
+          <Field label="Department *">
+            <select value={form.department} onChange={e=>update('department',e.target.value)} style={{ ...inputStyle, cursor:'pointer' }}>
+              <option value="">Select…</option>
+              {DEPARTMENTS.map(d=><option key={d.name} value={d.name}>{d.emoji} {d.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Category / Description">
+            <Input value={form.category} onChange={e=>update('category',e.target.value)} placeholder="e.g. Raw Materials" />
+          </Field>
+          <Field label="Amount (₹) *">
+            <Input type="number" value={form.amount} onChange={e=>update('amount',e.target.value)} placeholder="0" />
+          </Field>
+          <Field label="Paid By">
+            <ComboBox value={form.paidBy} onChange={v=>update('paidBy',v)} options={allPartyOptions} placeholder="EVGCPL / payer" createLabel="party" />
+          </Field>
+          <Field label="Paid To">
+            <ComboBox value={form.paidTo} onChange={v=>update('paidTo',v)} options={allPartyOptions} placeholder="Vendor / payee" createLabel="party" />
+          </Field>
+        </div>
+      </Section>
+
+      {/* Payment Method */}
+      <Section title="Payment Method" accent="#0EA5E9" Icon={Wallet}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom: activeMode.needs.length>0?12:0 }}>
+          {PAYMENT_MODES.map(m => (
+            <button key={m.value} type="button" onClick={()=>update('paymentMode',m.value)}
+              style={{ padding:'9px 6px', borderRadius:9, border:`1px solid ${form.paymentMode===m.value ? '#0EA5E9' : 'var(--border)'}`, background: form.paymentMode===m.value ? 'rgba(14,165,233,0.12)' : 'var(--surface)', color: form.paymentMode===m.value ? '#0EA5E9' : 'var(--text-3)', cursor:'pointer', fontSize:11, fontWeight:600 }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+        {activeMode.needs.length > 0 && (
+          <div style={{ ...grd2, marginTop:4 }}>
+            {activeMode.needs.includes('chequeNo') && <Field label="Cheque No."><Input value={form.chequeNo} onChange={e=>update('chequeNo',e.target.value)} placeholder="123456"/></Field>}
+            {activeMode.needs.includes('bank')     && <Field label="Bank"><Input value={form.bank} onChange={e=>update('bank',e.target.value)} placeholder="HDFC"/></Field>}
+            {activeMode.needs.includes('upiId')    && <Field label="UPI ID"><Input value={form.upiId} onChange={e=>update('upiId',e.target.value)} placeholder="vendor@okicici"/></Field>}
+            {activeMode.needs.includes('txnId')    && <Field label="Transaction ID"><Input value={form.txnId} onChange={e=>update('txnId',e.target.value)} placeholder="UPI ref…"/></Field>}
+            {activeMode.needs.includes('utr')      && <Field label="UTR / Ref No."><Input value={form.utr} onChange={e=>update('utr',e.target.value)} placeholder="HDFCN…"/></Field>}
+            {activeMode.needs.includes('cardLast4')&& <Field label="Card last 4"><Input value={form.cardLast4} onChange={e=>update('cardLast4',e.target.value)} placeholder="0000" maxLength={4}/></Field>}
+          </div>
+        )}
+      </Section>
+
+      {/* Status & Approval */}
+      <Section title="Approval Status" accent="#7C3AED" Icon={ShieldCheck}>
+        <Field label="Current Stage" wide>
+          <StatusSelect value={form.status} onChange={v=>update('status',v)} />
+        </Field>
+        <div style={{ ...grd2, marginTop:12 }}>
+          <Field label="Finance Approved By">
+            <ComboBox value={form.financeApprovedBy} onChange={v=>update('financeApprovedBy',v)} options={allPartyOptions} placeholder="Finance approver" createLabel="person" />
+          </Field>
+          <Field label="Finance Approved At">
+            <Input type="datetime-local" value={form.financeApprovedAt ? form.financeApprovedAt.slice(0,16):''} onChange={e=>update('financeApprovedAt', e.target.value ? new Date(e.target.value).toISOString() : '')} />
+          </Field>
+          <Field label="Director Approved By">
+            <ComboBox value={form.directorApprovedBy} onChange={v=>update('directorApprovedBy',v)} options={allPartyOptions} placeholder="Director / C-Level" createLabel="person" />
+          </Field>
+          <Field label="Director Approved At">
+            <Input type="datetime-local" value={form.directorApprovedAt ? form.directorApprovedAt.slice(0,16):''} onChange={e=>update('directorApprovedAt', e.target.value ? new Date(e.target.value).toISOString() : '')} />
+          </Field>
+        </div>
+        {form.status === 'rejected' && (
+          <div style={{ ...grd2, marginTop:12 }}>
+            <Field label="Rejected By">
+              <Input value={form.rejectedBy} onChange={e=>update('rejectedBy',e.target.value)} placeholder="Who rejected" />
+            </Field>
+            <Field label="Rejection Note" wide>
+              <textarea value={form.rejectionNote} onChange={e=>update('rejectionNote',e.target.value)} placeholder="Reason…" rows={2}
+                style={{ ...inputStyle, resize:'vertical' }} />
+            </Field>
+          </div>
+        )}
+      </Section>
+
+      {/* Description */}
+      <Section title="Details" accent="#059669" Icon={FileText}>
+        <Field label="Description / Purpose" wide>
+          <textarea value={form.description} onChange={e=>update('description',e.target.value)} placeholder="Context for this expense…" rows={3}
+            style={{ ...inputStyle, resize:'vertical' }} />
+        </Field>
+      </Section>
+
+      {/* Submit */}
+      <div style={{ display:'flex', gap:10, position:'sticky', bottom:16, zIndex:10 }}>
+        {onClose && <button type="button" onClick={onClose} style={{ padding:'13px 20px', borderRadius:13, border:'1px solid var(--border)', background:'var(--surface)', color:'var(--text-2)', fontWeight:600, fontSize:13, cursor:'pointer' }}>Cancel</button>}
+        <button type="submit" style={{ flex:1, padding:'13px 0', borderRadius:13, border:'none', background:'linear-gradient(135deg,#1D4ED8,#7C3AED)', color:'#fff', fontWeight:700, fontSize:14, cursor:'pointer', boxShadow:'0 8px 20px rgba(29,78,216,0.3)' }}>
+          {isEditing ? '✓ Update Bill' : '+ Save Bill'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ─── BILL EXPANDED ────────────────────────────────────────────
+function BillExpanded({ bill, onClose, onDelete, onUpdate }) {
+  const dept = getDept(bill.department);
+
+  const DRow = ({ k, v }) => v ? (
+    <div style={{ display:'flex', justifyContent:'space-between', gap:12, padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
+      <span style={{ color:'var(--text-3)', flexShrink:0 }}>{k}</span>
+      <span style={{ color:'var(--text)', fontWeight:500, textAlign:'right', wordBreak:'break-word' }}>{v}</span>
+    </div>
+  ) : null;
+
+  return (
+    <div className="fade-in" style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:16, padding:18, boxShadow:'var(--shadow-md)', marginTop:8 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          <div style={{ width:36, height:36, borderRadius:10, background:(dept?.color||'#64748B')+'18', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>{dept?.emoji||'📄'}</div>
+          <div>
+            <div style={{ fontWeight:700, fontSize:14, color:'var(--text)' }}>{bill.billNumber||'—'}</div>
+            <div style={{ fontSize:12, color:'var(--text-3)' }}>{bill.department}</div>
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          <StatusBadge status={bill.status} />
+          {onClose && <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:4 }}><X size={15}/></button>}
+        </div>
+      </div>
+
+      <div style={{ fontFamily:'"IBM Plex Mono",monospace', fontWeight:700, fontSize:22, color:'var(--text)', marginBottom:10 }}>{formatCurrency(bill.amount)}</div>
+
+      <ApprovalTimeline bill={bill} />
+
+      <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:0 }}>
+        <DRow k="Bill No."    v={bill.billNumber} />
+        <DRow k="Date"        v={fmtDate(bill.date)} />
+        <DRow k="Category"    v={bill.category} />
+        <DRow k="Paid By"     v={bill.paidBy} />
+        <DRow k="Paid To"     v={bill.paidTo} />
+        <DRow k="Payment"     v={bill.paymentMode?.toUpperCase()} />
+        {bill.utr     && <DRow k="UTR"       v={bill.utr} />}
+        {bill.bank    && <DRow k="Bank"      v={bill.bank} />}
+        {bill.chequeNo&& <DRow k="Cheque"    v={bill.chequeNo} />}
+        {bill.upiId   && <DRow k="UPI ID"    v={bill.upiId} />}
+        {bill.txnId   && <DRow k="Txn ID"    v={bill.txnId} />}
+        <DRow k="Description" v={bill.description} />
+        <DRow k="Created"     v={fmtDateTime(bill.createdAt)} />
+      </div>
+
+      <ApprovalActions bill={bill} onUpdate={onUpdate} />
+
+      {onDelete && (
+        <button onClick={() => { if(window.confirm('Delete this bill?')) onDelete(bill.id); }}
+          style={{ marginTop:10, display:'flex', alignItems:'center', gap:6, fontSize:11, color:'#DC2626', background:'none', border:'none', cursor:'pointer', padding:'4px 0' }}>
+          <Trash2 size={12}/>Delete Bill
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── BILLS SCREEN ─────────────────────────────────────────────
+function BillsScreen({ bills, projects, parties, projectFilter, onSave, onDelete, onUpdate, onCreateProject }) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingBill, setEditingBill] = useState(null);
+  const [expanded, setExpanded]     = useState(null);
+  const [query, setQuery]           = useState('');
+  const [stageFilter, setStageFilter] = useState('');
+
+  const scoped = useMemo(() => {
+    let b = projectFilter ? bills.filter(b=>b.project?.toLowerCase()===projectFilter.name.toLowerCase()) : bills;
+    if (stageFilter) b = b.filter(x=>x.status===stageFilter);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      b = b.filter(x=>[x.project,x.department,x.paidBy,x.paidTo,x.billNumber,x.category,x.description].filter(Boolean).join(' ').toLowerCase().includes(q));
+    }
+    return [...b].sort((a,b) => new Date(b.createdAt||0) - new Date(a.createdAt||0));
+  }, [bills, projectFilter, stageFilter, query]);
+
+  const openEdit = (bill) => { setEditingBill(bill); setDrawerOpen(true); setExpanded(null); };
+  const closeDrawer = () => { setDrawerOpen(false); setEditingBill(null); };
+
+  const handleSave = (bill) => {
+    onSave(bill);
+    closeDrawer();
+  };
+
+  return (
+    <div className="fade-in">
+      {/* Header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:10 }}>
+        <div>
+          <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-3)' }}>{projectFilter ? `${projectFilter.name} ·` : ''} Bills</div>
+          <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:'var(--text)' }}>All Transactions</h2>
+        </div>
+        <button onClick={()=>{setEditingBill(null);setDrawerOpen(true);}}
+          style={{ padding:'10px 18px', borderRadius:12, border:'none', background:'linear-gradient(135deg,#1D4ED8,#7C3AED)', color:'#fff', fontWeight:700, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', gap:7, boxShadow:'0 4px 14px rgba(29,78,216,0.3)' }}>
+          <Plus size={15}/>New Bill
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div style={{ display:'flex', gap:8, marginBottom:14, flexWrap:'wrap' }}>
+        <div style={{ flex:1, minWidth:180, display:'flex', alignItems:'center', gap:8, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:10, padding:'8px 12px' }}>
+          <Search size={13} style={{ color:'var(--text-4)', flexShrink:0 }}/>
+          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search bills…"
+            style={{ border:'none', background:'none', color:'var(--text)', fontSize:13, outline:'none', flex:1 }} />
+        </div>
+        <select value={stageFilter} onChange={e=>setStageFilter(e.target.value)}
+          style={{ padding:'8px 12px', borderRadius:10, border:'1px solid var(--border)', background:'var(--surface)', color:'var(--text)', fontSize:12, cursor:'pointer', outline:'none' }}>
+          <option value="">All Stages</option>
+          {STAGES.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}
+        </select>
+      </div>
+
+      {/* Drawer */}
+      {drawerOpen && (
+        <div style={{ position:'fixed', top:0, right:0, bottom:0, width:'min(560px,100vw)', background:'var(--surface)', boxShadow:'-8px 0 40px rgba(0,0,0,0.15)', zIndex:200, overflowY:'auto', padding:24 }} className="slide-in">
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+            <h3 style={{ margin:0, fontSize:18, fontWeight:700, color:'var(--text)' }}>{editingBill?'Edit Bill':'New Bill'}</h3>
+            <button onClick={closeDrawer} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)' }}><X size={18}/></button>
+          </div>
+          <BillForm onSave={handleSave} projects={projects} parties={parties} bills={bills}
+            onCreateProject={onCreateProject} editingBill={editingBill} onClose={closeDrawer} />
+        </div>
+      )}
+      {drawerOpen && <div onClick={closeDrawer} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:199 }} />}
+
+      {/* Bills table */}
+      {scoped.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'60px 20px', color:'var(--text-3)', background:'var(--surface)', borderRadius:16, border:'1px solid var(--border)' }}>
+          <Wallet size={36} style={{ color:'var(--text-4)', margin:'0 auto 10px', display:'block' }}/>
+          <div style={{ fontWeight:700, marginBottom:4, color:'var(--text-2)' }}>No bills found</div>
+          <div style={{ fontSize:12 }}>Adjust filters or add a new bill.</div>
+        </div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          {scoped.map(bill => (
+            <div key={bill.id}>
+              <div onClick={()=>setExpanded(expanded===bill.id?null:bill.id)}
+                style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:14, padding:'12px 16px', cursor:'pointer', display:'flex', alignItems:'center', gap:12, transition:'box-shadow 0.15s', boxShadow: expanded===bill.id ? 'var(--shadow-md)' : 'var(--shadow-sm)' }}
+                onMouseEnter={e=>e.currentTarget.style.boxShadow='var(--shadow-md)'}
+                onMouseLeave={e=>e.currentTarget.style.boxShadow=expanded===bill.id?'var(--shadow-md)':'var(--shadow-sm)'}>
+                <div style={{ width:40, height:40, borderRadius:10, background:(getDept(bill.department)?.color||'#64748B')+'18', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>
+                  {getDept(bill.department)?.emoji||'📄'}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                    <span style={{ fontWeight:700, fontSize:13, color:'var(--text)' }}>{bill.paidTo||bill.paidBy||'—'}</span>
+                    {bill.billNumber && <span style={{ fontSize:10, fontFamily:'"IBM Plex Mono",monospace', color:'var(--text-3)', background:'var(--surface-3)', padding:'1px 6px', borderRadius:4 }}>{bill.billNumber}</span>}
+                  </div>
+                  <div style={{ fontSize:11, color:'var(--text-3)', marginTop:2 }}>{bill.department}{bill.category?' · '+bill.category:''}</div>
+                </div>
+                <div style={{ textAlign:'right', flexShrink:0 }}>
+                  <div style={{ fontFamily:'"IBM Plex Mono",monospace', fontWeight:700, fontSize:14, color:'var(--text)' }}>{formatCurrency(bill.amount)}</div>
+                  <StatusBadge status={bill.status} />
+                </div>
+                <div style={{ marginLeft:4, display:'flex', flexDirection:'column', gap:4 }}>
+                  <button onClick={e=>{e.stopPropagation();openEdit(bill);}} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', padding:4 }}><Pencil size={13}/></button>
+                  {expanded===bill.id ? <ChevronUp size={13} style={{color:'var(--text-3)'}}/> : <ChevronDown size={13} style={{color:'var(--text-3)'}}/>}
+                </div>
+              </div>
+              {expanded === bill.id && (
+                <BillExpanded bill={bill} onDelete={onDelete} onUpdate={b=>{onUpdate(b);}}/>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── LEDGER VIEW ──────────────────────────────────────────────
+function LedgerView({ bills, projectFilter }) {
+  const [mode, setMode] = useState('department');
+  const [expanded, setExpanded] = useState(null);
+  const [query, setQuery] = useState('');
+
+  const scoped = useMemo(() => {
+    let b = projectFilter ? bills.filter(b=>b.project?.toLowerCase()===projectFilter.name.toLowerCase()) : bills;
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      b = b.filter(x=>[x.project,x.department,x.paidBy,x.paidTo,x.billNumber,x.category].filter(Boolean).join(' ').toLowerCase().includes(q));
+    }
+    return b;
+  }, [bills, projectFilter, query]);
+
+  const groups = useMemo(() => {
+    const map = new Map();
+    scoped.forEach(b => {
+      const key = mode === 'department' ? (b.department||'Uncategorised') : (b.paidTo||b.paidBy||'Unknown');
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(b);
+    });
+    return Array.from(map.entries()).map(([name, list]) => ({
+      name, list,
+      total: list.reduce((s,b)=>s+Number(b.amount||0),0),
+      paid: list.filter(b=>b.status==='paid').reduce((s,b)=>s+Number(b.amount||0),0),
+      count: list.length,
+    })).sort((a,b)=>b.total-a.total);
+  }, [scoped, mode]);
+
+  return (
+    <div className="fade-in">
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:10 }}>
+        <div>
+          <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-3)' }}>Ledger</div>
+          <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:'var(--text)' }}>Grouped View</h2>
+        </div>
+        <div style={{ display:'flex', gap:6 }}>
+          {['department','party'].map(m=>(
+            <button key={m} onClick={()=>setMode(m)} style={{ padding:'7px 14px', borderRadius:9, border:'1px solid var(--border)', background: mode===m ? 'var(--brand-1)' : 'var(--surface)', color: mode===m ? '#fff' : 'var(--text-3)', fontWeight:600, fontSize:12, cursor:'pointer' }}>
+              {m==='department'?'By Dept':'By Party'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display:'flex', alignItems:'center', gap:8, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:10, padding:'8px 12px', marginBottom:14 }}>
+        <Search size={13} style={{ color:'var(--text-4)', flexShrink:0 }}/>
+        <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search…"
+          style={{ border:'none', background:'none', color:'var(--text)', fontSize:13, outline:'none', flex:1 }} />
+      </div>
+
+      {groups.map(g => {
+        const dept = mode==='department' ? getDept(g.name) : null;
+        const color = dept?.color || '#7C3AED';
+        const isExp = expanded === g.name;
+        return (
+          <div key={g.name} style={{ marginBottom:8 }}>
+            <div onClick={()=>setExpanded(isExp?null:g.name)}
+              style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:14, padding:'14px 16px', cursor:'pointer', display:'flex', alignItems:'center', gap:14, boxShadow:'var(--shadow-sm)' }}>
+              <div style={{ width:44, height:44, borderRadius:12, background:color+'18', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>
+                {mode==='department' ? (dept?.emoji||'📦') : '👤'}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:700, fontSize:14, color:'var(--text)', marginBottom:2 }}>{g.name}</div>
+                <div style={{ fontSize:11, color:'var(--text-3)' }}>{g.count} transaction{g.count!==1?'s':''} · Paid: {formatCurrency(g.paid)}</div>
+              </div>
+              <div style={{ textAlign:'right' }}>
+                <div style={{ fontFamily:'"IBM Plex Mono",monospace', fontWeight:700, fontSize:16, color:'var(--text)' }}>{formatCurrency(g.total)}</div>
+              </div>
+              {isExp ? <ChevronUp size={16} style={{color:'var(--text-3)'}}/> : <ChevronDown size={16} style={{color:'var(--text-3)'}}/>}
+            </div>
+            {isExp && (
+              <div style={{ marginLeft:12, borderLeft:`2px solid ${color}44`, paddingLeft:12, marginTop:4, display:'flex', flexDirection:'column', gap:4 }} className="fade-in">
+                {g.list.sort((a,b)=>Number(b.amount)-Number(a.amount)).map(bill=>(
+                  <div key={bill.id} style={{ background:'var(--surface-2)', border:'1px solid var(--border)', borderRadius:10, padding:'10px 14px', display:'flex', alignItems:'center', gap:10 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:600, fontSize:12, color:'var(--text)' }}>{bill.paidTo||bill.paidBy||'—'}{bill.billNumber?` (${bill.billNumber})`:''}</div>
+                      <div style={{ fontSize:11, color:'var(--text-3)' }}>{fmtDate(bill.date)}{bill.category?' · '+bill.category:''}</div>
+                    </div>
+                    <div style={{ textAlign:'right' }}>
+                      <div style={{ fontFamily:'"IBM Plex Mono",monospace', fontWeight:700, fontSize:13, color:'var(--text)' }}>{formatCurrency(bill.amount)}</div>
+                      <StatusBadge status={bill.status} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────
+function DashboardScreen({ bills, projects, projectFilter }) {
+  const scoped = useMemo(() => projectFilter ? bills.filter(b=>b.project?.toLowerCase()===projectFilter.name.toLowerCase()) : bills, [bills, projectFilter]);
+
+  const totals = useMemo(() => {
+    const total   = scoped.reduce((s,b)=>s+Number(b.amount||0),0);
+    const paid    = scoped.filter(b=>b.status==='paid').reduce((s,b)=>s+Number(b.amount||0),0);
+    const pending = scoped.filter(b=>['draft','pending','finance_approved','director_approved'].includes(b.status)).reduce((s,b)=>s+Number(b.amount||0),0);
+    return { total, paid, pending, count: scoped.length, depts: new Set(scoped.map(b=>b.department)).size };
+  }, [scoped]);
+
+  const stageMix = useMemo(() => {
+    const m = {};
+    STAGES.forEach(s => { m[s.key] = 0; });
+    scoped.forEach(b => { if (m[b.status] != null) m[b.status]++; });
+    return m;
+  }, [scoped]);
+
+  const byDept = useMemo(() => {
+    const map = new Map();
+    scoped.forEach(b => {
+      if (!b.department) return;
+      if (!map.has(b.department)) map.set(b.department, 0);
+      map.set(b.department, map.get(b.department) + Number(b.amount||0));
+    });
+    return [...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8);
+  }, [scoped]);
+
+  const maxDept = byDept[0]?.[1] || 1;
+
+  const Kpi = ({ label, value, sub, color }) => (
+    <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:16, padding:'16px 18px', boxShadow:'var(--shadow-sm)' }}>
+      <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-3)', marginBottom:6 }}>{label}</div>
+      <div style={{ fontFamily:'"IBM Plex Mono",monospace', fontWeight:700, fontSize:22, color: color||'var(--text)' }}>{value}</div>
+      {sub && <div style={{ fontSize:11, color:'var(--text-3)', marginTop:4 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div className="fade-in">
+      <div style={{ marginBottom:16 }}>
+        <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-3)' }}>{projectFilter?`${projectFilter.name} ·`:'Overview'}</div>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:'var(--text)' }}>Dashboard</h2>
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:10, marginBottom:16 }}>
+        <Kpi label="Total Spend" value={formatCurrency(totals.total)} sub={`${totals.count} bill${totals.count!==1?'s':''}`} color="#1D4ED8" />
+        <Kpi label="Paid" value={formatCurrency(totals.paid)} sub="Released" color="#16A34A" />
+        <Kpi label="In Pipeline" value={formatCurrency(totals.pending)} sub="Pending approval" color="#D97706" />
+        <Kpi label="Departments" value={totals.depts} sub="Active" />
+      </div>
+
+      {/* Approval Pipeline Breakdown */}
+      <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:16, padding:18, marginBottom:14, boxShadow:'var(--shadow-sm)' }}>
+        <div style={{ fontSize:12, fontWeight:700, color:'var(--text)', marginBottom:14 }}>Approval Pipeline Breakdown</div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(90px,1fr))', gap:8 }}>
+          {STAGES.map(s => {
+            const count = stageMix[s.key] || 0;
+            const Icon = s.Icon;
+            return (
+              <div key={s.key} style={{ textAlign:'center', padding:'10px 6px', background: count > 0 ? s.bg : 'var(--surface-2)', borderRadius:12, border:`1px solid ${count>0?s.color+'33':'var(--border)'}` }}>
+                <Icon size={16} style={{ color: count>0 ? s.color : 'var(--text-4)', margin:'0 auto 4px', display:'block' }} />
+                <div style={{ fontFamily:'"IBM Plex Mono",monospace', fontWeight:700, fontSize:18, color: count>0 ? s.color : 'var(--text-3)' }}>{count}</div>
+                <div style={{ fontSize:9, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color:'var(--text-3)' }}>{s.short}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Dept Bar Chart */}
+      <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:16, padding:18, boxShadow:'var(--shadow-sm)' }}>
+        <div style={{ fontSize:12, fontWeight:700, color:'var(--text)', marginBottom:14 }}>Spend by Department</div>
+        {byDept.length === 0 ? (
+          <div style={{ textAlign:'center', padding:'24px 0', color:'var(--text-4)', fontSize:12 }}>No data yet</div>
+        ) : (
+          byDept.map(([name, total]) => {
+            const dept = getDept(name);
+            const pct  = (total / maxDept) * 100;
+            return (
+              <div key={name} style={{ marginBottom:10 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                  <span style={{ fontSize:12, color:'var(--text-2)', fontWeight:500 }}>{dept?.emoji||''} {name}</span>
+                  <span style={{ fontSize:11, fontFamily:'"IBM Plex Mono",monospace', color:'var(--text-3)' }}>{formatCurrency(total)}</span>
+                </div>
+                <div style={{ height:7, borderRadius:4, background:'var(--surface-3)', overflow:'hidden' }}>
+                  <div style={{ height:'100%', width:`${pct}%`, background: dept?.color||'#1D4ED8', borderRadius:4, transition:'width 0.5s ease' }} />
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── PROJECTS SCREEN ──────────────────────────────────────────
+function ProjectsScreen({ projects, bills, onSaveProject, onDeleteProject }) {
+  const [form, setForm] = useState({ name:'', prefix:'', color:'#1D4ED8', notes:'', enabled:true });
+  const [showForm, setShowForm] = useState(false);
+
+  const COLORS = ['#1D4ED8','#7C3AED','#059669','#D97706','#DC2626','#0891B2','#DB2777','#4F46E5'];
+
+  const save = () => {
+    if (!form.name.trim() || !form.prefix.trim()) { alert('Name and Prefix required'); return; }
+    onSaveProject({ id: uid(), ...form, prefix: form.prefix.toUpperCase(), createdAt: nowISO(), billCounter: 0 });
+    setForm({ name:'', prefix:'', color:'#1D4ED8', notes:'', enabled:true });
+    setShowForm(false);
+  };
+
+  return (
+    <div className="fade-in">
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:'var(--text)' }}>Projects</h2>
+        <button onClick={()=>setShowForm(s=>!s)} style={{ padding:'9px 16px', borderRadius:11, border:'none', background:'linear-gradient(135deg,#1D4ED8,#7C3AED)', color:'#fff', fontWeight:700, fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+          <Plus size={13}/>New Project
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="fade-in" style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:16, padding:18, marginBottom:14, boxShadow:'var(--shadow-md)' }}>
+          <h3 style={{ margin:'0 0 14px', fontSize:15, fontWeight:700, color:'var(--text)' }}>New Project</h3>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+            <Field label="Project Name"><Input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Project Alpha" /></Field>
+            <Field label="Prefix (for bill numbers)"><Input value={form.prefix} onChange={e=>setForm(f=>({...f,prefix:e.target.value.toUpperCase()}))} placeholder="ALPH" maxLength={6} /></Field>
+            <Field label="Notes" wide><Input value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Optional description" /></Field>
+          </div>
+          <Field label="Colour">
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:4 }}>
+              {COLORS.map(c=>(
+                <button key={c} type="button" onClick={()=>setForm(f=>({...f,color:c}))} style={{ width:28, height:28, borderRadius:'50%', background:c, border: form.color===c ? '3px solid var(--text)' : '2px solid transparent', cursor:'pointer' }} />
+              ))}
+            </div>
+          </Field>
+          <div style={{ display:'flex', gap:8, marginTop:14 }}>
+            <button onClick={()=>setShowForm(false)} style={{ padding:'9px 16px', borderRadius:9, border:'1px solid var(--border)', background:'var(--surface-2)', color:'var(--text-2)', fontWeight:600, fontSize:12, cursor:'pointer' }}>Cancel</button>
+            <button onClick={save} style={{ padding:'9px 16px', borderRadius:9, border:'none', background:'#1D4ED8', color:'#fff', fontWeight:700, fontSize:12, cursor:'pointer' }}>Save Project</button>
+          </div>
+        </div>
+      )}
+
+      {projects.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'60px 20px', color:'var(--text-3)', background:'var(--surface)', borderRadius:16, border:'1px solid var(--border)' }}>
+          <Receipt size={36} style={{ color:'var(--text-4)', margin:'0 auto 10px', display:'block' }}/>
+          <div style={{ fontWeight:700, marginBottom:4, color:'var(--text-2)' }}>No projects yet</div>
+          <div style={{ fontSize:12 }}>Create your first project to start logging bills.</div>
+        </div>
+      ) : projects.map(p => {
+        const billCount = bills.filter(b=>b.project===p.name).length;
+        const total     = bills.filter(b=>b.project===p.name).reduce((s,b)=>s+Number(b.amount||0),0);
+        return (
+          <div key={p.id} style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:14, padding:'14px 16px', display:'flex', alignItems:'center', gap:14, marginBottom:8, boxShadow:'var(--shadow-sm)' }}>
+            <div style={{ width:44, height:44, borderRadius:12, background:p.color, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'"IBM Plex Mono",monospace', fontWeight:700, fontSize:13, color:'#fff', flexShrink:0 }}>{p.prefix}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontWeight:700, fontSize:14, color:'var(--text)' }}>{p.name}</div>
+              <div style={{ fontSize:11, color:'var(--text-3)' }}>{billCount} bills · {formatCurrency(total)}{p.notes?' · '+p.notes:''}</div>
+            </div>
+            <button onClick={()=>onDeleteProject(p.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-4)', padding:4 }}><Trash2 size={14}/></button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────
+function App() {
+  const [theme, setTheme]               = useState(() => LS.get('evgl-theme') || 'light');
+  const [user, setUser]                 = useState(() => LS.get('evgl-user'));
+  const [screen, setScreen]             = useState('dashboard');
+  const [projectFilter, setProjectFilter] = useState(null);
+
+  const seed = getDemoSeed();
+  const [bills, setBills]       = useState(() => LS.get('evgl-bills')    || seed.bills);
+  const [projects, setProjects] = useState(() => LS.get('evgl-projects') || seed.projects);
+  const [parties, setParties]   = useState(() => LS.get('evgl-parties')  || seed.parties);
+
+  useEffect(() => { document.documentElement.setAttribute('data-theme', theme); LS.set('evgl-theme', theme); }, [theme]);
+  useEffect(() => { LS.set('evgl-bills', bills); }, [bills]);
+  useEffect(() => { LS.set('evgl-projects', projects); }, [projects]);
+  useEffect(() => { LS.set('evgl-parties', parties); }, [parties]);
+
+  const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+
+  const onLogin = (email, pin) => {
+    if (email.trim().toLowerCase() === ADMIN_EMAIL && pin === ADMIN_PIN) {
+      const u = { email, role: 'admin' };
+      setUser(u); LS.set('evgl-user', u);
+      return { ok: true };
+    }
+    return { ok: false, error: 'Incorrect email or PIN.' };
+  };
+
+  const onLogout = () => { setUser(null); LS.set('evgl-user', null); setScreen('dashboard'); setProjectFilter(null); };
+
+  const saveBill = (bill) => {
+    setBills(prev => {
+      const exists = prev.find(b => b.id === bill.id);
+      const updated = exists ? prev.map(b => b.id === bill.id ? bill : b) : [bill, ...prev];
+      // Ensure party entries exist
+      [bill.paidBy, bill.paidTo].filter(Boolean).forEach(name => {
+        setParties(pp => pp.find(p=>p.name===name) ? pp : [...pp, { id:uid(), name }]);
+      });
+      return updated;
+    });
+  };
+
+  const deleteBill   = (id) => setBills(prev => prev.filter(b => b.id !== id));
+  const updateBill   = (bill) => setBills(prev => prev.map(b => b.id === bill.id ? bill : b));
+
+  const saveProject  = (p) => setProjects(prev => { const e = prev.find(x=>x.id===p.id); return e ? prev.map(x=>x.id===p.id?p:x) : [...prev, p]; });
+  const deleteProject= (id) => setProjects(prev => prev.filter(p => p.id !== id));
+
+  const createProjectFromBill = (name) => {
+    if (!projects.find(p => p.name === name)) {
+      const prefix = name.replace(/[^a-zA-Z]/g,'').slice(0,4).toUpperCase() || 'PROJ';
+      saveProject({ id:uid(), name, prefix, color:'#1D4ED8', notes:'', enabled:true, createdAt:nowISO(), billCounter:0 });
+    }
+  };
+
+  if (!user) return <LoginScreen onLogin={onLogin} theme={theme} toggleTheme={toggleTheme} />;
+
+  const navItems = [
+    { id:'dashboard', label:'Dashboard', Icon:BarChart3 },
+    { id:'bills',     label:'Bills',     Icon:Receipt },
+    { id:'ledger',    label:'Ledger',    Icon:FileText },
+    { id:'projects',  label:'Projects',  Icon:Building2 },
+  ];
+
+  return (
+    <div style={{ minHeight:'100vh', background:'var(--bg)' }}>
+      {/* Top Nav */}
+      <nav style={{ background:'var(--surface)', borderBottom:'1px solid var(--border)', position:'sticky', top:0, zIndex:100, boxShadow:'var(--shadow-sm)' }}>
+        <div style={{ maxWidth:1100, margin:'0 auto', padding:'0 16px', display:'flex', alignItems:'center', gap:0 }}>
+          {/* Logo */}
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px 12px 0', borderRight:'1px solid var(--border)', marginRight:8, flexShrink:0 }}>
+            <div style={{ width:30, height:30, borderRadius:9, background:'linear-gradient(135deg,#1D4ED8,#7C3AED)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <Building2 size={15} style={{ color:'#fff' }} />
+            </div>
+            <span style={{ fontWeight:800, fontSize:15, color:'var(--text)' }}>EVG Ledger</span>
+          </div>
+
+          {/* Nav */}
+          <div style={{ display:'flex', flex:1, gap:0 }}>
+            {navItems.map(n => {
+              const active = screen === n.id;
+              return (
+                <button key={n.id} onClick={()=>setScreen(n.id)}
+                  style={{ padding:'14px 14px', border:'none', borderBottom: active ? '2px solid #1D4ED8' : '2px solid transparent', background:'none', color: active ? '#1D4ED8' : 'var(--text-3)', fontWeight: active ? 700 : 500, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', gap:6, transition:'color 0.15s', flexShrink:0 }}>
+                  <n.Icon size={14} /><span className="hidden sm:inline">{n.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Right side */}
+          <div style={{ display:'flex', alignItems:'center', gap:8, paddingLeft:8 }}>
+            {/* Project filter pill */}
+            {projects.length > 0 && (
+              <select value={projectFilter?.id||''} onChange={e => setProjectFilter(e.target.value ? projects.find(p=>p.id===e.target.value) : null)}
+                style={{ padding:'5px 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--surface-2)', color:'var(--text)', fontSize:11, cursor:'pointer', outline:'none', maxWidth:120 }}>
+                <option value="">All Projects</option>
+                {projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
+            <button onClick={toggleTheme} style={{ background:'var(--surface-2)', border:'1px solid var(--border)', borderRadius:8, padding:'6px 8px', color:'var(--text-3)', cursor:'pointer', display:'flex', alignItems:'center' }}>
+              {theme==='dark'?<Sun size={13}/>:<Moon size={13}/>}
+            </button>
+            <button onClick={onLogout} style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:'var(--text-3)', padding:'6px 8px', borderRadius:8 }}>Sign out</button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Main content */}
+      <main style={{ maxWidth:1100, margin:'0 auto', padding:'20px 16px 60px' }}>
+        {screen==='dashboard' && <DashboardScreen bills={bills} projects={projects} projectFilter={projectFilter} />}
+        {screen==='bills'     && <BillsScreen bills={bills} projects={projects} parties={parties} projectFilter={projectFilter} onSave={saveBill} onDelete={deleteBill} onUpdate={updateBill} onCreateProject={createProjectFromBill} />}
+        {screen==='ledger'    && <LedgerView bills={bills} projectFilter={projectFilter} />}
+        {screen==='projects'  && <ProjectsScreen projects={projects} bills={bills} onSaveProject={saveProject} onDeleteProject={deleteProject} />}
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
