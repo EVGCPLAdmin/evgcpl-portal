@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.28';
-const PORTAL_BUILD    = 401;
-const PORTAL_BUILD_AT = '2026-05-30T12:06:09Z';
+const PORTAL_VERSION  = '3.18.29';
+const PORTAL_BUILD    = 402;
+const PORTAL_BUILD_AT = '2026-06-08T19:58:06Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4261,7 +4261,8 @@ function renderAccountsModule() {
         </div>
         <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
           <button class="btn btn-secondary btn-sm" onclick="renderAccountsModule()">&#8635; Refresh</button>
-          <a href="${APPSHEET_ACCOUNTS_URL}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none">&#128241; Open in AppSheet</a>
+          <button class="btn btn-primary btn-sm" onclick="_accOpenNewPR()">&#10133; New Payment Request</button>
+          <a href="${APPSHEET_ACCOUNTS_URL}" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none">&#128241; Open in AppSheet</a>
         </div>
       </div>
     </div>
@@ -4719,6 +4720,413 @@ function renderAccountsModule() {
       </tr>`;
     }).join('');
   };
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ACCOUNTS — NEW PAYMENT REQUEST (portal-native, slide-in panel)
+//  Reuses existing constants: PAYMENT_SHEET_ID, SHEET_ID (master), EMP_SHEET_ID
+//  Writes are header-name driven (never by column letter) — the backend
+//  saveNewPaymentRequest action matches each value to the live header row.
+// ══════════════════════════════════════════════════════════════
+let _accCostCenter      = null;   // [{ nature, accCodeDesc, accCode }]
+let _accPayMaster       = null;   // [{ department, process, orderNo, billNo }]
+let _accVendorMaster    = null;   // [{ name, acHolder, acNo, ifsc, bank }]
+let _accSCMaster        = null;   // [{ name, acHolder, acNo, ifsc, bank }]
+
+function _accBankRec(r, name) {
+  return {
+    name: name,
+    acHolder: r['A/C HOLDER NAME'] || r['Account Holder Name'] || r['AC HOLDER NAME'] || name,
+    acNo:     r['A/C NUMBER'] || r['Account Number'] || r['AC NUMBER'] || r['A/C No'] || '',
+    ifsc:     r['IFSC CODE'] || r['IFSC'] || r['Ifsc Code'] || '',
+    bank:     r['BANK NAME'] || r['Bank Name'] || r['BANK'] || '',
+  };
+}
+
+async function _accLoadCostCenter() {
+  if (_accCostCenter !== null) return;
+  try {
+    const rows = await fetchSheet('M17_CostCenter', null, SHEET_ID);
+    _accCostCenter = rows.map(r => ({
+      nature:      r['NATURE OF EXPENSES'] || r['Nature Of Expenses'] || '',
+      accCodeDesc: r['ACCOUNT CODE DESCRIPTIONS'] || r['Account Code Descriptions'] || '',
+      accCode:     r['ACCOUNT CODES'] || r['Account Codes'] || r['CostCode'] || '',
+    })).filter(r => r.nature || r.accCodeDesc);
+  } catch (e) { _accCostCenter = []; }
+}
+
+async function _accLoadPaymentMaster() {
+  if (_accPayMaster !== null) return;
+  try {
+    const rows = await fetchSheet('Payment_Mater', null, PAYMENT_SHEET_ID);
+    _accPayMaster = rows.map(r => ({
+      department: r['Department'] || '',
+      process:    r['From Which Process'] || r['From which Process'] || '',
+      orderNo:    r['Order No'] || '',
+      billNo:     r['Bill No'] || '',
+    })).filter(r => r.department || r.process);
+  } catch (e) { _accPayMaster = []; }
+}
+
+async function _accLoadVendorMaster() {
+  if (_accVendorMaster !== null) return;
+  try {
+    const rows = await fetchSheet('7-VendorMaster', null, SHEET_ID);
+    _accVendorMaster = rows
+      .map(r => _accBankRec(r, r['Vendor Name'] || r['VENDOR NAME'] || r['Name'] || r['Vendor'] || ''))
+      .filter(r => r.name);
+  } catch (e) { _accVendorMaster = []; }
+}
+
+async function _accLoadSCMaster() {
+  if (_accSCMaster !== null) return;
+  try {
+    const rows = await fetchSheet('10-SubContractorMaster', null, SHEET_ID);
+    _accSCMaster = rows
+      .map(r => _accBankRec(r, r['Sub Contractor Name'] || r['SubContractor Name'] || r['Name'] || r['Sub-Contractor'] || ''))
+      .filter(r => r.name);
+  } catch (e) { _accSCMaster = []; }
+}
+
+// Generic awaited POST to the main Apps Script — surfaces real errors, never swallows.
+// Unlike _rcPostActionAwait this does NOT inject a recruitment sheetId.
+async function _accPostAwait(payload) {
+  let res;
+  try {
+    res = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload)
+    });
+  } catch (e) {
+    return { success: false, message: 'Could not reach the backend: ' + e.message };
+  }
+  try { return await res.json(); }
+  catch (e) { return { success: false, message: `Backend returned a non-JSON response (HTTP ${res.status}). Check the Apps Script deployment.` }; }
+}
+
+const _accToast = (m) => { try { _showRcToast(m); } catch (e) { /* toast optional */ } };
+const _accV = (id) => { const e = document.getElementById(id); return e ? String(e.value || '').trim() : ''; };
+const _accFlag = (v) => { const s = String(v || '').toLowerCase().trim(); return s === 'yes' || s === 'true' || s === 'y' || s === '1' || s === 'show'; };
+
+function _accOpenNewPR() {
+  let dr = document.getElementById('accPRDrawer');
+  if (!dr) {
+    dr = document.createElement('div');
+    dr.id = 'accPRDrawer';
+    dr.style.cssText = 'position:fixed;top:var(--header-h);right:-660px;width:640px;max-width:96vw;height:calc(100vh - var(--header-h));background:#fff;border-left:1px solid var(--border);z-index:1100;transition:right .28s cubic-bezier(.4,0,.2,1);box-shadow:-4px 0 24px rgba(0,0,0,.1);display:flex;flex-direction:column';
+    document.body.appendChild(dr);
+  }
+  dr.innerHTML = '<div style="padding:2.5rem;text-align:center;color:var(--txt3)">&#8987; Loading form&hellip;</div>';
+  // slide in on next frame
+  requestAnimationFrame(() => { dr.style.right = '0'; });
+  Promise.all([
+    _accLoadCostCenter(),
+    _accLoadPaymentMaster(),
+    _accLoadVendorMaster(),
+    _accLoadSCMaster(),
+  ]).then(() => _accDrawNewPRForm(dr));
+}
+
+function _accCloseNewPR() {
+  const dr = document.getElementById('accPRDrawer');
+  if (dr) dr.style.right = '-660px';
+}
+
+function _accDrawNewPRForm(dr) {
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const me  = (STATE.masters.users || []).find(u => (u.email || '').toLowerCase() === (STATE.user?.email || '').toLowerCase());
+  const initiatorDefault = me ? (me.employeeRef || me.name) : (STATE.user?.name || '');
+  const initiatorLocked  = STATE.role !== 'md';
+  const today = new Date().toLocaleDateString('en-CA'); // yyyy-mm-dd for <input type=date>
+
+  const opt = (arr, sel) => '<option value=""></option>' +
+    [...new Set((arr || []).filter(Boolean))].sort()
+      .map(v => `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(v)}</option>`).join('');
+
+  const depts      = [...new Set((_accPayMaster || []).map(p => p.department).filter(Boolean))];
+  const procs      = [...new Set((_accPayMaster || []).map(p => p.process).filter(Boolean))];
+  const natures    = [...new Set((_accCostCenter || []).map(c => c.nature).filter(Boolean))];
+  const accDescs   = [...new Set((_accCostCenter || []).map(c => c.accCodeDesc).filter(Boolean))];
+  const empNames   = (STATE.masters.users || []).filter(u => u.name && u.status === 'ACTIVE').map(u => u.employeeRef || u.name);
+  const vendorNames= (_accVendorMaster || []).map(v => v.name);
+  const scNames    = (_accSCMaster || []).map(v => v.name);
+  const siteNames  = (STATE.masters.sites || []).map(s => s.name).filter(Boolean);
+  const currencies = ['Indian Rupee', 'US Dollar', 'Euro', 'GBP', 'AED', 'OMR', 'QAR'];
+
+  const sec = (title, inner) => `
+    <div style="margin-bottom:1.1rem">
+      <div style="font-weight:700;font-size:.74rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.6rem;border-bottom:1px solid var(--border);padding-bottom:.35rem">${title}</div>
+      ${inner}
+    </div>`;
+  const fld = (label, ctrl, req, id) => `
+    <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:.55rem"${id ? ` id="${id}"` : ''}>
+      <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">${label}${req ? ' <span style="color:var(--danger)">*</span>' : ''}</label>
+      ${ctrl}
+    </div>`;
+  const grid = (...items) => `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 1rem">${items.join('')}</div>`;
+  const ro = 'background:var(--surface2);color:var(--txt2);cursor:not-allowed';
+
+  dr.innerHTML = `
+    <div style="padding:1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff">
+      <div>
+        <div style="font-size:.98rem;font-weight:700">&#10133; New Payment Request</div>
+        <div style="font-size:.72rem;opacity:.8;margin-top:2px">Fields marked * are required</div>
+      </div>
+      <button onclick="_accCloseNewPR()" style="background:rgba(255,255,255,.18);border:none;color:#fff;width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:1rem">&#10006;</button>
+    </div>
+
+    <div style="flex:1;overflow-y:auto;padding:1.1rem 1.3rem">
+
+      ${sec('1 &middot; Initiator', grid(
+        fld('Date of Request', `<input id="acc-pr-dateOfRequest" type="date" value="${today}" class="rc-inp">`, true),
+        fld('Payment Requested By', `<input id="acc-pr-initiator" value="${esc(initiatorDefault)}" ${initiatorLocked ? 'readonly title="Auto-filled from your profile"' : ''} class="rc-inp" style="${initiatorLocked ? ro : ''}">`, true),
+        fld('Department', `<select id="acc-pr-department" class="rc-inp" onchange="_accPROnDeptChange()">${opt(depts)}</select>`),
+        fld('From Which Process', `<select id="acc-pr-fromWhichProcess" class="rc-inp" onchange="_accPROnProcessChange()">${opt(procs)}</select>`),
+        fld('Manual / Auto', `<select id="acc-pr-manualAuto" class="rc-inp"><option value="Manual" selected>Manual</option><option value="Auto">Auto</option></select>`)
+      ))}
+
+      ${sec('2 &middot; Payment To', `
+        ${fld('Payment To', `<select id="acc-pr-paymentTo" class="rc-inp" onchange="_accPROnPaymentToChange()">${opt(['Employee', 'Vendor', 'Sub Contractor', 'Others'])}</select>`, true)}
+        <div id="acc-pr-paidto-employee" style="display:none">${fld('Paid To (Employee)', `<select id="acc-pr-paidToEmployee" class="rc-inp" onchange="_accPRAutoFillBankDetails()">${opt(empNames)}</select>`)}</div>
+        <div id="acc-pr-paidto-vendor" style="display:none">${fld('Paid To (Vendor)', `<select id="acc-pr-paidToVendor" class="rc-inp" onchange="_accPRAutoFillBankDetails()">${opt(vendorNames)}</select>`)}</div>
+        <div id="acc-pr-paidto-sc" style="display:none">${fld('Paid To (Sub Contractor)', `<select id="acc-pr-paidToSC" class="rc-inp" onchange="_accPRAutoFillBankDetails()">${opt(scNames)}</select>`)}</div>
+        <div id="acc-pr-paidto-others" style="display:none">${fld('Paid To (Others)', `<input id="acc-pr-paidToOthers" class="rc-inp" placeholder="Name of payee">`)}</div>
+      `)}
+
+      ${sec('3 &middot; Site &amp; Company', grid(
+        fld('Site Name', `<select id="acc-pr-siteName" class="rc-inp" onchange="_accPROnSiteChange()">${opt(siteNames)}</select>`),
+        fld('Company', `<input id="acc-pr-company" class="rc-inp" placeholder="Auto-fills from site">`)
+      ))}
+
+      ${sec('4 &middot; Bill &amp; PO Reference', `
+        ${grid(
+          fld('Order No', `<input id="acc-pr-orderNo" class="rc-inp">`, false, 'acc-pr-orderNo-wrap'),
+          fld('Bill No', `<input id="acc-pr-billNo" class="rc-inp">`, false, 'acc-pr-billNo-wrap')
+        )}
+        <div id="acc-pr-paymentTerms-wrap" style="display:none">${fld('Payment Terms', `<input id="acc-pr-paymentTerms" class="rc-inp" placeholder="e.g. Net 30">`)}</div>
+        <div id="acc-pr-po-wrap" style="display:none">${grid(
+          fld('PO Value', `<input id="acc-pr-poValue" type="number" step="0.01" class="rc-inp" oninput="_accPRRecalcPending()">`),
+          fld('Invoice Value', `<input id="acc-pr-invoiceValue" type="number" step="0.01" class="rc-inp">`),
+          fld('Paid Value', `<input id="acc-pr-paidValue" value="0" readonly class="rc-inp" style="${ro}">`),
+          fld('Pending Value', `<input id="acc-pr-pendingValue" value="0" readonly class="rc-inp" style="${ro}">`)
+        )}</div>
+      `)}
+
+      ${sec('5 &middot; Financial', grid(
+        fld('Currency', `<select id="acc-pr-currency" class="rc-inp">${opt(currencies, 'Indian Rupee')}</select>`),
+        fld('Amount', `<input id="acc-pr-amount" type="number" step="0.01" class="rc-inp">`, true),
+        fld('Nature of Expenses', `<select id="acc-pr-natureOfExpenses" class="rc-inp" onchange="_accPROnNatureChange()">${opt(natures)}</select>`),
+        fld('Account Code Description', `<select id="acc-pr-accountCodeDesc" class="rc-inp" onchange="_accPROnAccCodeChange()">${opt(accDescs)}</select>`),
+        fld('GST', `<input id="acc-pr-gst" type="number" step="0.01" class="rc-inp">`),
+        fld('TDS', `<input id="acc-pr-tds" type="number" step="0.01" class="rc-inp">`)
+      ) + `<input id="acc-pr-costCode" type="hidden">`)}
+
+      ${sec('6 &middot; Bank Details', grid(
+        fld('A/C Holder Name', `<input id="acc-pr-acHolderName" class="rc-inp">`),
+        fld('A/C Number', `<input id="acc-pr-acNumber" class="rc-inp">`),
+        fld('IFSC Code', `<input id="acc-pr-ifsc" class="rc-inp" placeholder="XXXX0XXXXXX">`),
+        fld('Bank Name', `<input id="acc-pr-bankName" class="rc-inp">`)
+      ))}
+
+      ${sec('7 &middot; Narrative &amp; Attachments', `
+        ${fld('Narrative / Comments', `<textarea id="acc-pr-narrative" rows="3" class="rc-inp" style="resize:vertical"></textarea>`, true)}
+        ${fld('Account Type', `<input id="acc-pr-accountType" class="rc-inp">`)}
+        ${fld('Attachments (invoice + supporting docs)', `<input id="acc-pr-files" type="file" multiple class="rc-inp" style="padding:6px">`)}
+      `)}
+    </div>
+
+    <div style="padding:.9rem 1.3rem;border-top:1px solid var(--border);display:flex;gap:.7rem;justify-content:flex-end;flex-shrink:0;background:var(--surface2)">
+      <button onclick="_accCloseNewPR()" class="btn btn-secondary btn-sm">Cancel</button>
+      <button id="acc-pr-submit" onclick="_accPRSubmit()" class="btn btn-primary btn-sm">Submit Payment Request</button>
+    </div>
+  `;
+}
+
+function _accPROnDeptChange() {
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const dept = _accV('acc-pr-department');
+  const sel = document.getElementById('acc-pr-fromWhichProcess');
+  if (sel) {
+    const procs = [...new Set((_accPayMaster || []).filter(p => !dept || p.department === dept).map(p => p.process).filter(Boolean))].sort();
+    sel.innerHTML = '<option value=""></option>' + procs.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+  }
+  const isPurchase = /purchase/i.test(dept);
+  const pt = document.getElementById('acc-pr-paymentTerms-wrap'); if (pt) pt.style.display = isPurchase ? '' : 'none';
+  const po = document.getElementById('acc-pr-po-wrap');           if (po) po.style.display = isPurchase ? '' : 'none';
+  _accPROnProcessChange();
+}
+
+function _accPROnProcessChange() {
+  const dept = _accV('acc-pr-department'), proc = _accV('acc-pr-fromWhichProcess');
+  const rec = (_accPayMaster || []).find(p => p.process === proc && (!dept || p.department === dept))
+           || (_accPayMaster || []).find(p => p.process === proc);
+  const showOrder = rec ? _accFlag(rec.orderNo) : true;
+  const showBill  = rec ? _accFlag(rec.billNo)  : true;
+  const ow = document.getElementById('acc-pr-orderNo-wrap'); if (ow) ow.style.display = showOrder ? '' : 'none';
+  const bw = document.getElementById('acc-pr-billNo-wrap');  if (bw) bw.style.display = showBill ? '' : 'none';
+}
+
+function _accPROnPaymentToChange() {
+  const payTo = _accV('acc-pr-paymentTo');
+  const map = { 'Employee': 'acc-pr-paidto-employee', 'Vendor': 'acc-pr-paidto-vendor', 'Sub Contractor': 'acc-pr-paidto-sc', 'Others': 'acc-pr-paidto-others' };
+  Object.values(map).forEach(id => { const e = document.getElementById(id); if (e) e.style.display = 'none'; });
+  const show = map[payTo]; if (show) { const e = document.getElementById(show); if (e) e.style.display = ''; }
+  _accPRAutoFillBankDetails();
+}
+
+function _accPROnSiteChange() {
+  const site = _accV('acc-pr-siteName');
+  const rec = (STATE.masters.sites || []).find(s => s.name === site);
+  const c = document.getElementById('acc-pr-company');
+  if (rec && c) c.value = rec.company || '';
+}
+
+function _accPROnNatureChange() {
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const nature = _accV('acc-pr-natureOfExpenses');
+  const sel = document.getElementById('acc-pr-accountCodeDesc');
+  if (sel) {
+    const descs = [...new Set((_accCostCenter || []).filter(c => !nature || c.nature === nature).map(c => c.accCodeDesc).filter(Boolean))].sort();
+    sel.innerHTML = '<option value=""></option>' + descs.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+  }
+  _accPROnAccCodeChange();
+}
+
+function _accPROnAccCodeChange() {
+  const desc = _accV('acc-pr-accountCodeDesc');
+  const rec = (_accCostCenter || []).find(c => c.accCodeDesc === desc);
+  const cc = document.getElementById('acc-pr-costCode'); if (cc) cc.value = rec ? rec.accCode : '';
+}
+
+function _accPRAutoFillBankDetails() {
+  const payTo = _accV('acc-pr-paymentTo');
+  let rec = null;
+  if (payTo === 'Vendor')              rec = (_accVendorMaster || []).find(v => v.name === _accV('acc-pr-paidToVendor'));
+  else if (payTo === 'Sub Contractor') rec = (_accSCMaster || []).find(v => v.name === _accV('acc-pr-paidToSC'));
+  if (!rec) return;
+  const set = (id, val) => { const e = document.getElementById(id); if (e) e.value = val || ''; };
+  set('acc-pr-acHolderName', rec.acHolder);
+  set('acc-pr-acNumber',     rec.acNo);
+  set('acc-pr-ifsc',         rec.ifsc);
+  set('acc-pr-bankName',     rec.bank);
+}
+
+function _accPRRecalcPending() {
+  const po   = parseFloat(_accV('acc-pr-poValue')) || 0;
+  const paid = parseFloat(_accV('acc-pr-paidValue')) || 0;
+  const pe = document.getElementById('acc-pr-pendingValue');
+  if (pe) pe.value = (po - paid) > 0 ? (po - paid) : 0;
+}
+
+function _accPRBuildRow() {
+  const rid = (crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0, 8) : String(Date.now()).slice(-8);
+  const uuid = 'ACC-' + rid;
+  const email = STATE.user?.email || '';
+  const payTo = _accV('acc-pr-paymentTo');
+  const paidEmp = _accV('acc-pr-paidToEmployee'), paidVen = _accV('acc-pr-paidToVendor'),
+        paidSC = _accV('acc-pr-paidToSC'),       paidOth = _accV('acc-pr-paidToOthers');
+  const paidTo = payTo === 'Employee' ? paidEmp : payTo === 'Vendor' ? paidVen
+               : payTo === 'Sub Contractor' ? paidSC : payTo === 'Others' ? paidOth : '';
+  const num = id => { const n = parseFloat(_accV(id)); return isNaN(n) ? '' : n; };
+  // Header-name keyed — backend places each into the matching live column.
+  return {
+    'UUID': uuid,
+    'Link': uuid,
+    'Manual / Auto': _accV('acc-pr-manualAuto') || 'Manual',
+    'Installment': 1,
+    'Date Of Request': _accV('acc-pr-dateOfRequest'),
+    'Name of the Intiator': _accV('acc-pr-initiator'),
+    'NATURE OF EXPENSES': _accV('acc-pr-natureOfExpenses'),
+    'ACCOUNT CODE DESCRIPTIONS': _accV('acc-pr-accountCodeDesc'),
+    'Payment To': payTo,
+    'CostCode': _accV('acc-pr-costCode'),
+    'Department': _accV('acc-pr-department'),
+    'From Which Process': _accV('acc-pr-fromWhichProcess'),
+    'Paid To': paidTo,
+    'Paid To (Employee)': paidEmp,
+    'Paid To (Vendor)': paidVen,
+    'Paid To (SC)': paidSC,
+    'Paid To (Others)': paidOth,
+    'Site Name': _accV('acc-pr-siteName'),
+    'Company': _accV('acc-pr-company'),
+    'Order No': _accV('acc-pr-orderNo'),
+    'Bill No': _accV('acc-pr-billNo'),
+    'Payment Terms': _accV('acc-pr-paymentTerms'),
+    'PO Value': num('acc-pr-poValue'),
+    'Invoice Value': num('acc-pr-invoiceValue'),
+    'GST': num('acc-pr-gst'),
+    'TDS': num('acc-pr-tds'),
+    'Currency': _accV('acc-pr-currency') || 'Indian Rupee',
+    'Amount': num('acc-pr-amount'),
+    'Narrative/Comments': _accV('acc-pr-narrative'),
+    'Account Type': _accV('acc-pr-accountType'),
+    'A/C HOLDER NAME': _accV('acc-pr-acHolderName'),
+    'A/C NUMBER': _accV('acc-pr-acNumber'),
+    'IFSC CODE': _accV('acc-pr-ifsc'),
+    'BANK NAME': _accV('acc-pr-bankName'),
+    'UserEmail': email,
+    'SystemEmail': email,
+    'Timestamp': new Date().toISOString(),
+  };
+}
+
+function _accFileToB64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload  = () => resolve(String(r.result).split(',')[1] || '');
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+async function _accPRUploadAttachments(uuid, requestId) {
+  const input = document.getElementById('acc-pr-files');
+  if (!input || !input.files || !input.files.length) return;
+  const folderResp = await _accPostAwait({ action: 'createPRFolder', requestId: requestId || uuid, uuid: uuid });
+  if (!folderResp || folderResp.success === false || !folderResp.folderId) return;
+  for (const f of input.files) {
+    const base64 = await _accFileToB64(f);
+    await _accPostAwait({ action: 'uploadPRAttachment', folderId: folderResp.folderId, filename: f.name, mimeType: f.type || 'application/octet-stream', base64: base64 });
+  }
+}
+
+async function _accPRSubmit() {
+  const errors = [];
+  const amount  = parseFloat(_accV('acc-pr-amount')) || 0;
+  const payTo   = _accV('acc-pr-paymentTo');
+  const poValue = parseFloat(_accV('acc-pr-poValue')) || 0;
+  const pending = parseFloat(_accV('acc-pr-pendingValue')) || 0;
+  const paidMap = { 'Employee': 'acc-pr-paidToEmployee', 'Vendor': 'acc-pr-paidToVendor', 'Sub Contractor': 'acc-pr-paidToSC', 'Others': 'acc-pr-paidToOthers' };
+
+  if (amount <= 0) errors.push('Amount must be greater than 0.');
+  if (!_accV('acc-pr-narrative')) errors.push('Narrative / Comments is required.');
+  if (payTo && paidMap[payTo] && !_accV(paidMap[payTo])) errors.push('Please specify who the payment is to.');
+  if (poValue > 0 && pending > 0 && amount > pending) errors.push(`Amount (${amount}) exceeds the Pending Value (${pending}).`);
+  if (errors.length) { alert('Please fix the following:\n\n• ' + errors.join('\n• ')); return; }
+
+  const btn = document.getElementById('acc-pr-submit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  const row  = _accPRBuildRow();
+  const resp = await _accPostAwait({ action: 'saveNewPaymentRequest', sheetId: PAYMENT_SHEET_ID, tab: 'PaymentRequest', row: row });
+
+  if (!resp || resp.success === false) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Submit Payment Request'; }
+    const msg = (resp && resp.message) || 'unknown error';
+    if (/unknown (post )?action/i.test(msg)) {
+      alert('Apps Script redeploy required.\n\nThis build adds the "saveNewPaymentRequest" backend action (AccountsHandlers.gs + Router.gs), but the live Apps Script /exec has not been redeployed yet. Ask the admin to redeploy, then try again.');
+    } else {
+      alert('Could not save the payment request:\n\n' + msg);
+    }
+    return;
+  }
+
+  try { await _accPRUploadAttachments(row['UUID'], resp.requestId || ''); }
+  catch (e) { console.warn('Accounts: attachment upload failed', e); }
+
+  _accToast('✅ Payment request submitted' + (resp.requestId ? (' — ' + resp.requestId) : ''));
+  _accCloseNewPR();
+  renderAccountsModule();
 }
 
 function accDeepLink(label, url) {
