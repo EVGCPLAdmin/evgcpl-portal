@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.31';
-const PORTAL_BUILD    = 404;
-const PORTAL_BUILD_AT = '2026-06-08T20:06:45Z';
+const PORTAL_VERSION  = '3.18.32';
+const PORTAL_BUILD    = 405;
+const PORTAL_BUILD_AT = '2026-06-08T20:10:05Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2484,7 +2484,7 @@ function renderMDCommand() {
 
         <!-- Pending Payments -->
         <div class="card">
-          <div class="card-head"><h3>💰 Pending Payments</h3><span class="tag info" id="mdPayTag">Loading…</span></div>
+          <div class="card-head"><h3>💰 Pending Payments</h3><span id="mdApprovalTag" onclick="_accGotoMDQueue()" style="display:none;cursor:pointer;background:#eef2ff;color:#3730a3;border:1px solid #6366f1;border-radius:10px;padding:2px 9px;font-size:.7rem;font-weight:700"></span><span class="tag info" id="mdPayTag">Loading…</span></div>
           <div class="card-body" style="padding:.8rem;max-height:260px;overflow-y:auto" id="mdPayList">
             <div style="text-align:center;color:var(--txt3);padding:1rem">⏳ Loading payments…</div>
           </div>
@@ -2651,6 +2651,14 @@ function renderMDCommand() {
     }, 0);
     document.getElementById('mdKpiPay').textContent = rows.length;
     document.getElementById('mdPayTag').textContent = rows.length + ' pending · ₹' + totalPending.toLocaleString('en-IN');
+    // Pending My Approval badge — PRs verified and waiting on MD
+    const mdQueue = rawRows.filter(r => getPayStatus(r['Status'] || r['AK'] || '').label === 'Verified, Move to MD Queue').length;
+    const apprTag = document.getElementById('mdApprovalTag');
+    if (apprTag && mdQueue > 0) {
+      apprTag.style.display = '';
+      apprTag.textContent = '⚖ ' + mdQueue + ' awaiting my approval';
+      apprTag.title = 'Open the Accounts approval queue';
+    }
     const payEl = document.getElementById('mdPayList');
     if (!payEl) return;
     if (!rows.length) { payEl.innerHTML = '<div style="text-align:center;color:var(--txt3);padding:1rem">✅ No pending payments</div>'; return; }
@@ -4303,6 +4311,7 @@ function renderAccountsModule() {
               <button onclick="accFilter('progress')"  id="accBtn-progress"  class="acc-cat-btn btn btn-sm" style="background:#eff6ff;color:#1e40af;border:1px solid #2563eb">&#128260; In Progress</button>
               <button onclick="accFilter('rejected')"  id="accBtn-rejected"  class="acc-cat-btn btn btn-sm" style="background:#fef2f2;color:#991b1b;border:1px solid #ef4444">&#10060; Rejected</button>
               <button onclick="accFilter('completed')" id="accBtn-completed" class="acc-cat-btn btn btn-sm" style="background:#f0fdf4;color:#14532d;border:1px solid #16a34a">&#9989; Completed</button>
+              ${STATE.role === 'md' ? `<button onclick="accFilter('md-queue')" id="accBtn-md-queue" class="acc-cat-btn btn btn-sm" style="background:#eef2ff;color:#3730a3;border:1px solid #6366f1;font-weight:700">&#9878; Pending My Approval</button>` : ''}
             </div>
           </div>
 
@@ -4541,6 +4550,11 @@ function renderAccountsModule() {
     const others = [...new Set(window._accAllRows.filter(r=>r.status.cat==='other'&&r.rawStatus).map(r=>r.rawStatus))];
     if (others.length) console.log('Accounts: unmapped status values:', others);
 
+    // Honour a pre-set MD approval filter (e.g. arriving from the command centre)
+    if (window._accPendingMDFilter && STATE.role==='md') {
+      window._accPendingMDFilter = false;
+      if (typeof accFilter === 'function') { accFilter('md-queue'); return; }
+    }
     accRender();
   }).catch(err => {
     const tb = document.getElementById('accTbody');
@@ -4591,7 +4605,7 @@ function renderAccountsModule() {
     const sf   = document.getElementById('accSiteFilter')?.value||'';
     const ef   = document.getElementById('accEntityFilter')?.value||'';
     const pf   = document.getElementById('accProcessFilter')?.value||'';
-    let filtered = rows.filter(r => cat==='all' ? r.status.cat!=='other' : r.status.cat===cat);
+    let filtered = rows.filter(r => cat==='md-queue' ? _accIsMDQueue(r) : (cat==='all' ? r.status.cat!=='other' : r.status.cat===cat));
     if (sf)   filtered = filtered.filter(r => r.site===sf);
     if (ef)   filtered = filtered.filter(r => r.company===ef);
     if (pf)   filtered = filtered.filter(r => r.process===pf);
@@ -4633,7 +4647,7 @@ function renderAccountsModule() {
     const scol  = window._accSortCol||'date';
     const sdir  = window._accSortDir||-1;
 
-    let rows = (window._accAllRows||[]).filter(r=>cat==='all'?r.status.cat!=='other':r.status.cat===cat);
+    let rows = (window._accAllRows||[]).filter(r=>cat==='md-queue'?_accIsMDQueue(r):(cat==='all'?r.status.cat!=='other':r.status.cat===cat));
     if (sf)   rows=rows.filter(r=>r.site===sf);
     if (ef)   rows=rows.filter(r=>r.entity===ef);
     if (pf)   rows=rows.filter(r=>r.process===pf);
@@ -4676,6 +4690,14 @@ function renderAccountsModule() {
         ?`<span style="display:inline-flex;align-items:center;gap:3px;background:${s.bg};color:${s.color};padding:3px 9px;border-radius:10px;font-size:.68rem;font-weight:600;white-space:nowrap;border:1px solid ${s.color}22">${s.icon?s.icon+'&thinsp;':''}${s.label}</span>`
         :'<span style="color:var(--txt3)">\u2014</span>';
 
+      // MD one-tap approve / reject for rows in the MD approval queue
+      const mdActions=(STATE.role==='md' && _accIsMDQueue(r))
+        ? `<div style="display:flex;gap:5px;margin-top:5px">
+             <button onclick="event.stopPropagation();_accQuickApprove('${r.uuid}')" class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;padding:2px 9px;font-size:.66rem;font-weight:700">&#10003; Approve</button>
+             <button onclick="event.stopPropagation();_accQuickReject('${r.uuid}')" class="btn btn-sm" style="background:#dc2626;color:#fff;border:none;padding:2px 9px;font-size:.66rem;font-weight:700">&#10007; Reject</button>
+           </div>`
+        : '';
+
       // AppSheet link per row using Request ID
       const recUrl=r.requestId
         ?`${APPSHEET_ACCOUNTS_URL}?view=PaymentRequest&row=${encodeURIComponent(r.requestId)}`
@@ -4713,7 +4735,7 @@ function renderAccountsModule() {
         ${td(r.currency,'text-align:center;font-size:.72rem;font-weight:700;color:var(--g7)')}
         <td style="${amtStyle}">${fmtAmt(r.amount,r.currency)}</td>
         ${tdClip(r.narrative,200)}
-        <td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">${pill}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">${pill}${mdActions}</td>
         ${td(r.accDate,'white-space:nowrap;color:var(--txt2)')}
         ${tdClip(r.utr,170)}
         ${tdClip(r.remarks,150)}
@@ -5484,6 +5506,75 @@ async function _accUpdateFormSubmit(prUuid) {
   // derived status (col AL) is a sheet formula, so it reflects on the next
   // list refresh; the drawer stays open on the updated PR.
   _accDrawStatusUpdates(prUuid);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ACCOUNTS — MD APPROVAL QUEUE (Phase 4)
+//  "Pending My Approval" = PRs whose latest status is
+//  "Verified, Move to MD Queue". MD can approve/reject inline.
+// ══════════════════════════════════════════════════════════════
+const ACC_MD_QUEUE_LABEL = 'Verified, Move to MD Queue';
+
+function _accIsMDQueue(r) {
+  const lbl = s => (typeof getPayStatus === 'function') ? getPayStatus(s).label : '';
+  return lbl(r.rawStatus) === ACC_MD_QUEUE_LABEL || lbl(r.accStatus) === ACC_MD_QUEUE_LABEL;
+}
+
+// Navigate to the Accounts page with the MD-approval filter pre-selected.
+function _accGotoMDQueue() {
+  window._accPendingMDFilter = true;
+  navigate('accounts');
+}
+
+async function _accQuickStatus(uuid, status, comments) {
+  const rid = (crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0, 8) : String(Date.now()).slice(-8);
+  const email = STATE.user?.email || '';
+  const me = (STATE.masters.users || []).find(u => (u.email || '').toLowerCase() === email.toLowerCase());
+  const updatedBy = me ? (me.employeeRef || me.name) : (STATE.user?.name || '');
+  const pr = (window._accAllRows || []).find(r => r.uuid === uuid);
+  const details = pr ? [pr.requestId, pr.payTo, pr.amount].filter(Boolean).join(' · ') : uuid;
+  const row = {
+    'UUID': 'ACC-AU-' + rid,
+    'UserEmail': email,
+    'Updated By': updatedBy,
+    'Request ID': uuid,
+    'Details of Request': details,
+    'Status': status,
+    'Pending Reason': '',
+    'Date': new Date().toLocaleDateString('en-CA'),
+    'UTR Details': '',
+    'Comments (If Any)': comments || '',
+    'Timestamp': new Date().toISOString(),
+  };
+  const resp = await _accPostAwait({ action: 'saveAccountsUpdate', sheetId: PAYMENT_SHEET_ID, tab: 'AccountsUpdate', row: row });
+  if (!resp || resp.success === false) {
+    const msg = (resp && resp.message) || 'unknown error';
+    if (/unknown (post )?action/i.test(msg)) {
+      alert('Apps Script redeploy required.\n\nThe "saveAccountsUpdate" backend action is in the deployed build but the live Apps Script /exec has not been redeployed yet.');
+    } else {
+      alert('Could not post the update:\n\n' + msg);
+    }
+    return false;
+  }
+  return true;
+}
+
+async function _accQuickApprove(uuid) {
+  if (!confirm('Approve this payment request and move it to Accounts for processing?')) return;
+  if (await _accQuickStatus(uuid, 'Process Payment, Move to Accounts', '')) {
+    _accToast('✅ Approved — moved to Accounts');
+    renderAccountsModule();
+  }
+}
+
+async function _accQuickReject(uuid) {
+  const reason = prompt('Reason for rejection (required):', '');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('A reason is required to reject.'); return; }
+  if (await _accQuickStatus(uuid, 'Rejected', reason.trim())) {
+    _accToast('Request rejected');
+    renderAccountsModule();
+  }
 }
 
 function accDeepLink(label, url) {
