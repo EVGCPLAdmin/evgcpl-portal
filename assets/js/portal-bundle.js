@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.32';
-const PORTAL_BUILD    = 405;
-const PORTAL_BUILD_AT = '2026-06-08T20:10:05Z';
+const PORTAL_VERSION  = '3.18.33';
+const PORTAL_BUILD    = 406;
+const PORTAL_BUILD_AT = '2026-06-08T20:12:49Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2696,7 +2696,6 @@ function renderMDCommand() {
 // ── AppSheet app registry — add more apps here as they go live ──
 const APPSHEET_APPS = {
   hr:       { url: 'https://www.appsheet.com/start/9fcf3039-c992-4498-9647-2bcccca13ece', label: 'HR_v0',       icon: '👥' },
-  accounts: { url: 'https://www.appsheet.com/start/fcdba849-9f9d-435f-8e8a-ea0c975dbd21', label: 'Accounts',    icon: '💰' },
   scm:      { url: 'https://www.appsheet.com/start/06fd0117-1dd8-445b-aaee-e2ff6e68e36f', label: 'SCM',         icon: '📦' },
 };
 
@@ -4256,8 +4255,6 @@ function getPayStatus(raw) {
   return ACCOUNTS_STATUS[key] || { cat:'other', icon:'&#9711;', label: raw, color:'#6b7280', bg:'#f9fafb' };
 }
 
-const APPSHEET_ACCOUNTS_URL = 'https://www.appsheet.com/start/fcdba849-9f9d-435f-8e8a-ea0c975dbd21';
-
 function renderAccountsModule() {
   const el = document.getElementById('mainContent');
   el.innerHTML = `
@@ -4270,7 +4267,6 @@ function renderAccountsModule() {
         <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
           <button class="btn btn-secondary btn-sm" onclick="renderAccountsModule()">&#8635; Refresh</button>
           <button class="btn btn-primary btn-sm" onclick="_accOpenNewPR()">&#10133; New Payment Request</button>
-          <a href="${APPSHEET_ACCOUNTS_URL}" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none">&#128241; Open in AppSheet</a>
         </div>
       </div>
     </div>
@@ -4403,19 +4399,6 @@ function renderAccountsModule() {
             <tr><td colspan="20" style="text-align:center;padding:3rem;color:var(--txt3)">&#8987; Loading payment requests...</td></tr>
           </tbody>
         </table>
-      </div>
-    </div>
-
-    <!-- AppSheet quick links -->
-    <div class="card card-pad" style="margin-top:1.2rem">
-      <h3 style="font-size:.88rem;font-weight:700;margin-bottom:.9rem;color:var(--g9)">&#128241; AppSheet Quick Actions</h3>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:.6rem">
-        ${accDeepLink('&#10133; New Request',       APPSHEET_ACCOUNTS_URL)}
-        ${accDeepLink('&#9203; Pending Approvals',  APPSHEET_ACCOUNTS_URL)}
-        ${accDeepLink('&#10004; Process Payment',   APPSHEET_ACCOUNTS_URL)}
-        ${accDeepLink('&#128196; All Requests',     APPSHEET_ACCOUNTS_URL)}
-        ${accDeepLink('&#128200; Ledger View',      APPSHEET_ACCOUNTS_URL)}
-        ${accDeepLink('&#128279; Open Full App',    APPSHEET_ACCOUNTS_URL)}
       </div>
     </div>
   `;
@@ -4698,15 +4681,9 @@ function renderAccountsModule() {
            </div>`
         : '';
 
-      // AppSheet link per row using Request ID
-      const recUrl=r.requestId
-        ?`${APPSHEET_ACCOUNTS_URL}?view=PaymentRequest&row=${encodeURIComponent(r.requestId)}`
-        :APPSHEET_ACCOUNTS_URL;
+      // Request ID cell \u2014 opens the portal-native detail view (row onclick)
       const reqIdCell=`<td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">
-        <div style="display:flex;align-items:center;gap:5px">
-          <span style="font-family:monospace;font-size:.72rem;color:var(--g8);font-weight:600">${r.requestId||'\u2014'}</span>
-          <a href="${recUrl}" target="_blank" onclick="event.stopPropagation()" title="Open in AppSheet" style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;background:var(--g7);border-radius:4px;text-decoration:none;font-size:.65rem;flex-shrink:0;color:#fff">&#8599;</a>
-        </div>
+        <span style="font-family:monospace;font-size:.72rem;color:var(--g8);font-weight:600">${r.requestId||'\u2014'}</span>
       </td>`;
 
       // Manual/Auto badge
@@ -5576,12 +5553,6 @@ async function _accQuickReject(uuid) {
     renderAccountsModule();
   }
 }
-
-function accDeepLink(label, url) {
-  return `<a href="${url}" target="_blank" style="display:flex;align-items:center;gap:.5rem;padding:.55rem .8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;text-decoration:none;color:var(--g8);font-size:.78rem;font-weight:500;transition:background .15s,border-color .15s" onmouseover="this.style.borderColor='var(--g5)';this.style.background='#e8f5ee'" onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--surface2)'">${label}</a>`;
-}
-
-
 
 // ══════════════════════════════════════════════════
 //  DEV MODE PAGE
@@ -13320,9 +13291,6 @@ function renderAppsHub() {
         { name: 'HR App',      desc: 'Employee register, attendance, leave, onboarding',
           url: 'https://www.appsheet.com/start/9fcf3039-c992-4498-9647-2bcccca13ece',
           tag: 'HR', color: '#7c3aed', roles: ['md','hr','employee','dept_head'] },
-        { name: 'Accounts App',desc: 'Payment requests, approvals, accounts management',
-          url: 'https://www.appsheet.com/start/fcdba849-9f9d-435f-8e8a-ea0c975dbd21',
-          tag: 'Finance', color: '#0ea5e9', roles: ['md','accounts','purchase','dept_head'] },
         { name: 'SCM App',     desc: 'Purchase orders, MRS, stores, vendor rate list',
           url: 'https://www.appsheet.com/start/06fd0117-1dd8-445b-aaee-e2ff6e68e36f',
           tag: 'SCM', color: '#16a34a', roles: ['md','purchase','site','dept_head'] },
