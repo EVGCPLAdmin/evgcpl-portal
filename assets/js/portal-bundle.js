@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.33';
-const PORTAL_BUILD    = 406;
-const PORTAL_BUILD_AT = '2026-06-08T20:12:49Z';
+const PORTAL_VERSION  = '3.18.34';
+const PORTAL_BUILD    = 407;
+const PORTAL_BUILD_AT = '2026-06-09T14:43:06Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2779,6 +2779,9 @@ const RECRUITMENT_SHEET_ID = '1Dw48OEDmIAAu9Va1-a9z7PZT7wKS_mWU7cwpK6osRNI';
 const PO_SHEET_ID      = '1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c';
 const PO_TAB           = 'PO_Actual'; // gid 1458467853 — replaces legacy 'PO' tab as of v3.4.0
 const PAYMENT_SHEET_ID = '1mLddxLRf719EaXE9XSET9gT8l0a8Cxns362yIbHo63g'; // Account View – PaymentRequest tab
+// Accounts module backend — deployed as its own Apps Script web app
+// (Router.gs + AccountsHandlers.gs). All Accounts writes post here.
+const ACCOUNTS_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyH0pfYVDaq1In9zsaSaJ4-QLhTlR71lL0CUzvmHqTRr5ZkS5qgKLMuMlBgTR3Hzgq-xw/exec';
 const STORES_SHEET_ID  = '1iMQxgqGilUh2_3NCZl5D-EMt-NC8FwugX83q2fWb8fE'; // v2_Stores – StockIN / GRN_No tabs
 
 // ══════════════════════════════════════════════════════════
@@ -4791,8 +4794,9 @@ async function _accLoadSCMaster() {
 // Unlike _rcPostActionAwait this does NOT inject a recruitment sheetId.
 async function _accPostAwait(payload) {
   let res;
+  const endpoint = (typeof ACCOUNTS_EXEC_URL === 'string' && ACCOUNTS_EXEC_URL) ? ACCOUNTS_EXEC_URL : APPS_SCRIPT_URL;
   try {
-    res = await fetch(APPS_SCRIPT_URL, {
+    res = await fetch(endpoint, {
       method: 'POST', headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload)
     });
