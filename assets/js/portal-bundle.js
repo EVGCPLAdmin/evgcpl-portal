@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.34';
-const PORTAL_BUILD    = 407;
-const PORTAL_BUILD_AT = '2026-06-09T14:43:06Z';
+const PORTAL_VERSION  = '3.18.35';
+const PORTAL_BUILD    = 408;
+const PORTAL_BUILD_AT = '2026-06-09T14:46:22Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2781,7 +2781,7 @@ const PO_TAB           = 'PO_Actual'; // gid 1458467853 — replaces legacy 'PO'
 const PAYMENT_SHEET_ID = '1mLddxLRf719EaXE9XSET9gT8l0a8Cxns362yIbHo63g'; // Account View – PaymentRequest tab
 // Accounts module backend — deployed as its own Apps Script web app
 // (Router.gs + AccountsHandlers.gs). All Accounts writes post here.
-const ACCOUNTS_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyH0pfYVDaq1In9zsaSaJ4-QLhTlR71lL0CUzvmHqTRr5ZkS5qgKLMuMlBgTR3Hzgq-xw/exec';
+const ACCOUNTS_EXEC_URL = 'https://script.google.com/macros/s/AKfycbwRODxHu1lB-UId3pdbfFUJz_wUspWVotAQzMbhb8A_utyK5f6yVLciZOiiKvY6ORcucQ/exec';
 const STORES_SHEET_ID  = '1iMQxgqGilUh2_3NCZl5D-EMt-NC8FwugX83q2fWb8fE'; // v2_Stores – StockIN / GRN_No tabs
 
 // ══════════════════════════════════════════════════════════
