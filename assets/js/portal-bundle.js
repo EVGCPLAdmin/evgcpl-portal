@@ -92,6 +92,28 @@ async function loadSheetConfig() {
 // ── Load at startup (non-blocking) ───────────────────────────
 loadSheetConfig();
 
+// Auto-detect a newer deployed build. GitHub Pages caches the page HTML shells
+// aggressively, so a returning user can keep loading an old bundle after a deploy.
+// version.json (fetched no-store) reflects the latest release; if its build is
+// higher than this bundle's, offer a one-tap cache-busting refresh.
+async function _checkPortalUpdate() {
+  try {
+    const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    const v = await res.json();
+    const cur = (typeof PORTAL_BUILD !== 'undefined') ? PORTAL_BUILD : 0;
+    if (v && +v.build > cur && !document.getElementById('portalUpdateToast')) {
+      const t = document.createElement('div');
+      t.id = 'portalUpdateToast';
+      t.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:99999;background:#16a34a;color:#fff;padding:.7rem 1.1rem;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.3);font-size:.85rem;font-weight:600;display:flex;align-items:center;gap:.8rem;cursor:pointer';
+      t.innerHTML = '🔄 Update available (v' + (v.semver || '') + ') <span style="background:#fff;color:#16a34a;border-radius:6px;padding:2px 10px;font-weight:700">Refresh</span>';
+      t.title = 'A newer version is deployed — click to load it';
+      t.onclick = function () { location.replace(location.pathname + '?v=' + v.build); };
+      document.body.appendChild(t);
+    }
+  } catch (e) { /* offline / not on Pages — ignore */ }
+}
+setTimeout(_checkPortalUpdate, 4000);
+
 // Returns the exec URL for a given key.
 // Priority:  T1 localStorage  →  T2 Sheet (PortalConfig tab)  →  T3 Compiled default
 function getExec(key) {
@@ -5048,9 +5070,31 @@ window._accKpiOpen = function(id) { window._accPendingView = id; navigate('accou
 //  · actions). Reuses _accAllRows, the stage model, and the voucher. The
 //  classic Accounts page is untouched, so the two can run side by side.
 // ══════════════════════════════════════════════════════════════════════════
-const ACCW = { tab:'dashboard', stage:'all', groupBy:'stage', search:'', site:'', entity:'', process:'', age:'', sel:new Set(), collapsed:new Set() };
+const ACCW = { tab:'dashboard', stage:'all', groupBy:'stage', search:'', site:'', entity:'', process:'', age:'', _view:'', sel:new Set(), collapsed:new Set() };
 const _accwOpenStages = ['verify','mdqueue','initiate','paid','utr'];
 function _accwSetStage(id) { ACCW.stage = id; ACCW.sel.clear(); _accwRenderBody(); }
+// ── Saved views (filter presets), per-browser ──────────────────────────────
+const ACCW_VIEWS_LS = 'evgcpl.acc.savedViews';
+function _accwGetViews() { try { return JSON.parse(localStorage.getItem(ACCW_VIEWS_LS) || '{}') || {}; } catch (e) { return {}; } }
+function _accwSaveViews(o) { try { localStorage.setItem(ACCW_VIEWS_LS, JSON.stringify(o)); } catch (e) {} }
+function _accwSaveCurrentView() {
+  const name = (prompt('Save current filters as a view — name:', ACCW._view || '') || '').trim();
+  if (!name) return;
+  const o = _accwGetViews();
+  o[name] = { stage:ACCW.stage, groupBy:ACCW.groupBy, search:ACCW.search, site:ACCW.site, entity:ACCW.entity, process:ACCW.process, age:ACCW.age };
+  _accwSaveViews(o); ACCW._view = name; _accwRenderBody();
+}
+function _accwApplyView(name) {
+  if (!name) { ACCW._view = ''; return; }
+  const v = _accwGetViews()[name]; if (!v) return;
+  Object.assign(ACCW, { stage:v.stage||'all', groupBy:v.groupBy||'stage', search:v.search||'', site:v.site||'', entity:v.entity||'', process:v.process||'', age:v.age||'' });
+  ACCW._view = name; ACCW.sel.clear(); _accwRenderBody();
+}
+function _accwDeleteView() {
+  const name = ACCW._view; if (!name) { alert('Pick a saved view first.'); return; }
+  if (!confirm('Delete saved view "' + name + '"?')) return;
+  const o = _accwGetViews(); delete o[name]; _accwSaveViews(o); ACCW._view = ''; _accwRenderBody();
+}
 // Group-View chips (the classic 8 stage views) — clickable, count per stage.
 function _accwStageChipsHtml() {
   const rows = _accwRows();
@@ -5276,7 +5320,15 @@ function _accwWorklistHtml() {
           <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Group by</label>
           <select onchange="ACCW.groupBy=this.value;ACCW.collapsed.clear();_accwRenderListOnly()" style="${selStyle}">${opt(groupOpts,ACCW.groupBy)}</select>
         </div>
-        <button onclick="ACCW.search='';ACCW.site='';ACCW.entity='';ACCW.process='';ACCW.age='';ACCW.stage='all';_accwRenderListOnly()" class="btn btn-secondary btn-sm" style="align-self:flex-end">&#10006; Reset</button>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Saved view</label>
+          <div style="display:flex;gap:4px">
+            <select onchange="_accwApplyView(this.value)" style="${selStyle};min-width:120px"><option value="">— none —</option>${Object.keys(_accwGetViews()).map(n=>`<option ${n===ACCW._view?'selected':''}>${esc(n)}</option>`).join('')}</select>
+            <button onclick="_accwSaveCurrentView()" class="btn btn-secondary btn-sm" title="Save current filters as a view">&#128190;</button>
+            <button onclick="_accwDeleteView()" class="btn btn-secondary btn-sm" title="Delete the selected saved view">&#128465;</button>
+          </div>
+        </div>
+        <button onclick="ACCW.search='';ACCW.site='';ACCW.entity='';ACCW.process='';ACCW.age='';ACCW.stage='all';ACCW._view='';_accwRenderBody()" class="btn btn-secondary btn-sm" style="align-self:flex-end">&#10006; Reset</button>
         <button onclick="_accwExportCsv()" class="btn btn-secondary btn-sm" style="align-self:flex-end;background:var(--g7);color:#fff;border-color:var(--g7)">&#11015; CSV</button>
       </div>
     </div></div>`;
@@ -6200,6 +6252,25 @@ async function _accPRSubmit() {
   if (poValue > 0 && pending > 0 && amount > pending) errors.push(`Amount (${amount}) exceeds the Pending Value (${pending}).`);
   if (errors.length) { alert('Please fix the following:\n\n• ' + errors.join('\n• ')); return; }
 
+  // Duplicate-payment guard — warn if a non-rejected request already exists with the
+  // same Order No (or same payee) AND the same amount. Cheap safety net vs double-paying.
+  const _dupPayee = (payTo && paidMap[payTo]) ? _accStripCode(_accV(paidMap[payTo]) || '') : '';
+  const _dupOrder = (_accV('acc-pr-orderNo') || '').trim().toLowerCase();
+  const _dupes = (window._accAllRows || []).filter(r => {
+    if (_accStageOf(r) === 'rejected') return false;
+    if (Math.abs((r.amount || 0) - amount) >= 1) return false;
+    const orderMatch = _dupOrder && String(r.orderNo || '').trim().toLowerCase() === _dupOrder;
+    const payeeMatch = _dupPayee && (_accStripCode(r.paidTo || '') || '').toLowerCase() === _dupPayee.toLowerCase();
+    return orderMatch || payeeMatch;
+  });
+  if (_dupes.length) {
+    const fmt = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
+    const list = _dupes.slice(0, 5).map(d => `• ${d.requestId || '?'} — ${fmt(d.amount)} — ${d.date || ''} — ${(d.status && d.status.label) || ''}`).join('\n');
+    if (!confirm(`⚠ Possible duplicate payment\n\n${_dupes.length} existing request(s) match this amount and ${_dupOrder ? 'Order No' : 'payee'}:\n\n${list}\n\nCreate this request anyway?`)) {
+      return;
+    }
+  }
+
   const btn = document.getElementById('acc-pr-submit');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
@@ -6256,6 +6327,22 @@ function _accClosePRDetail() {
   if (_accEscHandler) { document.removeEventListener('keydown', _accEscHandler); _accEscHandler = null; }
   const ov = document.getElementById('accVoucherOverlay');
   if (ov) { ov.style.opacity = '0'; setTimeout(() => { try { ov.remove(); } catch (e) {} }, 200); }
+}
+
+// Print / Save-as-PDF the open voucher — clones its content into a clean window.
+function _accPrintVoucher() {
+  const card = document.getElementById('accVoucherCard');
+  if (!card) return;
+  const w = window.open('', '_blank', 'width=900,height=1000');
+  if (!w) { alert('Allow pop-ups for this site to print the voucher.'); return; }
+  w.document.write('<!doctype html><html><head><title>Payment Voucher</title>'
+    + '<meta charset="utf-8"><style>'
+    + 'body{font-family:system-ui,-apple-system,Arial,sans-serif;margin:0;padding:18px;color:#1f2937;background:#fff}'
+    + 'table{border-collapse:collapse;width:100%} button{display:none!important} *{box-shadow:none!important}'
+    + '@media print{body{padding:0}}'
+    + '</style></head><body>' + card.innerHTML + '</body>'
+    + '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print();},350);};</scr' + 'ipt></html>');
+  w.document.close();
 }
 
 // Format a date value as a long, human date — "28 May 2026".
@@ -6982,6 +7069,7 @@ function _accDrawPRDetail(dr, r) {
         <div style="font-family:monospace;font-size:1rem;font-weight:700">${esc(r.requestId) || esc(r.uuid)}</div>
         <div style="font-size:.74rem;opacity:.9;margin-top:2px">${esc(r.date) || '—'}</div>
         ${r.accDate ? `<div style="font-size:.72rem;opacity:.95;margin-top:3px;background:rgba(255,255,255,.18);padding:2px 9px;border-radius:8px;display:inline-block">Accounts Date&nbsp;&middot;&nbsp;<b>${esc(_accFmtLongDate(r.accDate))}</b></div>` : ''}
+        <button onclick="event.stopPropagation();_accPrintVoucher()" title="Print / Save as PDF" style="margin-top:.5rem;margin-right:.4rem;background:rgba(255,255,255,.18);border:none;color:#fff;width:28px;height:28px;border-radius:7px;cursor:pointer;font-size:.9rem">&#128424;</button>
         <button onclick="_accClosePRDetail()" style="margin-top:.5rem;background:rgba(255,255,255,.18);border:none;color:#fff;width:28px;height:28px;border-radius:7px;cursor:pointer;font-size:.95rem">&#10006;</button>
       </div>
     </div>
