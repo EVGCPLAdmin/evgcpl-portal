@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.42';
-const PORTAL_BUILD    = 415;
-const PORTAL_BUILD_AT = '2026-06-10T11:36:59Z';
+const PORTAL_VERSION  = '3.18.43';
+const PORTAL_BUILD    = 416;
+const PORTAL_BUILD_AT = '2026-06-10T11:55:44Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1952,7 +1952,7 @@ async function empLoadDeptData(isSCM, isHR, isFinance, isOps, deptDisp, emp, myC
       const myPayments = (window._accAllRows||[]).filter(r =>
         r.empCode === myCode ||
         (r.initiator || '').toLowerCase().includes((emp?.name||'').split(' ')[0].toLowerCase())
-      );
+      ).sort((a,b) => _mdpDateVal(b.date) - _mdpDateVal(a.date)); // newest first
       const myPending = myPayments.filter(r=>r.status.cat==='pending');
       const myPaidAmt = myPayments.filter(r=>r.status.cat==='completed').reduce((s,r)=>s+r.amount,0);
 
@@ -2103,7 +2103,7 @@ async function empLoadDeptData(isSCM, isHR, isFinance, isOps, deptDisp, emp, myC
       const done    = accRows.filter(r=>r.status.cat==='completed');
       const pAmt    = pending.reduce((s,r)=>s+r.amount,0);
       const dAmt    = done.reduce((s,r)=>s+r.amount,0);
-      const myP     = accRows.filter(r=>r.empCode===myCode || (r.initiator||'').toLowerCase().includes((emp?.name||'').split(' ')[0].toLowerCase()));
+      const myP     = accRows.filter(r=>r.empCode===myCode || (r.initiator||'').toLowerCase().includes((emp?.name||'').split(' ')[0].toLowerCase())).sort((a,b)=>_mdpDateVal(b.date)-_mdpDateVal(a.date)); // newest first
 
       kpisEl.innerHTML = `
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.9rem">
@@ -2571,7 +2571,7 @@ function _mdpRender() {
 function _mdpQueueHtml() {
   let q = (_mdpRows || []).filter(r => _accIsMDQueue(r));
   if (_mdpCompany) q = q.filter(r => r.company === _mdpCompany);
-  q.sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
+  q.sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date)); // newest first
   const total = q.reduce((s, r) => s + r.amount, 0);
   const kpi = `
     <div class="kpi-grid" style="margin-bottom:1rem">
@@ -2622,7 +2622,7 @@ function _mdpHistory(r) {
   if (!key) return '';
   const prior = (_mdpRows || []).filter(x => x.uuid !== r.uuid &&
       ((x.orderNo || x.billNo || x.paidTo || '').trim().toLowerCase() === key))
-      .sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
+      .sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date)); // newest first
   if (!prior.length) return '';
   const rows = prior.map(x => `
     <tr>
@@ -2684,6 +2684,7 @@ function _plParties(type, companyFilter) {
 function partyLedgerRender(txRows, opts) {
   opts = opts || {};
   const esc = _mdpEsc;
+  // Compute the running balance chronologically (oldest → newest)…
   const rows = [...txRows].sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
   if (!rows.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions found.</div>';
   const totalAmt  = rows.reduce((s, r) => s + r.amount, 0);
@@ -2695,8 +2696,9 @@ function partyLedgerRender(txRows, opts) {
     <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⏳</div></div><div class="kpi-value" style="font-size:1.25rem">₹${Math.round(totalPend).toLocaleString('en-IN')}</div><div class="kpi-label">Pending</div></div>
   </div>`;
   let running = 0;
-  const body = rows.map(r => {
-    running += r.amount;
+  const withBalance = rows.map(r => { running += r.amount; return { r, balance: running }; });
+  // …but display newest first (descending) while keeping each row's running balance.
+  const body = withBalance.reverse().map(({ r, balance }) => {
     const s = r.status;
     const click = opts.onRowClick ? ` style="cursor:pointer" onclick="${opts.onRowClick}('${r.uuid}')"` : '';
     return `<tr${click}>
@@ -2706,7 +2708,7 @@ function partyLedgerRender(txRows, opts) {
       <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(r.orderNo) || '—'}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(r.billNo) || '—'}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:600">${_mdpAmt(r.amount, r.currency)}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;color:var(--txt2)">₹${Math.round(running).toLocaleString('en-IN')}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;color:var(--txt2)">₹${Math.round(balance).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border)"><span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span></td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.7rem">${esc(r.utr) || '—'}</td>
     </tr>`;
