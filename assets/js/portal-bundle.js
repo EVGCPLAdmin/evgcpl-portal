@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.54';
-const PORTAL_BUILD    = 427;
-const PORTAL_BUILD_AT = '2026-06-10T13:34:46Z';
+const PORTAL_VERSION  = '3.18.55';
+const PORTAL_BUILD    = 428;
+const PORTAL_BUILD_AT = '2026-06-10T13:36:22Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2915,16 +2915,19 @@ function partyLedgerRender(txRows, opts) {
   const rows = [...txRows].sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
   if (!rows.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions found.</div>';
   // Double-entry over the party's account:
-  //   Credit = amount billed / owed (every non-rejected request)
   //   Debit  = amount paid out (request reaches a completed/paid status)
+  //   Credit = billed / owed amount — a PAID request is Debit ONLY, it must
+  //            never also appear in Credit. (Final credit logic for non-paid
+  //            billed amounts to be supplied separately.)
   //   Rejected = amount of rejected requests — shown in its own column,
   //              never affects the running balance
   //   Running Balance = Σ(Credit − Debit) = net outstanding payable
   let running = 0;
   const withBalance = rows.map(r => {
     const rejected = r.status.cat === 'rejected';
-    const credit = rejected ? 0 : r.amount;
-    const debit  = (!rejected && r.status.cat === 'completed') ? r.amount : 0;
+    const paid     = !rejected && r.status.cat === 'completed';
+    const credit = (rejected || paid) ? 0 : r.amount;
+    const debit  = paid ? r.amount : 0;
     const reject = rejected ? r.amount : 0;
     running += credit - debit;
     return { r, credit, debit, reject, balance: running, rejected };
