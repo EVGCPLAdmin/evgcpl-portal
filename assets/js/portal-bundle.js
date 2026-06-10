@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.19.11';
-const PORTAL_BUILD    = 446;
-const PORTAL_BUILD_AT = '2026-06-10T17:24:26Z';
+const PORTAL_VERSION  = '3.19.13';
+const PORTAL_BUILD    = 448;
+const PORTAL_BUILD_AT = '2026-06-10T17:52:43Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5898,6 +5898,93 @@ function _accFmtLongDate(v) {
 }
 let _accEscHandler = null;
 
+// ══════════════════════════════════════════════════════════════════════════
+//  Accounts arrangements (table columns · voucher fields · voucher blocks)
+//  Resolution priority:  personal localStorage  →  system default (PortalConfig
+//  sheet)  →  compiled default.  Admins can push the current arrangement to the
+//  PortalConfig sheet so it becomes the org-wide default for everyone.
+// ══════════════════════════════════════════════════════════════════════════
+function _accMergeCfg(saved, defs) {
+  if (!Array.isArray(saved) || !saved.length) return defs.map(d => ({ key: d.key, enabled: d.on !== false }));
+  const known = new Set(defs.map(d => d.key));
+  const cfg = saved.filter(s => known.has(s.key)).map(s => ({ key: s.key, enabled: s.enabled !== false }));
+  const seen = new Set(cfg.map(c => c.key));
+  defs.forEach(d => { if (!seen.has(d.key)) cfg.push({ key: d.key, enabled: d.on !== false }); });
+  return cfg;
+}
+function _accReadCfg(lsKey, sheetKey, defs) {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(lsKey) || 'null'); } catch (e) {}
+  if ((!Array.isArray(saved) || !saved.length) && sheetKey && window._SHEET_CONFIG && window._SHEET_CONFIG[sheetKey]) {
+    try { saved = JSON.parse(window._SHEET_CONFIG[sheetKey]); } catch (e) {}
+  }
+  return _accMergeCfg(saved, defs);
+}
+function _accReadModalList(listId) {
+  const list = document.getElementById(listId); if (!list) return [];
+  return [...list.querySelectorAll('li')].map(li => ({
+    key: li.dataset.key,
+    enabled: !!(li.querySelector('input[type=checkbox]') || {}).checked,
+  }));
+}
+function _accIsAdmin() {
+  const email = ((window.STATE && STATE.user && STATE.user.email) || '').toLowerCase();
+  return (window.STATE && STATE.role === 'md') || email.includes('admin@evgcpl') || email.includes('neurolooom') || (window.STATE && STATE.isDevMode);
+}
+// Footer button (admin only) that pushes the modal's current arrangement to the sheet.
+function _accDefaultBtn(sheetKey, listId) {
+  if (!_accIsAdmin()) return '';
+  return `<button onclick="_accSetSystemDefault('${sheetKey}','${listId}',this)" class="btn btn-secondary btn-sm" title="Make this arrangement the org-wide default for everyone" style="font-size:.74rem">&#9733; Set as system default</button>`;
+}
+async function _accSetSystemDefault(sheetKey, listId, btn) {
+  const value = _accReadModalList(listId);
+  if (!value.length) return;
+  let writeUrl = '';
+  for (const k of ['portalConfig', 'pcc', 'main']) {
+    const u = (typeof getExec === 'function') ? getExec(k) : '';
+    if (u && /^https:\/\/script\.google\.com\/macros\//.test(u)) { writeUrl = u; break; }
+  }
+  if (!writeUrl) { alert('No PortalConfig backend URL is configured. Set it under Dev Mode → Portal Config Backend.'); return; }
+  const prev = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const email = (window.STATE && STATE.user && STATE.user.email) || 'unknown';
+    const res = await fetch(writeUrl, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'savePortalConfig', key: sheetKey, value: JSON.stringify(value), updatedBy: email }),
+    });
+    const data = await res.json();
+    if (data && data.success) {
+      window._SHEET_CONFIG = window._SHEET_CONFIG || {};
+      window._SHEET_CONFIG[sheetKey] = JSON.stringify(value);
+      if (btn) { btn.innerHTML = '&#10003; Saved as default'; btn.style.background = '#16a34a'; btn.style.color = '#fff'; btn.style.borderColor = '#16a34a'; }
+    } else {
+      if (btn) { btn.disabled = false; btn.innerHTML = prev; }
+      alert('Could not save system default: ' + ((data && data.message) || 'unknown error'));
+    }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.innerHTML = prev; }
+    alert('Error saving system default: ' + e.message);
+  }
+}
+
+// Voucher detail blocks — drag-arrangeable order + show/hide (Set 1 = compiled order)
+const ACC_VBLOCKS_DEF = [
+  { key: 'requestDetails', label: 'Request Details',     on: true },
+  { key: 'amount',         label: 'Amount',              on: true },
+  { key: 'particulars',    label: 'Particulars',         on: true },
+  { key: 'billPo',         label: 'Bill & PO Reference', on: true },
+  { key: 'bank',           label: 'Bank Details',        on: true },
+  { key: 'poItems',        label: 'PO Items',            on: true },
+  { key: 'prevPayments',   label: 'Previous Payments',   on: true },
+  { key: 'accounts',       label: 'Accounts Processing', on: true },
+  { key: 'documents',      label: 'Documents',           on: true },
+  { key: 'statusUpdates',  label: 'Status Updates',      on: true },
+];
+const ACC_VBLOCKS_LS = 'evgcpl.acc.voucherBlocks';
+function _accGetVoucherBlockCfg() { return _accReadCfg(ACC_VBLOCKS_LS, 'acc_default_voucher_blocks', ACC_VBLOCKS_DEF); }
+function _accSaveVoucherBlockCfg(cfg) { try { localStorage.setItem(ACC_VBLOCKS_LS, JSON.stringify(cfg)); } catch (e) {} }
+
 // ── Voucher "Bill & PO Reference" fields — user-arrangeable (drag & drop) ──
 // Order + visibility persist per-browser in localStorage.
 const ACC_ORDER_FIELDS_DEF = [
@@ -5913,15 +6000,7 @@ const ACC_ORDER_FIELDS_DEF = [
 const ACC_ORDER_FIELDS_LS = 'evgcpl.acc.orderFields';
 
 function _accGetOrderFieldCfg() {
-  const def = ACC_ORDER_FIELDS_DEF;
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(ACC_ORDER_FIELDS_LS) || 'null'); } catch (e) {}
-  if (!Array.isArray(saved) || !saved.length) return def.map(f => ({ key: f.key, enabled: f.on }));
-  const known = new Set(def.map(f => f.key));
-  const cfg = saved.filter(s => known.has(s.key)).map(s => ({ key: s.key, enabled: !!s.enabled }));
-  const seen = new Set(cfg.map(c => c.key));
-  def.forEach(f => { if (!seen.has(f.key)) cfg.push({ key: f.key, enabled: f.on }); });
-  return cfg;
+  return _accReadCfg(ACC_ORDER_FIELDS_LS, 'acc_default_order_fields', ACC_ORDER_FIELDS_DEF);
 }
 function _accSaveOrderFieldCfg(cfg) {
   try { localStorage.setItem(ACC_ORDER_FIELDS_LS, JSON.stringify(cfg)); } catch (e) {}
@@ -5969,8 +6048,11 @@ function _accArrangeOrderFields() {
             <span style="font-size:.84rem;color:var(--txt1);flex:1">${esc(label[c.key] || c.key)}</span>
           </li>`).join('')}
       </ul>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.8rem 1.1rem;border-top:1px solid var(--border)">
-        <button onclick="_accResetOrderFields()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;padding:.8rem 1.1rem;border-top:1px solid var(--border)">
+        <div style="display:flex;gap:.5rem">
+          <button onclick="_accResetOrderFields()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset</button>
+          ${_accDefaultBtn('acc_default_order_fields', 'accFieldArrangerList')}
+        </div>
         <div style="display:flex;gap:.5rem">
           <button onclick="document.getElementById('accFieldArranger').remove()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Cancel</button>
           <button onclick="_accSaveArrangedFields()" class="btn btn-sm" style="background:var(--g7);color:#fff;border:none;font-size:.74rem;font-weight:700;padding:4px 14px">Save</button>
@@ -6005,11 +6087,7 @@ function _accWireFieldDnd(list) {
 }
 
 function _accSaveArrangedFields() {
-  const list = document.getElementById('accFieldArrangerList'); if (!list) return;
-  const cfg = [...list.querySelectorAll('li')].map(li => ({
-    key: li.dataset.key,
-    enabled: !!(li.querySelector('input[type=checkbox]') || {}).checked,
-  }));
+  const cfg = _accReadModalList('accFieldArrangerList'); if (!cfg.length) return;
   _accSaveOrderFieldCfg(cfg);
   const ov = document.getElementById('accFieldArranger'); if (ov) ov.remove();
   if (window._accDetailUuid) _accOpenPRDetail(window._accDetailUuid);
@@ -6069,15 +6147,7 @@ function _accColumnDefs() {
   ];
 }
 function _accGetColumnCfg() {
-  const defs = _accColumnDefs();
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(ACC_COLUMNS_LS) || 'null'); } catch (e) {}
-  if (!Array.isArray(saved) || !saved.length) return defs.map(d => ({ key: d.key, enabled: true }));
-  const known = new Set(defs.map(d => d.key));
-  const cfg = saved.filter(s => known.has(s.key)).map(s => ({ key: s.key, enabled: s.enabled !== false }));
-  const seen = new Set(cfg.map(c => c.key));
-  defs.forEach(d => { if (!seen.has(d.key)) cfg.push({ key: d.key, enabled: true }); });
-  return cfg;
+  return _accReadCfg(ACC_COLUMNS_LS, 'acc_default_columns', _accColumnDefs().map(d => ({ key: d.key, on: true })));
 }
 function _accSaveColumnCfg(cfg) {
   try { localStorage.setItem(ACC_COLUMNS_LS, JSON.stringify(cfg)); } catch (e) {}
@@ -6146,8 +6216,11 @@ function _accArrangeColumns() {
             <span style="font-size:.84rem;color:var(--txt1);flex:1">${esc(label[c.key] || c.key)}</span>
           </li>`).join('')}
       </ul>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.8rem 1.1rem;border-top:1px solid var(--border)">
-        <button onclick="_accResetColumns()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;padding:.8rem 1.1rem;border-top:1px solid var(--border)">
+        <div style="display:flex;gap:.5rem">
+          <button onclick="_accResetColumns()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset</button>
+          ${_accDefaultBtn('acc_default_columns', 'accColArrangerList')}
+        </div>
         <div style="display:flex;gap:.5rem">
           <button onclick="document.getElementById('accColArranger').remove()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Cancel</button>
           <button onclick="_accSaveArrangedColumns()" class="btn btn-sm" style="background:var(--g7);color:#fff;border:none;font-size:.74rem;font-weight:700;padding:4px 14px">Save</button>
@@ -6158,11 +6231,7 @@ function _accArrangeColumns() {
   _accWireFieldDnd(document.getElementById('accColArrangerList'));
 }
 function _accSaveArrangedColumns() {
-  const list = document.getElementById('accColArrangerList'); if (!list) return;
-  const cfg = [...list.querySelectorAll('li')].map(li => ({
-    key: li.dataset.key,
-    enabled: !!(li.querySelector('input[type=checkbox]') || {}).checked,
-  }));
+  const cfg = _accReadModalList('accColArrangerList'); if (!cfg.length) return;
   _accSaveColumnCfg(cfg);
   const ov = document.getElementById('accColArranger'); if (ov) ov.remove();
   if (typeof accRender === 'function') accRender();
@@ -6171,6 +6240,56 @@ function _accResetColumns() {
   try { localStorage.removeItem(ACC_COLUMNS_LS); } catch (e) {}
   const ov = document.getElementById('accColArranger'); if (ov) ov.remove();
   _accArrangeColumns();
+}
+
+// Voucher block (section) arranger — reorder + show/hide whole blocks.
+function _accArrangeBlocks() {
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const label = Object.fromEntries(ACC_VBLOCKS_DEF.map(d => [d.key, d.label]));
+  const cfg = _accGetVoucherBlockCfg();
+  const old = document.getElementById('accBlockArranger'); if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'accBlockArranger';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:1400;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:4vh 4vw';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = `
+    <div style="background:#fff;width:400px;max-width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:.85rem 1.1rem;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff">
+        <div style="font-weight:800;font-size:.95rem">Arrange Voucher Blocks</div>
+        <div style="font-size:.72rem;opacity:.9;margin-top:2px">Drag to reorder sections &middot; tick to show / hide</div>
+      </div>
+      <ul id="accBlockArrangerList" style="list-style:none;margin:0;padding:.6rem;max-height:58vh;overflow-y:auto">
+        ${cfg.map(c => `
+          <li draggable="true" data-key="${esc(c.key)}" style="display:flex;align-items:center;gap:.6rem;padding:.5rem .7rem;margin-bottom:.35rem;border:1px solid var(--border);border-radius:8px;background:var(--surface1);cursor:grab;user-select:none">
+            <span style="color:var(--txt3);font-size:.95rem;line-height:1">&#8942;&#8942;</span>
+            <input type="checkbox" ${c.enabled ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer" onclick="event.stopPropagation()">
+            <span style="font-size:.84rem;color:var(--txt1);flex:1">${esc(label[c.key] || c.key)}</span>
+          </li>`).join('')}
+      </ul>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;padding:.8rem 1.1rem;border-top:1px solid var(--border)">
+        <div style="display:flex;gap:.5rem">
+          <button onclick="_accResetBlocks()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset</button>
+          ${_accDefaultBtn('acc_default_voucher_blocks', 'accBlockArrangerList')}
+        </div>
+        <div style="display:flex;gap:.5rem">
+          <button onclick="document.getElementById('accBlockArranger').remove()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Cancel</button>
+          <button onclick="_accSaveArrangedBlocks()" class="btn btn-sm" style="background:var(--g7);color:#fff;border:none;font-size:.74rem;font-weight:700;padding:4px 14px">Save</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  _accWireFieldDnd(document.getElementById('accBlockArrangerList'));
+}
+function _accSaveArrangedBlocks() {
+  const cfg = _accReadModalList('accBlockArrangerList'); if (!cfg.length) return;
+  _accSaveVoucherBlockCfg(cfg);
+  const ov = document.getElementById('accBlockArranger'); if (ov) ov.remove();
+  if (window._accDetailUuid) _accOpenPRDetail(window._accDetailUuid);
+}
+function _accResetBlocks() {
+  try { localStorage.removeItem(ACC_VBLOCKS_LS); } catch (e) {}
+  const ov = document.getElementById('accBlockArranger'); if (ov) ov.remove();
+  _accArrangeBlocks();
 }
 
 // ── Global Accounts search — searches the whole DB (all stages) and opens the voucher ──
@@ -6369,25 +6488,10 @@ function _accDrawPRDetail(dr, r) {
       </table>` : `<div style="padding:.7rem;color:var(--txt3);font-size:.8rem;margin-bottom:1rem">No other payment requests found against this Order No.</div>`}`;
   }
 
-  dr.innerHTML = `
-    <div style="padding:1rem 1.4rem;border-bottom:2px solid var(--g7);display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff;flex-shrink:0">
-      <div style="min-width:0">
-        <div style="font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;opacity:.8">${esc(r.company) || 'EVGCPL'}</div>
-        <div style="font-size:1.1rem;font-weight:800;letter-spacing:.03em;margin-top:1px">PAYMENT VOUCHER</div>
-        <div style="margin-top:.5rem">${badge}</div>
-      </div>
-      <div style="text-align:right;flex-shrink:0">
-        <div style="font-family:monospace;font-size:1rem;font-weight:700">${esc(r.requestId) || esc(r.uuid)}</div>
-        <div style="font-size:.74rem;opacity:.9;margin-top:2px">${esc(r.date) || '—'}</div>
-        ${r.accDate ? `<div style="font-size:.72rem;opacity:.95;margin-top:3px;background:rgba(255,255,255,.18);padding:2px 9px;border-radius:8px;display:inline-block">Accounts Date&nbsp;&middot;&nbsp;<b>${esc(_accFmtLongDate(r.accDate))}</b></div>` : ''}
-        <button onclick="_accClosePRDetail()" style="margin-top:.5rem;background:rgba(255,255,255,.18);border:none;color:#fff;width:28px;height:28px;border-radius:7px;cursor:pointer;font-size:.95rem">&#10006;</button>
-      </div>
-    </div>
-
-    <div style="flex:1;overflow-y:auto;padding:1.1rem 1.4rem;max-height:74vh">
-      <div id="acc-detail-actions"></div>
-
-      <!-- Consolidated Request Details — Payee + type, context, Nature & Narrative -->
+  // Each voucher section is a self-contained block; order + visibility come from
+  // the (drag-arrangeable) block config. Async blocks keep their container ids.
+  const _vblocks = {
+    requestDetails: `
       <div style="border:1px solid var(--border);border-radius:10px;background:var(--surface1);margin-bottom:1rem;overflow:hidden">
         <div style="background:var(--g9);color:#fff;padding:.4rem .9rem;font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Request Details</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem 1.6rem;padding:.85rem 1rem">
@@ -6410,66 +6514,96 @@ function _accDrawPRDetail(dr, r) {
             ${r.narrative ? `<div style="font-size:.78rem;color:var(--txt2)"><span style="color:var(--txt3);font-weight:600">Narrative:&nbsp;</span>${esc(r.narrative)}</div>` : ''}
           </div>` : ''}
         </div>
-      </div>
-
+      </div>`,
+    amount: `
       <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding:.85rem 1.1rem;border:1px solid var(--g7);border-radius:10px;background:#f0fdf4;margin-bottom:1rem">
         <div style="min-width:0">
           <div style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Amount</div>
           ${words ? `<div style="font-size:.8rem;color:var(--txt2);margin-top:3px;font-style:italic">${esc(words)}</div>` : ''}
         </div>
         <div style="font-size:1.5rem;font-weight:800;color:var(--g8);white-space:nowrap">${fmtAmt(r.amount, r.currency)}</div>
-      </div>
-
-      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Particulars</div>
-      <table style="width:100%;border-collapse:collapse;margin-bottom:1rem">
-        ${partRow('Nature of Expenses', r.nature)}
-        ${partRow('Account Code Description', r.accCode)}
-        ${partRow('Cost Code', r.costCode)}
-        ${partRow('From Which Process', r.process)}
-        ${partRow('Narrative / Comments', r.narrative)}
-      </table>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
-        <div>
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.45rem">
-            <span style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em">Bill &amp; PO Reference</span>
-            <button onclick="event.stopPropagation();_accArrangeOrderFields()" title="Drag &amp; drop to arrange these fields" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--txt2);cursor:pointer;font-size:.66rem;padding:2px 8px;white-space:nowrap">&#9881; Arrange</button>
-          </div>
-          <table style="width:100%;border-collapse:collapse">
-            ${_accOrderFieldRows(r, partRow, fmtAmt)}
-          </table>
+      </div>`,
+    particulars: `
+      <div style="margin-bottom:1rem">
+        <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Particulars</div>
+        <table style="width:100%;border-collapse:collapse">
+          ${partRow('Nature of Expenses', r.nature)}
+          ${partRow('Account Code Description', r.accCode)}
+          ${partRow('Cost Code', r.costCode)}
+          ${partRow('From Which Process', r.process)}
+          ${partRow('Narrative / Comments', r.narrative)}
+        </table>
+      </div>`,
+    billPo: `
+      <div style="margin-bottom:1rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.45rem">
+          <span style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em">Bill &amp; PO Reference</span>
+          <button onclick="event.stopPropagation();_accArrangeOrderFields()" title="Drag &amp; drop to arrange these fields" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--txt2);cursor:pointer;font-size:.66rem;padding:2px 8px;white-space:nowrap">&#9881; Arrange</button>
         </div>
-        <div>
-          <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Bank Details</div>
-          <table style="width:100%;border-collapse:collapse">
-            ${partRow('A/C Holder', r.acHolder)}
-            ${partRow('A/C Number', r.acNumber)}
-            ${partRow('IFSC Code', r.ifsc)}
-            ${partRow('Bank Name', r.bank)}
-          </table>
-        </div>
+        <table style="width:100%;border-collapse:collapse">
+          ${_accOrderFieldRows(r, partRow, fmtAmt)}
+        </table>
+      </div>`,
+    bank: `
+      <div style="margin-bottom:1rem">
+        <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Bank Details</div>
+        <table style="width:100%;border-collapse:collapse">
+          ${partRow('A/C Holder', r.acHolder)}
+          ${partRow('A/C Number', r.acNumber)}
+          ${partRow('IFSC Code', r.ifsc)}
+          ${partRow('Bank Name', r.bank)}
+        </table>
+      </div>`,
+    poItems: r.orderNo ? `
+      <div style="margin-bottom:1rem">
+        <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">PO Items &middot; ${esc(r.orderNo)}</div>
+        <div id="acc-detail-poitems"><div style="padding:.7rem;color:var(--txt3);font-size:.8rem">&#8987; Loading PO items&hellip;</div></div>
+      </div>` : '',
+    prevPayments: prevPaysHtml,
+    accounts: (r.accStatus || r.utr || r.remarks) ? `
+      <div style="margin-bottom:1rem">
+        <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Accounts Processing</div>
+        <table style="width:100%;border-collapse:collapse">
+          ${partRow('Accounts Status', r.accStatus)}
+          ${partRow('Accounts Date', _accFmtLongDate(r.accDate))}
+          ${partRow('UTR Details', r.utr)}
+          ${partRow('Remarks', r.remarks)}
+        </table>
+      </div>` : '',
+    documents: `
+      <div style="margin-bottom:1rem">
+        <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem;border-top:1px solid var(--border);padding-top:.8rem">&#128206; Documents</div>
+        <div id="acc-detail-docs"><div style="padding:.8rem;text-align:center;color:var(--txt3);font-size:.8rem">&#8987; Loading documents&hellip;</div></div>
+      </div>`,
+    statusUpdates: `
+      <div>
+        <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem;border-top:1px solid var(--border);padding-top:.8rem">Status Updates</div>
+        <div id="acc-detail-timeline"><div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">&#8987; Loading status history&hellip;</div></div>
+      </div>`,
+  };
+  const _vbodyHtml = _accGetVoucherBlockCfg().filter(c => c.enabled).map(c => _vblocks[c.key] || '').join('');
+
+  dr.innerHTML = `
+    <div style="padding:1rem 1.4rem;border-bottom:2px solid var(--g7);display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff;flex-shrink:0">
+      <div style="min-width:0">
+        <div style="font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;opacity:.8">${esc(r.company) || 'EVGCPL'}</div>
+        <div style="font-size:1.1rem;font-weight:800;letter-spacing:.03em;margin-top:1px">PAYMENT VOUCHER</div>
+        <div style="margin-top:.5rem">${badge}</div>
       </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-family:monospace;font-size:1rem;font-weight:700">${esc(r.requestId) || esc(r.uuid)}</div>
+        <div style="font-size:.74rem;opacity:.9;margin-top:2px">${esc(r.date) || '—'}</div>
+        ${r.accDate ? `<div style="font-size:.72rem;opacity:.95;margin-top:3px;background:rgba(255,255,255,.18);padding:2px 9px;border-radius:8px;display:inline-block">Accounts Date&nbsp;&middot;&nbsp;<b>${esc(_accFmtLongDate(r.accDate))}</b></div>` : ''}
+        <button onclick="_accClosePRDetail()" style="margin-top:.5rem;background:rgba(255,255,255,.18);border:none;color:#fff;width:28px;height:28px;border-radius:7px;cursor:pointer;font-size:.95rem">&#10006;</button>
+      </div>
+    </div>
 
-      ${r.orderNo ? `
-      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">PO Items &middot; ${esc(r.orderNo)}</div>
-      <div id="acc-detail-poitems" style="margin-bottom:1rem"><div style="padding:.7rem;color:var(--txt3);font-size:.8rem">&#8987; Loading PO items&hellip;</div></div>` : ''}
-
-      ${prevPaysHtml}
-
-      ${(r.accStatus || r.utr || r.remarks) ? `
-      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Accounts Processing</div>
-      <table style="width:100%;border-collapse:collapse;margin-bottom:1rem">
-        ${partRow('Accounts Status', r.accStatus)}
-        ${partRow('Accounts Date', _accFmtLongDate(r.accDate))}
-        ${partRow('UTR Details', r.utr)}
-        ${partRow('Remarks', r.remarks)}
-      </table>` : ''}
-
-      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem;border-top:1px solid var(--border);padding-top:.8rem">&#128206; Documents</div>
-      <div id="acc-detail-docs"><div style="padding:.8rem;text-align:center;color:var(--txt3);font-size:.8rem">&#8987; Loading documents&hellip;</div></div>
-
-      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin:1rem 0 .45rem;border-top:1px solid var(--border);padding-top:.8rem">Status Updates</div>
-      <div id="acc-detail-timeline"><div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">&#8987; Loading status history&hellip;</div></div>
+    <div style="flex:1;overflow-y:auto;padding:1.1rem 1.4rem;max-height:74vh">
+      <div id="acc-detail-actions"></div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:.6rem">
+        <button onclick="_accArrangeBlocks()" title="Drag &amp; drop to rearrange voucher sections" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--txt2);cursor:pointer;font-size:.68rem;padding:3px 10px;white-space:nowrap">&#9881; Layout</button>
+      </div>
+      ${_vbodyHtml}
     </div>
   `;
 }
