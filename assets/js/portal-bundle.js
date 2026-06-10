@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.45';
-const PORTAL_BUILD    = 418;
-const PORTAL_BUILD_AT = '2026-06-10T12:06:53Z';
+const PORTAL_VERSION  = '3.18.52';
+const PORTAL_BUILD    = 425;
+const PORTAL_BUILD_AT = '2026-06-10T13:06:19Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2439,7 +2439,11 @@ function renderDashboard() {
 // ══════════════════════════════════════════════════════════════
 let _mdpRows    = null;
 let _mdpCompany = '';
+let _mdpSel     = {};          // uuid -> true : bulk selection in the MD queue
 let _mdpTab     = 'queue';     // 'queue' | 'ledger'
+let _mdpFType   = '';          // queue filter: Payment To type
+let _mdpFSite   = '';          // queue filter: site
+let _mdpFSearch = '';          // queue filter: free-text search
 let _plType     = 'Vendor';    // party-ledger party type
 let _plParty    = '';          // selected party key "type|name|acc"
 
@@ -2548,6 +2552,17 @@ function _mdpSetTab(t) {
   _mdpRender();
 }
 function _mdpSetType(t) { _plType = t; _plParty = ''; _mdpRender(); }
+function _mdpSetFType(v) { _mdpFType = v; _mdpRender(); }
+function _mdpSetFSite(v) { _mdpFSite = v; _mdpRender(); }
+function _mdpSetSearch(v) {
+  clearTimeout(window._mdpSearchT);
+  window._mdpSearchT = setTimeout(() => {
+    _mdpFSearch = String(v || '').trim();
+    _mdpRender();
+    const el = document.getElementById('mdp-f-search');
+    if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) {} }
+  }, 250);
+}
 function _mdpSetParty(k) { _plParty = k; _mdpRender(); }
 function _mdpRefresh() {
   const c = document.getElementById('mdp-content');
@@ -2675,29 +2690,130 @@ function _mdpRender() {
   if (content) content.innerHTML = (_mdpTab === 'ledger') ? _mdpLedgerHtml() : _mdpQueueHtml();
 }
 
-function _mdpQueueHtml() {
-  const shelf = _txnShelfHtml('md');
+// MD queue rows after company + filter-bar filters (selection, bulk ops and
+// the queue list must all see the same set).
+function _mdpQueueRows() {
   let q = (_mdpRows || []).filter(r => _accIsMDQueue(r) && !_txnHas(r.uuid));
   if (_mdpCompany) q = q.filter(r => r.company === _mdpCompany);
-  q.sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date)); // newest first
+  if (_mdpFType)   q = q.filter(r => r.payTo === _mdpFType);
+  if (_mdpFSite)   q = q.filter(r => r.site === _mdpFSite);
+  if (_mdpFSearch) {
+    const t = _mdpFSearch.toLowerCase();
+    q = q.filter(r => [r.requestId, r.paidTo, r.vendor, r.payTo, r.orderNo, r.billNo, r.narrative, r.initiator, r.site]
+      .join(' ').toLowerCase().includes(t));
+  }
+  return q;
+}
+
+function _mdpQueueHtml() {
+  const shelf = _txnShelfHtml('md');
+  const base = (_mdpRows || []).filter(r => _accIsMDQueue(r) && !_txnHas(r.uuid));
+  const types = [...new Set(base.map(r => r.payTo).filter(Boolean))].sort();
+  const sites = [...new Set(base.map(r => r.site).filter(Boolean))].sort();
+  const q = _mdpQueueRows();
+  q.sort((a, b) => (_accPrNum(b) - _accPrNum(a)) || (_mdpDateVal(b.date) - _mdpDateVal(a.date))); // largest PR first
   const total = q.reduce((s, r) => s + r.amount, 0);
-  const kpi = `
-    <div class="kpi-grid" style="margin-bottom:1rem">
-      <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⚖</div><div class="kpi-trend flat">Awaiting you</div></div><div class="kpi-value">${q.length}</div><div class="kpi-label">Pending Approvals</div></div>
-      <div class="kpi-card info"><div class="kpi-top"><div class="kpi-icon blue">💰</div><div class="kpi-trend flat">${_mdpEsc(_mdpCompany) || 'All companies'}</div></div><div class="kpi-value" style="font-size:1.3rem">₹${Math.round(total).toLocaleString('en-IN')}</div><div class="kpi-label">Total Value</div></div>
+  const selStyle = 'font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface)';
+  const filterBar = `
+    <div class="card" style="margin-bottom:.8rem">
+      <div style="display:flex;align-items:center;gap:.6rem;padding:.55rem .85rem;flex-wrap:wrap">
+        <input id="mdp-f-search" type="search" placeholder="🔍 Search PR, payee, PO, narrative…" value="${_mdpEsc(_mdpFSearch)}"
+          oninput="_mdpSetSearch(this.value)" style="${selStyle};flex:1;min-width:180px">
+        <select onchange="_mdpSetFType(this.value)" style="${selStyle}">
+          <option value="">All Types</option>
+          ${types.map(t => `<option value="${_mdpEsc(t)}" ${t === _mdpFType ? 'selected' : ''}>${_mdpEsc(t)}</option>`).join('')}
+        </select>
+        <select onchange="_mdpSetFSite(this.value)" style="${selStyle};max-width:200px">
+          <option value="">All Sites</option>
+          ${sites.map(s => `<option value="${_mdpEsc(s)}" ${s === _mdpFSite ? 'selected' : ''}>${_mdpEsc(s)}</option>`).join('')}
+        </select>
+        <span style="margin-left:auto;font-size:.76rem;color:var(--txt3);white-space:nowrap">
+          <b style="color:var(--g8)">${q.length}</b> pending &middot; <b style="color:var(--g8)">₹${Math.round(total).toLocaleString('en-IN')}</b>
+        </span>
+      </div>
     </div>`;
   if (!q.length) {
-    return shelf + kpi + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">✅ Nothing awaiting your approval${_mdpCompany ? ` for ${_mdpEsc(_mdpCompany)}` : ''}.</div>`;
+    _mdpSel = {};
+    return shelf + filterBar + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">✅ Nothing awaiting your approval${_mdpCompany ? ` for ${_mdpEsc(_mdpCompany)}` : ''}${(_mdpFType || _mdpFSite || _mdpFSearch) ? ' matching the current filters' : ''}.</div>`;
   }
-  return shelf + kpi + q.map(_mdpQueueCard).join('');
+  // Prune selection to what's currently visible.
+  const visible = new Set(q.map(r => r.uuid));
+  Object.keys(_mdpSel).forEach(id => { if (!visible.has(id)) delete _mdpSel[id]; });
+  const selIds = q.filter(r => _mdpSel[r.uuid]);
+  const selTotal = selIds.reduce((s, r) => s + r.amount, 0);
+  const allOn = selIds.length === q.length;
+  const bulkBar = `
+    <div class="card" style="margin-bottom:.8rem;background:var(--surface2)">
+      <div style="display:flex;align-items:center;gap:.8rem;padding:.6rem .9rem;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:.45rem;font-size:.78rem;font-weight:600;cursor:pointer">
+          <input type="checkbox" ${allOn ? 'checked' : ''} onclick="_mdpSelAll(this.checked)" style="width:16px;height:16px;cursor:pointer"> Select all (${q.length})
+        </label>
+        <span style="font-size:.76rem;color:var(--txt3)">${selIds.length} selected${selIds.length ? ' · ₹' + Math.round(selTotal).toLocaleString('en-IN') : ''}</span>
+        <div style="margin-left:auto;display:flex;gap:.5rem">
+          <button onclick="_mdpApproveSelected()" ${selIds.length ? '' : 'disabled'} class="btn btn-sm" style="background:${selIds.length ? '#16a34a' : '#9ca3af'};color:#fff;border:none;font-weight:700">✓ Approve selected (${selIds.length})</button>
+          <button onclick="_mdpRejectSelected()" ${selIds.length ? '' : 'disabled'} class="btn btn-sm" style="background:${selIds.length ? '#dc2626' : '#9ca3af'};color:#fff;border:none;font-weight:700">✗ Reject selected</button>
+        </div>
+      </div>
+    </div>`;
+  return shelf + filterBar + bulkBar + q.map(_mdpQueueCard).join('');
+}
+
+function _mdpToggleSel(uuid, on) { if (on) _mdpSel[uuid] = true; else delete _mdpSel[uuid]; _mdpRender(); }
+function _mdpSelAll(on) {
+  const q = _mdpQueueRows();
+  _mdpSel = {};
+  if (on) q.forEach(r => { _mdpSel[r.uuid] = true; });
+  _mdpRender();
+}
+async function _mdpApproveSelected() {
+  const ids = Object.keys(_mdpSel);
+  if (!ids.length) return;
+  if (!confirm(`Approve ${ids.length} payment request(s) and move them to Accounts?`)) return;
+  _mdpBulkPost(ids, 'Process Payment, Move to Accounts', 'Approved', '');
+}
+async function _mdpRejectSelected() {
+  const ids = Object.keys(_mdpSel);
+  if (!ids.length) return;
+  const reason = prompt(`Reason for rejecting ${ids.length} request(s) (required):`, '');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('A reason is required to reject.'); return; }
+  _mdpBulkPost(ids, 'Reject Payment (MD)', 'Rejected', reason.trim());
+}
+
+// Optimistic bulk post: park every selected row to the In-Transaction shelf and
+// re-render IMMEDIATELY (queue clears, shelf appears), then POST each update in
+// the background. Failures are returned to the queue and summarised once — so
+// the MD never sees a per-item confirm/alert or waits on the network.
+function _mdpBulkPost(ids, status, action, comments) {
+  const rows = ids.map(uuid => (_mdpRows || []).find(x => x.uuid === uuid)).filter(Boolean);
+  if (!rows.length) return;
+  rows.forEach(r => _txnParkRow(r, status, action, 'md'));
+  _mdpSel = {};
+  _accToast(`${action === 'Rejected' ? 'Rejecting' : 'Approving'} ${rows.length} request${rows.length === 1 ? '' : 's'}…`);
+  _mdpRender();
+  (async () => {
+    const failed = [];
+    for (const r of rows) {
+      const ok = await _accQuickStatus(r.uuid, status, comments, '', true);
+      if (!ok) { failed.push(r); _txnDrop(r.uuid); }
+    }
+    if (failed.length) {
+      const last = window._accLastQuickErr || '';
+      alert(`${failed.length} of ${rows.length} request(s) could not be ${action.toLowerCase()} and were returned to the queue.${last ? '\n\nLast error: ' + last : ''}`);
+      _mdpRender();
+    } else {
+      _accToast(`${action === 'Rejected' ? '' : '✅ '}${action} ${rows.length} request${rows.length === 1 ? '' : 's'}${action === 'Approved' ? ' — moving to Accounts' : ''}`);
+    }
+  })();
 }
 
 function _mdpQueueCard(r) {
   const payee = _mdpStrip(r.paidTo) || r.vendor || r.payTo || '—';
   return `
-  <div class="card" style="margin-bottom:.8rem;border-left:4px solid #6366f1">
+  <div class="card" style="margin-bottom:.8rem;border-left:4px solid ${_mdpSel[r.uuid] ? '#16a34a' : '#6366f1'}">
     <div class="card-body" style="padding:.9rem 1.1rem">
       <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:flex-start">
+        <input type="checkbox" ${_mdpSel[r.uuid] ? 'checked' : ''} onclick="event.stopPropagation();_mdpToggleSel('${r.uuid}',this.checked)" style="width:17px;height:17px;margin-top:3px;cursor:pointer;flex-shrink:0">
         <div style="min-width:0;flex:1">
           <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
             <span style="font-family:monospace;font-weight:700;color:var(--g8)">${_mdpEsc(r.requestId || r.uuid)}</span>
@@ -2750,23 +2866,17 @@ function _mdpHistory(r) {
     </details>`;
 }
 
-async function _mdpApprove(uuid) {
+function _mdpApprove(uuid) {
   if (!confirm('Approve this payment request and move it to Accounts for processing?')) return;
-  const status = 'Process Payment, Move to Accounts';
-  if (await _accQuickStatus(uuid, status, '')) {
-    _txnParkRow((_mdpRows || []).find(r => r.uuid === uuid), status, 'Approved', 'md');
-    _accToast('✅ Approved — moving to Accounts'); _mdpRender();
-  }
+  _accClosePRDetail();
+  _mdpBulkPost([uuid], 'Process Payment, Move to Accounts', 'Approved', '');
 }
-async function _mdpReject(uuid) {
+function _mdpReject(uuid) {
   const reason = prompt('Reason for rejection (required):', '');
   if (reason === null) return;
   if (!reason.trim()) { alert('A reason is required to reject.'); return; }
-  const status = 'Reject Payment (MD)';
-  if (await _accQuickStatus(uuid, status, reason.trim())) {
-    _txnParkRow((_mdpRows || []).find(r => r.uuid === uuid), status, 'Rejected', 'md');
-    _accToast('Request rejected'); _mdpRender();
-  }
+  _accClosePRDetail();
+  _mdpBulkPost([uuid], 'Reject Payment (MD)', 'Rejected', reason.trim());
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2803,28 +2913,44 @@ function partyLedgerRender(txRows, opts) {
   // Compute the running balance chronologically (oldest → newest)…
   const rows = [...txRows].sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
   if (!rows.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions found.</div>';
-  const totalAmt  = rows.reduce((s, r) => s + r.amount, 0);
-  const totalPaid = rows.filter(r => r.status.cat === 'completed').reduce((s, r) => s + r.amount, 0);
-  const totalPend = totalAmt - totalPaid;
-  const kpi = `<div class="kpi-grid" style="margin-bottom:1rem">
-    <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">💰</div></div><div class="kpi-value" style="font-size:1.25rem">₹${Math.round(totalAmt).toLocaleString('en-IN')}</div><div class="kpi-label">Total Billed</div></div>
-    <div class="kpi-card" style="border-left:4px solid #16a34a"><div class="kpi-top"><div class="kpi-icon green">✅</div></div><div class="kpi-value" style="font-size:1.25rem">₹${Math.round(totalPaid).toLocaleString('en-IN')}</div><div class="kpi-label">Paid</div></div>
-    <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⏳</div></div><div class="kpi-value" style="font-size:1.25rem">₹${Math.round(totalPend).toLocaleString('en-IN')}</div><div class="kpi-label">Pending</div></div>
-  </div>`;
+  // Double-entry over the party's account:
+  //   Credit = amount billed / owed (every non-rejected request)
+  //   Debit  = amount paid out (request reaches a completed/paid status)
+  //   Rejected = amount of rejected requests — shown in its own column,
+  //              never affects the running balance
+  //   Running Balance = Σ(Credit − Debit) = net outstanding payable
   let running = 0;
-  const withBalance = rows.map(r => { running += r.amount; return { r, balance: running }; });
-  // …but display newest first (descending) while keeping each row's running balance.
-  const body = withBalance.reverse().map(({ r, balance }) => {
+  const withBalance = rows.map(r => {
+    const rejected = r.status.cat === 'rejected';
+    const credit = rejected ? 0 : r.amount;
+    const debit  = (!rejected && r.status.cat === 'completed') ? r.amount : 0;
+    const reject = rejected ? r.amount : 0;
+    running += credit - debit;
+    return { r, credit, debit, reject, balance: running, rejected };
+  });
+  const totalCredit = withBalance.reduce((s, x) => s + x.credit, 0);
+  const totalDebit  = withBalance.reduce((s, x) => s + x.debit, 0);
+  const totalReject = withBalance.reduce((s, x) => s + x.reject, 0);
+  const balance = totalCredit - totalDebit;
+  const kpi = `<div class="kpi-grid" style="margin-bottom:1rem">
+    <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">💰</div></div><div class="kpi-value" style="font-size:1.2rem">₹${Math.round(totalCredit).toLocaleString('en-IN')}</div><div class="kpi-label">Total Credit (Billed)</div></div>
+    <div class="kpi-card" style="border-left:4px solid #16a34a"><div class="kpi-top"><div class="kpi-icon green">✅</div></div><div class="kpi-value" style="font-size:1.2rem">₹${Math.round(totalDebit).toLocaleString('en-IN')}</div><div class="kpi-label">Total Debit (Paid)</div></div>
+    <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⚖</div></div><div class="kpi-value" style="font-size:1.2rem">₹${Math.round(balance).toLocaleString('en-IN')}</div><div class="kpi-label">Outstanding Balance</div></div>
+    <div class="kpi-card danger"><div class="kpi-top"><div class="kpi-icon red">❌</div></div><div class="kpi-value" style="font-size:1.2rem">₹${Math.round(totalReject).toLocaleString('en-IN')}</div><div class="kpi-label">Rejected</div></div>
+  </div>`;
+  // Display newest first (descending) while keeping each row's running balance.
+  const body = withBalance.reverse().map(({ r, credit, debit, reject, balance, rejected }) => {
     const s = r.status;
     const click = opts.onRowClick ? ` style="cursor:pointer" onclick="${opts.onRowClick}('${r.uuid}')"` : '';
+    const dim = rejected ? 'color:var(--txt3)' : '';
     return `<tr${click}>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);white-space:nowrap">${esc(r.date)}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:monospace;font-size:.72rem">${esc(r.requestId || r.uuid)}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:center">${r.installment || '—'}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(r.orderNo) || '—'}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(r.billNo) || '—'}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:600">${_mdpAmt(r.amount, r.currency)}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;color:var(--txt2)">₹${Math.round(balance).toLocaleString('en-IN')}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);white-space:nowrap;${dim}">${esc(r.date)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:monospace;font-size:.72rem;${dim}">${esc(r.requestId || r.uuid)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(r.orderNo) || esc(r.billNo) || '—'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;color:#b45309;font-weight:600">${credit ? _mdpAmt(credit, r.currency) : '—'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;color:#16a34a;font-weight:600">${debit ? _mdpAmt(debit, r.currency) : '—'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;color:#dc2626;font-weight:600">${reject ? _mdpAmt(reject, r.currency) : '—'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:var(--g8)">₹${Math.round(balance).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border)"><span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span></td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.7rem">${esc(r.utr) || '—'}</td>
     </tr>`;
@@ -2833,9 +2959,10 @@ function partyLedgerRender(txRows, opts) {
     <div class="card"><div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:.78rem">
         <thead><tr style="background:var(--g9);color:#fff;text-align:left">
-          <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Request</th><th style="padding:8px 9px;text-align:center">Inst</th>
-          <th style="padding:8px 9px">PO / Order</th><th style="padding:8px 9px">Bill</th>
-          <th style="padding:8px 9px;text-align:right">Amount</th><th style="padding:8px 9px;text-align:right">Running</th><th style="padding:8px 9px">Status</th><th style="padding:8px 9px">UTR</th>
+          <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Request</th><th style="padding:8px 9px">PO / Bill</th>
+          <th style="padding:8px 9px;text-align:right">Credit</th><th style="padding:8px 9px;text-align:right">Debit</th>
+          <th style="padding:8px 9px;text-align:right">Rejected</th><th style="padding:8px 9px;text-align:right">Running Balance</th>
+          <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">UTR</th>
         </tr></thead>
         <tbody>${body}</tbody>
       </table>
@@ -4771,6 +4898,105 @@ async function _accReloadRows() {
   return window._accAllRows;
 }
 
+// ══════════════════════════════════════════════════════════════
+//  ACCOUNTS PIPELINE — the 8 stage Views
+//  Every row sits in exactly one stage, derived from its status label.
+//  `next` describes the one-click "Approve → Next Stage" advance:
+//    status   = the status value to post (must exist in the status master)
+//    to       = the human name of the stage it moves to
+//    roles    = which roles may advance from this stage (role-aware action)
+//    needsUtr = prompt for a bank UTR before completing
+// ══════════════════════════════════════════════════════════════
+const ACC_HOLD_LABELS = ['On Hold by MD','Payment On Hold by MD','Sent Back to Accounts','Sent Back to Dept (MD)','Pending Due to Queries'];
+const ACC_VIEWS = [
+  { id:'verify',   label:'To be Verified',      icon:'&#128269;', color:'#d97706',
+    next:{ status:'Verified, Move to MD Queue',        to:'MD Queue',          roles:['accounts','dept_head'] } },
+  { id:'mdqueue',  label:'MD Queue',            icon:'&#9878;',   color:'#6366f1',
+    next:{ status:'Process Payment, Move to Accounts', to:'Initiate Payment',  roles:['md'] } },
+  { id:'initiate', label:'To Initiate Payment', icon:'&#128640;', color:'#2563eb',
+    next:{ status:'Payment Initiated',                 to:'Paid?',             roles:['accounts','dept_head'] } },
+  { id:'paid',     label:'Paid?',               icon:'&#128181;', color:'#0891b2',
+    next:{ status:'Paid (Initiated in Bank)',          to:'Update UTR',        roles:['accounts','dept_head'] } },
+  { id:'utr',      label:'To Update UTR',       icon:'&#128290;', color:'#7c3aed',
+    next:{ status:'Payment Completed',                 to:'Done', needsUtr:true, roles:['accounts','dept_head'] } },
+  { id:'rejected', label:'Rejection Bin',       icon:'&#10060;',  color:'#dc2626', next:null },
+  { id:'hold',     label:'Hold Bin',            icon:'&#9208;',   color:'#b45309', next:null },
+  { id:'all',      label:'Accounts Database',   icon:'&#128194;', color:'#475569', next:null },
+];
+function _accViewById(id) { return ACC_VIEWS.find(v => v.id === id) || ACC_VIEWS[ACC_VIEWS.length - 1]; }
+// Numeric value of a "PR-2753" request id, for largest-to-smallest sorting.
+function _accPrNum(r) { const m = String((r && r.requestId) || '').match(/(\d+)/); return m ? parseInt(m[1], 10) : 0; }
+
+// Which stage a row belongs to (first match wins).
+function _accStageOf(r) {
+  const lbl = (r.status && r.status.label) || '';
+  const cat = (r.status && r.status.cat) || 'other';
+  if (cat === 'rejected') return 'rejected';
+  if (ACC_HOLD_LABELS.includes(lbl)) return 'hold';
+  if (lbl === 'Verified, Move to MD Queue') return 'mdqueue';
+  if (lbl === 'Payment Approved by MD') return 'initiate';
+  if (lbl === 'Payment Initiated' || lbl === 'Payment Re-Initiated') return 'paid';
+  if (lbl === 'Paid (Initiated in Bank)' || lbl === 'Paid') return 'utr';
+  if (lbl === 'Pending With Accounts' || cat === 'other' || !lbl || lbl === '—') return 'verify';
+  return 'done'; // Paid+UTR / Completed — surfaces only in Accounts Database
+}
+function _accRowsInView(rows, id) {
+  if (id === 'all') return rows || [];
+  return (rows || []).filter(r => _accStageOf(r) === id);
+}
+// Role-aware: can the current user advance a row from this stage?
+function _accCanAdvance(viewDef) {
+  if (!viewDef || !viewDef.next) return false;
+  return (viewDef.next.roles || []).includes((STATE.role || '').toLowerCase());
+}
+// Stage cards = the View selector + the (improved) KPI cards in one.
+function _accStageCardsHtml(allRows) {
+  const rows = (allRows || []).filter(r => !_txnHas(r.uuid));
+  const active = window._accView || 'all';
+  return ACC_VIEWS.map(v => {
+    const inV = (v.id === 'all') ? rows : rows.filter(r => _accStageOf(r) === v.id);
+    const total = inV.reduce((s, r) => s + (r.amount || 0), 0);
+    const on = active === v.id;
+    return `<div onclick="accSetView('${v.id}')" class="kpi-card" style="cursor:pointer;border-left:4px solid ${v.color};${on ? `box-shadow:0 0 0 2px ${v.color};background:${v.color}0d;` : ''}">
+      <div class="kpi-top"><div class="kpi-icon" style="background:${v.color}22;color:${v.color}">${v.icon}</div>${v.next ? `<div class="kpi-trend flat" style="font-size:.58rem">&rarr; ${v.next.to}</div>` : ''}</div>
+      <div class="kpi-value" style="font-size:1.4rem">${inV.length}</div>
+      <div class="kpi-label">${v.label}</div>
+      <div class="kpi-sub">${total ? '₹' + Math.round(total).toLocaleString('en-IN') : '—'}</div>
+    </div>`;
+  }).join('');
+}
+
+// One-click advance to the next positive stage (role-aware).
+async function _accAdvance(uuid) {
+  const r = (window._accAllRows || []).find(x => x.uuid === uuid);
+  if (!r) return;
+  const view = _accViewById(_accStageOf(r));
+  if (!_accCanAdvance(view)) { alert('Your role cannot advance this stage.'); return; }
+  const nx = view.next;
+  let utr = '';
+  if (nx.needsUtr) {
+    utr = prompt('Enter the bank UTR / transaction reference to complete this payment:', '');
+    if (utr === null) return;
+    if (!utr.trim()) { alert('A UTR is required to complete the payment.'); return; }
+  }
+  if (!confirm(`Move "${r.requestId || uuid}" to "${nx.to}"?`)) return;
+  // Optimistic: park + close + re-render now, then post in the background.
+  _txnParkRow(r, nx.status, '→ ' + nx.to, 'acc');
+  if (document.getElementById('accVoucherOverlay')) _accClosePRDetail();
+  if (typeof accRender === 'function' && document.getElementById('accTbody')) accRender();
+  if (document.getElementById('mdp-content') && typeof _mdpRender === 'function') _mdpRender();
+  _accToast('Moving to ' + nx.to + '…');
+  const ok = await _accQuickStatus(uuid, nx.status, '', utr.trim(), true);
+  if (ok) {
+    _accToast('✅ Moved to ' + nx.to);
+  } else {
+    _txnDrop(uuid);
+    if (typeof accRender === 'function' && document.getElementById('accTbody')) accRender();
+    if (document.getElementById('mdp-content') && typeof _mdpRender === 'function') _mdpRender();
+    alert('Could not move "' + (r.requestId || uuid) + '" — it has been returned to its queue.' + (window._accLastQuickErr ? '\n\nError: ' + window._accLastQuickErr : ''));
+  }
+}
+
 function renderAccountsModule() {
   const el = document.getElementById('mainContent');
   el.innerHTML = `
@@ -4787,25 +5013,8 @@ function renderAccountsModule() {
       </div>
     </div>
 
-    <!-- Status KPIs -->
-    <div class="kpi-grid" style="margin-bottom:1rem">
-      <div class="kpi-card warn" onclick="accFilter('pending')" style="cursor:pointer">
-        <div class="kpi-top"><div class="kpi-icon orange">&#9203;</div><div class="kpi-trend flat">Needs action</div></div>
-        <div class="kpi-value" id="accPendingCt">&#8212;</div><div class="kpi-label">Pending</div><div class="kpi-sub" id="accPendingAmt">&#8212;</div>
-      </div>
-      <div class="kpi-card info" onclick="accFilter('progress')" style="cursor:pointer">
-        <div class="kpi-top"><div class="kpi-icon blue">&#128260;</div><div class="kpi-trend flat">In pipeline</div></div>
-        <div class="kpi-value" id="accProgressCt">&#8212;</div><div class="kpi-label">In Progress</div><div class="kpi-sub" id="accProgressAmt">&#8212;</div>
-      </div>
-      <div class="kpi-card danger" onclick="accFilter('rejected')" style="cursor:pointer">
-        <div class="kpi-top"><div class="kpi-icon red">&#10060;</div><div class="kpi-trend flat">Rejected</div></div>
-        <div class="kpi-value" id="accRejectedCt">&#8212;</div><div class="kpi-label">Rejected</div><div class="kpi-sub" id="accRejectedAmt">&#8212;</div>
-      </div>
-      <div class="kpi-card" style="border-left:4px solid #16a34a;cursor:pointer" onclick="accFilter('completed')">
-        <div class="kpi-top"><div class="kpi-icon green">&#9989;</div><div class="kpi-trend up">Done</div></div>
-        <div class="kpi-value" id="accCompletedCt">&#8212;</div><div class="kpi-label">Completed</div><div class="kpi-sub" id="accCompletedAmt">&#8212;</div>
-      </div>
-    </div>
+    <!-- Pipeline stage cards — the 8 Views; each is a KPI + a filter -->
+    <div id="accStageCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.6rem;margin-bottom:1rem"></div>
 
     <!-- Currency KPI cards -->
     <div id="accCurrencyCards" style="display:none;margin-bottom:1.2rem"></div>
@@ -4816,15 +5025,8 @@ function renderAccountsModule() {
         <div style="display:flex;gap:.7rem;flex-wrap:wrap;align-items:flex-end">
 
           <div style="display:flex;flex-direction:column;gap:3px">
-            <label style="font-size:.67rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em">Status</label>
-            <div style="display:flex;gap:4px;flex-wrap:wrap">
-              <button onclick="accFilter('all')"       id="accBtn-all"       class="acc-cat-btn btn btn-secondary btn-sm active-cat">All</button>
-              <button onclick="accFilter('pending')"   id="accBtn-pending"   class="acc-cat-btn btn btn-sm" style="background:#fffbeb;color:#92400e;border:1px solid #f59e0b">&#9203; Pending</button>
-              <button onclick="accFilter('progress')"  id="accBtn-progress"  class="acc-cat-btn btn btn-sm" style="background:#eff6ff;color:#1e40af;border:1px solid #2563eb">&#128260; In Progress</button>
-              <button onclick="accFilter('rejected')"  id="accBtn-rejected"  class="acc-cat-btn btn btn-sm" style="background:#fef2f2;color:#991b1b;border:1px solid #ef4444">&#10060; Rejected</button>
-              <button onclick="accFilter('completed')" id="accBtn-completed" class="acc-cat-btn btn btn-sm" style="background:#f0fdf4;color:#14532d;border:1px solid #16a34a">&#9989; Completed</button>
-              ${STATE.role === 'md' ? `<button onclick="accFilter('md-queue')" id="accBtn-md-queue" class="acc-cat-btn btn btn-sm" style="background:#eef2ff;color:#3730a3;border:1px solid #6366f1;font-weight:700">&#9878; Pending My Approval</button>` : ''}
-            </div>
+            <label style="font-size:.67rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em">Active View</label>
+            <div id="accViewLabel" style="font-size:.82rem;font-weight:700;padding:5px 2px;white-space:nowrap">—</div>
           </div>
 
           <div style="display:flex;flex-direction:column;gap:3px">
@@ -4859,9 +5061,9 @@ function renderAccountsModule() {
           <div style="display:flex;flex-direction:column;gap:3px">
             <label style="font-size:.67rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em">Sort by</label>
             <div style="display:flex;gap:4px">
-              <select id="accSortCol" onchange="accRender()" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface2)">
+              <select id="accSortCol" onchange="window._accSortCol=this.value;accRender()" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface2)">
+                <option value="requestId" selected>PR Number</option>
                 <option value="date">Date</option>
-                <option value="requestId">Request ID</option>
                 <option value="initiator">Initiator</option>
                 <option value="nature">Nature of Expenses</option>
             <option value="payTo">Payment To</option>
@@ -4911,11 +5113,12 @@ function renderAccountsModule() {
               <th onclick="accSetSort('status')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:190px;border-right:1px solid rgba(255,255,255,.15)">Status &#8597;</th>
               <th onclick="accSetSort('accDate')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:110px;border-right:1px solid rgba(255,255,255,.15)">Acc. Date &#8597;</th>
               <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:160px;border-right:1px solid rgba(255,255,255,.15)">UTR Details</th>
-              <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:140px">Remarks</th>
+              <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:140px;border-right:1px solid rgba(255,255,255,.15)">Remarks</th>
+              <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:150px;text-align:center;position:sticky;right:0;background:var(--g9);z-index:3">Actions</th>
             </tr>
           </thead>
           <tbody id="accTbody">
-            <tr><td colspan="20" style="text-align:center;padding:3rem;color:var(--txt3)">&#8987; Loading payment requests...</td></tr>
+            <tr><td colspan="22" style="text-align:center;padding:3rem;color:var(--txt3)">&#8987; Loading payment requests...</td></tr>
           </tbody>
         </table>
       </div>
@@ -4924,24 +5127,15 @@ function renderAccountsModule() {
 
   // ── State ─────────────────────────────────────────────
   window._accAllRows      = [];
-  window._accActiveFilter = 'all';
-  window._accSortCol      = 'date';
+  window._accView         = (STATE.role === 'md') ? 'mdqueue' : 'verify';
+  window._accSortCol      = 'requestId';   // default: largest PR number first
   window._accSortDir      = -1;
 
   // Fetch + map is factored into _accReloadRows() / _accMapRow() so the
   // In-Transaction auto-poll can refresh _accAllRows without a full re-render.
   _accReloadRows().then(() => {
 
-    // ── KPI cards ────────────────────────────────────────
-    ['pending','progress','rejected','completed'].forEach(cat => {
-      const rows = window._accAllRows.filter(r => r.status.cat === cat);
-      const amt  = rows.reduce((s,r) => s + (cat==='completed' ? r.amount : r.amount), 0);
-      const cap  = cat[0].toUpperCase() + cat.slice(1);
-      const ctEl = document.getElementById('acc'+cap+'Ct');
-      const aEl  = document.getElementById('acc'+cap+'Amt');
-      if (ctEl) ctEl.textContent = rows.length;
-      if (aEl)  aEl.textContent  = rows.length ? '\u20b9'+Math.round(amt).toLocaleString('en-IN') : '\u2014';
-    });
+    // Stage cards (the 8 Views + their KPIs) are rendered by accRender().
 
     // ── Currency cards ───────────────────────────────────
     const cmap = {};
@@ -4983,28 +5177,22 @@ function renderAccountsModule() {
     // Honour a pre-set MD approval filter (e.g. arriving from the command centre)
     if (window._accPendingMDFilter && STATE.role==='md') {
       window._accPendingMDFilter = false;
-      if (typeof accFilter === 'function') { accFilter('md-queue'); return; }
+      window._accView = 'mdqueue';
     }
     accRender();
   }).catch(err => {
     const tb = document.getElementById('accTbody');
-    if (tb) tb.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:2.5rem;color:var(--danger)">&#9888; Could not load PaymentRequest sheet. Check it is shared as Anyone \u2192 Viewer.</td></tr>';
+    if (tb) tb.innerHTML = '<tr><td colspan="22" style="text-align:center;padding:2.5rem;color:var(--danger)">&#9888; Could not load PaymentRequest sheet. Check it is shared as Anyone \u2192 Viewer.</td></tr>';
     console.error('Accounts fetch error:', err);
   });
 
   // ── Controls ──────────────────────────────────────────
-  window.accFilter = function(cat) {
-    window._accActiveFilter = cat;
-    document.querySelectorAll('.acc-cat-btn').forEach(b=>b.classList.remove('active-cat'));
-    const ab = document.getElementById('accBtn-'+cat);
-    if (ab) ab.classList.add('active-cat');
-    accRender();
-  };
+  // Select one of the 8 pipeline Views (stage cards call this).
+  window.accSetView = function(id) { window._accView = id; accRender(); };
+  // Back-compat: deep-links still call accFilter('md-queue').
+  window.accFilter = function(cat) { window.accSetView(cat === 'md-queue' ? 'mdqueue' : cat); };
 
   window.accResetFilters = function() {
-    window._accActiveFilter = 'all';
-    document.querySelectorAll('.acc-cat-btn').forEach(b=>b.classList.remove('active-cat'));
-    document.getElementById('accBtn-all')?.classList.add('active-cat');
     ['accSearch','accSiteFilter','accEntityFilter','accProcessFilter'].forEach(id=>{
       const e=document.getElementById(id); if(e) e.value='';
     });
@@ -5030,12 +5218,12 @@ function renderAccountsModule() {
     const rows = window._accAllRows || [];
     if (!rows.length) return;
     // Apply current filters same as accRender
-    const cat  = window._accActiveFilter || 'all';
+    const view = window._accView || 'all';
     const srch = (document.getElementById('accSearch')?.value||'').toLowerCase().trim();
     const sf   = document.getElementById('accSiteFilter')?.value||'';
     const ef   = document.getElementById('accEntityFilter')?.value||'';
     const pf   = document.getElementById('accProcessFilter')?.value||'';
-    let filtered = rows.filter(r => cat==='md-queue' ? _accIsMDQueue(r) : (cat==='all' ? r.status.cat!=='other' : r.status.cat===cat));
+    let filtered = _accRowsInView(rows, view);
     if (sf)   filtered = filtered.filter(r => r.site===sf);
     if (ef)   filtered = filtered.filter(r => r.company===ef);
     if (pf)   filtered = filtered.filter(r => r.process===pf);
@@ -5069,7 +5257,8 @@ function renderAccountsModule() {
   };
 
     window.accRender = function() {
-    const cat   = window._accActiveFilter||'all';
+    const view  = window._accView||'all';
+    const viewDef = _accViewById(view);
     const srch  = (document.getElementById('accSearch')?.value||'').toLowerCase().trim();
     const sf    = document.getElementById('accSiteFilter')?.value||'';
     const ef    = document.getElementById('accEntityFilter')?.value||'';
@@ -5079,7 +5268,12 @@ function renderAccountsModule() {
 
     const shelfEl=document.getElementById('accTxnShelf');
     if (shelfEl) shelfEl.innerHTML=_txnShelfHtml('acc');
-    let rows = (window._accAllRows||[]).filter(r=>(cat==='md-queue'?_accIsMDQueue(r):(cat==='all'?r.status.cat!=='other':r.status.cat===cat)) && !_txnHas(r.uuid));
+    const cardsEl=document.getElementById('accStageCards');
+    if (cardsEl) cardsEl.innerHTML=_accStageCardsHtml(window._accAllRows||[]);
+    const lblEl=document.getElementById('accViewLabel');
+    if (lblEl) lblEl.innerHTML=`<span style="color:${viewDef.color}">${viewDef.icon} ${viewDef.label}</span>`;
+
+    let rows = _accRowsInView(window._accAllRows||[], view).filter(r=>!_txnHas(r.uuid));
     if (sf)   rows=rows.filter(r=>r.site===sf);
     if (ef)   rows=rows.filter(r=>r.entity===ef);
     if (pf)   rows=rows.filter(r=>r.process===pf);
@@ -5088,6 +5282,7 @@ function renderAccountsModule() {
     // Sort
     rows=[...rows].sort((a,b)=>{
       if (scol==='amount') return sdir*(a.amount-b.amount);
+      if (scol==='requestId') return sdir*(_accPrNum(a)-_accPrNum(b));
       if (scol==='date'||scol==='accDate') {
         const parse=d=>{ if(!d) return 0; const p=d.split(/[-\/]/); return p.length===3?new Date(p[2],p[1]-1,p[0]).getTime():new Date(d).getTime()||0; };
         return sdir*(parse(a[scol])-parse(b[scol]));
@@ -5096,12 +5291,12 @@ function renderAccountsModule() {
     });
 
     const cntEl=document.getElementById('accRowCount');
-    if (cntEl) cntEl.textContent=rows.length+' records'+(cat!=='all'?' ('+cat+')':'')+(srch?' matching "'+srch+'"':'');
+    if (cntEl) cntEl.textContent=rows.length+' records · '+viewDef.label+(srch?' · matching "'+srch+'"':'');
 
     const tbody=document.getElementById('accTbody');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML='<tr><td colspan="20" style="text-align:center;padding:3rem;color:var(--txt3)">No records match the selected filters.</td></tr>';
+      tbody.innerHTML='<tr><td colspan="22" style="text-align:center;padding:3rem;color:var(--txt3)">No records in '+viewDef.label+'.</td></tr>';
       return;
     }
 
@@ -5122,13 +5317,17 @@ function renderAccountsModule() {
         ?`<span style="display:inline-flex;align-items:center;gap:3px;background:${s.bg};color:${s.color};padding:3px 9px;border-radius:10px;font-size:.68rem;font-weight:600;white-space:nowrap;border:1px solid ${s.color}22">${s.icon?s.icon+'&thinsp;':''}${s.label}</span>`
         :'<span style="color:var(--txt3)">\u2014</span>';
 
-      // MD one-tap approve / reject for rows in the MD approval queue
-      const mdActions=(STATE.role==='md' && _accIsMDQueue(r))
-        ? `<div style="display:flex;gap:5px;margin-top:5px">
-             <button onclick="event.stopPropagation();_accQuickApprove('${r.uuid}')" class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;padding:2px 9px;font-size:.66rem;font-weight:700">&#10003; Approve</button>
-             <button onclick="event.stopPropagation();_accQuickReject('${r.uuid}')" class="btn btn-sm" style="background:#dc2626;color:#fff;border:none;padding:2px 9px;font-size:.66rem;font-weight:700">&#10007; Reject</button>
-           </div>`
-        : '';
+      // Two quick actions: Update (full status form) + Approve \u2192 Next Stage.
+      const stageDef=_accViewById(_accStageOf(r));
+      const canUpd=(typeof _accCanUpdate==='function') ? _accCanUpdate() : false;
+      const canAdv=_accCanAdvance(stageDef);
+      const actionsCell=`<td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap;position:sticky;right:0;background:${i%2===0?'var(--surface1)':'#fafbfa'};box-shadow:-4px 0 6px -4px rgba(0,0,0,.12)">
+        <div style="display:flex;gap:5px;justify-content:flex-end">
+          ${canUpd?`<button onclick="event.stopPropagation();_accOpenPRDetail('${r.uuid}')" class="btn btn-secondary btn-sm" title="Update status" style="padding:2px 8px;font-size:.66rem">&#9998; Update</button>`:''}
+          ${canAdv?`<button onclick="event.stopPropagation();_accAdvance('${r.uuid}')" class="btn btn-sm" title="Approve &amp; move to ${stageDef.next.to}" style="background:#16a34a;color:#fff;border:none;padding:2px 9px;font-size:.66rem;font-weight:700">&#10003; ${stageDef.next.to} &rarr;</button>`:''}
+          ${(!canUpd&&!canAdv)?'<span style="color:var(--txt3);font-size:.68rem">&#8212;</span>':''}
+        </div>
+      </td>`;
 
       // Request ID cell \u2014 opens the portal-native detail view (row onclick)
       const reqIdCell=`<td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">
@@ -5161,10 +5360,11 @@ function renderAccountsModule() {
         ${td(r.currency,'text-align:center;font-size:.72rem;font-weight:700;color:var(--g7)')}
         <td style="${amtStyle}">${fmtAmt(r.amount,r.currency)}</td>
         ${tdClip(r.narrative,200)}
-        <td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">${pill}${mdActions}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">${pill}</td>
         ${td(r.accDate,'white-space:nowrap;color:var(--txt2)')}
         ${tdClip(r.utr,170)}
         ${tdClip(r.remarks,150)}
+        ${actionsCell}
       </tr>`;
     }).join('');
   };
@@ -5258,8 +5458,8 @@ const _accV = (id) => { const e = document.getElementById(id); return e ? String
 const _accFlag = (v) => { const s = String(v || '').toLowerCase().trim(); return s === 'yes' || s === 'true' || s === 'y' || s === '1' || s === 'show'; };
 
 // Date/time formatters for values written to the sheet.
-const _ACC_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-// Long date: "10June2026" — accepts a yyyy-mm-dd string or a Date.
+const _ACC_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+// Long date: "10Jun2026" — accepts a yyyy-mm-dd string or a Date.
 function _accFmtLongDate(d) {
   let dt;
   if (!d) dt = new Date();
@@ -5269,7 +5469,7 @@ function _accFmtLongDate(d) {
     dt = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(d);
   }
   if (isNaN(dt)) return String(d || '');
-  return dt.getDate() + _ACC_MONTHS[dt.getMonth()] + dt.getFullYear();
+  return String(dt.getDate()).padStart(2, '0') + _ACC_MONTHS[dt.getMonth()] + dt.getFullYear();
 }
 // Timestamp: "10/06/2026 13:47:38" — local time, DD/MM/YYYY HH:MM:SS.
 function _accFmtDateTime(d) {
@@ -5601,13 +5801,35 @@ async function _accPRSubmit() {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  ACCOUNTS — PR DETAIL VIEW + STATUS UPDATES TIMELINE (Phase 2)
-//  Slide-in detail panel showing the full PR row plus the reverse
-//  relation of AccountsUpdate rows (status history) for that PR.
+//  ACCOUNTS — PAYMENT VOUCHER VIEW + STATUS UPDATES (Phase 2)
+//  Centered modal styled as a printable payment voucher: payee, bank,
+//  particulars, amount in figures + words, PO/bill reference, the
+//  AccountsUpdate status history, and all role-gated action buttons.
 // ══════════════════════════════════════════════════════════════
+
+// Indian-system amount-in-words (crore/lakh/thousand) for the voucher.
+function _accAmountWords(n) {
+  n = Math.round(Math.abs(+n || 0));
+  if (!n) return 'Zero';
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+    'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const two = (x) => x < 20 ? ones[x] : (tens[Math.floor(x / 10)] + (x % 10 ? ' ' + ones[x % 10] : ''));
+  const three = (x) => (x >= 100 ? ones[Math.floor(x / 100)] + ' Hundred' + (x % 100 ? ' ' + two(x % 100) : '') : two(x));
+  let out = '';
+  const crore = Math.floor(n / 10000000); n %= 10000000;
+  const lakh  = Math.floor(n / 100000);   n %= 100000;
+  const thou  = Math.floor(n / 1000);      n %= 1000;
+  if (crore) out += three(crore) + ' Crore ';
+  if (lakh)  out += three(lakh) + ' Lakh ';
+  if (thou)  out += three(thou) + ' Thousand ';
+  if (n)     out += three(n);
+  return out.trim();
+}
+
 function _accClosePRDetail() {
-  const dr = document.getElementById('accPRDetailDrawer');
-  if (dr) dr.style.right = '-760px';
+  const ov = document.getElementById('accVoucherOverlay');
+  if (ov) { ov.style.opacity = '0'; setTimeout(() => { try { ov.remove(); } catch (e) {} }, 200); }
 }
 
 function _accOpenPRDetail(uuid) {
@@ -5615,15 +5837,17 @@ function _accOpenPRDetail(uuid) {
   const row = (window._accAllRows || []).find(r => r.uuid === uuid)
            || ((typeof _mdpRows !== 'undefined' && _mdpRows) ? _mdpRows.find(r => r.uuid === uuid) : null);
   if (!row) return;
-  let dr = document.getElementById('accPRDetailDrawer');
-  if (!dr) {
-    dr = document.createElement('div');
-    dr.id = 'accPRDetailDrawer';
-    dr.style.cssText = 'position:fixed;top:var(--header-h);right:-760px;width:740px;max-width:96vw;height:calc(100vh - var(--header-h));background:#fff;border-left:1px solid var(--border);z-index:1100;transition:right .28s cubic-bezier(.4,0,.2,1);box-shadow:-4px 0 24px rgba(0,0,0,.1);display:flex;flex-direction:column';
-    document.body.appendChild(dr);
+  let ov = document.getElementById('accVoucherOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'accVoucherOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(15,23,42,.55);display:flex;align-items:flex-start;justify-content:center;padding:3vh 2vw;overflow-y:auto;opacity:0;transition:opacity .2s ease';
+    ov.onclick = (e) => { if (e.target === ov) _accClosePRDetail(); };
+    document.body.appendChild(ov);
   }
-  _accDrawPRDetail(dr, row);
-  requestAnimationFrame(() => { dr.style.right = '0'; });
+  ov.innerHTML = `<div id="accVoucherCard" style="background:#fff;width:840px;max-width:100%;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden;margin:auto"></div>`;
+  _accDrawPRDetail(document.getElementById('accVoucherCard'), row);
+  requestAnimationFrame(() => { ov.style.opacity = '1'; });
   // Status Updates + role-gated action bar load asynchronously
   _accDrawStatusUpdates(uuid);
   _accRenderDetailActions(row);
@@ -5634,9 +5858,15 @@ function _accDrawPRDetail(dr, r) {
   const s = r.status || { label: '', icon: '', color: '#6b7280', bg: '#f9fafb' };
   const fmtAmt = (v, c) => { if (!v) return '—'; const n = Math.round(v).toLocaleString('en-IN'); return (c && c !== 'INR') ? (c + ' ' + n) : ('₹' + n); };
 
+  const payee = (typeof _mdpStrip === 'function') ? (_mdpStrip(r.paidTo) || r.vendor || r.payTo) : (r.paidTo || r.payTo);
+
   const badge = s.label
     ? `<span style="display:inline-flex;align-items:center;gap:4px;background:${s.bg};color:${s.color};padding:4px 12px;border-radius:12px;font-size:.74rem;font-weight:600;border:1px solid ${s.color}22">${s.icon ? s.icon + '&thinsp;' : ''}${esc(s.label)}</span>`
     : '<span style="color:var(--txt3)">—</span>';
+
+  const meta = (label, val) => `<div style="display:flex;gap:.4rem;font-size:.74rem"><span style="color:var(--txt3);min-width:96px">${label}</span><span style="font-weight:600;color:var(--txt1)">${esc(val) || '—'}</span></div>`;
+  const partRow = (label, val) => val ? `<tr><td style="padding:6px 11px;border:1px solid var(--border);color:var(--txt3);font-size:.72rem;width:42%;vertical-align:top">${label}</td><td style="padding:6px 11px;border:1px solid var(--border);font-size:.8rem;color:var(--txt1)">${esc(val)}</td></tr>` : '';
+  const words = r.amount ? `${(r.currency && r.currency !== 'INR') ? r.currency : 'Rupees'} ${_accAmountWords(r.amount)} Only` : '';
 
   const fieldsHtml = (pairs) => `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem 1.4rem">
@@ -5653,72 +5883,109 @@ function _accDrawPRDetail(dr, r) {
     </div>`;
 
   dr.innerHTML = `
-    <div style="padding:1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;flex-shrink:0;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff">
+    <div style="padding:1rem 1.4rem;border-bottom:2px solid var(--g7);display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff;flex-shrink:0">
       <div style="min-width:0">
-        <div style="font-size:.98rem;font-weight:700;font-family:monospace">${esc(r.requestId) || esc(r.uuid)}</div>
-        <div style="font-size:.74rem;opacity:.85;margin-top:3px">${esc(r.date) || '—'} &middot; ${esc(r.initiator) || '—'}</div>
+        <div style="font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;opacity:.8">${esc(r.company) || 'EVGCPL'}</div>
+        <div style="font-size:1.1rem;font-weight:800;letter-spacing:.03em;margin-top:1px">PAYMENT VOUCHER</div>
         <div style="margin-top:.5rem">${badge}</div>
       </div>
-      <button onclick="_accClosePRDetail()" style="background:rgba(255,255,255,.18);border:none;color:#fff;width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:1rem;flex-shrink:0">&#10006;</button>
-    </div>
-
-    <div style="flex:1;overflow-y:auto;padding:1.1rem 1.3rem">
-      <div id="acc-detail-actions"></div>
-
-      ${block('Request', fieldsHtml([
-        ['Request ID', r.requestId],
-        ['Date of Request', r.date],
-        ['Initiator', r.initiator],
-        ['Manual / Auto', r.manualAuto],
-        ['Installment', r.installment],
-        ['Nature of Expenses', r.nature],
-        ['Account Code Desc.', r.accCode],
-        ['Cost Code', r.costCode],
-        ['Department', r.dept],
-        ['From Which Process', r.process],
-      ]))}
-
-      ${block('Payment To', fieldsHtml([
-        ['Payment To', r.payTo],
-        ['Paid To', r.paidTo],
-        ['Site Name', r.site],
-        ['Company', r.company],
-      ]))}
-
-      ${block('Bill &amp; PO Reference', fieldsHtml([
-        ['Order No', r.orderNo],
-        ['Bill No', r.billNo],
-        ['PO Value', fmtAmt(r.poValue, r.currency)],
-        ['Invoice Value', fmtAmt(r.invoiceVal, r.currency)],
-        ['Paid Value', fmtAmt(r.paidVal, r.currency)],
-        ['Pending Value', fmtAmt(r.pendingVal, r.currency)],
-      ]))}
-
-      ${block('Financial', fieldsHtml([
-        ['Currency', r.currency],
-        ['Amount', fmtAmt(r.amount, r.currency)],
-      ]) + `<div style="margin-top:.55rem"><span style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Narrative / Comments</span><div style="font-size:.82rem;color:var(--txt1);margin-top:2px;white-space:pre-wrap">${esc(r.narrative) || '—'}</div></div>`)}
-
-      ${block('Bank Details', fieldsHtml([
-        ['A/C Holder', r.acHolder],
-        ['A/C Number', r.acNumber],
-        ['IFSC Code', r.ifsc],
-        ['Bank Name', r.bank],
-      ]))}
-
-      ${block('Accounts', fieldsHtml([
-        ['Accounts Status', r.accStatus],
-        ['Accounts Date', r.accDate],
-        ['UTR Details', r.utr],
-        ['Remarks', r.remarks],
-      ]))}
-
-      <div style="margin-bottom:.4rem">
-        <div style="font-weight:700;font-size:.74rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.55rem;border-bottom:1px solid var(--border);padding-bottom:.3rem">Status Updates</div>
-        <div id="acc-detail-timeline"><div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">&#8987; Loading status history&hellip;</div></div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-family:monospace;font-size:1rem;font-weight:700">${esc(r.requestId) || esc(r.uuid)}</div>
+        <div style="font-size:.74rem;opacity:.9;margin-top:2px">${esc(r.date) || '—'}</div>
+        <button onclick="_accClosePRDetail()" style="margin-top:.5rem;background:rgba(255,255,255,.18);border:none;color:#fff;width:28px;height:28px;border-radius:7px;cursor:pointer;font-size:.95rem">&#10006;</button>
       </div>
     </div>
+
+    <div style="flex:1;overflow-y:auto;padding:1.1rem 1.4rem;max-height:74vh">
+      <div id="acc-detail-actions"></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem 1.6rem;padding:.85rem 1rem;border:1px solid var(--border);border-radius:10px;background:var(--surface1);margin-bottom:1rem">
+        <div>
+          <div style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Pay To</div>
+          <div style="font-size:1rem;font-weight:700;color:var(--g8);margin-top:1px">${esc(payee) || '—'}</div>
+          <div style="font-size:.73rem;color:var(--txt2);margin-top:1px">${esc(r.payTo) || '—'}${r.site ? ' &middot; ' + esc(r.site) : ''}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px;justify-content:center">
+          ${meta('Initiator', r.initiator)}
+          ${meta('Department', r.dept)}
+          ${meta('Manual / Auto', r.manualAuto)}
+          ${r.installment > 1 ? meta('Installment', r.installment) : ''}
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding:.85rem 1.1rem;border:1px solid var(--g7);border-radius:10px;background:#f0fdf4;margin-bottom:1rem">
+        <div style="min-width:0">
+          <div style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Amount</div>
+          ${words ? `<div style="font-size:.8rem;color:var(--txt2);margin-top:3px;font-style:italic">${esc(words)}</div>` : ''}
+        </div>
+        <div style="font-size:1.5rem;font-weight:800;color:var(--g8);white-space:nowrap">${fmtAmt(r.amount, r.currency)}</div>
+      </div>
+
+      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Particulars</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:1rem">
+        ${partRow('Nature of Expenses', r.nature)}
+        ${partRow('Account Code Description', r.accCode)}
+        ${partRow('Cost Code', r.costCode)}
+        ${partRow('From Which Process', r.process)}
+        ${partRow('Narrative / Comments', r.narrative)}
+      </table>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+        <div>
+          <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Bill &amp; PO Reference</div>
+          <table style="width:100%;border-collapse:collapse">
+            ${partRow('Order No', r.orderNo)}
+            ${partRow('Bill No', r.billNo)}
+            ${partRow('PO Value', fmtAmt(r.poValue, r.currency))}
+            ${partRow('Invoice Value', fmtAmt(r.invoiceVal, r.currency))}
+            ${partRow('Paid Value', fmtAmt(r.paidVal, r.currency))}
+            ${partRow('Pending Value', fmtAmt(r.pendingVal, r.currency))}
+          </table>
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Bank Details</div>
+          <table style="width:100%;border-collapse:collapse">
+            ${partRow('A/C Holder', r.acHolder)}
+            ${partRow('A/C Number', r.acNumber)}
+            ${partRow('IFSC Code', r.ifsc)}
+            ${partRow('Bank Name', r.bank)}
+          </table>
+        </div>
+      </div>
+
+      ${(r.accStatus || r.utr || r.remarks || r.accDate) ? `
+      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Accounts Processing</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:1rem">
+        ${partRow('Accounts Status', r.accStatus)}
+        ${partRow('Accounts Date', r.accDate)}
+        ${partRow('UTR Details', r.utr)}
+        ${partRow('Remarks', r.remarks)}
+      </table>` : ''}
+
+      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem;border-top:1px solid var(--border);padding-top:.8rem">Status Updates</div>
+      <div id="acc-detail-timeline"><div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">&#8987; Loading status history&hellip;</div></div>
+    </div>
   `;
+}
+
+const _ACC_MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+// Parse a stored timestamp (DD/MM/YYYY HH:MM:SS, ISO, or gviz Date(...)) → ms.
+function _accTsVal(s) {
+  if (!s) return 0;
+  s = String(s).trim();
+  let m = s.match(/Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)/);
+  if (m) return new Date(+m[1], +m[2], +m[3], +(m[4]||0), +(m[5]||0), +(m[6]||0)).getTime();
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return new Date(+m[3], +m[2]-1, +m[1], +(m[4]||0), +(m[5]||0), +(m[6]||0)).getTime();
+  const t = Date.parse(s);
+  return isNaN(t) ? 0 : t;
+}
+// Display a stored timestamp as "01Jan2026 13:47:38" (long date + time).
+function _accFmtTs(s) {
+  const v = _accTsVal(s);
+  if (!v) return String(s || '—');
+  const d = new Date(v), p = n => String(n).padStart(2, '0');
+  return p(d.getDate()) + _ACC_MON_ABBR[d.getMonth()] + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
 
 async function _accDrawStatusUpdates(uuid) {
@@ -5746,33 +6013,38 @@ async function _accDrawStatusUpdates(uuid) {
       comments: get(r, ['Comments (If Any)', 'Comments', 'Comments If Any']),
       reason:   get(r, ['Pending Reason', 'PendingReason']),
     }))
-    .sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+    .sort((a, b) => _accTsVal(b.ts || b.date) - _accTsVal(a.ts || a.date)); // newest first
 
   if (!updates.length) {
     el().innerHTML = '<div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">No status updates recorded yet.</div>';
     return;
   }
 
-  el().innerHTML = updates.map(u => {
+  const th = (t, extra='') => `<th style="padding:7px 10px;font-size:.68rem;font-weight:700;text-align:left;white-space:nowrap;${extra}">${t}</th>`;
+  const body = updates.map(u => {
     const st = (typeof getPayStatus === 'function') ? getPayStatus(u.status) : { label: u.status, icon: '', color: '#6b7280', bg: '#f9fafb' };
     const pill = st.label
       ? `<span style="display:inline-flex;align-items:center;gap:3px;background:${st.bg};color:${st.color};padding:2px 9px;border-radius:10px;font-size:.68rem;font-weight:600;border:1px solid ${st.color}22">${st.icon ? st.icon + '&thinsp;' : ''}${esc(st.label)}</span>`
       : `<span style="font-size:.72rem;color:var(--txt2)">${esc(u.status) || '—'}</span>`;
-    const meta = [u.ts || u.date, u.by].filter(Boolean).map(esc).join(' &middot; ');
-    const extra = [
-      u.utr ? `<div style="font-size:.74rem;color:var(--txt2)"><b>UTR:</b> ${esc(u.utr)}</div>` : '',
-      u.reason ? `<div style="font-size:.74rem;color:var(--txt2)"><b>Pending Reason:</b> ${esc(u.reason)}</div>` : '',
-      u.comments ? `<div style="font-size:.74rem;color:var(--txt2);white-space:pre-wrap"><b>Comments:</b> ${esc(u.comments)}</div>` : '',
-    ].filter(Boolean).join('');
-    return `
-      <div style="border-left:3px solid ${st.color || 'var(--border)'};padding:.5rem .8rem;margin-bottom:.6rem;background:var(--surface2);border-radius:0 8px 8px 0">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap">
-          ${pill}
-          <span style="font-size:.68rem;color:var(--txt3)">${meta}</span>
-        </div>
-        ${extra ? `<div style="margin-top:.35rem;display:flex;flex-direction:column;gap:2px">${extra}</div>` : ''}
-      </div>`;
+    const who = (typeof _accStripCode === 'function' ? _accStripCode(u.by) : u.by) || '—';
+    const details = [
+      u.utr ? 'UTR: ' + esc(u.utr) : '',
+      u.reason ? 'Reason: ' + esc(u.reason) : '',
+      u.comments ? esc(u.comments) : '',
+    ].filter(Boolean).join(' · ') || '—';
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:6px 10px;font-size:.72rem;white-space:nowrap;color:var(--txt2)">${esc(_accFmtTs(u.ts || u.date))}</td>
+      <td style="padding:6px 10px;font-size:.74rem;font-weight:600">${esc(who)}</td>
+      <td style="padding:6px 10px">${pill}</td>
+      <td style="padding:6px 10px;font-size:.72rem;color:var(--txt2);white-space:pre-wrap">${details}</td>
+    </tr>`;
   }).join('');
+  el().innerHTML = `<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:var(--g9);color:#fff">${th('When')}${th('Who Did It')}${th('Status Passed Along')}${th('Details')}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </div>`;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -5842,11 +6114,16 @@ function _accAllowedStatuses() {
 function _accRenderDetailActions(r) {
   const host = document.getElementById('acc-detail-actions');
   if (!host) return;
-  if (!_accCanUpdate()) { host.innerHTML = ''; return; }
+  const stageDef = _accViewById(_accStageOf(r));
+  const canUpd = _accCanUpdate();
+  const canAdv = _accCanAdvance(stageDef);
+  if (!canUpd && !canAdv) { host.innerHTML = ''; return; }
+  const uuid = (r.uuid || '').replace(/'/g, "\\'");
   host.innerHTML = `
-    <div style="display:flex;gap:.6rem;align-items:center;margin-bottom:1rem">
-      <button onclick="_accToggleUpdateForm('${(r.uuid || '').replace(/'/g, "\\'")}')" class="btn btn-primary btn-sm">&#9998; Update Status</button>
-      <span style="font-size:.72rem;color:var(--txt3)">Post a verification, approval, payment or rejection update</span>
+    <div style="display:flex;gap:.6rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
+      ${canAdv ? `<button onclick="_accAdvance('${uuid}')" class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;font-weight:700">&#10003; ${stageDef.next.to} &rarr;</button>` : ''}
+      ${canUpd ? `<button onclick="_accToggleUpdateForm('${uuid}')" class="btn btn-primary btn-sm">&#9998; Update Status</button>` : ''}
+      <span style="font-size:.72rem;color:var(--txt3)">${canAdv ? 'Approve to move to ' + stageDef.next.to + ', or post a custom update' : 'Post a verification, approval, payment or rejection update'}</span>
     </div>
     <div id="acc-detail-updateform"></div>`;
 }
@@ -5989,7 +6266,7 @@ function _accGotoMDQueue() {
   navigate('accounts');
 }
 
-async function _accQuickStatus(uuid, status, comments) {
+async function _accQuickStatus(uuid, status, comments, utr, silent) {
   const rid = (crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0, 8) : String(Date.now()).slice(-8);
   const email = STATE.user?.email || '';
   const me = (STATE.masters.users || []).find(u => (u.email || '').toLowerCase() === email.toLowerCase());
@@ -6005,13 +6282,14 @@ async function _accQuickStatus(uuid, status, comments) {
     'Status': status,
     'Pending Reason': '',
     'Date': _accFmtLongDate(new Date()),
-    'UTR Details': '',
+    'UTR Details': utr || '',
     'Comments (If Any)': comments || '',
     'Timestamp': _accFmtDateTime(new Date()),
   };
   const resp = await _accPostAwait({ action: 'saveAccountsUpdate', sheetId: PAYMENT_SHEET_ID, tab: 'AccountsUpdate', row: row });
   if (!resp || resp.success === false) {
     const msg = (resp && resp.message) || 'unknown error';
+    if (silent) { window._accLastQuickErr = msg; return false; }
     if (/unknown (post )?action/i.test(msg)) {
       alert('Apps Script redeploy required.\n\nThe "saveAccountsUpdate" backend action is in the deployed build but the live Apps Script /exec has not been redeployed yet.');
     } else {

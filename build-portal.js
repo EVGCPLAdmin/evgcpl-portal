@@ -110,6 +110,29 @@ if (fs.existsSync(PCC_CONFIG)) {
   console.log(`✓ Patched pcc/config.js (PCC_VERSION=${v.semver}, PCC_BUILD=${v.build})`);
 }
 
+// ── Cache-bust local CSS/JS in every HTML entry point ──
+// GitHub Pages and browsers cache assets/*.{css,js} aggressively, so without a
+// version query users keep being served a stale portal-bundle.js after a deploy
+// ("my changes are gone"). Stamp ?v=<build> on every local asset ref so each
+// build forces a fresh fetch.
+function stampHtml(dir) {
+  for (const name of fs.readdirSync(dir)) {
+    if (name === '.git' || name === 'node_modules' || name === 'portal_v3') continue;
+    const full = path.join(dir, name);
+    const st = fs.statSync(full);
+    if (st.isDirectory()) { stampHtml(full); continue; }
+    if (!name.endsWith('.html')) continue;
+    const before = fs.readFileSync(full, 'utf8');
+    const after = before.replace(
+      /((?:src|href)=")((?:\.\.?\/)?(?:assets|pcc)\/[^"?]*\.(?:css|js))(?:\?v=\d+)?(")/g,
+      (m, p1, p2, p3) => `${p1}${p2}?v=${v.build}${p3}`
+    );
+    if (after !== before) fs.writeFileSync(full, after);
+  }
+}
+stampHtml(ROOT);
+console.log(`✓ Cache-busted HTML asset refs → ?v=${v.build}`);
+
 // ── Validate JS ──
 try {
   execSync(`node --check "${BUNDLE}"`, { stdio: 'pipe' });
