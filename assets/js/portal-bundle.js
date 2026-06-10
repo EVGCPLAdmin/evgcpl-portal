@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.48';
-const PORTAL_BUILD    = 421;
-const PORTAL_BUILD_AT = '2026-06-10T12:36:58Z';
+const PORTAL_VERSION  = '3.18.49';
+const PORTAL_BUILD    = 422;
+const PORTAL_BUILD_AT = '2026-06-10T12:41:34Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5400,8 +5400,8 @@ const _accV = (id) => { const e = document.getElementById(id); return e ? String
 const _accFlag = (v) => { const s = String(v || '').toLowerCase().trim(); return s === 'yes' || s === 'true' || s === 'y' || s === '1' || s === 'show'; };
 
 // Date/time formatters for values written to the sheet.
-const _ACC_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-// Long date: "10June2026" — accepts a yyyy-mm-dd string or a Date.
+const _ACC_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+// Long date: "10Jun2026" — accepts a yyyy-mm-dd string or a Date.
 function _accFmtLongDate(d) {
   let dt;
   if (!d) dt = new Date();
@@ -5411,7 +5411,7 @@ function _accFmtLongDate(d) {
     dt = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(d);
   }
   if (isNaN(dt)) return String(d || '');
-  return dt.getDate() + _ACC_MONTHS[dt.getMonth()] + dt.getFullYear();
+  return String(dt.getDate()).padStart(2, '0') + _ACC_MONTHS[dt.getMonth()] + dt.getFullYear();
 }
 // Timestamp: "10/06/2026 13:47:38" — local time, DD/MM/YYYY HH:MM:SS.
 function _accFmtDateTime(d) {
