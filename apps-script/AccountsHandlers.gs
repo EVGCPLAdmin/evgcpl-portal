@@ -137,11 +137,11 @@ function uploadPRAttachment(body) {
 
 // ─────────────────────────────────────────────────────────────
 //  ACTION: listPRAttachments
-//  body: { link, orderNo, billNo }   (requestId/uuid accepted as fallback)
+//  body: { link, orderNo }   (search keys — Bill No deliberately excluded)
 //  Attachments live in a Shared Drive, scattered across subfolders, and are
 //  NAMED by the request's Link code (e.g. "SCMv1-69d8e715.Quote(Attachment).
 //  112314.pdf"). We therefore search the whole Shared Drive recursively for
-//  files whose NAME contains the Link / Bill No / Order No and return openable
+//  files whose NAME contains the Link / Order No and return openable
 //  links. Search is precise because the Link code is unique per request.
 // ─────────────────────────────────────────────────────────────
 // Shared Drive that holds all payment-request attachments (root folder
@@ -151,7 +151,7 @@ var PR_ATTACH_DRIVE_ID = '0AAy1Om6TVuApUk9PVA';
 function listPRAttachments(body) {
   try {
     var keys = [];
-    [body.link, body.orderNo, body.billNo].forEach(function (k) {
+    [body.link, body.orderNo].forEach(function (k) {
       k = (k == null ? '' : String(k)).trim();
       // Skip blanks and too-short/generic keys that would over-match.
       if (k && k.length >= 4 && keys.indexOf(k) === -1) keys.push(k);
