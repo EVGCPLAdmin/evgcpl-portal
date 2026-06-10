@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.21.1';
-const PORTAL_BUILD    = 462;
-const PORTAL_BUILD_AT = '2026-06-10T20:16:06Z';
+const PORTAL_VERSION  = '3.21.2';
+const PORTAL_BUILD    = 463;
+const PORTAL_BUILD_AT = '2026-06-10T20:21:52Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -6329,19 +6329,51 @@ function _accClosePRDetail() {
   if (ov) { ov.style.opacity = '0'; setTimeout(() => { try { ov.remove(); } catch (e) {} }, 200); }
 }
 
-// Print / Save-as-PDF the open voucher — clones its content into a clean window.
+// Print / Save-as-PDF the open voucher as a proper document — branded logo header,
+// the voucher body (minus the in-app dark header/buttons), and a signature footer.
 function _accPrintVoucher() {
   const card = document.getElementById('accVoucherCard');
   if (!card) return;
+  const logoEl = document.querySelector('.header-logo');
+  const logo = logoEl ? logoEl.src : '';
+  const row = (window._accAllRows || []).find(r => r.uuid === window._accDetailUuid) || {};
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const reqId = esc(row.requestId || '');
+  const company = esc(row.company || 'Evergreen Enterprises');
+  // Clone the body, drop the in-app dark header (first child), action bar and buttons.
+  const clone = card.cloneNode(true);
+  if (clone.firstElementChild) clone.firstElementChild.remove();
+  clone.querySelectorAll('#acc-detail-actions, button').forEach(el => el.remove());
+  const body = clone.innerHTML;
+  const now = new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
   const w = window.open('', '_blank', 'width=900,height=1000');
   if (!w) { alert('Allow pop-ups for this site to print the voucher.'); return; }
-  w.document.write('<!doctype html><html><head><title>Payment Voucher</title>'
-    + '<meta charset="utf-8"><style>'
-    + 'body{font-family:system-ui,-apple-system,Arial,sans-serif;margin:0;padding:18px;color:#1f2937;background:#fff}'
-    + 'table{border-collapse:collapse;width:100%} button{display:none!important} *{box-shadow:none!important}'
-    + '@media print{body{padding:0}}'
-    + '</style></head><body>' + card.innerHTML + '</body>'
-    + '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print();},350);};</scr' + 'ipt></html>');
+  w.document.write(
+    '<!doctype html><html><head><meta charset="utf-8"><title>Payment Voucher' + (reqId ? ' — ' + reqId : '') + '</title><style>'
+    + '@page{margin:14mm}'
+    + 'body{font-family:system-ui,-apple-system,Arial,sans-serif;margin:0;color:#1f2937;background:#fff;font-size:12px}'
+    + 'button{display:none!important} *{box-shadow:none!important} table{border-collapse:collapse;width:100%}'
+    + '.pv-head{display:flex;align-items:center;gap:14px;border-bottom:2px solid #1a6038;padding-bottom:10px;margin-bottom:14px}'
+    + '.pv-head img{height:48px;width:auto;border-radius:6px}'
+    + '.pv-head .t1{font-size:16px;font-weight:800;color:#1a6038;letter-spacing:.04em}'
+    + '.pv-head .t2{font-size:12px;color:#6b7280;margin-top:1px}'
+    + '.pv-head .r{margin-left:auto;text-align:right;font-size:11px;color:#374151}'
+    + '.pv-foot{margin-top:24px;border-top:1px solid #d1d5db;padding-top:12px}'
+    + '.pv-sign{display:flex;justify-content:space-between;gap:24px;margin-top:34px}'
+    + '.pv-sign div{flex:1;text-align:center;border-top:1px solid #9ca3af;padding-top:5px;font-size:11px;color:#374151}'
+    + '.pv-meta{font-size:10px;color:#9ca3af;text-align:center;margin-top:16px}'
+    + '</style></head><body>'
+    + '<div class="pv-head">'
+    + (logo ? '<img src="' + logo + '" alt="logo">' : '')
+    + '<div><div class="t1">' + company.toUpperCase() + '</div><div class="t2">Payment Voucher</div></div>'
+    + '<div class="r">' + (reqId ? '<div><b>' + reqId + '</b></div>' : '') + '<div>Printed: ' + now + '</div></div>'
+    + '</div>'
+    + body
+    + '<div class="pv-foot"><div class="pv-sign"><div>Prepared By</div><div>Verified By</div><div>Approved By</div></div>'
+    + '<div class="pv-meta">System-generated payment voucher · EVGCPL Portal · ' + now + '</div></div>'
+    + '</body><scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print();},350);};</scr' + 'ipt></html>'
+  );
   w.document.close();
 }
 
@@ -7577,6 +7609,8 @@ const MODULE_REGISTRY = [
   // ── Accounts ──────────────────────────────────────────────────
   { route:'md-payments',       label:'Payments & Approvals',   section:'Accounts',         defStatus:'live', defRoles:['md'] },
   { route:'accounts',          label:'Accounts & Payments',    section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
+  { route:'accounts-dashboard',label:'Accounts Dashboard',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
+  { route:'accounts-worklist', label:'Accounts Worklist',      section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-v2',       label:'Accounts Workspace',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-kpi',      label:'Accounts KPI Cards',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
 
