@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.36';
-const PORTAL_BUILD    = 409;
-const PORTAL_BUILD_AT = '2026-06-10T07:51:43Z';
+const PORTAL_VERSION  = '3.18.37';
+const PORTAL_BUILD    = 410;
+const PORTAL_BUILD_AT = '2026-06-10T08:17:18Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -28,6 +28,7 @@ const EXEC_REGISTRY_DEFAULTS = {
   aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
   diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
   pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
+  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app (Router.gs + AccountsHandlers.gs in one project): saveNewPaymentRequest, saveAccountsUpdate, createPRFolder, uploadPRAttachment. Override via the exec_accounts row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbwRODxHu1lB-UId3pdbfFUJz_wUspWVotAQzMbhb8A_utyK5f6yVLciZOiiKvY6ORcucQ/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
 
@@ -2779,9 +2780,8 @@ const RECRUITMENT_SHEET_ID = '1Dw48OEDmIAAu9Va1-a9z7PZT7wKS_mWU7cwpK6osRNI';
 const PO_SHEET_ID      = '1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c';
 const PO_TAB           = 'PO_Actual'; // gid 1458467853 — replaces legacy 'PO' tab as of v3.4.0
 const PAYMENT_SHEET_ID = '1mLddxLRf719EaXE9XSET9gT8l0a8Cxns362yIbHo63g'; // Account View – PaymentRequest tab
-// Accounts module backend — deployed as its own Apps Script web app
-// (Router.gs + AccountsHandlers.gs). All Accounts writes post here.
-const ACCOUNTS_EXEC_URL = 'https://script.google.com/macros/s/AKfycbwRODxHu1lB-UId3pdbfFUJz_wUspWVotAQzMbhb8A_utyK5f6yVLciZOiiKvY6ORcucQ/exec';
+// Accounts backend exec URL is resolved via getExec('accounts') — managed in
+// the exec registry / PortalConfig sheet (exec_accounts), not hardcoded here.
 const STORES_SHEET_ID  = '1iMQxgqGilUh2_3NCZl5D-EMt-NC8FwugX83q2fWb8fE'; // v2_Stores – StockIN / GRN_No tabs
 
 // ══════════════════════════════════════════════════════════
@@ -4792,7 +4792,7 @@ async function _accLoadSCMaster() {
 // Unlike _rcPostActionAwait this does NOT inject a recruitment sheetId.
 async function _accPostAwait(payload) {
   let res;
-  const endpoint = (typeof ACCOUNTS_EXEC_URL === 'string' && ACCOUNTS_EXEC_URL) ? ACCOUNTS_EXEC_URL : APPS_SCRIPT_URL;
+  const endpoint = getExec('accounts');
   try {
     res = await fetch(endpoint, {
       method: 'POST', headers: { 'Content-Type': 'text/plain' },
