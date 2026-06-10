@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.55';
-const PORTAL_BUILD    = 428;
-const PORTAL_BUILD_AT = '2026-06-10T13:36:22Z';
+const PORTAL_VERSION  = '3.18.56';
+const PORTAL_BUILD    = 429;
+const PORTAL_BUILD_AT = '2026-06-10T13:59:43Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4912,17 +4912,24 @@ async function _accReloadRows() {
 //    needsUtr = prompt for a bank UTR before completing
 // ══════════════════════════════════════════════════════════════
 const ACC_HOLD_LABELS = ['On Hold by MD','Payment On Hold by MD','Sent Back to Accounts','Sent Back to Dept (MD)','Pending Due to Queries'];
+// Quick-Action advance matrix (who can advance each stage). Admin (MD role +
+// admin email) can advance from ANY stage — see _accCanAdvance.
+//   Verified, Move to MD Queue   → Process Payment, Move to Accounts  [Admin/MD]
+//   Process Payment→ Accounts    → Payment Initiated                  [Admin/MD/Accounts]
+//   Payment Initiated            → Paid (MD_ED)                       [Admin/MD]
+//   Paid (MD_ED)                 → Payment Completed                  [Admin/MD/Accounts]
+//   Payment Completed            → (terminal)
 const ACC_VIEWS = [
   { id:'verify',   label:'To be Verified',      icon:'&#128269;', color:'#d97706',
     next:{ status:'Verified, Move to MD Queue',        to:'MD Queue',          roles:['accounts','dept_head'] } },
   { id:'mdqueue',  label:'MD Queue',            icon:'&#9878;',   color:'#6366f1',
     next:{ status:'Process Payment, Move to Accounts', to:'Initiate Payment',  roles:['md'] } },
   { id:'initiate', label:'To Initiate Payment', icon:'&#128640;', color:'#2563eb',
-    next:{ status:'Payment Initiated',                 to:'Paid?',             roles:['accounts','dept_head'] } },
+    next:{ status:'Payment Initiated',                 to:'Paid?',             roles:['md','accounts','dept_head'] } },
   { id:'paid',     label:'Paid?',               icon:'&#128181;', color:'#0891b2',
-    next:{ status:'Paid (Initiated in Bank)',          to:'Update UTR',        roles:['accounts','dept_head'] } },
+    next:{ status:'Paid (MD_ED)',                      to:'Update UTR',        roles:['md'] } },
   { id:'utr',      label:'To Update UTR',       icon:'&#128290;', color:'#7c3aed',
-    next:{ status:'Payment Completed',                 to:'Done', needsUtr:true, roles:['accounts','dept_head'] } },
+    next:{ status:'Payment Completed',                 to:'Done', needsUtr:true, roles:['md','accounts','dept_head'] } },
   { id:'rejected', label:'Rejection Bin',       icon:'&#10060;',  color:'#dc2626', next:null },
   { id:'hold',     label:'Hold Bin',            icon:'&#9208;',   color:'#b45309', next:null },
   { id:'all',      label:'Accounts Database',   icon:'&#128194;', color:'#475569', next:null },
@@ -4949,8 +4956,11 @@ function _accRowsInView(rows, id) {
   return (rows || []).filter(r => _accStageOf(r) === id);
 }
 // Role-aware: can the current user advance a row from this stage?
+// Admin (MD role + admin email) can advance from ANY stage that has a next —
+// the Quick Action button is therefore visible to Admin in all views.
 function _accCanAdvance(viewDef) {
   if (!viewDef || !viewDef.next) return false;
+  if (typeof _accIsAdmin === 'function' && _accIsAdmin()) return true;
   return (viewDef.next.roles || []).includes((STATE.role || '').toLowerCase());
 }
 // Stage cards = the View selector + the (improved) KPI cards in one.
@@ -5048,33 +5058,11 @@ function renderAccountsKpiPage() {
     </div>
     <div id="accKpiStageCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:.7rem;margin-bottom:1.2rem">
       <div style="grid-column:1/-1;text-align:center;color:var(--txt3);padding:2.5rem">Loading…</div>
-    </div>
-    <div id="accKpiCurrencyCards" style="display:none"></div>`;
+    </div>`;
 
   _accReloadRows().then(() => {
     const sc = document.getElementById('accKpiStageCards');
     if (sc) sc.innerHTML = _accStageCardsHtml(window._accAllRows || [], '_accKpiOpen');
-    // Currency cards (only when a non-INR currency is present).
-    const cmap = {};
-    (window._accAllRows || []).filter(r => r.status && r.status.cat !== 'other').forEach(r => {
-      const c = r.currency || 'INR';
-      if (!cmap[c]) cmap[c] = { count: 0, total: 0 };
-      cmap[c].count++; cmap[c].total += (r.amount || 0);
-    });
-    const ckeys = Object.keys(cmap);
-    if (ckeys.length > 1 || (ckeys.length === 1 && ckeys[0] !== 'INR')) {
-      const ccEl = document.getElementById('accKpiCurrencyCards');
-      if (ccEl) {
-        ccEl.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:.7rem;margin-bottom:1.2rem';
-        ccEl.innerHTML = ckeys.map(c => `
-          <div class="kpi-card" style="border-left:3px solid var(--g5)">
-            <div class="kpi-top"><div class="kpi-icon green">&#128178;</div><div class="kpi-trend flat">${c}</div></div>
-            <div class="kpi-value" style="font-size:1.15rem">${cmap[c].count}</div>
-            <div class="kpi-label">${c} Requests</div>
-            <div class="kpi-sub">${c} ${Math.round(cmap[c].total).toLocaleString('en-IN')}</div>
-          </div>`).join('');
-      }
-    }
   }).catch(err => {
     const sc = document.getElementById('accKpiStageCards');
     if (sc) sc.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2.5rem;color:var(--danger)">&#9888; Could not load PaymentRequest sheet.</div>';
@@ -5102,9 +5090,6 @@ function renderAccountsModule() {
     <!-- Compact View selector — icon + name + count. Rich KPI cards live on the
          dedicated "Accounts KPI Cards" page (accounts-kpi route). -->
     <div id="accStageCards" style="display:flex;flex-wrap:wrap;gap:.45rem;margin-bottom:1rem"></div>
-
-    <!-- Currency KPI cards -->
-    <div id="accCurrencyCards" style="display:none;margin-bottom:1.2rem"></div>
 
     <!-- Filters bar -->
     <div class="card" style="margin-bottom:.8rem">
@@ -5938,8 +5923,9 @@ function _accOpenPRDetail(uuid) {
   ov.innerHTML = `<div id="accVoucherCard" style="background:#fff;width:840px;max-width:100%;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden;margin:auto"></div>`;
   _accDrawPRDetail(document.getElementById('accVoucherCard'), row);
   requestAnimationFrame(() => { ov.style.opacity = '1'; });
-  // Status Updates + role-gated action bar load asynchronously
+  // Status Updates + documents + role-gated action bar load asynchronously
   _accDrawStatusUpdates(uuid);
+  _accDrawPRAttachments(row);
   _accRenderDetailActions(row);
 }
 
@@ -6052,10 +6038,69 @@ function _accDrawPRDetail(dr, r) {
         ${partRow('Remarks', r.remarks)}
       </table>` : ''}
 
-      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem;border-top:1px solid var(--border);padding-top:.8rem">Status Updates</div>
+      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem;border-top:1px solid var(--border);padding-top:.8rem">&#128206; Documents</div>
+      <div id="acc-detail-docs"><div style="padding:.8rem;text-align:center;color:var(--txt3);font-size:.8rem">&#8987; Loading documents&hellip;</div></div>
+
+      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin:1rem 0 .45rem;border-top:1px solid var(--border);padding-top:.8rem">Status Updates</div>
       <div id="acc-detail-timeline"><div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">&#8987; Loading status history&hellip;</div></div>
     </div>
   `;
+}
+
+// Surface the PR's Drive documents (uploaded as attachments) as openable links.
+async function _accDrawPRAttachments(r) {
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const el = () => document.getElementById('acc-detail-docs');
+  if (!el()) return;
+  let resp;
+  try {
+    resp = await _accPostAwait({ action: 'listPRAttachments', requestId: r.requestId || '', uuid: r.uuid || '' });
+  } catch (e) {
+    resp = { success: false, message: e.message };
+  }
+  if (!el()) return; // user switched PRs while loading
+  if (!resp || resp.success === false) {
+    const msg = (resp && resp.message) || 'unknown error';
+    if (/unknown (post )?action/i.test(msg)) {
+      el().innerHTML = '<div style="padding:.7rem;color:var(--txt3);font-size:.76rem">Document listing needs an Apps Script redeploy (adds the "listPRAttachments" action).</div>';
+    } else {
+      el().innerHTML = `<div style="padding:.7rem;color:var(--danger);font-size:.76rem">&#9888; Could not load documents: ${esc(msg)}</div>`;
+    }
+    return;
+  }
+  const files = resp.files || [];
+  if (!files.length) {
+    const folderLink = resp.folderUrl
+      ? ` &middot; <a href="${esc(resp.folderUrl)}" target="_blank" rel="noopener" style="color:var(--g7)">open folder</a>`
+      : '';
+    el().innerHTML = `<div style="padding:.7rem;color:var(--txt3);font-size:.78rem">No documents attached to this request.${folderLink}</div>`;
+    return;
+  }
+  const iconFor = (mime, name) => {
+    const n = (name || '').toLowerCase();
+    if (/pdf/.test(mime) || n.endsWith('.pdf')) return '&#128196;';
+    if (/image/.test(mime) || /\.(png|jpe?g|gif|webp|bmp)$/.test(n)) return '&#128247;';
+    if (/sheet|excel|csv/.test(mime) || /\.(xlsx?|csv)$/.test(n)) return '&#128202;';
+    if (/word|document/.test(mime) || /\.(docx?)$/.test(n)) return '&#128221;';
+    return '&#128206;';
+  };
+  const fmtSize = (b) => {
+    b = +b || 0;
+    if (!b) return '';
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(0) + ' KB';
+    return (b / 1048576).toFixed(1) + ' MB';
+  };
+  el().innerHTML = `<div style="display:flex;flex-direction:column;gap:.4rem">
+    ${files.map(f => `
+      <a href="${esc(f.url)}" target="_blank" rel="noopener"
+         style="display:flex;align-items:center;gap:.6rem;padding:.5rem .7rem;border:1px solid var(--border);border-radius:9px;background:var(--surface1);text-decoration:none;color:var(--txt1)">
+        <span style="font-size:1.1rem">${iconFor(f.mimeType, f.name)}</span>
+        <span style="flex:1;min-width:0;font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}</span>
+        <span style="font-size:.68rem;color:var(--txt3);white-space:nowrap">${fmtSize(f.size)}</span>
+        <span style="font-size:.72rem;color:var(--g7);font-weight:700;white-space:nowrap">Open &#8599;</span>
+      </a>`).join('')}
+  </div>`;
 }
 
 const _ACC_MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
