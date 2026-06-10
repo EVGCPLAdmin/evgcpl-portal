@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.50';
-const PORTAL_BUILD    = 423;
-const PORTAL_BUILD_AT = '2026-06-10T12:44:00Z';
+const PORTAL_VERSION  = '3.18.51';
+const PORTAL_BUILD    = 424;
+const PORTAL_BUILD_AT = '2026-06-10T12:55:23Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2769,15 +2769,7 @@ async function _mdpApproveSelected() {
   const ids = Object.keys(_mdpSel);
   if (!ids.length) return;
   if (!confirm(`Approve ${ids.length} payment request(s) and move them to Accounts?`)) return;
-  const status = 'Process Payment, Move to Accounts';
-  let ok = 0;
-  for (const uuid of ids) {
-    const r = (_mdpRows || []).find(x => x.uuid === uuid);
-    if (await _accQuickStatus(uuid, status, '')) { _txnParkRow(r, status, 'Approved', 'md'); ok++; }
-  }
-  _mdpSel = {};
-  _accToast(`✅ Approved ${ok} request${ok === 1 ? '' : 's'} — moving to Accounts`);
-  _mdpRender();
+  _mdpBulkPost(ids, 'Process Payment, Move to Accounts', 'Approved', '');
 }
 async function _mdpRejectSelected() {
   const ids = Object.keys(_mdpSel);
@@ -2785,14 +2777,34 @@ async function _mdpRejectSelected() {
   const reason = prompt(`Reason for rejecting ${ids.length} request(s) (required):`, '');
   if (reason === null) return;
   if (!reason.trim()) { alert('A reason is required to reject.'); return; }
-  let ok = 0;
-  for (const uuid of ids) {
-    const r = (_mdpRows || []).find(x => x.uuid === uuid);
-    if (await _accQuickStatus(uuid, 'Reject Payment (MD)', reason.trim())) { _txnParkRow(r, 'Reject Payment (MD)', 'Rejected', 'md'); ok++; }
-  }
+  _mdpBulkPost(ids, 'Reject Payment (MD)', 'Rejected', reason.trim());
+}
+
+// Optimistic bulk post: park every selected row to the In-Transaction shelf and
+// re-render IMMEDIATELY (queue clears, shelf appears), then POST each update in
+// the background. Failures are returned to the queue and summarised once — so
+// the MD never sees a per-item confirm/alert or waits on the network.
+function _mdpBulkPost(ids, status, action, comments) {
+  const rows = ids.map(uuid => (_mdpRows || []).find(x => x.uuid === uuid)).filter(Boolean);
+  if (!rows.length) return;
+  rows.forEach(r => _txnParkRow(r, status, action, 'md'));
   _mdpSel = {};
-  _accToast(`Rejected ${ok} request${ok === 1 ? '' : 's'}`);
+  _accToast(`${action === 'Rejected' ? 'Rejecting' : 'Approving'} ${rows.length} request${rows.length === 1 ? '' : 's'}…`);
   _mdpRender();
+  (async () => {
+    const failed = [];
+    for (const r of rows) {
+      const ok = await _accQuickStatus(r.uuid, status, comments, '', true);
+      if (!ok) { failed.push(r); _txnDrop(r.uuid); }
+    }
+    if (failed.length) {
+      const last = window._accLastQuickErr || '';
+      alert(`${failed.length} of ${rows.length} request(s) could not be ${action.toLowerCase()} and were returned to the queue.${last ? '\n\nLast error: ' + last : ''}`);
+      _mdpRender();
+    } else {
+      _accToast(`${action === 'Rejected' ? '' : '✅ '}${action} ${rows.length} request${rows.length === 1 ? '' : 's'}${action === 'Approved' ? ' — moving to Accounts' : ''}`);
+    }
+  })();
 }
 
 function _mdpQueueCard(r) {
@@ -2854,23 +2866,17 @@ function _mdpHistory(r) {
     </details>`;
 }
 
-async function _mdpApprove(uuid) {
+function _mdpApprove(uuid) {
   if (!confirm('Approve this payment request and move it to Accounts for processing?')) return;
-  const status = 'Process Payment, Move to Accounts';
-  if (await _accQuickStatus(uuid, status, '')) {
-    _txnParkRow((_mdpRows || []).find(r => r.uuid === uuid), status, 'Approved', 'md');
-    _accToast('✅ Approved — moving to Accounts'); _mdpRender();
-  }
+  _accClosePRDetail();
+  _mdpBulkPost([uuid], 'Process Payment, Move to Accounts', 'Approved', '');
 }
-async function _mdpReject(uuid) {
+function _mdpReject(uuid) {
   const reason = prompt('Reason for rejection (required):', '');
   if (reason === null) return;
   if (!reason.trim()) { alert('A reason is required to reject.'); return; }
-  const status = 'Reject Payment (MD)';
-  if (await _accQuickStatus(uuid, status, reason.trim())) {
-    _txnParkRow((_mdpRows || []).find(r => r.uuid === uuid), status, 'Rejected', 'md');
-    _accToast('Request rejected'); _mdpRender();
-  }
+  _accClosePRDetail();
+  _mdpBulkPost([uuid], 'Reject Payment (MD)', 'Rejected', reason.trim());
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -4974,12 +4980,20 @@ async function _accAdvance(uuid) {
     if (!utr.trim()) { alert('A UTR is required to complete the payment.'); return; }
   }
   if (!confirm(`Move "${r.requestId || uuid}" to "${nx.to}"?`)) return;
-  if (await _accQuickStatus(uuid, nx.status, '', utr.trim())) {
-    _txnParkRow(r, nx.status, '→ ' + nx.to, 'acc');
+  // Optimistic: park + close + re-render now, then post in the background.
+  _txnParkRow(r, nx.status, '→ ' + nx.to, 'acc');
+  if (document.getElementById('accVoucherOverlay')) _accClosePRDetail();
+  if (typeof accRender === 'function' && document.getElementById('accTbody')) accRender();
+  if (document.getElementById('mdp-content') && typeof _mdpRender === 'function') _mdpRender();
+  _accToast('Moving to ' + nx.to + '…');
+  const ok = await _accQuickStatus(uuid, nx.status, '', utr.trim(), true);
+  if (ok) {
     _accToast('✅ Moved to ' + nx.to);
-    if (document.getElementById('accPRDetailDrawer')) _accClosePRDetail();
+  } else {
+    _txnDrop(uuid);
     if (typeof accRender === 'function' && document.getElementById('accTbody')) accRender();
     if (document.getElementById('mdp-content') && typeof _mdpRender === 'function') _mdpRender();
+    alert('Could not move "' + (r.requestId || uuid) + '" — it has been returned to its queue.' + (window._accLastQuickErr ? '\n\nError: ' + window._accLastQuickErr : ''));
   }
 }
 
@@ -5787,13 +5801,35 @@ async function _accPRSubmit() {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  ACCOUNTS — PR DETAIL VIEW + STATUS UPDATES TIMELINE (Phase 2)
-//  Slide-in detail panel showing the full PR row plus the reverse
-//  relation of AccountsUpdate rows (status history) for that PR.
+//  ACCOUNTS — PAYMENT VOUCHER VIEW + STATUS UPDATES (Phase 2)
+//  Centered modal styled as a printable payment voucher: payee, bank,
+//  particulars, amount in figures + words, PO/bill reference, the
+//  AccountsUpdate status history, and all role-gated action buttons.
 // ══════════════════════════════════════════════════════════════
+
+// Indian-system amount-in-words (crore/lakh/thousand) for the voucher.
+function _accAmountWords(n) {
+  n = Math.round(Math.abs(+n || 0));
+  if (!n) return 'Zero';
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+    'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const two = (x) => x < 20 ? ones[x] : (tens[Math.floor(x / 10)] + (x % 10 ? ' ' + ones[x % 10] : ''));
+  const three = (x) => (x >= 100 ? ones[Math.floor(x / 100)] + ' Hundred' + (x % 100 ? ' ' + two(x % 100) : '') : two(x));
+  let out = '';
+  const crore = Math.floor(n / 10000000); n %= 10000000;
+  const lakh  = Math.floor(n / 100000);   n %= 100000;
+  const thou  = Math.floor(n / 1000);      n %= 1000;
+  if (crore) out += three(crore) + ' Crore ';
+  if (lakh)  out += three(lakh) + ' Lakh ';
+  if (thou)  out += three(thou) + ' Thousand ';
+  if (n)     out += three(n);
+  return out.trim();
+}
+
 function _accClosePRDetail() {
-  const dr = document.getElementById('accPRDetailDrawer');
-  if (dr) dr.style.right = '-760px';
+  const ov = document.getElementById('accVoucherOverlay');
+  if (ov) { ov.style.opacity = '0'; setTimeout(() => { try { ov.remove(); } catch (e) {} }, 200); }
 }
 
 function _accOpenPRDetail(uuid) {
@@ -5801,15 +5837,17 @@ function _accOpenPRDetail(uuid) {
   const row = (window._accAllRows || []).find(r => r.uuid === uuid)
            || ((typeof _mdpRows !== 'undefined' && _mdpRows) ? _mdpRows.find(r => r.uuid === uuid) : null);
   if (!row) return;
-  let dr = document.getElementById('accPRDetailDrawer');
-  if (!dr) {
-    dr = document.createElement('div');
-    dr.id = 'accPRDetailDrawer';
-    dr.style.cssText = 'position:fixed;top:var(--header-h);right:-760px;width:740px;max-width:96vw;height:calc(100vh - var(--header-h));background:#fff;border-left:1px solid var(--border);z-index:1100;transition:right .28s cubic-bezier(.4,0,.2,1);box-shadow:-4px 0 24px rgba(0,0,0,.1);display:flex;flex-direction:column';
-    document.body.appendChild(dr);
+  let ov = document.getElementById('accVoucherOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'accVoucherOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(15,23,42,.55);display:flex;align-items:flex-start;justify-content:center;padding:3vh 2vw;overflow-y:auto;opacity:0;transition:opacity .2s ease';
+    ov.onclick = (e) => { if (e.target === ov) _accClosePRDetail(); };
+    document.body.appendChild(ov);
   }
-  _accDrawPRDetail(dr, row);
-  requestAnimationFrame(() => { dr.style.right = '0'; });
+  ov.innerHTML = `<div id="accVoucherCard" style="background:#fff;width:840px;max-width:100%;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden;margin:auto"></div>`;
+  _accDrawPRDetail(document.getElementById('accVoucherCard'), row);
+  requestAnimationFrame(() => { ov.style.opacity = '1'; });
   // Status Updates + role-gated action bar load asynchronously
   _accDrawStatusUpdates(uuid);
   _accRenderDetailActions(row);
@@ -5820,9 +5858,15 @@ function _accDrawPRDetail(dr, r) {
   const s = r.status || { label: '', icon: '', color: '#6b7280', bg: '#f9fafb' };
   const fmtAmt = (v, c) => { if (!v) return '—'; const n = Math.round(v).toLocaleString('en-IN'); return (c && c !== 'INR') ? (c + ' ' + n) : ('₹' + n); };
 
+  const payee = (typeof _mdpStrip === 'function') ? (_mdpStrip(r.paidTo) || r.vendor || r.payTo) : (r.paidTo || r.payTo);
+
   const badge = s.label
     ? `<span style="display:inline-flex;align-items:center;gap:4px;background:${s.bg};color:${s.color};padding:4px 12px;border-radius:12px;font-size:.74rem;font-weight:600;border:1px solid ${s.color}22">${s.icon ? s.icon + '&thinsp;' : ''}${esc(s.label)}</span>`
     : '<span style="color:var(--txt3)">—</span>';
+
+  const meta = (label, val) => `<div style="display:flex;gap:.4rem;font-size:.74rem"><span style="color:var(--txt3);min-width:96px">${label}</span><span style="font-weight:600;color:var(--txt1)">${esc(val) || '—'}</span></div>`;
+  const partRow = (label, val) => val ? `<tr><td style="padding:6px 11px;border:1px solid var(--border);color:var(--txt3);font-size:.72rem;width:42%;vertical-align:top">${label}</td><td style="padding:6px 11px;border:1px solid var(--border);font-size:.8rem;color:var(--txt1)">${esc(val)}</td></tr>` : '';
+  const words = r.amount ? `${(r.currency && r.currency !== 'INR') ? r.currency : 'Rupees'} ${_accAmountWords(r.amount)} Only` : '';
 
   const fieldsHtml = (pairs) => `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem 1.4rem">
@@ -5839,70 +5883,87 @@ function _accDrawPRDetail(dr, r) {
     </div>`;
 
   dr.innerHTML = `
-    <div style="padding:1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;flex-shrink:0;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff">
+    <div style="padding:1rem 1.4rem;border-bottom:2px solid var(--g7);display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff;flex-shrink:0">
       <div style="min-width:0">
-        <div style="font-size:.98rem;font-weight:700;font-family:monospace">${esc(r.requestId) || esc(r.uuid)}</div>
-        <div style="font-size:.74rem;opacity:.85;margin-top:3px">${esc(r.date) || '—'} &middot; ${esc(r.initiator) || '—'}</div>
+        <div style="font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;opacity:.8">${esc(r.company) || 'EVGCPL'}</div>
+        <div style="font-size:1.1rem;font-weight:800;letter-spacing:.03em;margin-top:1px">PAYMENT VOUCHER</div>
         <div style="margin-top:.5rem">${badge}</div>
       </div>
-      <button onclick="_accClosePRDetail()" style="background:rgba(255,255,255,.18);border:none;color:#fff;width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:1rem;flex-shrink:0">&#10006;</button>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-family:monospace;font-size:1rem;font-weight:700">${esc(r.requestId) || esc(r.uuid)}</div>
+        <div style="font-size:.74rem;opacity:.9;margin-top:2px">${esc(r.date) || '—'}</div>
+        <button onclick="_accClosePRDetail()" style="margin-top:.5rem;background:rgba(255,255,255,.18);border:none;color:#fff;width:28px;height:28px;border-radius:7px;cursor:pointer;font-size:.95rem">&#10006;</button>
+      </div>
     </div>
 
-    <div style="flex:1;overflow-y:auto;padding:1.1rem 1.3rem">
+    <div style="flex:1;overflow-y:auto;padding:1.1rem 1.4rem;max-height:74vh">
       <div id="acc-detail-actions"></div>
 
-      ${block('Request', fieldsHtml([
-        ['Request ID', r.requestId],
-        ['Date of Request', r.date],
-        ['Initiator', r.initiator],
-        ['Manual / Auto', r.manualAuto],
-        ['Installment', r.installment],
-        ['Nature of Expenses', r.nature],
-        ['Account Code Desc.', r.accCode],
-        ['Cost Code', r.costCode],
-        ['Department', r.dept],
-        ['From Which Process', r.process],
-      ]))}
-
-      ${block('Payment To', fieldsHtml([
-        ['Payment To', r.payTo],
-        ['Paid To', r.paidTo],
-        ['Site Name', r.site],
-        ['Company', r.company],
-      ]))}
-
-      ${block('Bill &amp; PO Reference', fieldsHtml([
-        ['Order No', r.orderNo],
-        ['Bill No', r.billNo],
-        ['PO Value', fmtAmt(r.poValue, r.currency)],
-        ['Invoice Value', fmtAmt(r.invoiceVal, r.currency)],
-        ['Paid Value', fmtAmt(r.paidVal, r.currency)],
-        ['Pending Value', fmtAmt(r.pendingVal, r.currency)],
-      ]))}
-
-      ${block('Financial', fieldsHtml([
-        ['Currency', r.currency],
-        ['Amount', fmtAmt(r.amount, r.currency)],
-      ]) + `<div style="margin-top:.55rem"><span style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Narrative / Comments</span><div style="font-size:.82rem;color:var(--txt1);margin-top:2px;white-space:pre-wrap">${esc(r.narrative) || '—'}</div></div>`)}
-
-      ${block('Bank Details', fieldsHtml([
-        ['A/C Holder', r.acHolder],
-        ['A/C Number', r.acNumber],
-        ['IFSC Code', r.ifsc],
-        ['Bank Name', r.bank],
-      ]))}
-
-      ${block('Accounts', fieldsHtml([
-        ['Accounts Status', r.accStatus],
-        ['Accounts Date', r.accDate],
-        ['UTR Details', r.utr],
-        ['Remarks', r.remarks],
-      ]))}
-
-      <div style="margin-bottom:.4rem">
-        <div style="font-weight:700;font-size:.74rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.55rem;border-bottom:1px solid var(--border);padding-bottom:.3rem">Status Updates</div>
-        <div id="acc-detail-timeline"><div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">&#8987; Loading status history&hellip;</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem 1.6rem;padding:.85rem 1rem;border:1px solid var(--border);border-radius:10px;background:var(--surface1);margin-bottom:1rem">
+        <div>
+          <div style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Pay To</div>
+          <div style="font-size:1rem;font-weight:700;color:var(--g8);margin-top:1px">${esc(payee) || '—'}</div>
+          <div style="font-size:.73rem;color:var(--txt2);margin-top:1px">${esc(r.payTo) || '—'}${r.site ? ' &middot; ' + esc(r.site) : ''}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px;justify-content:center">
+          ${meta('Initiator', r.initiator)}
+          ${meta('Department', r.dept)}
+          ${meta('Manual / Auto', r.manualAuto)}
+          ${r.installment > 1 ? meta('Installment', r.installment) : ''}
+        </div>
       </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding:.85rem 1.1rem;border:1px solid var(--g7);border-radius:10px;background:#f0fdf4;margin-bottom:1rem">
+        <div style="min-width:0">
+          <div style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Amount</div>
+          ${words ? `<div style="font-size:.8rem;color:var(--txt2);margin-top:3px;font-style:italic">${esc(words)}</div>` : ''}
+        </div>
+        <div style="font-size:1.5rem;font-weight:800;color:var(--g8);white-space:nowrap">${fmtAmt(r.amount, r.currency)}</div>
+      </div>
+
+      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Particulars</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:1rem">
+        ${partRow('Nature of Expenses', r.nature)}
+        ${partRow('Account Code Description', r.accCode)}
+        ${partRow('Cost Code', r.costCode)}
+        ${partRow('From Which Process', r.process)}
+        ${partRow('Narrative / Comments', r.narrative)}
+      </table>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+        <div>
+          <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Bill &amp; PO Reference</div>
+          <table style="width:100%;border-collapse:collapse">
+            ${partRow('Order No', r.orderNo)}
+            ${partRow('Bill No', r.billNo)}
+            ${partRow('PO Value', fmtAmt(r.poValue, r.currency))}
+            ${partRow('Invoice Value', fmtAmt(r.invoiceVal, r.currency))}
+            ${partRow('Paid Value', fmtAmt(r.paidVal, r.currency))}
+            ${partRow('Pending Value', fmtAmt(r.pendingVal, r.currency))}
+          </table>
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Bank Details</div>
+          <table style="width:100%;border-collapse:collapse">
+            ${partRow('A/C Holder', r.acHolder)}
+            ${partRow('A/C Number', r.acNumber)}
+            ${partRow('IFSC Code', r.ifsc)}
+            ${partRow('Bank Name', r.bank)}
+          </table>
+        </div>
+      </div>
+
+      ${(r.accStatus || r.utr || r.remarks || r.accDate) ? `
+      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Accounts Processing</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:1rem">
+        ${partRow('Accounts Status', r.accStatus)}
+        ${partRow('Accounts Date', r.accDate)}
+        ${partRow('UTR Details', r.utr)}
+        ${partRow('Remarks', r.remarks)}
+      </table>` : ''}
+
+      <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem;border-top:1px solid var(--border);padding-top:.8rem">Status Updates</div>
+      <div id="acc-detail-timeline"><div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">&#8987; Loading status history&hellip;</div></div>
     </div>
   `;
 }
@@ -6205,7 +6266,7 @@ function _accGotoMDQueue() {
   navigate('accounts');
 }
 
-async function _accQuickStatus(uuid, status, comments, utr) {
+async function _accQuickStatus(uuid, status, comments, utr, silent) {
   const rid = (crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0, 8) : String(Date.now()).slice(-8);
   const email = STATE.user?.email || '';
   const me = (STATE.masters.users || []).find(u => (u.email || '').toLowerCase() === email.toLowerCase());
@@ -6228,6 +6289,7 @@ async function _accQuickStatus(uuid, status, comments, utr) {
   const resp = await _accPostAwait({ action: 'saveAccountsUpdate', sheetId: PAYMENT_SHEET_ID, tab: 'AccountsUpdate', row: row });
   if (!resp || resp.success === false) {
     const msg = (resp && resp.message) || 'unknown error';
+    if (silent) { window._accLastQuickErr = msg; return false; }
     if (/unknown (post )?action/i.test(msg)) {
       alert('Apps Script redeploy required.\n\nThe "saveAccountsUpdate" backend action is in the deployed build but the live Apps Script /exec has not been redeployed yet.');
     } else {
