@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.35';
-const PORTAL_BUILD    = 408;
-const PORTAL_BUILD_AT = '2026-06-09T14:46:22Z';
+const PORTAL_VERSION  = '3.18.36';
+const PORTAL_BUILD    = 409;
+const PORTAL_BUILD_AT = '2026-06-10T07:51:43Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4427,63 +4427,61 @@ function renderAccountsModule() {
   // Q=PO Value R=Invoice Value S=Paid Value T=Pending Value U=Tax Amount
   // V=Currency W=Amount X=Narrative/Comments
   // AC=Accounts Status AD=Accounts Date AE=UTR Details AF=Remarks AG=Status
-  fetchSheet('PaymentRequest',
-    'SELECT A,C,D,E,F,G,H,J,K,L,M,N,O,P,Q,R,T,U,V,W,Z,AA,AB,AG,AH,AI,AJ,AK,AL,AM',
-    PAYMENT_SHEET_ID
+  fetchSheet('PaymentRequest', null, PAYMENT_SHEET_ID
   ).then(rawRows => {
     window._accAllRows = rawRows
-      .filter(r => (r['Payment To'] || r['J'] || '').trim())
+      .filter(r => (r['Payment To'] || '').trim())
       .map(r => {
-        // New schema: A=UUID C=Manual/Auto D=Installment E=RequestID F=Date
-        // G=Initiator H=NatureOfExpenses J=PaymentTo K=CostCode L=Department
-        // M=FromWhichProcess N=PaidTo O=SiteName P=Company Q=OrderNo R=BillNo
-        // T=POValue U=InvoiceValue V=PaidValue W=PendingValue Z=Currency AA=Amount
-        // AB=Narrative AG=AccountsStatus AH=AccountsDate AI=UTR AJ=Remarks AK=Status
-        const raw    = r['Status']          || r['AK'] || '';
-        const acStat = r['Accounts Status'] || r['AG'] || '';
-        const st     = getPayStatus(raw) || getPayStatus(acStat);
-        const curr   = normCurrency(r['Currency'] || r['Z'] || '');
-        const amt    = parseFloat(String(r['Amount'] || r['AA'] || '0').replace(/[^0-9.]/g,'')) || 0;
-        const initiator = stripCode(r['Name of the Intiator'] || r['G'] || '');
+        // Read strictly by header name — resilient to column-order changes
+        // (the sheet now carries the Paid To (Employee/Vendor/SC/Others) columns).
+        const raw    = r['Status'] || '';
+        const acStat = r['Accounts Status'] || '';
+        const st     = getPayStatus(raw || acStat);
+        const curr   = normCurrency(r['Currency'] || '');
+        const amt    = parseFloat(String(r['Amount'] || '0').replace(/[^0-9.]/g,'')) || 0;
+        const initiator = stripCode(r['Name of the Intiator'] || '');
+        const company   = r['Company'] || '';
         return {
-          uuid:        r['UUID']                  || r['A']  || '',
-          manualAuto:  r['Manual / Auto']         || r['C']  || '',
-          installment: r['Installment']           || r['D']  || '',
-          requestId:   r['Request ID']            || r['E']  || '',
-          date:        r['Date Of Request']       || r['F']  || '',
+          uuid:        r['UUID'] || '',
+          manualAuto:  r['Manual / Auto'] || '',
+          installment: r['Installment'] || '',
+          requestId:   r['Request ID'] || '',
+          date:        r['Date Of Request'] || '',
           initiator,
-          nature:      r['NATURE OF EXPENSES']    || r['H']  || '',
-          accCode:     r['ACCOUNT CODE DESCRIPTIONS'] || r['I'] || '',
-          payTo:       r['Payment To']            || r['J']  || '',
-          costCode:    r['CostCode']              || r['K']  || '',
-          dept:        r['Department']            || r['L']  || '',
-          process:     r['From Which Process']    || r['M']  || '',
-          paidTo:      r['Paid To']               || r['N']  || '',
-          site:        r['Site Name']             || r['O']  || '',
-          company:     r['Company']               || r['P']  || '',
-          orderNo:     r['Order No']              || r['Q']  || '',
-          billNo:      r['Bill No']               || r['R']  || '',
-          poValue:     parseFloat(String(r['PO Value']      || r['T'] || '0').replace(/[^0-9.]/g,'')) || 0,
-          invoiceVal:  parseFloat(String(r['Invoice Value'] || r['U'] || '0').replace(/[^0-9.]/g,'')) || 0,
-          paidVal:     parseFloat(String(r['Paid Value']    || r['V'] || '0').replace(/[^0-9.]/g,'')) || 0,
-          pendingVal:  parseFloat(String(r['Pending Value'] || r['W'] || '0').replace(/[^0-9.]/g,'')) || 0,
+          nature:      r['NATURE OF EXPENSES'] || '',
+          accCode:     r['ACCOUNT CODE DESCRIPTIONS'] || '',
+          payTo:       r['Payment To'] || '',
+          costCode:    r['CostCode'] || '',
+          dept:        r['Department'] || '',
+          process:     r['From Which Process'] || '',
+          paidTo:      r['Paid To'] || '',
+          site:        r['Site Name'] || '',
+          company,
+          entity:      company,
+          orderNo:     r['Order No'] || '',
+          billNo:      r['Bill No'] || '',
+          poValue:     parseFloat(String(r['PO Value']      || '0').replace(/[^0-9.]/g,'')) || 0,
+          invoiceVal:  parseFloat(String(r['Invoice Value'] || '0').replace(/[^0-9.]/g,'')) || 0,
+          paidVal:     parseFloat(String(r['Paid Value']    || '0').replace(/[^0-9.]/g,'')) || 0,
+          pendingVal:  parseFloat(String(r['Pending Value'] || '0').replace(/[^0-9.]/g,'')) || 0,
           currency:    curr,
           amount:      amt,
-          narrative:   r['Narrative/Comments']    || r['AB'] || '',
-          acHolder:    r['A/C HOLDER NAME']       || r['AC'] || '',
-          acNumber:    r['A/C NUMBER']            || r['AD'] || '',
-          ifsc:        r['IFSC CODE']             || r['AE'] || '',
-          bank:        r['BANK NAME']             || r['AF'] || '',
+          narrative:   r['Narrative/Comments'] || '',
+          acHolder:    r['A/C HOLDER NAME'] || '',
+          acNumber:    r['A/C NUMBER'] || '',
+          ifsc:        r['IFSC CODE'] || '',
+          bank:        r['BANK NAME'] || '',
           accStatus:   acStat,
-          accDate:     r['Accounts Date']         || r['AH'] || '',
-          utr:         r['UTR Details']           || r['AI'] || '',
-          remarks:     r['Remarks']              || r['AJ'] || '',
-          monthYear:   r['Month-Year']            || r['AN'] || '',
+          accDate:     r['Accounts Date'] || '',
+          utr:         r['UTR Details'] || '',
+          remarks:     r['Remarks'] || '',
+          monthYear:   r['Month-Year'] || '',
           rawStatus:   raw || acStat,
           status:      st,
-          _s: [r['A'],r['E'],r['F'],initiator,r['J'],r['H'],r['L'],r['M'],
-               r['O'],r['P'],r['Q'],r['R'],curr,String(amt),r['AB'],
-               r['AH'],r['AI'],r['AJ'],raw,acStat
+          _s: [r['UUID'],r['Request ID'],r['Date Of Request'],initiator,r['Payment To'],
+               r['NATURE OF EXPENSES'],r['Department'],r['From Which Process'],r['Site Name'],
+               company,r['Order No'],r['Bill No'],curr,String(amt),r['Narrative/Comments'],
+               r['Accounts Date'],r['UTR Details'],r['Remarks'],raw,acStat
               ].join('|').toLowerCase(),
         };
       });
