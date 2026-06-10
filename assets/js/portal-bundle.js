@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.47';
-const PORTAL_BUILD    = 420;
-const PORTAL_BUILD_AT = '2026-06-10T12:31:05Z';
+const PORTAL_VERSION  = '3.18.48';
+const PORTAL_BUILD    = 421;
+const PORTAL_BUILD_AT = '2026-06-10T12:36:58Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2439,6 +2439,7 @@ function renderDashboard() {
 // ══════════════════════════════════════════════════════════════
 let _mdpRows    = null;
 let _mdpCompany = '';
+let _mdpSel     = {};          // uuid -> true : bulk selection in the MD queue
 let _mdpTab     = 'queue';     // 'queue' | 'ledger'
 let _plType     = 'Vendor';    // party-ledger party type
 let _plParty    = '';          // selected party key "type|name|acc"
@@ -2687,17 +2688,76 @@ function _mdpQueueHtml() {
       <div class="kpi-card info"><div class="kpi-top"><div class="kpi-icon blue">💰</div><div class="kpi-trend flat">${_mdpEsc(_mdpCompany) || 'All companies'}</div></div><div class="kpi-value" style="font-size:1.3rem">₹${Math.round(total).toLocaleString('en-IN')}</div><div class="kpi-label">Total Value</div></div>
     </div>`;
   if (!q.length) {
+    _mdpSel = {};
     return shelf + kpi + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">✅ Nothing awaiting your approval${_mdpCompany ? ` for ${_mdpEsc(_mdpCompany)}` : ''}.</div>`;
   }
-  return shelf + kpi + q.map(_mdpQueueCard).join('');
+  // Prune selection to what's currently visible.
+  const visible = new Set(q.map(r => r.uuid));
+  Object.keys(_mdpSel).forEach(id => { if (!visible.has(id)) delete _mdpSel[id]; });
+  const selIds = q.filter(r => _mdpSel[r.uuid]);
+  const selTotal = selIds.reduce((s, r) => s + r.amount, 0);
+  const allOn = selIds.length === q.length;
+  const bulkBar = `
+    <div class="card" style="margin-bottom:.8rem;background:var(--surface2)">
+      <div style="display:flex;align-items:center;gap:.8rem;padding:.6rem .9rem;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:.45rem;font-size:.78rem;font-weight:600;cursor:pointer">
+          <input type="checkbox" ${allOn ? 'checked' : ''} onclick="_mdpSelAll(this.checked)" style="width:16px;height:16px;cursor:pointer"> Select all (${q.length})
+        </label>
+        <span style="font-size:.76rem;color:var(--txt3)">${selIds.length} selected${selIds.length ? ' · ₹' + Math.round(selTotal).toLocaleString('en-IN') : ''}</span>
+        <div style="margin-left:auto;display:flex;gap:.5rem">
+          <button onclick="_mdpApproveSelected()" ${selIds.length ? '' : 'disabled'} class="btn btn-sm" style="background:${selIds.length ? '#16a34a' : '#9ca3af'};color:#fff;border:none;font-weight:700">✓ Approve selected (${selIds.length})</button>
+          <button onclick="_mdpRejectSelected()" ${selIds.length ? '' : 'disabled'} class="btn btn-sm" style="background:${selIds.length ? '#dc2626' : '#9ca3af'};color:#fff;border:none;font-weight:700">✗ Reject selected</button>
+        </div>
+      </div>
+    </div>`;
+  return shelf + kpi + bulkBar + q.map(_mdpQueueCard).join('');
+}
+
+function _mdpToggleSel(uuid, on) { if (on) _mdpSel[uuid] = true; else delete _mdpSel[uuid]; _mdpRender(); }
+function _mdpSelAll(on) {
+  let q = (_mdpRows || []).filter(r => _accIsMDQueue(r) && !_txnHas(r.uuid));
+  if (_mdpCompany) q = q.filter(r => r.company === _mdpCompany);
+  _mdpSel = {};
+  if (on) q.forEach(r => { _mdpSel[r.uuid] = true; });
+  _mdpRender();
+}
+async function _mdpApproveSelected() {
+  const ids = Object.keys(_mdpSel);
+  if (!ids.length) return;
+  if (!confirm(`Approve ${ids.length} payment request(s) and move them to Accounts?`)) return;
+  const status = 'Process Payment, Move to Accounts';
+  let ok = 0;
+  for (const uuid of ids) {
+    const r = (_mdpRows || []).find(x => x.uuid === uuid);
+    if (await _accQuickStatus(uuid, status, '')) { _txnParkRow(r, status, 'Approved', 'md'); ok++; }
+  }
+  _mdpSel = {};
+  _accToast(`✅ Approved ${ok} request${ok === 1 ? '' : 's'} — moving to Accounts`);
+  _mdpRender();
+}
+async function _mdpRejectSelected() {
+  const ids = Object.keys(_mdpSel);
+  if (!ids.length) return;
+  const reason = prompt(`Reason for rejecting ${ids.length} request(s) (required):`, '');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('A reason is required to reject.'); return; }
+  let ok = 0;
+  for (const uuid of ids) {
+    const r = (_mdpRows || []).find(x => x.uuid === uuid);
+    if (await _accQuickStatus(uuid, 'Reject Payment (MD)', reason.trim())) { _txnParkRow(r, 'Reject Payment (MD)', 'Rejected', 'md'); ok++; }
+  }
+  _mdpSel = {};
+  _accToast(`Rejected ${ok} request${ok === 1 ? '' : 's'}`);
+  _mdpRender();
 }
 
 function _mdpQueueCard(r) {
   const payee = _mdpStrip(r.paidTo) || r.vendor || r.payTo || '—';
   return `
-  <div class="card" style="margin-bottom:.8rem;border-left:4px solid #6366f1">
+  <div class="card" style="margin-bottom:.8rem;border-left:4px solid ${_mdpSel[r.uuid] ? '#16a34a' : '#6366f1'}">
     <div class="card-body" style="padding:.9rem 1.1rem">
       <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:flex-start">
+        <input type="checkbox" ${_mdpSel[r.uuid] ? 'checked' : ''} onclick="event.stopPropagation();_mdpToggleSel('${r.uuid}',this.checked)" style="width:17px;height:17px;margin-top:3px;cursor:pointer;flex-shrink:0">
         <div style="min-width:0;flex:1">
           <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
             <span style="font-family:monospace;font-weight:700;color:var(--g8)">${_mdpEsc(r.requestId || r.uuid)}</span>
@@ -2803,28 +2863,44 @@ function partyLedgerRender(txRows, opts) {
   // Compute the running balance chronologically (oldest → newest)…
   const rows = [...txRows].sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
   if (!rows.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions found.</div>';
-  const totalAmt  = rows.reduce((s, r) => s + r.amount, 0);
-  const totalPaid = rows.filter(r => r.status.cat === 'completed').reduce((s, r) => s + r.amount, 0);
-  const totalPend = totalAmt - totalPaid;
-  const kpi = `<div class="kpi-grid" style="margin-bottom:1rem">
-    <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">💰</div></div><div class="kpi-value" style="font-size:1.25rem">₹${Math.round(totalAmt).toLocaleString('en-IN')}</div><div class="kpi-label">Total Billed</div></div>
-    <div class="kpi-card" style="border-left:4px solid #16a34a"><div class="kpi-top"><div class="kpi-icon green">✅</div></div><div class="kpi-value" style="font-size:1.25rem">₹${Math.round(totalPaid).toLocaleString('en-IN')}</div><div class="kpi-label">Paid</div></div>
-    <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⏳</div></div><div class="kpi-value" style="font-size:1.25rem">₹${Math.round(totalPend).toLocaleString('en-IN')}</div><div class="kpi-label">Pending</div></div>
-  </div>`;
+  // Double-entry over the party's account:
+  //   Credit = amount billed / owed (every non-rejected request)
+  //   Debit  = amount paid out (request reaches a completed/paid status)
+  //   Rejected = amount of rejected requests — shown in its own column,
+  //              never affects the running balance
+  //   Running Balance = Σ(Credit − Debit) = net outstanding payable
   let running = 0;
-  const withBalance = rows.map(r => { running += r.amount; return { r, balance: running }; });
-  // …but display newest first (descending) while keeping each row's running balance.
-  const body = withBalance.reverse().map(({ r, balance }) => {
+  const withBalance = rows.map(r => {
+    const rejected = r.status.cat === 'rejected';
+    const credit = rejected ? 0 : r.amount;
+    const debit  = (!rejected && r.status.cat === 'completed') ? r.amount : 0;
+    const reject = rejected ? r.amount : 0;
+    running += credit - debit;
+    return { r, credit, debit, reject, balance: running, rejected };
+  });
+  const totalCredit = withBalance.reduce((s, x) => s + x.credit, 0);
+  const totalDebit  = withBalance.reduce((s, x) => s + x.debit, 0);
+  const totalReject = withBalance.reduce((s, x) => s + x.reject, 0);
+  const balance = totalCredit - totalDebit;
+  const kpi = `<div class="kpi-grid" style="margin-bottom:1rem">
+    <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">💰</div></div><div class="kpi-value" style="font-size:1.2rem">₹${Math.round(totalCredit).toLocaleString('en-IN')}</div><div class="kpi-label">Total Credit (Billed)</div></div>
+    <div class="kpi-card" style="border-left:4px solid #16a34a"><div class="kpi-top"><div class="kpi-icon green">✅</div></div><div class="kpi-value" style="font-size:1.2rem">₹${Math.round(totalDebit).toLocaleString('en-IN')}</div><div class="kpi-label">Total Debit (Paid)</div></div>
+    <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⚖</div></div><div class="kpi-value" style="font-size:1.2rem">₹${Math.round(balance).toLocaleString('en-IN')}</div><div class="kpi-label">Outstanding Balance</div></div>
+    <div class="kpi-card danger"><div class="kpi-top"><div class="kpi-icon red">❌</div></div><div class="kpi-value" style="font-size:1.2rem">₹${Math.round(totalReject).toLocaleString('en-IN')}</div><div class="kpi-label">Rejected</div></div>
+  </div>`;
+  // Display newest first (descending) while keeping each row's running balance.
+  const body = withBalance.reverse().map(({ r, credit, debit, reject, balance, rejected }) => {
     const s = r.status;
     const click = opts.onRowClick ? ` style="cursor:pointer" onclick="${opts.onRowClick}('${r.uuid}')"` : '';
+    const dim = rejected ? 'color:var(--txt3)' : '';
     return `<tr${click}>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);white-space:nowrap">${esc(r.date)}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:monospace;font-size:.72rem">${esc(r.requestId || r.uuid)}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:center">${r.installment || '—'}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(r.orderNo) || '—'}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(r.billNo) || '—'}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:600">${_mdpAmt(r.amount, r.currency)}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;color:var(--txt2)">₹${Math.round(balance).toLocaleString('en-IN')}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);white-space:nowrap;${dim}">${esc(r.date)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:monospace;font-size:.72rem;${dim}">${esc(r.requestId || r.uuid)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(r.orderNo) || esc(r.billNo) || '—'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;color:#b45309;font-weight:600">${credit ? _mdpAmt(credit, r.currency) : '—'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;color:#16a34a;font-weight:600">${debit ? _mdpAmt(debit, r.currency) : '—'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;color:#dc2626;font-weight:600">${reject ? _mdpAmt(reject, r.currency) : '—'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:var(--g8)">₹${Math.round(balance).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border)"><span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span></td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.7rem">${esc(r.utr) || '—'}</td>
     </tr>`;
@@ -2833,9 +2909,10 @@ function partyLedgerRender(txRows, opts) {
     <div class="card"><div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:.78rem">
         <thead><tr style="background:var(--g9);color:#fff;text-align:left">
-          <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Request</th><th style="padding:8px 9px;text-align:center">Inst</th>
-          <th style="padding:8px 9px">PO / Order</th><th style="padding:8px 9px">Bill</th>
-          <th style="padding:8px 9px;text-align:right">Amount</th><th style="padding:8px 9px;text-align:right">Running</th><th style="padding:8px 9px">Status</th><th style="padding:8px 9px">UTR</th>
+          <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Request</th><th style="padding:8px 9px">PO / Bill</th>
+          <th style="padding:8px 9px;text-align:right">Credit</th><th style="padding:8px 9px;text-align:right">Debit</th>
+          <th style="padding:8px 9px;text-align:right">Rejected</th><th style="padding:8px 9px;text-align:right">Running Balance</th>
+          <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">UTR</th>
         </tr></thead>
         <tbody>${body}</tbody>
       </table>
