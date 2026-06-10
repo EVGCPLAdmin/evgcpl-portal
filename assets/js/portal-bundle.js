@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.40';
-const PORTAL_BUILD    = 413;
-const PORTAL_BUILD_AT = '2026-06-10T09:45:55Z';
+const PORTAL_VERSION  = '3.18.41';
+const PORTAL_BUILD    = 414;
+const PORTAL_BUILD_AT = '2026-06-10T10:37:18Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2633,7 +2633,7 @@ async function _mdpReject(uuid) {
   const reason = prompt('Reason for rejection (required):', '');
   if (reason === null) return;
   if (!reason.trim()) { alert('A reason is required to reject.'); return; }
-  if (await _accQuickStatus(uuid, 'Rejected', reason.trim())) { _accToast('Request rejected'); _mdpReload(); }
+  if (await _accQuickStatus(uuid, 'Reject Payment (MD)', reason.trim())) { _accToast('Request rejected'); _mdpReload(); }
 }
 
 function renderMDCommand() {
@@ -5544,14 +5544,20 @@ let _accPayStatusMaster = null;   // [{ status, viewFor, role }]
 
 async function _accLoadPaymentStatusMaster() {
   if (_accPayStatusMaster !== null) return;
-  try {
-    const rows = await fetchSheet('Payment_Status', null, PAYMENT_SHEET_ID);
-    _accPayStatusMaster = rows.map(r => ({
-      status:  r['Accounts Status'] || r['Status'] || '',
-      viewFor: r['View for'] || r['View For'] || r['ViewFor'] || '',
-      role:    r['Role'] || '',
-    })).filter(r => r.status);
-  } catch (e) { _accPayStatusMaster = []; }
+  // The status-options tab has been seen under a few names — try each.
+  const tabs = ['Payment_Status', 'M21_Payment_Status', 'Payment Status', 'PaymentStatus', 'M21_Payment_status'];
+  for (const tab of tabs) {
+    try {
+      const rows = await fetchSheet(tab, null, PAYMENT_SHEET_ID);
+      const mapped = (rows || []).map(r => ({
+        status:  r['Accounts Status'] || r['Status'] || '',
+        viewFor: r['View for'] || r['View For'] || r['ViewFor'] || '',
+        role:    r['Role'] || '',
+      })).filter(r => r.status);
+      if (mapped.length) { _accPayStatusMaster = mapped; return; }
+    } catch (e) { /* try the next candidate */ }
+  }
+  _accPayStatusMaster = [];
 }
 
 // Is the current user allowed to post accounts updates?
@@ -5582,9 +5588,12 @@ function _accAllowedStatuses() {
   const uniq = [...new Set(fromMaster.filter(Boolean))];
   if (uniq.length) return uniq;
 
-  // Fallback — derived from the documented role matrix
+  // Fallback — derived from the documented role matrix (strings the
+  // portal's status map recognises, so they categorise/colour correctly).
   if (role === 'md') {
-    return ['Process Payment, Move to Accounts', 'Rejected', 'Paid (MD_ED)'];
+    return ['Process Payment, Move to Accounts', 'Hold Payment (MD)',
+            'Send Back to Accounts (MD)', 'Send Back to Respective Department (MD)',
+            'Reject Payment (MD)', 'Paid (MD_ED)'];
   }
   return ['Verified, Move to MD Queue', 'Pending Due to Queries', 'Payment Initiated',
           'Paid (Initiated in Bank)', 'Payment Completed', 'Reject Payment (Accounts)'];
@@ -5781,7 +5790,7 @@ async function _accQuickReject(uuid) {
   const reason = prompt('Reason for rejection (required):', '');
   if (reason === null) return;
   if (!reason.trim()) { alert('A reason is required to reject.'); return; }
-  if (await _accQuickStatus(uuid, 'Rejected', reason.trim())) {
+  if (await _accQuickStatus(uuid, 'Reject Payment (MD)', reason.trim())) {
     _accToast('Request rejected');
     renderAccountsModule();
   }
