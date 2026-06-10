@@ -137,31 +137,68 @@ function uploadPRAttachment(body) {
 
 // ─────────────────────────────────────────────────────────────
 //  ACTION: listPRAttachments
-//  body: { requestId, uuid }
-//  Returns the documents stored in this PR's Drive folder so the portal
-//  can surface "open document" links in the payment-request detail view.
+//  body: { link, orderNo, billNo }   (requestId/uuid accepted as fallback)
+//  Attachments live in a Shared Drive, scattered across subfolders, and are
+//  NAMED by the request's Link code (e.g. "SCMv1-69d8e715.Quote(Attachment).
+//  112314.pdf"). We therefore search the whole Shared Drive recursively for
+//  files whose NAME contains the Link / Bill No / Order No and return openable
+//  links. Search is precise because the Link code is unique per request.
 // ─────────────────────────────────────────────────────────────
+// Shared Drive that holds all payment-request attachments (root folder
+// "00_AppsheetClone" and its PONOGen quote/image subfolders live here).
+var PR_ATTACH_DRIVE_ID = '0AAy1Om6TVuApUk9PVA';
+
 function listPRAttachments(body) {
   try {
-    var folder = _getOrCreatePRFolder(body.requestId, body.uuid, false);
-    if (!folder) return { success: true, files: [] };
-    var files = [];
-    var it = folder.getFiles();
-    while (it.hasNext()) {
-      var file = it.next();
-      // Ensure legacy files (uploaded before sharing was set) are openable.
-      try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (se) {}
-      files.push({
-        id:       file.getId(),
-        name:     file.getName(),
-        mimeType: file.getMimeType(),
-        url:      file.getUrl(),
-        size:     file.getSize(),
-        updated:  file.getLastUpdated() ? file.getLastUpdated().toISOString() : ''
-      });
+    var keys = [];
+    [body.link, body.orderNo, body.billNo].forEach(function (k) {
+      k = (k == null ? '' : String(k)).trim();
+      // Skip blanks and too-short/generic keys that would over-match.
+      if (k && k.length >= 4 && keys.indexOf(k) === -1) keys.push(k);
+    });
+    if (!keys.length) return { success: true, files: [] };
+
+    var token = ScriptApp.getOAuthToken();
+    var seen = {}, out = [];
+    for (var i = 0; i < keys.length; i++) {
+      var esc = keys[i].replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      var q = "trashed = false and mimeType != 'application/vnd.google-apps.folder' and name contains '" + esc + "'";
+      var pageToken = '';
+      do {
+        var url = 'https://www.googleapis.com/drive/v3/files'
+          + '?q=' + encodeURIComponent(q)
+          + '&fields=' + encodeURIComponent('nextPageToken,files(id,name,mimeType,size,modifiedTime,webViewLink)')
+          + '&pageSize=100'
+          + '&corpora=drive&driveId=' + PR_ATTACH_DRIVE_ID
+          + '&includeItemsFromAllDrives=true&supportsAllDrives=true'
+          + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+        var resp = UrlFetchApp.fetch(url, {
+          method: 'get',
+          headers: { Authorization: 'Bearer ' + token },
+          muteHttpExceptions: true
+        });
+        if (resp.getResponseCode() !== 200) {
+          return { success: false, message: 'Drive search HTTP ' + resp.getResponseCode() + ': ' + String(resp.getContentText()).slice(0, 300) };
+        }
+        var data = JSON.parse(resp.getContentText());
+        (data.files || []).forEach(function (f) {
+          if (seen[f.id]) return;
+          seen[f.id] = true;
+          out.push({
+            id:       f.id,
+            name:     f.name,
+            mimeType: f.mimeType,
+            url:      f.webViewLink || ('https://drive.google.com/file/d/' + f.id + '/view'),
+            size:     f.size || 0,
+            updated:  f.modifiedTime || '',
+            matchedOn: keys[i]
+          });
+        });
+        pageToken = data.nextPageToken || '';
+      } while (pageToken);
     }
-    files.sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
-    return { success: true, files: files, folderId: folder.getId(), folderUrl: folder.getUrl() };
+    out.sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
+    return { success: true, files: out, keys: keys };
   } catch (e) {
     return { success: false, message: e.message };
   }

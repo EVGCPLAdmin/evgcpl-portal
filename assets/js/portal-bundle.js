@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.58';
-const PORTAL_BUILD    = 431;
-const PORTAL_BUILD_AT = '2026-06-10T14:13:57Z';
+const PORTAL_VERSION  = '3.18.59';
+const PORTAL_BUILD    = 432;
+const PORTAL_BUILD_AT = '2026-06-10T14:30:03Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4853,6 +4853,7 @@ function _accMapRow(r) {
   const company   = r['Company'] || '';
   return {
     uuid:        r['UUID'] || '',
+    link:        r['Link'] || '',
     manualAuto:  r['Manual / Auto'] || '',
     installment: r['Installment'] || '',
     requestId:   r['Request ID'] || '',
@@ -6026,14 +6027,23 @@ function _accDrawPRDetail(dr, r) {
   `;
 }
 
-// Surface the PR's Drive documents (uploaded as attachments) as openable links.
+// Surface the PR's Drive documents as openable links. Attachments live in a
+// Shared Drive named by the request's Link code (and sometimes Bill/Order No),
+// so we search by those keys rather than a per-PR folder.
 async function _accDrawPRAttachments(r) {
   const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
   const el = () => document.getElementById('acc-detail-docs');
   if (!el()) return;
+
+  const keys = [r.link, r.orderNo, r.billNo].map(k => String(k || '').trim()).filter(k => k.length >= 4);
+  if (!keys.length) {
+    el().innerHTML = '<div style="padding:.7rem;color:var(--txt3);font-size:.78rem">No Link / Bill No / Order No on this request to search documents by.</div>';
+    return;
+  }
+
   let resp;
   try {
-    resp = await _accPostAwait({ action: 'listPRAttachments', requestId: r.requestId || '', uuid: r.uuid || '' });
+    resp = await _accPostAwait({ action: 'listPRAttachments', link: r.link || '', orderNo: r.orderNo || '', billNo: r.billNo || '' });
   } catch (e) {
     resp = { success: false, message: e.message };
   }
@@ -6041,7 +6051,9 @@ async function _accDrawPRAttachments(r) {
   if (!resp || resp.success === false) {
     const msg = (resp && resp.message) || 'unknown error';
     if (/unknown (post )?action/i.test(msg)) {
-      el().innerHTML = '<div style="padding:.7rem;color:var(--txt3);font-size:.76rem">Document listing needs an Apps Script redeploy (adds the "listPRAttachments" action).</div>';
+      el().innerHTML = '<div style="padding:.7rem;color:var(--txt3);font-size:.76rem">Document search needs an Apps Script redeploy (adds the "listPRAttachments" action).</div>';
+    } else if (/failed to fetch|could not reach/i.test(msg)) {
+      el().innerHTML = '<div style="padding:.7rem;color:var(--danger);font-size:.76rem">&#9888; Backend unreachable. Check the Accounts Apps Script is deployed with access set to <b>Anyone</b>.</div>';
     } else {
       el().innerHTML = `<div style="padding:.7rem;color:var(--danger);font-size:.76rem">&#9888; Could not load documents: ${esc(msg)}</div>`;
     }
@@ -6049,10 +6061,7 @@ async function _accDrawPRAttachments(r) {
   }
   const files = resp.files || [];
   if (!files.length) {
-    const folderLink = resp.folderUrl
-      ? ` &middot; <a href="${esc(resp.folderUrl)}" target="_blank" rel="noopener" style="color:var(--g7)">open folder</a>`
-      : '';
-    el().innerHTML = `<div style="padding:.7rem;color:var(--txt3);font-size:.78rem">No documents attached to this request.${folderLink}</div>`;
+    el().innerHTML = `<div style="padding:.7rem;color:var(--txt3);font-size:.78rem">No documents found for this request.<br><span style="font-size:.7rem">Searched by: ${keys.map(k => esc(k)).join(', ')}</span></div>`;
     return;
   }
   const iconFor = (mime, name) => {
@@ -6076,6 +6085,7 @@ async function _accDrawPRAttachments(r) {
          style="display:flex;align-items:center;gap:.6rem;padding:.5rem .7rem;border:1px solid var(--border);border-radius:9px;background:var(--surface1);text-decoration:none;color:var(--txt1)">
         <span style="font-size:1.1rem">${iconFor(f.mimeType, f.name)}</span>
         <span style="flex:1;min-width:0;font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}</span>
+        ${f.matchedOn ? `<span style="font-size:.62rem;color:var(--txt3);background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1px 6px;white-space:nowrap" title="Matched on">${esc(f.matchedOn)}</span>` : ''}
         <span style="font-size:.68rem;color:var(--txt3);white-space:nowrap">${fmtSize(f.size)}</span>
         <span style="font-size:.72rem;color:var(--g7);font-weight:700;white-space:nowrap">Open &#8599;</span>
       </a>`).join('')}
