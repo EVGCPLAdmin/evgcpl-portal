@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.49';
-const PORTAL_BUILD    = 422;
-const PORTAL_BUILD_AT = '2026-06-10T12:41:34Z';
+const PORTAL_VERSION  = '3.18.50';
+const PORTAL_BUILD    = 423;
+const PORTAL_BUILD_AT = '2026-06-10T12:44:00Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2441,6 +2441,9 @@ let _mdpRows    = null;
 let _mdpCompany = '';
 let _mdpSel     = {};          // uuid -> true : bulk selection in the MD queue
 let _mdpTab     = 'queue';     // 'queue' | 'ledger'
+let _mdpFType   = '';          // queue filter: Payment To type
+let _mdpFSite   = '';          // queue filter: site
+let _mdpFSearch = '';          // queue filter: free-text search
 let _plType     = 'Vendor';    // party-ledger party type
 let _plParty    = '';          // selected party key "type|name|acc"
 
@@ -2549,6 +2552,17 @@ function _mdpSetTab(t) {
   _mdpRender();
 }
 function _mdpSetType(t) { _plType = t; _plParty = ''; _mdpRender(); }
+function _mdpSetFType(v) { _mdpFType = v; _mdpRender(); }
+function _mdpSetFSite(v) { _mdpFSite = v; _mdpRender(); }
+function _mdpSetSearch(v) {
+  clearTimeout(window._mdpSearchT);
+  window._mdpSearchT = setTimeout(() => {
+    _mdpFSearch = String(v || '').trim();
+    _mdpRender();
+    const el = document.getElementById('mdp-f-search');
+    if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) {} }
+  }, 250);
+}
 function _mdpSetParty(k) { _plParty = k; _mdpRender(); }
 function _mdpRefresh() {
   const c = document.getElementById('mdp-content');
@@ -2676,20 +2690,51 @@ function _mdpRender() {
   if (content) content.innerHTML = (_mdpTab === 'ledger') ? _mdpLedgerHtml() : _mdpQueueHtml();
 }
 
-function _mdpQueueHtml() {
-  const shelf = _txnShelfHtml('md');
+// MD queue rows after company + filter-bar filters (selection, bulk ops and
+// the queue list must all see the same set).
+function _mdpQueueRows() {
   let q = (_mdpRows || []).filter(r => _accIsMDQueue(r) && !_txnHas(r.uuid));
   if (_mdpCompany) q = q.filter(r => r.company === _mdpCompany);
+  if (_mdpFType)   q = q.filter(r => r.payTo === _mdpFType);
+  if (_mdpFSite)   q = q.filter(r => r.site === _mdpFSite);
+  if (_mdpFSearch) {
+    const t = _mdpFSearch.toLowerCase();
+    q = q.filter(r => [r.requestId, r.paidTo, r.vendor, r.payTo, r.orderNo, r.billNo, r.narrative, r.initiator, r.site]
+      .join(' ').toLowerCase().includes(t));
+  }
+  return q;
+}
+
+function _mdpQueueHtml() {
+  const shelf = _txnShelfHtml('md');
+  const base = (_mdpRows || []).filter(r => _accIsMDQueue(r) && !_txnHas(r.uuid));
+  const types = [...new Set(base.map(r => r.payTo).filter(Boolean))].sort();
+  const sites = [...new Set(base.map(r => r.site).filter(Boolean))].sort();
+  const q = _mdpQueueRows();
   q.sort((a, b) => (_accPrNum(b) - _accPrNum(a)) || (_mdpDateVal(b.date) - _mdpDateVal(a.date))); // largest PR first
   const total = q.reduce((s, r) => s + r.amount, 0);
-  const kpi = `
-    <div class="kpi-grid" style="margin-bottom:1rem">
-      <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⚖</div><div class="kpi-trend flat">Awaiting you</div></div><div class="kpi-value">${q.length}</div><div class="kpi-label">Pending Approvals</div></div>
-      <div class="kpi-card info"><div class="kpi-top"><div class="kpi-icon blue">💰</div><div class="kpi-trend flat">${_mdpEsc(_mdpCompany) || 'All companies'}</div></div><div class="kpi-value" style="font-size:1.3rem">₹${Math.round(total).toLocaleString('en-IN')}</div><div class="kpi-label">Total Value</div></div>
+  const selStyle = 'font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface)';
+  const filterBar = `
+    <div class="card" style="margin-bottom:.8rem">
+      <div style="display:flex;align-items:center;gap:.6rem;padding:.55rem .85rem;flex-wrap:wrap">
+        <input id="mdp-f-search" type="search" placeholder="🔍 Search PR, payee, PO, narrative…" value="${_mdpEsc(_mdpFSearch)}"
+          oninput="_mdpSetSearch(this.value)" style="${selStyle};flex:1;min-width:180px">
+        <select onchange="_mdpSetFType(this.value)" style="${selStyle}">
+          <option value="">All Types</option>
+          ${types.map(t => `<option value="${_mdpEsc(t)}" ${t === _mdpFType ? 'selected' : ''}>${_mdpEsc(t)}</option>`).join('')}
+        </select>
+        <select onchange="_mdpSetFSite(this.value)" style="${selStyle};max-width:200px">
+          <option value="">All Sites</option>
+          ${sites.map(s => `<option value="${_mdpEsc(s)}" ${s === _mdpFSite ? 'selected' : ''}>${_mdpEsc(s)}</option>`).join('')}
+        </select>
+        <span style="margin-left:auto;font-size:.76rem;color:var(--txt3);white-space:nowrap">
+          <b style="color:var(--g8)">${q.length}</b> pending &middot; <b style="color:var(--g8)">₹${Math.round(total).toLocaleString('en-IN')}</b>
+        </span>
+      </div>
     </div>`;
   if (!q.length) {
     _mdpSel = {};
-    return shelf + kpi + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">✅ Nothing awaiting your approval${_mdpCompany ? ` for ${_mdpEsc(_mdpCompany)}` : ''}.</div>`;
+    return shelf + filterBar + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">✅ Nothing awaiting your approval${_mdpCompany ? ` for ${_mdpEsc(_mdpCompany)}` : ''}${(_mdpFType || _mdpFSite || _mdpFSearch) ? ' matching the current filters' : ''}.</div>`;
   }
   // Prune selection to what's currently visible.
   const visible = new Set(q.map(r => r.uuid));
@@ -2710,13 +2755,12 @@ function _mdpQueueHtml() {
         </div>
       </div>
     </div>`;
-  return shelf + kpi + bulkBar + q.map(_mdpQueueCard).join('');
+  return shelf + filterBar + bulkBar + q.map(_mdpQueueCard).join('');
 }
 
 function _mdpToggleSel(uuid, on) { if (on) _mdpSel[uuid] = true; else delete _mdpSel[uuid]; _mdpRender(); }
 function _mdpSelAll(on) {
-  let q = (_mdpRows || []).filter(r => _accIsMDQueue(r) && !_txnHas(r.uuid));
-  if (_mdpCompany) q = q.filter(r => r.company === _mdpCompany);
+  const q = _mdpQueueRows();
   _mdpSel = {};
   if (on) q.forEach(r => { _mdpSel[r.uuid] = true; });
   _mdpRender();
