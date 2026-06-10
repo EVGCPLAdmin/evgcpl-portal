@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.43';
-const PORTAL_BUILD    = 416;
-const PORTAL_BUILD_AT = '2026-06-10T11:55:44Z';
+const PORTAL_VERSION  = '3.18.44';
+const PORTAL_BUILD    = 417;
+const PORTAL_BUILD_AT = '2026-06-10T12:04:55Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2556,6 +2556,113 @@ function _mdpRefresh() {
 }
 function _mdpReload() { _mdpLoad(true).then(() => _mdpRender()); }
 
+// ══════════════════════════════════════════════════════════════
+//  IN-TRANSACTION SHELF  (optimistic queue clearing)
+//  A queue's membership is derived from each PR's status label, which a
+//  Sheet formula recomputes only AFTER we post an AccountsUpdate row.
+//  That recompute + re-fetch lag can leave an actioned item lingering —
+//  or briefly bouncing back — in the queue. To avoid that we park the
+//  actioned UUID locally ("In Transaction"), hide it from its source
+//  queue, and auto-poll until the sheet reflects the change. State lives
+//  in localStorage so a refresh during the lag window doesn't undo it.
+// ══════════════════════════════════════════════════════════════
+const _TXN_KEY     = 'evgcpl_txn_pending_v1';
+const _TXN_TTL     = 6 * 60 * 1000;   // stop parking after 6 min (safety valve)
+const _TXN_SLOW    = 90 * 1000;       // after 90s, surface a manual re-check
+const _TXN_POLL_MS = 12000;           // re-fetch cadence while items are in transit
+let _txnTimer = null;
+
+function _txnMap() {
+  let m; try { m = JSON.parse(localStorage.getItem(_TXN_KEY) || '{}'); } catch (e) { m = {}; }
+  const now = Date.now(); let changed = false;
+  for (const k in m) { if (!m[k] || now - m[k].ts > _TXN_TTL) { delete m[k]; changed = true; } }
+  if (changed) _txnWrite(m);
+  return m;
+}
+function _txnWrite(m) { try { localStorage.setItem(_TXN_KEY, JSON.stringify(m)); } catch (e) {} }
+function _txnHas(uuid) { return !!_txnMap()[uuid]; }
+function _txnList(kind) {
+  const m = _txnMap();
+  return Object.keys(m).map(k => m[k]).filter(e => !kind || e.kind === kind).sort((a, b) => b.ts - a.ts);
+}
+function _txnDrop(uuid) { const m = _txnMap(); if (m[uuid]) { delete m[uuid]; _txnWrite(m); } }
+
+// Park an actioned PR. `r` = parsed row (md or acc), `targetStatus` = the
+// status string just posted, `action` = a short human label, `kind` = which
+// shelf it belongs to ('md' | 'acc').
+function _txnParkRow(r, targetStatus, action, kind) {
+  if (!r || !r.uuid) return;
+  const fromLabel = (r.status && r.status.label) || '';
+  let toLabel = ''; try { toLabel = getPayStatus(targetStatus).label; } catch (e) {}
+  const m = _txnMap();
+  m[r.uuid] = {
+    uuid: r.uuid, kind: kind || 'acc', action: action || '', ts: Date.now(),
+    fromLabel, toLabel,
+    requestId: r.requestId || '',
+    payee: (typeof _mdpStrip === 'function' ? _mdpStrip(r.paidTo) : r.paidTo) || r.vendor || r.payTo || '',
+    amount: r.amount || 0, currency: r.currency || 'INR',
+  };
+  _txnWrite(m);
+  _txnEnsurePoll();
+}
+
+// Reconcile against freshly fetched rows: drop any parked item whose status
+// label has moved off what it was when parked (i.e. the sheet caught up).
+function _txnReconcile(rows) {
+  const m = _txnMap(); let changed = false;
+  (rows || []).forEach(r => {
+    const e = m[r.uuid];
+    if (e && r.status && r.status.label && r.status.label !== e.fromLabel) { delete m[r.uuid]; changed = true; }
+  });
+  if (changed) _txnWrite(m);
+  return changed;
+}
+
+function _txnEnsurePoll() { if (!_txnTimer && _txnList().length) _txnTimer = setInterval(_txnPollTick, _TXN_POLL_MS); }
+function _txnStopPoll()   { if (_txnTimer) { clearInterval(_txnTimer); _txnTimer = null; } }
+
+async function _txnPollTick() {
+  if (!_txnList().length) { _txnStopPoll(); return; }
+  try {
+    await _mdpLoad(true);
+    _txnReconcile(_mdpRows || []);
+    if (_txnList().length) { await _accReloadRows(); _txnReconcile(window._accAllRows || []); }
+  } catch (e) {}
+  _txnRerender();
+  if (!_txnList().length) _txnStopPoll();
+}
+
+// Re-render whichever queue view is currently on screen.
+function _txnRerender() {
+  if (document.getElementById('mdp-content') && typeof _mdpRender === 'function') _mdpRender();
+  if (document.getElementById('accTbody') && typeof accRender === 'function') accRender();
+}
+function _txnRecheck() { _txnPollTick(); }
+function _txnReturn(uuid) { _txnDrop(uuid); _txnRerender(); }
+
+// Reusable shelf card listing the items of a kind that are syncing.
+function _txnShelfHtml(kind) {
+  const items = _txnList(kind);
+  if (!items.length) return '';
+  const esc = _mdpEsc;
+  const rows = items.map(e => {
+    const slow = (Date.now() - e.ts) > _TXN_SLOW;
+    return `<div style="display:flex;align-items:center;gap:.7rem;padding:.55rem .85rem;border-top:1px solid var(--border)">
+      <span style="font-size:1rem">⏳</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.payee || e.requestId || e.uuid)}</div>
+        <div style="font-size:.7rem;color:var(--txt3)">${esc(e.requestId)}${e.action ? ' · ' + esc(e.action) : ''} · ${_mdpAmt(e.amount, e.currency)}</div>
+      </div>
+      <span style="font-size:.68rem;color:${slow ? '#b45309' : 'var(--txt3)'};white-space:nowrap">${slow ? 'Taking longer…' : 'Syncing…'}</span>
+      ${slow ? `<button onclick="_txnRecheck()" class="btn btn-secondary btn-sm">Re-check</button><button onclick="_txnReturn('${e.uuid}')" class="btn btn-secondary btn-sm">Return</button>` : ''}
+    </div>`;
+  }).join('');
+  return `<div class="card" style="margin-bottom:1rem;border-left:4px solid #f59e0b;overflow:hidden">
+    <div style="padding:.55rem .85rem;font-size:.74rem;font-weight:700;color:#b45309;background:#fffbeb">⏳ In Transaction — ${items.length} syncing to Sheets</div>
+    ${rows}
+  </div>`;
+}
+
 function _mdpRender() {
   const sel = document.getElementById('mdp-company');
   if (sel && !sel.dataset.filled) {
@@ -2569,7 +2676,8 @@ function _mdpRender() {
 }
 
 function _mdpQueueHtml() {
-  let q = (_mdpRows || []).filter(r => _accIsMDQueue(r));
+  const shelf = _txnShelfHtml('md');
+  let q = (_mdpRows || []).filter(r => _accIsMDQueue(r) && !_txnHas(r.uuid));
   if (_mdpCompany) q = q.filter(r => r.company === _mdpCompany);
   q.sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date)); // newest first
   const total = q.reduce((s, r) => s + r.amount, 0);
@@ -2579,9 +2687,9 @@ function _mdpQueueHtml() {
       <div class="kpi-card info"><div class="kpi-top"><div class="kpi-icon blue">💰</div><div class="kpi-trend flat">${_mdpEsc(_mdpCompany) || 'All companies'}</div></div><div class="kpi-value" style="font-size:1.3rem">₹${Math.round(total).toLocaleString('en-IN')}</div><div class="kpi-label">Total Value</div></div>
     </div>`;
   if (!q.length) {
-    return kpi + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">✅ Nothing awaiting your approval${_mdpCompany ? ` for ${_mdpEsc(_mdpCompany)}` : ''}.</div>`;
+    return shelf + kpi + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">✅ Nothing awaiting your approval${_mdpCompany ? ` for ${_mdpEsc(_mdpCompany)}` : ''}.</div>`;
   }
-  return kpi + q.map(_mdpQueueCard).join('');
+  return shelf + kpi + q.map(_mdpQueueCard).join('');
 }
 
 function _mdpQueueCard(r) {
@@ -2644,13 +2752,21 @@ function _mdpHistory(r) {
 
 async function _mdpApprove(uuid) {
   if (!confirm('Approve this payment request and move it to Accounts for processing?')) return;
-  if (await _accQuickStatus(uuid, 'Process Payment, Move to Accounts', '')) { _accToast('✅ Approved — moved to Accounts'); _mdpReload(); }
+  const status = 'Process Payment, Move to Accounts';
+  if (await _accQuickStatus(uuid, status, '')) {
+    _txnParkRow((_mdpRows || []).find(r => r.uuid === uuid), status, 'Approved', 'md');
+    _accToast('✅ Approved — moving to Accounts'); _mdpRender();
+  }
 }
 async function _mdpReject(uuid) {
   const reason = prompt('Reason for rejection (required):', '');
   if (reason === null) return;
   if (!reason.trim()) { alert('A reason is required to reject.'); return; }
-  if (await _accQuickStatus(uuid, 'Reject Payment (MD)', reason.trim())) { _accToast('Request rejected'); _mdpReload(); }
+  const status = 'Reject Payment (MD)';
+  if (await _accQuickStatus(uuid, status, reason.trim())) {
+    _txnParkRow((_mdpRows || []).find(r => r.uuid === uuid), status, 'Rejected', 'md');
+    _accToast('Request rejected'); _mdpRender();
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -4587,6 +4703,74 @@ function getPayStatus(raw) {
   return ACCOUNTS_STATUS[key] || { cat:'other', icon:'&#9711;', label: raw, color:'#6b7280', bg:'#f9fafb' };
 }
 
+// Strip an EGxxx| code prefix: "EG1415|RABIN RAJESH" → "RABIN RAJESH".
+function _accStripCode(s) { return s ? String(s).replace(/^[A-Z]+\d+\|/i, '').trim() : ''; }
+// Normalise a currency label: "Indian Rupee" → "INR"; keep short codes as-is.
+function _accNormCurrency(s) {
+  const m = { 'indian rupee':'INR','us dollar':'USD','usd':'USD','euro':'EUR','gbp':'GBP','aed':'AED','omr':'OMR','qar':'QAR' };
+  return m[(s||'').toLowerCase().trim()] || (s||'INR').toUpperCase().trim().slice(0,5) || 'INR';
+}
+// Map one PaymentRequest row → the Accounts row shape. Read strictly by
+// header name so it is resilient to column-order changes.
+function _accMapRow(r) {
+  const raw    = r['Status'] || '';
+  const acStat = r['Accounts Status'] || '';
+  const st     = getPayStatus(raw || acStat);
+  const curr   = _accNormCurrency(r['Currency'] || '');
+  const amt    = parseFloat(String(r['Amount'] || '0').replace(/[^0-9.]/g,'')) || 0;
+  const initiator = _accStripCode(r['Name of the Intiator'] || '');
+  const company   = r['Company'] || '';
+  return {
+    uuid:        r['UUID'] || '',
+    manualAuto:  r['Manual / Auto'] || '',
+    installment: r['Installment'] || '',
+    requestId:   r['Request ID'] || '',
+    date:        r['Date Of Request'] || '',
+    initiator,
+    nature:      r['NATURE OF EXPENSES'] || '',
+    accCode:     r['ACCOUNT CODE DESCRIPTIONS'] || '',
+    payTo:       r['Payment To'] || '',
+    costCode:    r['CostCode'] || '',
+    dept:        r['Department'] || '',
+    process:     r['From Which Process'] || '',
+    paidTo:      r['Paid To'] || '',
+    site:        r['Site Name'] || '',
+    company,
+    entity:      company,
+    orderNo:     r['Order No'] || '',
+    billNo:      r['Bill No'] || '',
+    poValue:     parseFloat(String(r['PO Value']      || '0').replace(/[^0-9.]/g,'')) || 0,
+    invoiceVal:  parseFloat(String(r['Invoice Value'] || '0').replace(/[^0-9.]/g,'')) || 0,
+    paidVal:     parseFloat(String(r['Paid Value']    || '0').replace(/[^0-9.]/g,'')) || 0,
+    pendingVal:  parseFloat(String(r['Pending Value'] || '0').replace(/[^0-9.]/g,'')) || 0,
+    currency:    curr,
+    amount:      amt,
+    narrative:   r['Narrative/Comments'] || '',
+    acHolder:    r['A/C HOLDER NAME'] || '',
+    acNumber:    r['A/C NUMBER'] || '',
+    ifsc:        r['IFSC CODE'] || '',
+    bank:        r['BANK NAME'] || '',
+    accStatus:   acStat,
+    accDate:     r['Accounts Date'] || '',
+    utr:         r['UTR Details'] || '',
+    remarks:     r['Remarks'] || '',
+    monthYear:   r['Month-Year'] || '',
+    rawStatus:   raw || acStat,
+    status:      st,
+    _s: [r['UUID'],r['Request ID'],r['Date Of Request'],initiator,r['Payment To'],
+         r['NATURE OF EXPENSES'],r['Department'],r['From Which Process'],r['Site Name'],
+         company,r['Order No'],r['Bill No'],curr,String(amt),r['Narrative/Comments'],
+         r['Accounts Date'],r['UTR Details'],r['Remarks'],raw,acStat
+        ].join('|').toLowerCase(),
+  };
+}
+// Re-fetch the PaymentRequest tab and rebuild window._accAllRows.
+async function _accReloadRows() {
+  const raw = await fetchSheet('PaymentRequest', null, PAYMENT_SHEET_ID);
+  window._accAllRows = (raw || []).filter(r => (r['Payment To'] || '').trim()).map(_accMapRow);
+  return window._accAllRows;
+}
+
 function renderAccountsModule() {
   const el = document.getElementById('mainContent');
   el.innerHTML = `
@@ -4698,6 +4882,9 @@ function renderAccountsModule() {
       </div>
     </div>
 
+    <!-- In-Transaction shelf — items just actioned, syncing to Sheets -->
+    <div id="accTxnShelf"></div>
+
     <!-- Table card — scroll inside, sticky header -->
     <div class="card">
       <div style="overflow-x:auto;overflow-y:auto;max-height:72vh;border-radius:0 0 var(--rad) var(--rad)" id="accTableWrap">
@@ -4741,79 +4928,9 @@ function renderAccountsModule() {
   window._accSortCol      = 'date';
   window._accSortDir      = -1;
 
-  // Helper: strip EGxxx| prefix from names like "EG1415|RABIN RAJESH" → "RABIN RAJESH"
-  const stripCode = s => s ? String(s).replace(/^[A-Z]+\d+\|/i, '').trim() : '';
-  // Helper: convert "Indian Rupee" → "INR", keep short codes as-is
-  const normCurrency = s => {
-    const m = { 'indian rupee':'INR','us dollar':'USD','usd':'USD','euro':'EUR','gbp':'GBP','aed':'AED','omr':'OMR','qar':'QAR' };
-    return m[(s||'').toLowerCase().trim()] || (s||'INR').toUpperCase().trim().slice(0,5) || 'INR';
-  };
-
-  // ── Fetch: use explicit column letters — we know exact schema ─────
-  // A=UUID B=Link C=Manual/Auto D=Installment E=Request ID F=Date Of Request
-  // G=Initiator H=Payment To I=Department J=From Which Process K=Emp/Vendor Code
-  // L=Site Name M=For EG/EVGCPL N=Order No O=Bill No P=Payment Terms
-  // Q=PO Value R=Invoice Value S=Paid Value T=Pending Value U=Tax Amount
-  // V=Currency W=Amount X=Narrative/Comments
-  // AC=Accounts Status AD=Accounts Date AE=UTR Details AF=Remarks AG=Status
-  fetchSheet('PaymentRequest', null, PAYMENT_SHEET_ID
-  ).then(rawRows => {
-    window._accAllRows = rawRows
-      .filter(r => (r['Payment To'] || '').trim())
-      .map(r => {
-        // Read strictly by header name — resilient to column-order changes
-        // (the sheet now carries the Paid To (Employee/Vendor/SC/Others) columns).
-        const raw    = r['Status'] || '';
-        const acStat = r['Accounts Status'] || '';
-        const st     = getPayStatus(raw || acStat);
-        const curr   = normCurrency(r['Currency'] || '');
-        const amt    = parseFloat(String(r['Amount'] || '0').replace(/[^0-9.]/g,'')) || 0;
-        const initiator = stripCode(r['Name of the Intiator'] || '');
-        const company   = r['Company'] || '';
-        return {
-          uuid:        r['UUID'] || '',
-          manualAuto:  r['Manual / Auto'] || '',
-          installment: r['Installment'] || '',
-          requestId:   r['Request ID'] || '',
-          date:        r['Date Of Request'] || '',
-          initiator,
-          nature:      r['NATURE OF EXPENSES'] || '',
-          accCode:     r['ACCOUNT CODE DESCRIPTIONS'] || '',
-          payTo:       r['Payment To'] || '',
-          costCode:    r['CostCode'] || '',
-          dept:        r['Department'] || '',
-          process:     r['From Which Process'] || '',
-          paidTo:      r['Paid To'] || '',
-          site:        r['Site Name'] || '',
-          company,
-          entity:      company,
-          orderNo:     r['Order No'] || '',
-          billNo:      r['Bill No'] || '',
-          poValue:     parseFloat(String(r['PO Value']      || '0').replace(/[^0-9.]/g,'')) || 0,
-          invoiceVal:  parseFloat(String(r['Invoice Value'] || '0').replace(/[^0-9.]/g,'')) || 0,
-          paidVal:     parseFloat(String(r['Paid Value']    || '0').replace(/[^0-9.]/g,'')) || 0,
-          pendingVal:  parseFloat(String(r['Pending Value'] || '0').replace(/[^0-9.]/g,'')) || 0,
-          currency:    curr,
-          amount:      amt,
-          narrative:   r['Narrative/Comments'] || '',
-          acHolder:    r['A/C HOLDER NAME'] || '',
-          acNumber:    r['A/C NUMBER'] || '',
-          ifsc:        r['IFSC CODE'] || '',
-          bank:        r['BANK NAME'] || '',
-          accStatus:   acStat,
-          accDate:     r['Accounts Date'] || '',
-          utr:         r['UTR Details'] || '',
-          remarks:     r['Remarks'] || '',
-          monthYear:   r['Month-Year'] || '',
-          rawStatus:   raw || acStat,
-          status:      st,
-          _s: [r['UUID'],r['Request ID'],r['Date Of Request'],initiator,r['Payment To'],
-               r['NATURE OF EXPENSES'],r['Department'],r['From Which Process'],r['Site Name'],
-               company,r['Order No'],r['Bill No'],curr,String(amt),r['Narrative/Comments'],
-               r['Accounts Date'],r['UTR Details'],r['Remarks'],raw,acStat
-              ].join('|').toLowerCase(),
-        };
-      });
+  // Fetch + map is factored into _accReloadRows() / _accMapRow() so the
+  // In-Transaction auto-poll can refresh _accAllRows without a full re-render.
+  _accReloadRows().then(() => {
 
     // ── KPI cards ────────────────────────────────────────
     ['pending','progress','rejected','completed'].forEach(cat => {
@@ -4960,7 +5077,9 @@ function renderAccountsModule() {
     const scol  = window._accSortCol||'date';
     const sdir  = window._accSortDir||-1;
 
-    let rows = (window._accAllRows||[]).filter(r=>cat==='md-queue'?_accIsMDQueue(r):(cat==='all'?r.status.cat!=='other':r.status.cat===cat));
+    const shelfEl=document.getElementById('accTxnShelf');
+    if (shelfEl) shelfEl.innerHTML=_txnShelfHtml('acc');
+    let rows = (window._accAllRows||[]).filter(r=>(cat==='md-queue'?_accIsMDQueue(r):(cat==='all'?r.status.cat!=='other':r.status.cat===cat)) && !_txnHas(r.uuid));
     if (sf)   rows=rows.filter(r=>r.site===sf);
     if (ef)   rows=rows.filter(r=>r.entity===ef);
     if (pf)   rows=rows.filter(r=>r.process===pf);
@@ -5840,6 +5959,10 @@ async function _accUpdateFormSubmit(prUuid) {
   }
 
   _accToast('✅ Status update posted');
+  // Park it in the In-Transaction shelf so it leaves the queue immediately;
+  // the auto-poll clears it once the sheet's derived status catches up.
+  _txnParkRow((window._accAllRows || []).find(r => r.uuid === prUuid), status, 'Updated', 'acc');
+  if (typeof accRender === 'function' && document.getElementById('accTbody')) accRender();
   const box = document.getElementById('acc-detail-updateform');
   if (box) { box.innerHTML = ''; box.dataset.open = '0'; }
   // Refresh the timeline so the new entry shows immediately. The list's
@@ -5901,9 +6024,11 @@ async function _accQuickStatus(uuid, status, comments) {
 
 async function _accQuickApprove(uuid) {
   if (!confirm('Approve this payment request and move it to Accounts for processing?')) return;
-  if (await _accQuickStatus(uuid, 'Process Payment, Move to Accounts', '')) {
-    _accToast('✅ Approved — moved to Accounts');
-    renderAccountsModule();
+  const status = 'Process Payment, Move to Accounts';
+  if (await _accQuickStatus(uuid, status, '')) {
+    _txnParkRow((window._accAllRows || []).find(r => r.uuid === uuid), status, 'Approved', 'acc');
+    _accToast('✅ Approved — moving to Accounts');
+    if (typeof accRender === 'function') accRender();
   }
 }
 
@@ -5911,9 +6036,11 @@ async function _accQuickReject(uuid) {
   const reason = prompt('Reason for rejection (required):', '');
   if (reason === null) return;
   if (!reason.trim()) { alert('A reason is required to reject.'); return; }
-  if (await _accQuickStatus(uuid, 'Reject Payment (MD)', reason.trim())) {
+  const status = 'Reject Payment (MD)';
+  if (await _accQuickStatus(uuid, status, reason.trim())) {
+    _txnParkRow((window._accAllRows || []).find(r => r.uuid === uuid), status, 'Rejected', 'acc');
     _accToast('Request rejected');
-    renderAccountsModule();
+    if (typeof accRender === 'function') accRender();
   }
 }
 
