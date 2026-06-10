@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.41';
-const PORTAL_BUILD    = 414;
-const PORTAL_BUILD_AT = '2026-06-10T10:37:18Z';
+const PORTAL_VERSION  = '3.18.42';
+const PORTAL_BUILD    = 415;
+const PORTAL_BUILD_AT = '2026-06-10T11:36:59Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2439,6 +2439,9 @@ function renderDashboard() {
 // ══════════════════════════════════════════════════════════════
 let _mdpRows    = null;
 let _mdpCompany = '';
+let _mdpTab     = 'queue';     // 'queue' | 'ledger'
+let _plType     = 'Vendor';    // party-ledger party type
+let _plParty    = '';          // selected party key "type|name|acc"
 
 const _mdpEsc = (s) => (typeof escapeHtml_ === 'function') ? escapeHtml_(s) : String(s == null ? '' : s);
 const _mdpNum = (v) => parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0;
@@ -2522,6 +2525,10 @@ function renderMDPayments() {
           <button class="btn btn-secondary btn-sm" onclick="_mdpRefresh()">↻ Refresh</button>
         </div>
       </div>
+      <div style="display:flex;gap:.5rem;margin-top:.8rem">
+        <button id="mdp-tab-queue" onclick="_mdpSetTab('queue')" class="btn btn-sm ${_mdpTab==='queue'?'btn-primary':'btn-secondary'}">⏳ Pending Approvals</button>
+        <button id="mdp-tab-ledger" onclick="_mdpSetTab('ledger')" class="btn btn-sm ${_mdpTab==='ledger'?'btn-primary':'btn-secondary'}">📑 Party Ledger</button>
+      </div>
     </div>
     <div id="mdp-content"><div style="padding:2.5rem;text-align:center;color:var(--txt3)">⏳ Loading payment requests…</div></div>
   `;
@@ -2532,6 +2539,16 @@ function renderMDPayments() {
 }
 
 function _mdpSetCompany(v) { _mdpCompany = v; _mdpRender(); }
+function _mdpSetTab(t) {
+  _mdpTab = t;
+  ['queue', 'ledger'].forEach(k => {
+    const b = document.getElementById('mdp-tab-' + k);
+    if (b) b.className = 'btn btn-sm ' + (k === t ? 'btn-primary' : 'btn-secondary');
+  });
+  _mdpRender();
+}
+function _mdpSetType(t) { _plType = t; _plParty = ''; _mdpRender(); }
+function _mdpSetParty(k) { _plParty = k; _mdpRender(); }
 function _mdpRefresh() {
   const c = document.getElementById('mdp-content');
   if (c) c.innerHTML = '<div style="padding:2.5rem;text-align:center;color:var(--txt3)">⏳ Loading…</div>';
@@ -2548,7 +2565,7 @@ function _mdpRender() {
   }
   if (sel) sel.value = _mdpCompany;
   const content = document.getElementById('mdp-content');
-  if (content) content.innerHTML = _mdpQueueHtml();
+  if (content) content.innerHTML = (_mdpTab === 'ledger') ? _mdpLedgerHtml() : _mdpQueueHtml();
 }
 
 function _mdpQueueHtml() {
@@ -2634,6 +2651,108 @@ async function _mdpReject(uuid) {
   if (reason === null) return;
   if (!reason.trim()) { alert('A reason is required to reject.'); return; }
   if (await _accQuickStatus(uuid, 'Reject Payment (MD)', reason.trim())) { _accToast('Request rejected'); _mdpReload(); }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  REUSABLE PARTY LEDGER
+//  A party is uniquely identified by (Payment To type, Paid To name,
+//  A/C number) — works for Vendor / Sub Contractor / Employee / Others.
+//  partyLedgerRender(txRows, opts) is context-free: pass any parsed
+//  PaymentRequest-style rows and it renders KPIs + a running-balance
+//  table. Reuse it from any page that has such rows.
+// ══════════════════════════════════════════════════════════════
+const PARTY_TYPES = ['Vendor', 'Sub Contractor', 'Employee', 'Others'];
+
+function _plPartyKey(r) { return [r.payTo || '', r.paidTo || r.vendor || '', r.acNumber || ''].join('|'); }
+
+function _plParties(type, companyFilter) {
+  const map = new Map();
+  (_mdpRows || []).forEach(r => {
+    if (r.payTo !== type) return;
+    if (companyFilter && r.company !== companyFilter) return;
+    const name = r.paidTo || r.vendor;
+    if (!name) return;
+    const key = _plPartyKey(r);
+    if (!map.has(key)) map.set(key, { key, name, acc: r.acNumber || '', count: 0, total: 0 });
+    const p = map.get(key); p.count++; p.total += r.amount;
+  });
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Context-free ledger renderer: KPIs + running-balance table.
+// opts.onRowClick = name of a global fn called with the row uuid.
+function partyLedgerRender(txRows, opts) {
+  opts = opts || {};
+  const esc = _mdpEsc;
+  const rows = [...txRows].sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
+  if (!rows.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions found.</div>';
+  const totalAmt  = rows.reduce((s, r) => s + r.amount, 0);
+  const totalPaid = rows.filter(r => r.status.cat === 'completed').reduce((s, r) => s + r.amount, 0);
+  const totalPend = totalAmt - totalPaid;
+  const kpi = `<div class="kpi-grid" style="margin-bottom:1rem">
+    <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">💰</div></div><div class="kpi-value" style="font-size:1.25rem">₹${Math.round(totalAmt).toLocaleString('en-IN')}</div><div class="kpi-label">Total Billed</div></div>
+    <div class="kpi-card" style="border-left:4px solid #16a34a"><div class="kpi-top"><div class="kpi-icon green">✅</div></div><div class="kpi-value" style="font-size:1.25rem">₹${Math.round(totalPaid).toLocaleString('en-IN')}</div><div class="kpi-label">Paid</div></div>
+    <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⏳</div></div><div class="kpi-value" style="font-size:1.25rem">₹${Math.round(totalPend).toLocaleString('en-IN')}</div><div class="kpi-label">Pending</div></div>
+  </div>`;
+  let running = 0;
+  const body = rows.map(r => {
+    running += r.amount;
+    const s = r.status;
+    const click = opts.onRowClick ? ` style="cursor:pointer" onclick="${opts.onRowClick}('${r.uuid}')"` : '';
+    return `<tr${click}>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);white-space:nowrap">${esc(r.date)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:monospace;font-size:.72rem">${esc(r.requestId || r.uuid)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:center">${r.installment || '—'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(r.orderNo) || '—'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(r.billNo) || '—'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:600">${_mdpAmt(r.amount, r.currency)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;color:var(--txt2)">₹${Math.round(running).toLocaleString('en-IN')}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border)"><span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span></td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.7rem">${esc(r.utr) || '—'}</td>
+    </tr>`;
+  }).join('');
+  return kpi + `
+    <div class="card"><div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:.78rem">
+        <thead><tr style="background:var(--g9);color:#fff;text-align:left">
+          <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Request</th><th style="padding:8px 9px;text-align:center">Inst</th>
+          <th style="padding:8px 9px">PO / Order</th><th style="padding:8px 9px">Bill</th>
+          <th style="padding:8px 9px;text-align:right">Amount</th><th style="padding:8px 9px;text-align:right">Running</th><th style="padding:8px 9px">Status</th><th style="padding:8px 9px">UTR</th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div></div>`;
+}
+
+function _mdpLedgerHtml() {
+  const esc = _mdpEsc;
+  const typeBtns = PARTY_TYPES.map(t =>
+    `<button onclick="_mdpSetType('${t}')" class="btn btn-sm ${t === _plType ? 'btn-primary' : 'btn-secondary'}">${esc(t)}</button>`).join('');
+  const parties = _plParties(_plType, _mdpCompany);
+  const partyOpts = `<option value="">Select ${esc(_plType)}…</option>` +
+    parties.map(p => `<option value="${esc(p.key)}"${p.key === _plParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` · A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
+  const selector = `
+    <div class="card card-pad" style="margin-bottom:1rem">
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.7rem">${typeBtns}</div>
+      <div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
+        <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
+          <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">${esc(_plType.toUpperCase())}</label>
+          <select id="mdp-party" onchange="_mdpSetParty(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${partyOpts}</select>
+        </div>
+        <div style="font-size:.72rem;color:var(--txt3)">${parties.length} record(s)${_mdpCompany ? ` · ${esc(_mdpCompany)}` : ''}</div>
+      </div>
+    </div>`;
+  if (!_plParty) return selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">📑 Select a ${esc(_plType.toLowerCase())} to view their ledger.</div>`;
+
+  const parts = _plParty.split('|');
+  const type = parts[0], name = parts[1], acc = parts[2];
+  let tx = (_mdpRows || []).filter(r => _plPartyKey(r) === _plParty);
+  if (_mdpCompany) tx = tx.filter(r => r.company === _mdpCompany);
+  const head = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem">
+    <div><div style="font-weight:700;font-size:1rem">${esc(name)}</div><div style="font-size:.74rem;color:var(--txt3)">${esc(type)}${acc ? ` · A/C ${esc(acc)}` : ''}</div></div>
+    <span style="font-size:.72rem;color:var(--txt3)">${tx.length} transactions</span>
+  </div>`;
+  return selector + head + partyLedgerRender(tx, { onRowClick: '_accOpenPRDetail' });
 }
 
 function renderMDCommand() {
