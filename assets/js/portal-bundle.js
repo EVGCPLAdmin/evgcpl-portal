@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.21.0';
-const PORTAL_BUILD    = 461;
-const PORTAL_BUILD_AT = '2026-06-10T20:06:32Z';
+const PORTAL_VERSION  = '3.21.1';
+const PORTAL_BUILD    = 462;
+const PORTAL_BUILD_AT = '2026-06-10T20:16:06Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5804,7 +5804,7 @@ function renderAccountsModule() {
       const actionsCell=`<td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap;position:sticky;right:0;background:${i%2===0?'var(--surface1)':'#fafbfa'};box-shadow:-4px 0 6px -4px rgba(0,0,0,.12)">
         <div style="display:flex;gap:5px;justify-content:flex-end">
           ${canUpd?`<button onclick="event.stopPropagation();_accOpenPRDetail('${r.uuid}')" class="btn btn-secondary btn-sm" title="Update status" style="padding:2px 8px;font-size:.66rem">&#9998; Update</button>`:''}
-          ${canAdv?`<button onclick="event.stopPropagation();_accAdvance('${r.uuid}')" class="btn btn-sm" title="Approve &amp; move to ${stageDef.next.to}" style="background:#16a34a;color:#fff;border:none;padding:2px 9px;font-size:.66rem;font-weight:700">&#10003; ${stageDef.next.to} &rarr;</button>`:''}
+          ${canAdv?`<button onclick="event.stopPropagation();_accAdvance('${r.uuid}')" class="btn btn-sm" title="${stageDef.next.actionLabel||stageDef.next.to}" style="background:#16a34a;color:#fff;border:none;padding:2px 9px;font-size:.66rem;font-weight:700">&#10003; ${stageDef.next.actionLabel||stageDef.next.to} &rarr;</button>`:''}
           ${(!canUpd&&!canAdv)?'<span style="color:var(--txt3);font-size:.68rem">&#8212;</span>':''}
         </div>
       </td>`;
@@ -7331,9 +7331,9 @@ function _accRenderDetailActions(r) {
   const uuid = (r.uuid || '').replace(/'/g, "\\'");
   host.innerHTML = `
     <div style="display:flex;gap:.6rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
-      ${canAdv ? `<button onclick="_accAdvance('${uuid}')" class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;font-weight:700">&#10003; ${stageDef.next.to} &rarr;</button>` : ''}
+      ${canAdv ? `<button onclick="_accAdvance('${uuid}')" class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;font-weight:700">&#10003; ${stageDef.next.actionLabel||stageDef.next.to} &rarr;</button>` : ''}
       ${canUpd ? `<button onclick="_accToggleUpdateForm('${uuid}')" class="btn btn-primary btn-sm">&#9998; Update Status</button>` : ''}
-      <span style="font-size:.72rem;color:var(--txt3)">${canAdv ? 'Approve to move to ' + stageDef.next.to + ', or post a custom update' : 'Post a verification, approval, payment or rejection update'}</span>
+      <span style="font-size:.72rem;color:var(--txt3)">${canAdv ? 'Quick action: ' + (stageDef.next.actionLabel||stageDef.next.to) + ', or post a custom update' : 'Post a verification, approval, payment or rejection update'}</span>
     </div>
     <div id="acc-detail-updateform"></div>`;
 }
