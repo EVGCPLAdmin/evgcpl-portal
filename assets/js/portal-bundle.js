@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.39';
-const PORTAL_BUILD    = 412;
-const PORTAL_BUILD_AT = '2026-06-10T09:35:49Z';
+const PORTAL_VERSION  = '3.18.40';
+const PORTAL_BUILD    = 413;
+const PORTAL_BUILD_AT = '2026-06-10T09:45:55Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1385,7 +1385,7 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','md-command','md-payments','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
   hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
@@ -1556,6 +1556,7 @@ function renderPage(page) {
   const pages = {
     'dashboard':      renderDashboard,
     'md-command':     renderMDCommand,
+    'md-payments':    renderMDPayments,
     'onboarding':     renderOnboardingPortal,
     'recruitment':    renderRecruitmentModule,
     'hr-dashboard':   renderHRDashboard,
@@ -2429,6 +2430,212 @@ function renderDashboard() {
 // ══════════════════════════════════════════════════
 //  MD COMMAND CENTER
 // ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+//  MD PAYMENTS DASHBOARD  (route: 'md-payments')
+//  Pending MD-approval queue, switchable by Company, with past
+//  payment requests surfaced for later installments. Reads via gviz;
+//  approve/reject reuse the Accounts saveAccountsUpdate path.
+//  (Vendor/Party Ledger lands as a follow-up reusable module.)
+// ══════════════════════════════════════════════════════════════
+let _mdpRows    = null;
+let _mdpCompany = '';
+
+const _mdpEsc = (s) => (typeof escapeHtml_ === 'function') ? escapeHtml_(s) : String(s == null ? '' : s);
+const _mdpNum = (v) => parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0;
+const _mdpStrip = (s) => s ? String(s).replace(/^[A-Z]+\d+\|/i, '').trim() : '';
+function _mdpAmt(v, c) {
+  if (!v) return '—';
+  const n = Math.round(v).toLocaleString('en-IN');
+  return (c && !/inr|indian/i.test(c)) ? (c + ' ' + n) : ('₹' + n);
+}
+function _mdpDateVal(d) {
+  if (!d) return 0;
+  const s = String(d).trim().replace(/(\d)([A-Za-z])/, '$1 $2').replace(/([A-Za-z])(\d)/, '$1 $2').replace(/-/g, ' ');
+  const t = Date.parse(s);
+  return isNaN(t) ? 0 : t;
+}
+
+// Full parse so a row opened from here is detail-view compatible.
+function _mdpParseRow(r) {
+  const raw    = r['Status'] || '';
+  const acStat = r['Accounts Status'] || '';
+  const payTo  = r['Payment To'] || '';
+  const vendor = r['Paid To (Vendor)'] || (payTo === 'Vendor' ? (r['Paid To'] || '') : '');
+  return {
+    uuid:        r['UUID'] || '',
+    requestId:   r['Request ID'] || '',
+    date:        r['Date Of Request'] || '',
+    installment: _mdpNum(r['Installment']),
+    initiator:   _mdpStrip(r['Name of the Intiator'] || ''),
+    manualAuto:  r['Manual / Auto'] || '',
+    nature:      r['NATURE OF EXPENSES'] || '',
+    accCode:     r['ACCOUNT CODE DESCRIPTIONS'] || '',
+    costCode:    r['CostCode'] || '',
+    dept:        r['Department'] || '',
+    process:     r['From Which Process'] || '',
+    payTo,
+    paidTo:      r['Paid To'] || '',
+    vendor,
+    site:        r['Site Name'] || '',
+    company:     r['Company'] || '',
+    orderNo:     r['Order No'] || '',
+    billNo:      r['Bill No'] || '',
+    poValue:     _mdpNum(r['PO Value']),
+    invoiceVal:  _mdpNum(r['Invoice Value']),
+    paidVal:     _mdpNum(r['Paid Value']),
+    pendingVal:  _mdpNum(r['Pending Value']),
+    currency:    r['Currency'] || '',
+    amount:      _mdpNum(r['Amount']),
+    narrative:   r['Narrative/Comments'] || '',
+    acHolder:    r['A/C HOLDER NAME'] || '',
+    acNumber:    r['A/C NUMBER'] || '',
+    ifsc:        r['IFSC CODE'] || '',
+    bank:        r['BANK NAME'] || '',
+    accStatus:   acStat,
+    accDate:     r['Accounts Date'] || '',
+    utr:         r['UTR Details'] || '',
+    remarks:     r['Remarks'] || '',
+    monthYear:   r['Month-Year'] || '',
+    rawStatus:   raw || acStat,
+    status:      getPayStatus(raw || acStat),
+  };
+}
+
+async function _mdpLoad(force) {
+  if (_mdpRows && !force) return;
+  const rows = await fetchSheet('PaymentRequest', null, PAYMENT_SHEET_ID);
+  _mdpRows = (rows || []).filter(r => (r['Payment To'] || '').trim()).map(_mdpParseRow);
+}
+
+function renderMDPayments() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-row">
+        <div>
+          <h1>⚖ Payments &amp; Approvals</h1>
+          <p>Requests awaiting your approval &middot; switch by company</p>
+        </div>
+        <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
+          <label style="font-size:.72rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Company</label>
+          <select id="mdp-company" onchange="_mdpSetCompany(this.value)" style="font-size:.8rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2);min-width:170px"></select>
+          <button class="btn btn-secondary btn-sm" onclick="_mdpRefresh()">↻ Refresh</button>
+        </div>
+      </div>
+    </div>
+    <div id="mdp-content"><div style="padding:2.5rem;text-align:center;color:var(--txt3)">⏳ Loading payment requests…</div></div>
+  `;
+  _mdpLoad(true).then(() => _mdpRender()).catch(() => {
+    const c = document.getElementById('mdp-content');
+    if (c) c.innerHTML = '<div class="card card-pad" style="color:var(--danger)">⚠️ Could not load payment data. Check the Account View sheet is shared as Anyone → Viewer.</div>';
+  });
+}
+
+function _mdpSetCompany(v) { _mdpCompany = v; _mdpRender(); }
+function _mdpRefresh() {
+  const c = document.getElementById('mdp-content');
+  if (c) c.innerHTML = '<div style="padding:2.5rem;text-align:center;color:var(--txt3)">⏳ Loading…</div>';
+  _mdpLoad(true).then(() => _mdpRender());
+}
+function _mdpReload() { _mdpLoad(true).then(() => _mdpRender()); }
+
+function _mdpRender() {
+  const sel = document.getElementById('mdp-company');
+  if (sel && !sel.dataset.filled) {
+    const companies = [...new Set((_mdpRows || []).map(r => r.company).filter(Boolean))].sort();
+    sel.innerHTML = '<option value="">All Companies</option>' + companies.map(c => `<option value="${_mdpEsc(c)}">${_mdpEsc(c)}</option>`).join('');
+    sel.dataset.filled = '1';
+  }
+  if (sel) sel.value = _mdpCompany;
+  const content = document.getElementById('mdp-content');
+  if (content) content.innerHTML = _mdpQueueHtml();
+}
+
+function _mdpQueueHtml() {
+  let q = (_mdpRows || []).filter(r => _accIsMDQueue(r));
+  if (_mdpCompany) q = q.filter(r => r.company === _mdpCompany);
+  q.sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
+  const total = q.reduce((s, r) => s + r.amount, 0);
+  const kpi = `
+    <div class="kpi-grid" style="margin-bottom:1rem">
+      <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⚖</div><div class="kpi-trend flat">Awaiting you</div></div><div class="kpi-value">${q.length}</div><div class="kpi-label">Pending Approvals</div></div>
+      <div class="kpi-card info"><div class="kpi-top"><div class="kpi-icon blue">💰</div><div class="kpi-trend flat">${_mdpEsc(_mdpCompany) || 'All companies'}</div></div><div class="kpi-value" style="font-size:1.3rem">₹${Math.round(total).toLocaleString('en-IN')}</div><div class="kpi-label">Total Value</div></div>
+    </div>`;
+  if (!q.length) {
+    return kpi + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">✅ Nothing awaiting your approval${_mdpCompany ? ` for ${_mdpEsc(_mdpCompany)}` : ''}.</div>`;
+  }
+  return kpi + q.map(_mdpQueueCard).join('');
+}
+
+function _mdpQueueCard(r) {
+  const payee = _mdpStrip(r.paidTo) || r.vendor || r.payTo || '—';
+  return `
+  <div class="card" style="margin-bottom:.8rem;border-left:4px solid #6366f1">
+    <div class="card-body" style="padding:.9rem 1.1rem">
+      <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:flex-start">
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+            <span style="font-family:monospace;font-weight:700;color:var(--g8)">${_mdpEsc(r.requestId || r.uuid)}</span>
+            ${r.installment > 1 ? `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:8px;font-weight:700">Installment ${r.installment}</span>` : ''}
+            <span style="font-size:.7rem;color:var(--txt3)">${_mdpEsc(r.date)}</span>
+          </div>
+          <div style="font-size:.86rem;font-weight:600;margin-top:3px">${_mdpEsc(payee)}</div>
+          <div style="font-size:.72rem;color:var(--txt3);margin-top:2px">${_mdpEsc(r.payTo)} &middot; ${_mdpEsc(r.site) || '—'} &middot; ${_mdpEsc(r.company) || '—'}${r.orderNo ? ` &middot; PO ${_mdpEsc(r.orderNo)}` : ''}</div>
+          ${r.narrative ? `<div style="font-size:.74rem;color:var(--txt2);margin-top:5px">${_mdpEsc(r.narrative)}</div>` : ''}
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:1.05rem;font-weight:800;color:var(--g8);white-space:nowrap">${_mdpAmt(r.amount, r.currency)}</div>
+          ${r.poValue ? `<div style="font-size:.68rem;color:var(--txt3)">PO ${_mdpAmt(r.poValue, r.currency)} &middot; Pending ${_mdpAmt(r.pendingVal, r.currency)}</div>` : ''}
+        </div>
+      </div>
+      ${_mdpHistory(r)}
+      <div style="display:flex;gap:.5rem;margin-top:.8rem;flex-wrap:wrap">
+        <button onclick="_mdpApprove('${r.uuid}')" class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;font-weight:700">✓ Approve</button>
+        <button onclick="_mdpReject('${r.uuid}')" class="btn btn-sm" style="background:#dc2626;color:#fff;border:none;font-weight:700">✗ Reject</button>
+        <button onclick="_accOpenPRDetail('${r.uuid}')" class="btn btn-secondary btn-sm">View details</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// Past payment requests for a later installment — grouped by PO / Bill / payee.
+function _mdpHistory(r) {
+  if (!(r.installment > 1)) return '';
+  const key = (r.orderNo || r.billNo || r.paidTo || '').trim().toLowerCase();
+  if (!key) return '';
+  const prior = (_mdpRows || []).filter(x => x.uuid !== r.uuid &&
+      ((x.orderNo || x.billNo || x.paidTo || '').trim().toLowerCase() === key))
+      .sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
+  if (!prior.length) return '';
+  const rows = prior.map(x => `
+    <tr>
+      <td style="padding:4px 8px;border-bottom:1px solid var(--border);white-space:nowrap">${_mdpEsc(x.date)}</td>
+      <td style="padding:4px 8px;border-bottom:1px solid var(--border);font-family:monospace">${_mdpEsc(x.requestId || x.uuid)}</td>
+      <td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:center">${x.installment || '—'}</td>
+      <td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right">${_mdpAmt(x.amount, x.currency)}</td>
+      <td style="padding:4px 8px;border-bottom:1px solid var(--border)"><span style="font-size:.66rem;color:${x.status.color}">${_mdpEsc(x.status.label)}</span></td>
+    </tr>`).join('');
+  return `
+    <details style="margin-top:.7rem">
+      <summary style="cursor:pointer;font-size:.74rem;color:var(--g7);font-weight:600">Past payment requests (${prior.length})</summary>
+      <table style="width:100%;font-size:.72rem;margin-top:.4rem;border-collapse:collapse">
+        <thead><tr style="color:var(--txt3);text-align:left"><th style="padding:4px 8px">Date</th><th style="padding:4px 8px">Request</th><th style="padding:4px 8px;text-align:center">Inst</th><th style="padding:4px 8px;text-align:right">Amount</th><th style="padding:4px 8px">Status</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </details>`;
+}
+
+async function _mdpApprove(uuid) {
+  if (!confirm('Approve this payment request and move it to Accounts for processing?')) return;
+  if (await _accQuickStatus(uuid, 'Process Payment, Move to Accounts', '')) { _accToast('✅ Approved — moved to Accounts'); _mdpReload(); }
+}
+async function _mdpReject(uuid) {
+  const reason = prompt('Reason for rejection (required):', '');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('A reason is required to reject.'); return; }
+  if (await _accQuickStatus(uuid, 'Rejected', reason.trim())) { _accToast('Request rejected'); _mdpReload(); }
+}
+
 function renderMDCommand() {
   const el = document.getElementById('mainContent');
   el.innerHTML = `
@@ -2444,6 +2651,7 @@ function renderMDCommand() {
           <p id="mdCommandSubtitle">Command Center &middot; real-time overview &middot; live from sheets</p>
         </div>
         <div style="display:flex;gap:.7rem;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="navigate('md-payments')">⚖ Payments &amp; Approvals</button>
           <button class="btn btn-secondary btn-sm" onclick="STATE.mastersLoaded=false;loadAllMasters().then(()=>{updateAllMasterUI();renderMDCommand();})">↻ Refresh</button>
         </div>
       </div>
@@ -2485,7 +2693,7 @@ function renderMDCommand() {
 
         <!-- Pending Payments -->
         <div class="card">
-          <div class="card-head"><h3>💰 Pending Payments</h3><span id="mdApprovalTag" onclick="_accGotoMDQueue()" style="display:none;cursor:pointer;background:#eef2ff;color:#3730a3;border:1px solid #6366f1;border-radius:10px;padding:2px 9px;font-size:.7rem;font-weight:700"></span><span class="tag info" id="mdPayTag">Loading…</span></div>
+          <div class="card-head"><h3>💰 Pending Payments</h3><span id="mdApprovalTag" onclick="navigate('md-payments')" style="display:none;cursor:pointer;background:#eef2ff;color:#3730a3;border:1px solid #6366f1;border-radius:10px;padding:2px 9px;font-size:.7rem;font-weight:700"></span><span class="tag info" id="mdPayTag">Loading…</span></div>
           <div class="card-body" style="padding:.8rem;max-height:260px;overflow-y:auto" id="mdPayList">
             <div style="text-align:center;color:var(--txt3);padding:1rem">⏳ Loading payments…</div>
           </div>
@@ -5164,7 +5372,8 @@ function _accClosePRDetail() {
 
 function _accOpenPRDetail(uuid) {
   if (!uuid) return;
-  const row = (window._accAllRows || []).find(r => r.uuid === uuid);
+  const row = (window._accAllRows || []).find(r => r.uuid === uuid)
+           || ((typeof _mdpRows !== 'undefined' && _mdpRows) ? _mdpRows.find(r => r.uuid === uuid) : null);
   if (!row) return;
   let dr = document.getElementById('accPRDetailDrawer');
   if (!dr) {
