@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.46';
-const PORTAL_BUILD    = 419;
-const PORTAL_BUILD_AT = '2026-06-10T12:17:19Z';
+const PORTAL_VERSION  = '3.18.47';
+const PORTAL_BUILD    = 420;
+const PORTAL_BUILD_AT = '2026-06-10T12:31:05Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2679,7 +2679,7 @@ function _mdpQueueHtml() {
   const shelf = _txnShelfHtml('md');
   let q = (_mdpRows || []).filter(r => _accIsMDQueue(r) && !_txnHas(r.uuid));
   if (_mdpCompany) q = q.filter(r => r.company === _mdpCompany);
-  q.sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date)); // newest first
+  q.sort((a, b) => (_accPrNum(b) - _accPrNum(a)) || (_mdpDateVal(b.date) - _mdpDateVal(a.date))); // largest PR first
   const total = q.reduce((s, r) => s + r.amount, 0);
   const kpi = `
     <div class="kpi-grid" style="margin-bottom:1rem">
@@ -4797,6 +4797,8 @@ const ACC_VIEWS = [
   { id:'all',      label:'Accounts Database',   icon:'&#128194;', color:'#475569', next:null },
 ];
 function _accViewById(id) { return ACC_VIEWS.find(v => v.id === id) || ACC_VIEWS[ACC_VIEWS.length - 1]; }
+// Numeric value of a "PR-2753" request id, for largest-to-smallest sorting.
+function _accPrNum(r) { const m = String((r && r.requestId) || '').match(/(\d+)/); return m ? parseInt(m[1], 10) : 0; }
 
 // Which stage a row belongs to (first match wins).
 function _accStageOf(r) {
@@ -4854,7 +4856,9 @@ async function _accAdvance(uuid) {
   if (await _accQuickStatus(uuid, nx.status, '', utr.trim())) {
     _txnParkRow(r, nx.status, '→ ' + nx.to, 'acc');
     _accToast('✅ Moved to ' + nx.to);
-    if (typeof accRender === 'function') accRender();
+    if (document.getElementById('accPRDetailDrawer')) _accClosePRDetail();
+    if (typeof accRender === 'function' && document.getElementById('accTbody')) accRender();
+    if (document.getElementById('mdp-content') && typeof _mdpRender === 'function') _mdpRender();
   }
 }
 
@@ -4922,9 +4926,9 @@ function renderAccountsModule() {
           <div style="display:flex;flex-direction:column;gap:3px">
             <label style="font-size:.67rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em">Sort by</label>
             <div style="display:flex;gap:4px">
-              <select id="accSortCol" onchange="accRender()" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface2)">
+              <select id="accSortCol" onchange="window._accSortCol=this.value;accRender()" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface2)">
+                <option value="requestId" selected>PR Number</option>
                 <option value="date">Date</option>
-                <option value="requestId">Request ID</option>
                 <option value="initiator">Initiator</option>
                 <option value="nature">Nature of Expenses</option>
             <option value="payTo">Payment To</option>
@@ -4989,7 +4993,7 @@ function renderAccountsModule() {
   // ── State ─────────────────────────────────────────────
   window._accAllRows      = [];
   window._accView         = (STATE.role === 'md') ? 'mdqueue' : 'verify';
-  window._accSortCol      = 'date';
+  window._accSortCol      = 'requestId';   // default: largest PR number first
   window._accSortDir      = -1;
 
   // Fetch + map is factored into _accReloadRows() / _accMapRow() so the
@@ -5143,6 +5147,7 @@ function renderAccountsModule() {
     // Sort
     rows=[...rows].sort((a,b)=>{
       if (scol==='amount') return sdir*(a.amount-b.amount);
+      if (scol==='requestId') return sdir*(_accPrNum(a)-_accPrNum(b));
       if (scol==='date'||scol==='accDate') {
         const parse=d=>{ if(!d) return 0; const p=d.split(/[-\/]/); return p.length===3?new Date(p[2],p[1]-1,p[0]).getTime():new Date(d).getTime()||0; };
         return sdir*(parse(a[scol])-parse(b[scol]));
@@ -5781,6 +5786,26 @@ function _accDrawPRDetail(dr, r) {
   `;
 }
 
+const _ACC_MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+// Parse a stored timestamp (DD/MM/YYYY HH:MM:SS, ISO, or gviz Date(...)) → ms.
+function _accTsVal(s) {
+  if (!s) return 0;
+  s = String(s).trim();
+  let m = s.match(/Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)/);
+  if (m) return new Date(+m[1], +m[2], +m[3], +(m[4]||0), +(m[5]||0), +(m[6]||0)).getTime();
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return new Date(+m[3], +m[2]-1, +m[1], +(m[4]||0), +(m[5]||0), +(m[6]||0)).getTime();
+  const t = Date.parse(s);
+  return isNaN(t) ? 0 : t;
+}
+// Display a stored timestamp as "01Jan2026 13:47:38" (long date + time).
+function _accFmtTs(s) {
+  const v = _accTsVal(s);
+  if (!v) return String(s || '—');
+  const d = new Date(v), p = n => String(n).padStart(2, '0');
+  return p(d.getDate()) + _ACC_MON_ABBR[d.getMonth()] + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+
 async function _accDrawStatusUpdates(uuid) {
   const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
   const el = () => document.getElementById('acc-detail-timeline');
@@ -5806,33 +5831,38 @@ async function _accDrawStatusUpdates(uuid) {
       comments: get(r, ['Comments (If Any)', 'Comments', 'Comments If Any']),
       reason:   get(r, ['Pending Reason', 'PendingReason']),
     }))
-    .sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+    .sort((a, b) => _accTsVal(b.ts || b.date) - _accTsVal(a.ts || a.date)); // newest first
 
   if (!updates.length) {
     el().innerHTML = '<div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">No status updates recorded yet.</div>';
     return;
   }
 
-  el().innerHTML = updates.map(u => {
+  const th = (t, extra='') => `<th style="padding:7px 10px;font-size:.68rem;font-weight:700;text-align:left;white-space:nowrap;${extra}">${t}</th>`;
+  const body = updates.map(u => {
     const st = (typeof getPayStatus === 'function') ? getPayStatus(u.status) : { label: u.status, icon: '', color: '#6b7280', bg: '#f9fafb' };
     const pill = st.label
       ? `<span style="display:inline-flex;align-items:center;gap:3px;background:${st.bg};color:${st.color};padding:2px 9px;border-radius:10px;font-size:.68rem;font-weight:600;border:1px solid ${st.color}22">${st.icon ? st.icon + '&thinsp;' : ''}${esc(st.label)}</span>`
       : `<span style="font-size:.72rem;color:var(--txt2)">${esc(u.status) || '—'}</span>`;
-    const meta = [u.ts || u.date, u.by].filter(Boolean).map(esc).join(' &middot; ');
-    const extra = [
-      u.utr ? `<div style="font-size:.74rem;color:var(--txt2)"><b>UTR:</b> ${esc(u.utr)}</div>` : '',
-      u.reason ? `<div style="font-size:.74rem;color:var(--txt2)"><b>Pending Reason:</b> ${esc(u.reason)}</div>` : '',
-      u.comments ? `<div style="font-size:.74rem;color:var(--txt2);white-space:pre-wrap"><b>Comments:</b> ${esc(u.comments)}</div>` : '',
-    ].filter(Boolean).join('');
-    return `
-      <div style="border-left:3px solid ${st.color || 'var(--border)'};padding:.5rem .8rem;margin-bottom:.6rem;background:var(--surface2);border-radius:0 8px 8px 0">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap">
-          ${pill}
-          <span style="font-size:.68rem;color:var(--txt3)">${meta}</span>
-        </div>
-        ${extra ? `<div style="margin-top:.35rem;display:flex;flex-direction:column;gap:2px">${extra}</div>` : ''}
-      </div>`;
+    const who = (typeof _accStripCode === 'function' ? _accStripCode(u.by) : u.by) || '—';
+    const details = [
+      u.utr ? 'UTR: ' + esc(u.utr) : '',
+      u.reason ? 'Reason: ' + esc(u.reason) : '',
+      u.comments ? esc(u.comments) : '',
+    ].filter(Boolean).join(' · ') || '—';
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:6px 10px;font-size:.72rem;white-space:nowrap;color:var(--txt2)">${esc(_accFmtTs(u.ts || u.date))}</td>
+      <td style="padding:6px 10px;font-size:.74rem;font-weight:600">${esc(who)}</td>
+      <td style="padding:6px 10px">${pill}</td>
+      <td style="padding:6px 10px;font-size:.72rem;color:var(--txt2);white-space:pre-wrap">${details}</td>
+    </tr>`;
   }).join('');
+  el().innerHTML = `<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:var(--g9);color:#fff">${th('When')}${th('Who Did It')}${th('Status Passed Along')}${th('Details')}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </div>`;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -5902,11 +5932,16 @@ function _accAllowedStatuses() {
 function _accRenderDetailActions(r) {
   const host = document.getElementById('acc-detail-actions');
   if (!host) return;
-  if (!_accCanUpdate()) { host.innerHTML = ''; return; }
+  const stageDef = _accViewById(_accStageOf(r));
+  const canUpd = _accCanUpdate();
+  const canAdv = _accCanAdvance(stageDef);
+  if (!canUpd && !canAdv) { host.innerHTML = ''; return; }
+  const uuid = (r.uuid || '').replace(/'/g, "\\'");
   host.innerHTML = `
-    <div style="display:flex;gap:.6rem;align-items:center;margin-bottom:1rem">
-      <button onclick="_accToggleUpdateForm('${(r.uuid || '').replace(/'/g, "\\'")}')" class="btn btn-primary btn-sm">&#9998; Update Status</button>
-      <span style="font-size:.72rem;color:var(--txt3)">Post a verification, approval, payment or rejection update</span>
+    <div style="display:flex;gap:.6rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
+      ${canAdv ? `<button onclick="_accAdvance('${uuid}')" class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;font-weight:700">&#10003; ${stageDef.next.to} &rarr;</button>` : ''}
+      ${canUpd ? `<button onclick="_accToggleUpdateForm('${uuid}')" class="btn btn-primary btn-sm">&#9998; Update Status</button>` : ''}
+      <span style="font-size:.72rem;color:var(--txt3)">${canAdv ? 'Approve to move to ' + stageDef.next.to + ', or post a custom update' : 'Post a verification, approval, payment or rejection update'}</span>
     </div>
     <div id="acc-detail-updateform"></div>`;
 }
