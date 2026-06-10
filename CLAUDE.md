@@ -29,26 +29,46 @@ conflicts on `version.json` (and the HTML `?v=` stamps), and resolving with
 `--ours` can keep an **older** build number → the version stagnates or goes
 backwards. That is the bug to avoid.
 
+### ⚠️ COMMIT YOUR CODE FIRST — before any merge or build
+
+This bit us hard: an uncommitted feature was **silently destroyed** by a
+`git checkout --ours assets/js/portal-bundle.js` run during the merge/build dance.
+`git checkout --ours/--theirs <file>` resolves to the **committed** side — any
+uncommitted working-tree edits are discarded with no warning, and the commit that
+follows captures only the version stamp (the feature "ships" as an empty diff).
+
+**Rule: never run `git merge`, `git checkout --ours/--theirs`, or `build-portal.js`
+with uncommitted code edits in the tree. Commit first.**
+
 **Correct sequence for every change:**
-1. Make the code change in `portal-bundle.js` (and run `node --check` to verify).
-2. `git fetch origin main && git merge origin/main --no-edit` to get the latest
-   `version.json` **before** building.
-3. Run `node build-portal.js --patch` **as the final step** so the build number
-   increments from main's current value (strictly sequential, always higher).
-4. Commit, push, open the PR.
+1. Make the code change in `portal-bundle.js`; run `node --check` to verify.
+2. **`git add -A && git commit`** the code change NOW (so it can't be lost).
+3. `git fetch origin main && git merge origin/main --no-edit` to get the latest
+   `version.json` before building.
+4. Run the build **as the final step** — `--minor` for a feature/feature-batch
+   release, `--patch` for fixes, `--major` for breaking changes. The build number
+   always increments from main's current value (strictly sequential, always higher).
+5. `git add -A && git commit` the build, push, open the PR.
+
+### Release level: minor vs patch
+- `--patch` — bug fixes / small tweaks within a feature already shipped.
+- `--minor` — a new feature or a batch of features (the usual choice when wrapping
+  up a chunk of work). Resets `patch` to 0, e.g. `3.19.x → 3.20.0`.
+- `--major` — breaking changes / a redesign.
+Don't let a feature go out as a long string of `--patch` bumps; cut a `--minor`.
 
 ### Resolving a version.json / HTML `?v=` merge conflict
 
-These conflicts are expected after a squash merge. Resolve them like this — do
-**not** hand-merge the numbers:
+Expected after a squash merge. With your **code already committed** (see above),
+resolve like this — do **not** hand-merge the numbers:
 
-1. Keep your code: `git checkout --ours <code files>` (e.g. `portal-bundle.js`).
-2. Take **main's** `version.json`: `git checkout --theirs version.json`
+1. Take **main's** `version.json`: `git checkout --theirs version.json`
    (main has the highest released build number; never keep the branch's older one).
-3. `git add -A && git commit --no-edit`
-4. Re-run `node build-portal.js --patch` so the version bumps **from main's
+   Your committed code files are safe — only touch `version.json` here.
+2. `git add -A && git commit --no-edit`
+3. Re-run `node build-portal.js --minor|--patch` so the version bumps **from main's
    number** (guarantees the new build > main's build), then commit that.
-5. Push and merge.
+4. Push and merge.
 
 The HTML `?v=<build>` stamp conflicts don't need manual care — the rebuild in
 step 4 overwrites them all consistently.
