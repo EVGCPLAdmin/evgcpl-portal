@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.45';
-const PORTAL_BUILD    = 418;
-const PORTAL_BUILD_AT = '2026-06-10T12:06:53Z';
+const PORTAL_VERSION  = '3.18.46';
+const PORTAL_BUILD    = 419;
+const PORTAL_BUILD_AT = '2026-06-10T12:17:19Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4771,6 +4771,93 @@ async function _accReloadRows() {
   return window._accAllRows;
 }
 
+// ══════════════════════════════════════════════════════════════
+//  ACCOUNTS PIPELINE — the 8 stage Views
+//  Every row sits in exactly one stage, derived from its status label.
+//  `next` describes the one-click "Approve → Next Stage" advance:
+//    status   = the status value to post (must exist in the status master)
+//    to       = the human name of the stage it moves to
+//    roles    = which roles may advance from this stage (role-aware action)
+//    needsUtr = prompt for a bank UTR before completing
+// ══════════════════════════════════════════════════════════════
+const ACC_HOLD_LABELS = ['On Hold by MD','Payment On Hold by MD','Sent Back to Accounts','Sent Back to Dept (MD)','Pending Due to Queries'];
+const ACC_VIEWS = [
+  { id:'verify',   label:'To be Verified',      icon:'&#128269;', color:'#d97706',
+    next:{ status:'Verified, Move to MD Queue',        to:'MD Queue',          roles:['accounts','dept_head'] } },
+  { id:'mdqueue',  label:'MD Queue',            icon:'&#9878;',   color:'#6366f1',
+    next:{ status:'Process Payment, Move to Accounts', to:'Initiate Payment',  roles:['md'] } },
+  { id:'initiate', label:'To Initiate Payment', icon:'&#128640;', color:'#2563eb',
+    next:{ status:'Payment Initiated',                 to:'Paid?',             roles:['accounts','dept_head'] } },
+  { id:'paid',     label:'Paid?',               icon:'&#128181;', color:'#0891b2',
+    next:{ status:'Paid (Initiated in Bank)',          to:'Update UTR',        roles:['accounts','dept_head'] } },
+  { id:'utr',      label:'To Update UTR',       icon:'&#128290;', color:'#7c3aed',
+    next:{ status:'Payment Completed',                 to:'Done', needsUtr:true, roles:['accounts','dept_head'] } },
+  { id:'rejected', label:'Rejection Bin',       icon:'&#10060;',  color:'#dc2626', next:null },
+  { id:'hold',     label:'Hold Bin',            icon:'&#9208;',   color:'#b45309', next:null },
+  { id:'all',      label:'Accounts Database',   icon:'&#128194;', color:'#475569', next:null },
+];
+function _accViewById(id) { return ACC_VIEWS.find(v => v.id === id) || ACC_VIEWS[ACC_VIEWS.length - 1]; }
+
+// Which stage a row belongs to (first match wins).
+function _accStageOf(r) {
+  const lbl = (r.status && r.status.label) || '';
+  const cat = (r.status && r.status.cat) || 'other';
+  if (cat === 'rejected') return 'rejected';
+  if (ACC_HOLD_LABELS.includes(lbl)) return 'hold';
+  if (lbl === 'Verified, Move to MD Queue') return 'mdqueue';
+  if (lbl === 'Payment Approved by MD') return 'initiate';
+  if (lbl === 'Payment Initiated' || lbl === 'Payment Re-Initiated') return 'paid';
+  if (lbl === 'Paid (Initiated in Bank)' || lbl === 'Paid') return 'utr';
+  if (lbl === 'Pending With Accounts' || cat === 'other' || !lbl || lbl === '—') return 'verify';
+  return 'done'; // Paid+UTR / Completed — surfaces only in Accounts Database
+}
+function _accRowsInView(rows, id) {
+  if (id === 'all') return rows || [];
+  return (rows || []).filter(r => _accStageOf(r) === id);
+}
+// Role-aware: can the current user advance a row from this stage?
+function _accCanAdvance(viewDef) {
+  if (!viewDef || !viewDef.next) return false;
+  return (viewDef.next.roles || []).includes((STATE.role || '').toLowerCase());
+}
+// Stage cards = the View selector + the (improved) KPI cards in one.
+function _accStageCardsHtml(allRows) {
+  const rows = (allRows || []).filter(r => !_txnHas(r.uuid));
+  const active = window._accView || 'all';
+  return ACC_VIEWS.map(v => {
+    const inV = (v.id === 'all') ? rows : rows.filter(r => _accStageOf(r) === v.id);
+    const total = inV.reduce((s, r) => s + (r.amount || 0), 0);
+    const on = active === v.id;
+    return `<div onclick="accSetView('${v.id}')" class="kpi-card" style="cursor:pointer;border-left:4px solid ${v.color};${on ? `box-shadow:0 0 0 2px ${v.color};background:${v.color}0d;` : ''}">
+      <div class="kpi-top"><div class="kpi-icon" style="background:${v.color}22;color:${v.color}">${v.icon}</div>${v.next ? `<div class="kpi-trend flat" style="font-size:.58rem">&rarr; ${v.next.to}</div>` : ''}</div>
+      <div class="kpi-value" style="font-size:1.4rem">${inV.length}</div>
+      <div class="kpi-label">${v.label}</div>
+      <div class="kpi-sub">${total ? '₹' + Math.round(total).toLocaleString('en-IN') : '—'}</div>
+    </div>`;
+  }).join('');
+}
+
+// One-click advance to the next positive stage (role-aware).
+async function _accAdvance(uuid) {
+  const r = (window._accAllRows || []).find(x => x.uuid === uuid);
+  if (!r) return;
+  const view = _accViewById(_accStageOf(r));
+  if (!_accCanAdvance(view)) { alert('Your role cannot advance this stage.'); return; }
+  const nx = view.next;
+  let utr = '';
+  if (nx.needsUtr) {
+    utr = prompt('Enter the bank UTR / transaction reference to complete this payment:', '');
+    if (utr === null) return;
+    if (!utr.trim()) { alert('A UTR is required to complete the payment.'); return; }
+  }
+  if (!confirm(`Move "${r.requestId || uuid}" to "${nx.to}"?`)) return;
+  if (await _accQuickStatus(uuid, nx.status, '', utr.trim())) {
+    _txnParkRow(r, nx.status, '→ ' + nx.to, 'acc');
+    _accToast('✅ Moved to ' + nx.to);
+    if (typeof accRender === 'function') accRender();
+  }
+}
+
 function renderAccountsModule() {
   const el = document.getElementById('mainContent');
   el.innerHTML = `
@@ -4787,25 +4874,8 @@ function renderAccountsModule() {
       </div>
     </div>
 
-    <!-- Status KPIs -->
-    <div class="kpi-grid" style="margin-bottom:1rem">
-      <div class="kpi-card warn" onclick="accFilter('pending')" style="cursor:pointer">
-        <div class="kpi-top"><div class="kpi-icon orange">&#9203;</div><div class="kpi-trend flat">Needs action</div></div>
-        <div class="kpi-value" id="accPendingCt">&#8212;</div><div class="kpi-label">Pending</div><div class="kpi-sub" id="accPendingAmt">&#8212;</div>
-      </div>
-      <div class="kpi-card info" onclick="accFilter('progress')" style="cursor:pointer">
-        <div class="kpi-top"><div class="kpi-icon blue">&#128260;</div><div class="kpi-trend flat">In pipeline</div></div>
-        <div class="kpi-value" id="accProgressCt">&#8212;</div><div class="kpi-label">In Progress</div><div class="kpi-sub" id="accProgressAmt">&#8212;</div>
-      </div>
-      <div class="kpi-card danger" onclick="accFilter('rejected')" style="cursor:pointer">
-        <div class="kpi-top"><div class="kpi-icon red">&#10060;</div><div class="kpi-trend flat">Rejected</div></div>
-        <div class="kpi-value" id="accRejectedCt">&#8212;</div><div class="kpi-label">Rejected</div><div class="kpi-sub" id="accRejectedAmt">&#8212;</div>
-      </div>
-      <div class="kpi-card" style="border-left:4px solid #16a34a;cursor:pointer" onclick="accFilter('completed')">
-        <div class="kpi-top"><div class="kpi-icon green">&#9989;</div><div class="kpi-trend up">Done</div></div>
-        <div class="kpi-value" id="accCompletedCt">&#8212;</div><div class="kpi-label">Completed</div><div class="kpi-sub" id="accCompletedAmt">&#8212;</div>
-      </div>
-    </div>
+    <!-- Pipeline stage cards — the 8 Views; each is a KPI + a filter -->
+    <div id="accStageCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.6rem;margin-bottom:1rem"></div>
 
     <!-- Currency KPI cards -->
     <div id="accCurrencyCards" style="display:none;margin-bottom:1.2rem"></div>
@@ -4816,15 +4886,8 @@ function renderAccountsModule() {
         <div style="display:flex;gap:.7rem;flex-wrap:wrap;align-items:flex-end">
 
           <div style="display:flex;flex-direction:column;gap:3px">
-            <label style="font-size:.67rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em">Status</label>
-            <div style="display:flex;gap:4px;flex-wrap:wrap">
-              <button onclick="accFilter('all')"       id="accBtn-all"       class="acc-cat-btn btn btn-secondary btn-sm active-cat">All</button>
-              <button onclick="accFilter('pending')"   id="accBtn-pending"   class="acc-cat-btn btn btn-sm" style="background:#fffbeb;color:#92400e;border:1px solid #f59e0b">&#9203; Pending</button>
-              <button onclick="accFilter('progress')"  id="accBtn-progress"  class="acc-cat-btn btn btn-sm" style="background:#eff6ff;color:#1e40af;border:1px solid #2563eb">&#128260; In Progress</button>
-              <button onclick="accFilter('rejected')"  id="accBtn-rejected"  class="acc-cat-btn btn btn-sm" style="background:#fef2f2;color:#991b1b;border:1px solid #ef4444">&#10060; Rejected</button>
-              <button onclick="accFilter('completed')" id="accBtn-completed" class="acc-cat-btn btn btn-sm" style="background:#f0fdf4;color:#14532d;border:1px solid #16a34a">&#9989; Completed</button>
-              ${STATE.role === 'md' ? `<button onclick="accFilter('md-queue')" id="accBtn-md-queue" class="acc-cat-btn btn btn-sm" style="background:#eef2ff;color:#3730a3;border:1px solid #6366f1;font-weight:700">&#9878; Pending My Approval</button>` : ''}
-            </div>
+            <label style="font-size:.67rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em">Active View</label>
+            <div id="accViewLabel" style="font-size:.82rem;font-weight:700;padding:5px 2px;white-space:nowrap">—</div>
           </div>
 
           <div style="display:flex;flex-direction:column;gap:3px">
@@ -4911,11 +4974,12 @@ function renderAccountsModule() {
               <th onclick="accSetSort('status')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:190px;border-right:1px solid rgba(255,255,255,.15)">Status &#8597;</th>
               <th onclick="accSetSort('accDate')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:110px;border-right:1px solid rgba(255,255,255,.15)">Acc. Date &#8597;</th>
               <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:160px;border-right:1px solid rgba(255,255,255,.15)">UTR Details</th>
-              <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:140px">Remarks</th>
+              <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:140px;border-right:1px solid rgba(255,255,255,.15)">Remarks</th>
+              <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:150px;text-align:center;position:sticky;right:0;background:var(--g9);z-index:3">Actions</th>
             </tr>
           </thead>
           <tbody id="accTbody">
-            <tr><td colspan="20" style="text-align:center;padding:3rem;color:var(--txt3)">&#8987; Loading payment requests...</td></tr>
+            <tr><td colspan="22" style="text-align:center;padding:3rem;color:var(--txt3)">&#8987; Loading payment requests...</td></tr>
           </tbody>
         </table>
       </div>
@@ -4924,7 +4988,7 @@ function renderAccountsModule() {
 
   // ── State ─────────────────────────────────────────────
   window._accAllRows      = [];
-  window._accActiveFilter = 'all';
+  window._accView         = (STATE.role === 'md') ? 'mdqueue' : 'verify';
   window._accSortCol      = 'date';
   window._accSortDir      = -1;
 
@@ -4932,16 +4996,7 @@ function renderAccountsModule() {
   // In-Transaction auto-poll can refresh _accAllRows without a full re-render.
   _accReloadRows().then(() => {
 
-    // ── KPI cards ────────────────────────────────────────
-    ['pending','progress','rejected','completed'].forEach(cat => {
-      const rows = window._accAllRows.filter(r => r.status.cat === cat);
-      const amt  = rows.reduce((s,r) => s + (cat==='completed' ? r.amount : r.amount), 0);
-      const cap  = cat[0].toUpperCase() + cat.slice(1);
-      const ctEl = document.getElementById('acc'+cap+'Ct');
-      const aEl  = document.getElementById('acc'+cap+'Amt');
-      if (ctEl) ctEl.textContent = rows.length;
-      if (aEl)  aEl.textContent  = rows.length ? '\u20b9'+Math.round(amt).toLocaleString('en-IN') : '\u2014';
-    });
+    // Stage cards (the 8 Views + their KPIs) are rendered by accRender().
 
     // ── Currency cards ───────────────────────────────────
     const cmap = {};
@@ -4983,28 +5038,22 @@ function renderAccountsModule() {
     // Honour a pre-set MD approval filter (e.g. arriving from the command centre)
     if (window._accPendingMDFilter && STATE.role==='md') {
       window._accPendingMDFilter = false;
-      if (typeof accFilter === 'function') { accFilter('md-queue'); return; }
+      window._accView = 'mdqueue';
     }
     accRender();
   }).catch(err => {
     const tb = document.getElementById('accTbody');
-    if (tb) tb.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:2.5rem;color:var(--danger)">&#9888; Could not load PaymentRequest sheet. Check it is shared as Anyone \u2192 Viewer.</td></tr>';
+    if (tb) tb.innerHTML = '<tr><td colspan="22" style="text-align:center;padding:2.5rem;color:var(--danger)">&#9888; Could not load PaymentRequest sheet. Check it is shared as Anyone \u2192 Viewer.</td></tr>';
     console.error('Accounts fetch error:', err);
   });
 
   // ── Controls ──────────────────────────────────────────
-  window.accFilter = function(cat) {
-    window._accActiveFilter = cat;
-    document.querySelectorAll('.acc-cat-btn').forEach(b=>b.classList.remove('active-cat'));
-    const ab = document.getElementById('accBtn-'+cat);
-    if (ab) ab.classList.add('active-cat');
-    accRender();
-  };
+  // Select one of the 8 pipeline Views (stage cards call this).
+  window.accSetView = function(id) { window._accView = id; accRender(); };
+  // Back-compat: deep-links still call accFilter('md-queue').
+  window.accFilter = function(cat) { window.accSetView(cat === 'md-queue' ? 'mdqueue' : cat); };
 
   window.accResetFilters = function() {
-    window._accActiveFilter = 'all';
-    document.querySelectorAll('.acc-cat-btn').forEach(b=>b.classList.remove('active-cat'));
-    document.getElementById('accBtn-all')?.classList.add('active-cat');
     ['accSearch','accSiteFilter','accEntityFilter','accProcessFilter'].forEach(id=>{
       const e=document.getElementById(id); if(e) e.value='';
     });
@@ -5030,12 +5079,12 @@ function renderAccountsModule() {
     const rows = window._accAllRows || [];
     if (!rows.length) return;
     // Apply current filters same as accRender
-    const cat  = window._accActiveFilter || 'all';
+    const view = window._accView || 'all';
     const srch = (document.getElementById('accSearch')?.value||'').toLowerCase().trim();
     const sf   = document.getElementById('accSiteFilter')?.value||'';
     const ef   = document.getElementById('accEntityFilter')?.value||'';
     const pf   = document.getElementById('accProcessFilter')?.value||'';
-    let filtered = rows.filter(r => cat==='md-queue' ? _accIsMDQueue(r) : (cat==='all' ? r.status.cat!=='other' : r.status.cat===cat));
+    let filtered = _accRowsInView(rows, view);
     if (sf)   filtered = filtered.filter(r => r.site===sf);
     if (ef)   filtered = filtered.filter(r => r.company===ef);
     if (pf)   filtered = filtered.filter(r => r.process===pf);
@@ -5069,7 +5118,8 @@ function renderAccountsModule() {
   };
 
     window.accRender = function() {
-    const cat   = window._accActiveFilter||'all';
+    const view  = window._accView||'all';
+    const viewDef = _accViewById(view);
     const srch  = (document.getElementById('accSearch')?.value||'').toLowerCase().trim();
     const sf    = document.getElementById('accSiteFilter')?.value||'';
     const ef    = document.getElementById('accEntityFilter')?.value||'';
@@ -5079,7 +5129,12 @@ function renderAccountsModule() {
 
     const shelfEl=document.getElementById('accTxnShelf');
     if (shelfEl) shelfEl.innerHTML=_txnShelfHtml('acc');
-    let rows = (window._accAllRows||[]).filter(r=>(cat==='md-queue'?_accIsMDQueue(r):(cat==='all'?r.status.cat!=='other':r.status.cat===cat)) && !_txnHas(r.uuid));
+    const cardsEl=document.getElementById('accStageCards');
+    if (cardsEl) cardsEl.innerHTML=_accStageCardsHtml(window._accAllRows||[]);
+    const lblEl=document.getElementById('accViewLabel');
+    if (lblEl) lblEl.innerHTML=`<span style="color:${viewDef.color}">${viewDef.icon} ${viewDef.label}</span>`;
+
+    let rows = _accRowsInView(window._accAllRows||[], view).filter(r=>!_txnHas(r.uuid));
     if (sf)   rows=rows.filter(r=>r.site===sf);
     if (ef)   rows=rows.filter(r=>r.entity===ef);
     if (pf)   rows=rows.filter(r=>r.process===pf);
@@ -5096,12 +5151,12 @@ function renderAccountsModule() {
     });
 
     const cntEl=document.getElementById('accRowCount');
-    if (cntEl) cntEl.textContent=rows.length+' records'+(cat!=='all'?' ('+cat+')':'')+(srch?' matching "'+srch+'"':'');
+    if (cntEl) cntEl.textContent=rows.length+' records · '+viewDef.label+(srch?' · matching "'+srch+'"':'');
 
     const tbody=document.getElementById('accTbody');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML='<tr><td colspan="20" style="text-align:center;padding:3rem;color:var(--txt3)">No records match the selected filters.</td></tr>';
+      tbody.innerHTML='<tr><td colspan="22" style="text-align:center;padding:3rem;color:var(--txt3)">No records in '+viewDef.label+'.</td></tr>';
       return;
     }
 
@@ -5122,13 +5177,17 @@ function renderAccountsModule() {
         ?`<span style="display:inline-flex;align-items:center;gap:3px;background:${s.bg};color:${s.color};padding:3px 9px;border-radius:10px;font-size:.68rem;font-weight:600;white-space:nowrap;border:1px solid ${s.color}22">${s.icon?s.icon+'&thinsp;':''}${s.label}</span>`
         :'<span style="color:var(--txt3)">\u2014</span>';
 
-      // MD one-tap approve / reject for rows in the MD approval queue
-      const mdActions=(STATE.role==='md' && _accIsMDQueue(r))
-        ? `<div style="display:flex;gap:5px;margin-top:5px">
-             <button onclick="event.stopPropagation();_accQuickApprove('${r.uuid}')" class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;padding:2px 9px;font-size:.66rem;font-weight:700">&#10003; Approve</button>
-             <button onclick="event.stopPropagation();_accQuickReject('${r.uuid}')" class="btn btn-sm" style="background:#dc2626;color:#fff;border:none;padding:2px 9px;font-size:.66rem;font-weight:700">&#10007; Reject</button>
-           </div>`
-        : '';
+      // Two quick actions: Update (full status form) + Approve \u2192 Next Stage.
+      const stageDef=_accViewById(_accStageOf(r));
+      const canUpd=(typeof _accCanUpdate==='function') ? _accCanUpdate() : false;
+      const canAdv=_accCanAdvance(stageDef);
+      const actionsCell=`<td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap;position:sticky;right:0;background:${i%2===0?'var(--surface1)':'#fafbfa'};box-shadow:-4px 0 6px -4px rgba(0,0,0,.12)">
+        <div style="display:flex;gap:5px;justify-content:flex-end">
+          ${canUpd?`<button onclick="event.stopPropagation();_accOpenPRDetail('${r.uuid}')" class="btn btn-secondary btn-sm" title="Update status" style="padding:2px 8px;font-size:.66rem">&#9998; Update</button>`:''}
+          ${canAdv?`<button onclick="event.stopPropagation();_accAdvance('${r.uuid}')" class="btn btn-sm" title="Approve &amp; move to ${stageDef.next.to}" style="background:#16a34a;color:#fff;border:none;padding:2px 9px;font-size:.66rem;font-weight:700">&#10003; ${stageDef.next.to} &rarr;</button>`:''}
+          ${(!canUpd&&!canAdv)?'<span style="color:var(--txt3);font-size:.68rem">&#8212;</span>':''}
+        </div>
+      </td>`;
 
       // Request ID cell \u2014 opens the portal-native detail view (row onclick)
       const reqIdCell=`<td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">
@@ -5161,10 +5220,11 @@ function renderAccountsModule() {
         ${td(r.currency,'text-align:center;font-size:.72rem;font-weight:700;color:var(--g7)')}
         <td style="${amtStyle}">${fmtAmt(r.amount,r.currency)}</td>
         ${tdClip(r.narrative,200)}
-        <td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">${pill}${mdActions}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">${pill}</td>
         ${td(r.accDate,'white-space:nowrap;color:var(--txt2)')}
         ${tdClip(r.utr,170)}
         ${tdClip(r.remarks,150)}
+        ${actionsCell}
       </tr>`;
     }).join('');
   };
@@ -5989,7 +6049,7 @@ function _accGotoMDQueue() {
   navigate('accounts');
 }
 
-async function _accQuickStatus(uuid, status, comments) {
+async function _accQuickStatus(uuid, status, comments, utr) {
   const rid = (crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0, 8) : String(Date.now()).slice(-8);
   const email = STATE.user?.email || '';
   const me = (STATE.masters.users || []).find(u => (u.email || '').toLowerCase() === email.toLowerCase());
@@ -6005,7 +6065,7 @@ async function _accQuickStatus(uuid, status, comments) {
     'Status': status,
     'Pending Reason': '',
     'Date': _accFmtLongDate(new Date()),
-    'UTR Details': '',
+    'UTR Details': utr || '',
     'Comments (If Any)': comments || '',
     'Timestamp': _accFmtDateTime(new Date()),
   };
