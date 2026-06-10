@@ -133,6 +133,32 @@ function stampHtml(dir) {
 stampHtml(ROOT);
 console.log(`✓ Cache-busted HTML asset refs → ?v=${v.build}`);
 
+// ── Sync the top navigation from the single source (partials/topnav.html) ──
+// The top nav is shared by every page shell. To stop it drifting / going stale
+// across the duplicated page files, it lives in ONE partial and is injected into
+// every *.html that has a <nav id="topNav"> block on each build.
+(function syncTopNav() {
+  const partial = path.join(ROOT, 'partials', 'topnav.html');
+  if (!fs.existsSync(partial)) { console.log('• topnav.html partial not found — skipping nav sync'); return; }
+  let nav = fs.readFileSync(partial, 'utf8').trim();
+  const re = /<nav id="topNav">[\s\S]*?<\/nav>/;
+  let count = 0;
+  (function walk(dir) {
+    for (const name of fs.readdirSync(dir)) {
+      if (name === '.git' || name === 'node_modules' || name === 'portal_v3' || name === 'partials') continue;
+      const full = path.join(dir, name);
+      const st = fs.statSync(full);
+      if (st.isDirectory()) { walk(full); continue; }
+      if (!name.endsWith('.html')) continue;
+      const before = fs.readFileSync(full, 'utf8');
+      if (!re.test(before)) continue;
+      const after = before.replace(re, nav);
+      if (after !== before) { fs.writeFileSync(full, after); count++; }
+    }
+  })(ROOT);
+  console.log(`✓ Top nav synced from partials/topnav.html → ${count} page(s) updated`);
+})();
+
 // ── Validate JS ──
 try {
   execSync(`node --check "${BUNDLE}"`, { stdio: 'pipe' });
