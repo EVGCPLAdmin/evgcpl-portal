@@ -68,6 +68,13 @@
     /* Approval pipeline */
     .pipeline-step { flex: 1; min-width: 0; }
     .pipeline-connector { height: 2px; flex: 1; }
+
+    /* Responsive: never let the sticky nav force a sideways scroll, and
+       tighten the main gutter on phones. */
+    html, body { overflow-x: hidden; }
+    @media (max-width: 480px) {
+      main { padding-left: 12px !important; padding-right: 12px !important; }
+    }
   </style>
 </head>
 <body>
@@ -357,7 +364,7 @@ function StatusBadge({ status }) {
 // ─── STATUS SELECT ────────────────────────────────────────────
 function StatusSelect({ value, onChange }) {
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(88px,1fr))', gap:8 }}>
       {STAGES.map(s => {
         const active = value === s.key;
         const Icon = s.Icon;
@@ -566,7 +573,7 @@ function BillForm({ onSave, projects, parties, bills, onCreateProject, editingBi
     if (!isEditing) setForm({ ...emptyForm });
   };
 
-  const grd2 = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 };
+  const grd2 = { display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:12 };
 
   return (
     <form onSubmit={save} style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -607,7 +614,7 @@ function BillForm({ onSave, projects, parties, bills, onCreateProject, editingBi
 
       {/* Payment Method */}
       <Section title="Payment Method" accent="#0EA5E9" Icon={Wallet}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom: activeMode.needs.length>0?12:0 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(96px,1fr))', gap:8, marginBottom: activeMode.needs.length>0?12:0 }}>
           {PAYMENT_MODES.map(m => (
             <button key={m.value} type="button" onClick={()=>update('paymentMode',m.value)}
               style={{ padding:'9px 6px', borderRadius:9, border:`1px solid ${form.paymentMode===m.value ? '#0EA5E9' : 'var(--border)'}`, background: form.paymentMode===m.value ? 'rgba(14,165,233,0.12)' : 'var(--surface)', color: form.paymentMode===m.value ? '#0EA5E9' : 'var(--text-3)', cursor:'pointer', fontSize:11, fontWeight:600 }}>
@@ -1068,7 +1075,7 @@ function ProjectsScreen({ projects, bills, onSaveProject, onDeleteProject }) {
       {showForm && (
         <div className="fade-in" style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:16, padding:18, marginBottom:14, boxShadow:'var(--shadow-md)' }}>
           <h3 style={{ margin:'0 0 14px', fontSize:15, fontWeight:700, color:'var(--text)' }}>New Project</h3>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:10, marginBottom:10 }}>
             <Field label="Project Name"><Input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Project Alpha" /></Field>
             <Field label="Prefix (for bill numbers)"><Input value={form.prefix} onChange={e=>setForm(f=>({...f,prefix:e.target.value.toUpperCase()}))} placeholder="ALPH" maxLength={6} /></Field>
             <Field label="Notes" wide><Input value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Optional description" /></Field>
