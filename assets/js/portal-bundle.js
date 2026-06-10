@@ -4923,8 +4923,26 @@ function _accMapRow(r) {
 }
 // Re-fetch the PaymentRequest tab and rebuild window._accAllRows.
 async function _accReloadRows() {
-  const raw = await fetchSheet('PaymentRequest', null, PAYMENT_SHEET_ID);
-  window._accAllRows = (raw || []).filter(r => (r['Payment To'] || '').trim()).map(_accMapRow);
+  // Kick off the status-options preload early (cached), so the Update form never
+  // has to fetch it on demand — avoids the "Loading status options…" stall when a
+  // sync POST is in flight.
+  try { _accLoadPaymentStatusMaster(); } catch (e) {}
+
+  const map = raw => (raw || []).filter(r => (r['Payment To'] || '').trim()).map(_accMapRow);
+  let rows = map(await fetchSheet('PaymentRequest', null, PAYMENT_SHEET_ID));
+  // gviz JSONP resolves to [] on timeout/parse-error. The PaymentRequest sheet has
+  // thousands of rows, so an empty result is virtually always a transient failure
+  // (often while a sync POST is occupying the connection). Retry once…
+  if (!rows.length) {
+    await new Promise(r => setTimeout(r, 900));
+    rows = map(await fetchSheet('PaymentRequest', null, PAYMENT_SHEET_ID));
+  }
+  // …and if it is STILL empty, keep whatever good data we already had rather than
+  // wiping the whole module to "0 records".
+  if (!rows.length && Array.isArray(window._accAllRows) && window._accAllRows.length) {
+    return window._accAllRows;
+  }
+  window._accAllRows = rows;
   return window._accAllRows;
 }
 
@@ -7375,9 +7393,12 @@ async function _accToggleUpdateForm(uuid) {
   if (!box) return;
   if (box.dataset.open === '1') { box.innerHTML = ''; box.dataset.open = '0'; return; }
   box.dataset.open = '1';
+  // If the options are already cached, draw immediately — never block on a fetch
+  // (which could be stuck behind an in-flight sync POST).
+  if (_accPayStatusMaster !== null) { _accDrawUpdateForm(box, uuid); return; }
   box.innerHTML = '<div style="padding:.8rem;color:var(--txt3);font-size:.8rem">&#8987; Loading status options…</div>';
   await _accLoadPaymentStatusMaster();
-  _accDrawUpdateForm(box, uuid);
+  if (box.dataset.open === '1') _accDrawUpdateForm(box, uuid);
 }
 
 function _accDrawUpdateForm(box, uuid) {
