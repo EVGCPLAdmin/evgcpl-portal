@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.19.3';
-const PORTAL_BUILD    = 438;
-const PORTAL_BUILD_AT = '2026-06-10T16:38:58Z';
+const PORTAL_VERSION  = '3.19.5';
+const PORTAL_BUILD    = 440;
+const PORTAL_BUILD_AT = '2026-06-10T16:49:31Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5171,8 +5171,7 @@ function renderAccountsModule() {
               <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:130px;border-right:1px solid rgba(255,255,255,.15)">Request ID</th>
               <th onclick="accSetSort('date')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:110px;border-right:1px solid rgba(255,255,255,.15)">Date &#8597;</th>
               <th onclick="accSetSort('initiator')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:140px;border-right:1px solid rgba(255,255,255,.15)">Initiator &#8597;</th>
-              <th onclick="accSetSort('nature')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:130px;border-right:1px solid rgba(255,255,255,.15)">Nature &#8597;</th>
-              <th onclick="accSetSort('payTo')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:120px;border-right:1px solid rgba(255,255,255,.15)">Payment To &#8597;</th>
+              <th onclick="accSetSort('paidTo')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:240px;border-right:1px solid rgba(255,255,255,.15)">Request Details &#8597;</th>
               <th onclick="accSetSort('dept')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:100px;border-right:1px solid rgba(255,255,255,.15)">Department &#8597;</th>
               <th onclick="accSetSort('process')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:120px;border-right:1px solid rgba(255,255,255,.15)">Process &#8597;</th>
               <th onclick="accSetSort('empCode')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:140px;border-right:1px solid rgba(255,255,255,.15)">Emp/Vendor Code &#8597;</th>
@@ -5182,7 +5181,6 @@ function renderAccountsModule() {
               <th onclick="accSetSort('billNo')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:90px;border-right:1px solid rgba(255,255,255,.15)">Bill No &#8597;</th>
               <th onclick="accSetSort('currency')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:80px;border-right:1px solid rgba(255,255,255,.15)">Currency &#8597;</th>
               <th onclick="accSetSort('amount')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:100px;text-align:right;border-right:1px solid rgba(255,255,255,.15)">Amount &#8597;</th>
-              <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:180px;border-right:1px solid rgba(255,255,255,.15)">Narrative</th>
               <th onclick="accSetSort('status')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:190px;border-right:1px solid rgba(255,255,255,.15)">Status &#8597;</th>
               <th onclick="accSetSort('accDate')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:110px;border-right:1px solid rgba(255,255,255,.15)">Acc. Date &#8597;</th>
               <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:160px;border-right:1px solid rgba(255,255,255,.15)">UTR Details</th>
@@ -5191,7 +5189,7 @@ function renderAccountsModule() {
             </tr>
           </thead>
           <tbody id="accTbody">
-            <tr><td colspan="22" style="text-align:center;padding:3rem;color:var(--txt3)">&#8987; Loading payment requests...</td></tr>
+            <tr><td colspan="20" style="text-align:center;padding:3rem;color:var(--txt3)">&#8987; Loading payment requests...</td></tr>
           </tbody>
         </table>
       </div>
@@ -5395,6 +5393,19 @@ function renderAccountsModule() {
         ?`<span style="font-size:.68rem;padding:2px 8px;border-radius:10px;background:${ma.includes('auto')?'#dbeafe':'#ede9fe'};color:${ma.includes('auto')?'#1d4ed8':'#6d28d9'};font-weight:700">${r.manualAuto}</span>`
         :'\u2014';
 
+      // Consolidated "Request Details" cell — Payee + type badge, Nature, Narrative.
+      const _esc=(typeof escapeHtml_==='function')?escapeHtml_:(s=>String(s||''));
+      const payeeNm=((typeof _accStripCode==='function'?_accStripCode(r.paidTo):r.paidTo)||r.payTo||'').trim();
+      const _tc={'vendor':['#dbeafe','#1d4ed8'],'employee':['#dcfce7','#15803d'],'sub contractor':['#fef3c7','#b45309'],'others':['#f3e8ff','#7c3aed']}[(r.payTo||'').toLowerCase()]||['#e5e7eb','#475569'];
+      const typeBadge=r.payTo?`<span style="font-size:.58rem;font-weight:700;padding:1px 6px;border-radius:9px;background:${_tc[0]};color:${_tc[1]};white-space:nowrap;flex-shrink:0">${_esc(r.payTo)}</span>`:'';
+      const detailsCell=`<td style="padding:7px 10px;border-bottom:1px solid var(--border);max-width:300px;min-width:240px">
+        <div style="display:flex;align-items:center;gap:.4rem;min-width:0">
+          <span style="font-weight:700;color:var(--txt1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(payeeNm)}">${_esc(payeeNm)||'—'}</span>${typeBadge}
+        </div>
+        ${r.nature?`<div style="font-size:.72rem;color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(r.nature)}">${_esc(r.nature)}</div>`:''}
+        ${r.narrative?`<div style="font-size:.67rem;color:var(--txt3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(r.narrative)}">${_esc(r.narrative)}</div>`:''}
+      </td>`;
+
       const rowBg=i%2===0?'':'background:#fafbfa';
       const amtStyle=`padding:7px 10px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:${r.amount>0?'var(--g8)':'var(--txt3)'};white-space:nowrap`;
 
@@ -5404,7 +5415,7 @@ function renderAccountsModule() {
         ${reqIdCell}
         ${td(r.date,'white-space:nowrap;color:var(--txt2)')}
         ${tdClip(r.initiator,140)}
-        <td style="padding:7px 10px;border-bottom:1px solid var(--border);font-weight:600;max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(r.payTo||'').replace(/"/g,'&quot;')}">${r.payTo||'\u2014'}</td>
+        ${detailsCell}
         ${tdClip(r.dept,110)}
         ${tdClip(r.process,130)}
         ${tdClip(r.empCode,150)}
@@ -5414,7 +5425,6 @@ function renderAccountsModule() {
         ${td(r.billNo,'white-space:nowrap;color:var(--txt2)')}
         ${td(r.currency,'text-align:center;font-size:.72rem;font-weight:700;color:var(--g7)')}
         <td style="${amtStyle}">${fmtAmt(r.amount,r.currency)}</td>
-        ${tdClip(r.narrative,200)}
         <td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">${pill}</td>
         ${td(r.accDate,'white-space:nowrap;color:var(--txt2)')}
         ${tdClip(r.utr,170)}
@@ -5955,17 +5965,28 @@ function _accDrawPRDetail(dr, r) {
     <div style="flex:1;overflow-y:auto;padding:1.1rem 1.4rem;max-height:74vh">
       <div id="acc-detail-actions"></div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem 1.6rem;padding:.85rem 1rem;border:1px solid var(--border);border-radius:10px;background:var(--surface1);margin-bottom:1rem">
-        <div>
-          <div style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Pay To</div>
-          <div style="font-size:1rem;font-weight:700;color:var(--g8);margin-top:1px">${esc(payee) || '—'}</div>
-          <div style="font-size:.73rem;color:var(--txt2);margin-top:1px">${esc(r.payTo) || '—'}${r.site ? ' &middot; ' + esc(r.site) : ''}</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:3px;justify-content:center">
-          ${meta('Initiator', r.initiator)}
-          ${meta('Department', r.dept)}
-          ${meta('Manual / Auto', r.manualAuto)}
-          ${r.installment > 1 ? meta('Installment', r.installment) : ''}
+      <!-- Consolidated Request Details — Payee + type, context, Nature & Narrative -->
+      <div style="border:1px solid var(--border);border-radius:10px;background:var(--surface1);margin-bottom:1rem;overflow:hidden">
+        <div style="background:var(--g9);color:#fff;padding:.4rem .9rem;font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Request Details</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem 1.6rem;padding:.85rem 1rem">
+          <div style="min-width:0">
+            <div style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Payee</div>
+            <div style="display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;margin-top:2px">
+              <span style="font-size:1rem;font-weight:700;color:var(--g8)">${esc(payee) || '—'}</span>
+              ${r.payTo ? `<span style="font-size:.6rem;font-weight:700;padding:1px 7px;border-radius:9px;background:#e0e7ff;color:#4338ca">${esc(r.payTo)}</span>` : ''}
+            </div>
+            <div style="font-size:.73rem;color:var(--txt2);margin-top:2px">${esc(r.site)}${r.site && r.entity ? ' &middot; ' : ''}${esc(r.entity)}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:3px;justify-content:center">
+            ${meta('Initiator', r.initiator)}
+            ${meta('Department', r.dept)}
+            ${meta('Manual / Auto', r.manualAuto)}
+            ${r.installment > 1 ? meta('Installment', r.installment) : ''}
+          </div>
+          ${(r.nature || r.narrative) ? `<div style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:.5rem;display:flex;flex-direction:column;gap:3px">
+            ${r.nature ? `<div style="font-size:.78rem;color:var(--txt1)"><span style="color:var(--txt3);font-weight:600">Nature:&nbsp;</span>${esc(r.nature)}</div>` : ''}
+            ${r.narrative ? `<div style="font-size:.78rem;color:var(--txt2)"><span style="color:var(--txt3);font-weight:600">Narrative:&nbsp;</span>${esc(r.narrative)}</div>` : ''}
+          </div>` : ''}
         </div>
       </div>
 
