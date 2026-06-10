@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.19.13';
-const PORTAL_BUILD    = 448;
-const PORTAL_BUILD_AT = '2026-06-10T17:52:43Z';
+const PORTAL_VERSION  = '3.19.14';
+const PORTAL_BUILD    = 449;
+const PORTAL_BUILD_AT = '2026-06-10T18:10:22Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -6581,7 +6581,16 @@ function _accDrawPRDetail(dr, r) {
         <div id="acc-detail-timeline"><div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">&#8987; Loading status history&hellip;</div></div>
       </div>`,
   };
-  const _vbodyHtml = _accGetVoucherBlockCfg().filter(c => c.enabled).map(c => _vblocks[c.key] || '').join('');
+  // Width hints: billPo + bank render half-width so they pair side-by-side when
+  // adjacent (and grow to full width if alone). Everything else spans full width.
+  // Order + visibility still come from the drag-arrangeable block config.
+  const _vbHalf = { billPo: true, bank: true };
+  const _vbodyHtml = _accGetVoucherBlockCfg().filter(c => c.enabled).map(c => {
+    const html = _vblocks[c.key] || '';
+    if (!html.trim()) return '';
+    const basis = _vbHalf[c.key] ? 'flex:1 1 calc(50% - .5rem);min-width:260px' : 'flex:1 1 100%;min-width:0';
+    return `<div style="${basis}">${html}</div>`;
+  }).join('');
 
   dr.innerHTML = `
     <div style="padding:1rem 1.4rem;border-bottom:2px solid var(--g7);display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff;flex-shrink:0">
@@ -6603,7 +6612,7 @@ function _accDrawPRDetail(dr, r) {
       <div style="display:flex;justify-content:flex-end;margin-bottom:.6rem">
         <button onclick="_accArrangeBlocks()" title="Drag &amp; drop to rearrange voucher sections" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--txt2);cursor:pointer;font-size:.68rem;padding:3px 10px;white-space:nowrap">&#9881; Layout</button>
       </div>
-      ${_vbodyHtml}
+      <div style="display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 1rem">${_vbodyHtml}</div>
     </div>
   `;
 }
