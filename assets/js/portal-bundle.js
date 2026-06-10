@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.19.7';
-const PORTAL_BUILD    = 442;
-const PORTAL_BUILD_AT = '2026-06-10T17:09:54Z';
+const PORTAL_VERSION  = '3.19.8';
+const PORTAL_BUILD    = 443;
+const PORTAL_BUILD_AT = '2026-06-10T17:16:33Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5917,8 +5917,132 @@ function _accFmtLongDate(v) {
 }
 let _accEscHandler = null;
 
+// ── Voucher "Bill & PO Reference" fields — user-arrangeable (drag & drop) ──
+// Order + visibility persist per-browser in localStorage.
+const ACC_ORDER_FIELDS_DEF = [
+  { key: 'orderNo',    label: 'Order No',      on: true  },
+  { key: 'billNo',     label: 'Bill No',       on: true  },
+  { key: 'poValue',    label: 'PO Value',      on: true  },
+  { key: 'invoiceVal', label: 'Invoice Value', on: true  },
+  { key: 'paidVal',    label: 'Paid Value',    on: true  },
+  { key: 'pendingVal', label: 'Pending Value', on: true  },
+  { key: 'currency',   label: 'Currency',      on: false },
+  { key: 'amount',     label: 'Amount',        on: false },
+];
+const ACC_ORDER_FIELDS_LS = 'evgcpl.acc.orderFields';
+
+function _accGetOrderFieldCfg() {
+  const def = ACC_ORDER_FIELDS_DEF;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(ACC_ORDER_FIELDS_LS) || 'null'); } catch (e) {}
+  if (!Array.isArray(saved) || !saved.length) return def.map(f => ({ key: f.key, enabled: f.on }));
+  const known = new Set(def.map(f => f.key));
+  const cfg = saved.filter(s => known.has(s.key)).map(s => ({ key: s.key, enabled: !!s.enabled }));
+  const seen = new Set(cfg.map(c => c.key));
+  def.forEach(f => { if (!seen.has(f.key)) cfg.push({ key: f.key, enabled: f.on }); });
+  return cfg;
+}
+function _accSaveOrderFieldCfg(cfg) {
+  try { localStorage.setItem(ACC_ORDER_FIELDS_LS, JSON.stringify(cfg)); } catch (e) {}
+}
+
+// Build the Bill & PO Reference rows per the saved arrangement.
+function _accOrderFieldRows(r, partRow, fmtAmt) {
+  const val = {
+    orderNo:    r.orderNo,
+    billNo:     r.billNo,
+    poValue:    fmtAmt(r.poValue, r.currency),
+    invoiceVal: fmtAmt(r.invoiceVal, r.currency),
+    paidVal:    fmtAmt(r.paidVal, r.currency),
+    pendingVal: fmtAmt(r.pendingVal, r.currency),
+    currency:   r.currency,
+    amount:     fmtAmt(r.amount, r.currency),
+  };
+  const label = Object.fromEntries(ACC_ORDER_FIELDS_DEF.map(f => [f.key, f.label]));
+  const rows = _accGetOrderFieldCfg().filter(c => c.enabled)
+    .map(c => partRow(label[c.key] || c.key, val[c.key])).join('');
+  return rows || `<tr><td style="padding:6px 11px;color:var(--txt3);font-size:.78rem">No fields selected &mdash; click &#9881; Arrange.</td></tr>`;
+}
+
+// Drag-and-drop arranger modal for the Order fields.
+function _accArrangeOrderFields() {
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const label = Object.fromEntries(ACC_ORDER_FIELDS_DEF.map(f => [f.key, f.label]));
+  const cfg = _accGetOrderFieldCfg();
+  const old = document.getElementById('accFieldArranger'); if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'accFieldArranger';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:1400;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:4vh 4vw';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = `
+    <div style="background:#fff;width:380px;max-width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:.85rem 1.1rem;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff">
+        <div style="font-weight:800;font-size:.95rem">Arrange Order Fields</div>
+        <div style="font-size:.72rem;opacity:.9;margin-top:2px">Drag to reorder &middot; tick to show / hide</div>
+      </div>
+      <ul id="accFieldArrangerList" style="list-style:none;margin:0;padding:.6rem;max-height:55vh;overflow-y:auto">
+        ${cfg.map(c => `
+          <li draggable="true" data-key="${esc(c.key)}" style="display:flex;align-items:center;gap:.6rem;padding:.55rem .7rem;margin-bottom:.4rem;border:1px solid var(--border);border-radius:8px;background:var(--surface1);cursor:grab;user-select:none">
+            <span style="color:var(--txt3);font-size:.95rem;line-height:1">&#8942;&#8942;</span>
+            <input type="checkbox" ${c.enabled ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer" onclick="event.stopPropagation()">
+            <span style="font-size:.84rem;color:var(--txt1);flex:1">${esc(label[c.key] || c.key)}</span>
+          </li>`).join('')}
+      </ul>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.8rem 1.1rem;border-top:1px solid var(--border)">
+        <button onclick="_accResetOrderFields()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset</button>
+        <div style="display:flex;gap:.5rem">
+          <button onclick="document.getElementById('accFieldArranger').remove()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Cancel</button>
+          <button onclick="_accSaveArrangedFields()" class="btn btn-sm" style="background:var(--g7);color:#fff;border:none;font-size:.74rem;font-weight:700;padding:4px 14px">Save</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  _accWireFieldDnd(document.getElementById('accFieldArrangerList'));
+}
+
+function _accWireFieldDnd(list) {
+  if (!list) return;
+  let dragEl = null;
+  const afterEl = (y) => [...list.querySelectorAll('li:not(.dragging)')].reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    return (offset < 0 && offset > closest.offset) ? { offset, el: child } : closest;
+  }, { offset: -Infinity, el: null }).el;
+  list.addEventListener('dragstart', (e) => {
+    dragEl = e.target.closest('li'); if (!dragEl) return;
+    dragEl.classList.add('dragging'); dragEl.style.opacity = '.4';
+  });
+  list.addEventListener('dragend', () => {
+    if (dragEl) { dragEl.classList.remove('dragging'); dragEl.style.opacity = ''; }
+    dragEl = null;
+  });
+  list.addEventListener('dragover', (e) => {
+    e.preventDefault(); if (!dragEl) return;
+    const ref = afterEl(e.clientY);
+    if (ref == null) list.appendChild(dragEl); else list.insertBefore(dragEl, ref);
+  });
+}
+
+function _accSaveArrangedFields() {
+  const list = document.getElementById('accFieldArrangerList'); if (!list) return;
+  const cfg = [...list.querySelectorAll('li')].map(li => ({
+    key: li.dataset.key,
+    enabled: !!(li.querySelector('input[type=checkbox]') || {}).checked,
+  }));
+  _accSaveOrderFieldCfg(cfg);
+  const ov = document.getElementById('accFieldArranger'); if (ov) ov.remove();
+  if (window._accDetailUuid) _accOpenPRDetail(window._accDetailUuid);
+}
+
+function _accResetOrderFields() {
+  try { localStorage.removeItem(ACC_ORDER_FIELDS_LS); } catch (e) {}
+  const ov = document.getElementById('accFieldArranger'); if (ov) ov.remove();
+  _accArrangeOrderFields();
+}
+
 function _accOpenPRDetail(uuid) {
   if (!uuid) return;
+  window._accDetailUuid = uuid;
   const row = (window._accAllRows || []).find(r => r.uuid === uuid)
            || ((typeof _mdpRows !== 'undefined' && _mdpRows) ? _mdpRows.find(r => r.uuid === uuid) : null);
   if (!row) return;
@@ -5935,7 +6059,13 @@ function _accOpenPRDetail(uuid) {
   requestAnimationFrame(() => { ov.style.opacity = '1'; });
   // Close on Esc (single global handler, cleaned up on close)
   if (_accEscHandler) document.removeEventListener('keydown', _accEscHandler);
-  _accEscHandler = (e) => { if (e.key === 'Escape') { e.preventDefault(); _accClosePRDetail(); } };
+  _accEscHandler = (e) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    const fa = document.getElementById('accFieldArranger');
+    if (fa) { fa.remove(); return; }   // close arranger first, keep voucher open
+    _accClosePRDetail();
+  };
   document.addEventListener('keydown', _accEscHandler);
   // Status Updates + documents + role-gated action bar load asynchronously
   _accDrawStatusUpdates(uuid);
@@ -6136,14 +6266,12 @@ function _accDrawPRDetail(dr, r) {
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
         <div>
-          <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Bill &amp; PO Reference</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.45rem">
+            <span style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em">Bill &amp; PO Reference</span>
+            <button onclick="event.stopPropagation();_accArrangeOrderFields()" title="Drag &amp; drop to arrange these fields" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--txt2);cursor:pointer;font-size:.66rem;padding:2px 8px;white-space:nowrap">&#9881; Arrange</button>
+          </div>
           <table style="width:100%;border-collapse:collapse">
-            ${partRow('Order No', r.orderNo)}
-            ${partRow('Bill No', r.billNo)}
-            ${partRow('PO Value', fmtAmt(r.poValue, r.currency))}
-            ${partRow('Invoice Value', fmtAmt(r.invoiceVal, r.currency))}
-            ${partRow('Paid Value', fmtAmt(r.paidVal, r.currency))}
-            ${partRow('Pending Value', fmtAmt(r.pendingVal, r.currency))}
+            ${_accOrderFieldRows(r, partRow, fmtAmt)}
           </table>
         </div>
         <div>
