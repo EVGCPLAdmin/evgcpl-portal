@@ -999,7 +999,11 @@ th.sort-desc .sort-arrow::after{content:'▼';opacity:1}
 @keyframes spin { to { transform:rotate(360deg); } }
 
 /* ═══════════════════════════════════════════════════
-   RESPONSIVE
+   RESPONSIVE  —  three tiers
+     Desktop  ≥ 1025px : top-nav, no sidebar, full-width content
+     Tablet   640–1024 : sidebar drawer + hamburger (touch-friendly),
+                         2-up KPI grid, single-column dashboards
+     Mobile   < 640px  : single-column KPIs, tighter padding
 ═══════════════════════════════════════════════════ */
 @media(max-width:1100px){
   .kpi-grid{grid-template-columns:repeat(2,1fr)}
@@ -1008,7 +1012,8 @@ th.sort-desc .sort-arrow::after{content:'▼';opacity:1}
   .info-grid-3{grid-template-columns:repeat(2,1fr)}
   .breakup-row{grid-template-columns:1fr}
 }
-@media(max-width:900px){
+/* TABLET + MOBILE: top-nav gives way to the touch sidebar drawer */
+@media(max-width:1024px){
   .header-left{width:auto;border-right:none}
   .header-logo{display:none}
   .sidebar{transform:translateX(-100%)}
@@ -1019,10 +1024,12 @@ th.sort-desc .sort-arrow::after{content:'▼';opacity:1}
   .user-info{display:none}
   .kpi-grid{grid-template-columns:1fr 1fr}
 }
-@media(max-width:480px){
+/* MOBILE */
+@media(max-width:639px){
   .kpi-grid{grid-template-columns:1fr}
   .main-content{padding:.9rem .75rem 5rem}
   .time-widget{flex-direction:column;align-items:flex-start;gap:8px}
+  .info-grid-3{grid-template-columns:1fr}
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -1042,8 +1049,8 @@ th.sort-desc .sort-arrow::after{content:'▼';opacity:1}
   gap:0;
   box-shadow:0 2px 12px rgba(0,0,0,.25);
 }
-/* Hide top nav on mobile — sidebar takes over */
-@media(max-width:900px){
+/* Hide top nav on tablet & mobile — sidebar drawer takes over */
+@media(max-width:1024px){
   #topNav { display:none; }
 }
 
@@ -1149,7 +1156,7 @@ th.sort-desc .sort-arrow::after{content:'▼';opacity:1}
 body.dev-mode .tnav-item[data-status="dev"] { display:flex; }
 
 /* ── Layout adjustments for top nav (desktop only) ── */
-@media(min-width:901px){
+@media(min-width:1025px){
   /* Push layout down to accommodate topnav */
   .layout { padding-top:calc(var(--header-h) + var(--topnav-h)); }
   /* Hide sidebar on desktop — topnav replaces it */
