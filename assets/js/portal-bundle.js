@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.53';
-const PORTAL_BUILD    = 426;
-const PORTAL_BUILD_AT = '2026-06-10T13:22:36Z';
+const PORTAL_VERSION  = '3.18.54';
+const PORTAL_BUILD    = 427;
+const PORTAL_BUILD_AT = '2026-06-10T13:34:46Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1385,11 +1385,11 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','md-payments','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','md-command','md-payments','accounts-kpi','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
   hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
-  accounts:  new Set(['dashboard','my-profile','accounts','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  accounts:  new Set(['dashboard','my-profile','accounts','accounts-kpi','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   employee:  new Set(['dashboard','my-profile','my-documents','accounts','policies','rewards','apps','wall','planning-overview','execution','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   dept_head: null,   // built dynamically from DEPT_HEAD_ROUTES below
   vendor:    new Set(['my-portal','my-orders','my-invoices','my-documents']),
@@ -1401,9 +1401,9 @@ const DEPT_HEAD_ROUTES = {
   'hr':                        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps']),
   'human resources':           new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps']),
   // Finance / Accounts
-  'finance':                   new Set(['dashboard','accounts','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
-  'accounts':                  new Set(['dashboard','accounts','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
-  'finance & accounts':        new Set(['dashboard','accounts','my-profile','reports','my-documents','budgeting','execution']),
+  'finance':                   new Set(['dashboard','accounts','accounts-kpi','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
+  'accounts':                  new Set(['dashboard','accounts','accounts-kpi','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
+  'finance & accounts':        new Set(['dashboard','accounts','accounts-kpi','my-profile','reports','my-documents','budgeting','execution']),
   // SCM / Purchase / Procurement
   'supply chain management':   new Set(['dashboard','scm','mrs','stores','vendor','accounts','my-profile','reports','my-documents','apps','rewards','wall']),
   'scm':                       new Set(['dashboard','scm','mrs','stores','vendor','accounts','my-profile','reports','my-documents','apps','rewards','wall']),
@@ -1578,6 +1578,7 @@ function renderPage(page) {
     'subcontractor':  () => renderPlaceholder('🤝','Subcontractor Portal (Internal)','SC management for procurement team','Coming in Phase 8'),
     'tendering':      () => renderPlaceholder('📜','Tendering','Client bid management, BOQ uploads & tender register','Coming in Phase 4'),
     'accounts':       renderAccountsModule,
+    'accounts-kpi':   renderAccountsKpiPage,
     'planning':          () => navigate('budgeting'),
     'planning-overview': () => navigate('budgeting'),
     'planning-setup':    () => navigate('budgeting'),
@@ -4950,19 +4951,42 @@ function _accCanAdvance(viewDef) {
   return (viewDef.next.roles || []).includes((STATE.role || '').toLowerCase());
 }
 // Stage cards = the View selector + the (improved) KPI cards in one.
-function _accStageCardsHtml(allRows) {
+function _accStageCardsHtml(allRows, clickFn) {
+  const fn = clickFn || 'accSetView';
   const rows = (allRows || []).filter(r => !_txnHas(r.uuid));
   const active = window._accView || 'all';
   return ACC_VIEWS.map(v => {
     const inV = (v.id === 'all') ? rows : rows.filter(r => _accStageOf(r) === v.id);
     const total = inV.reduce((s, r) => s + (r.amount || 0), 0);
     const on = active === v.id;
-    return `<div onclick="accSetView('${v.id}')" class="kpi-card" style="cursor:pointer;border-left:4px solid ${v.color};${on ? `box-shadow:0 0 0 2px ${v.color};background:${v.color}0d;` : ''}">
+    return `<div onclick="${fn}('${v.id}')" class="kpi-card" style="cursor:pointer;border-left:4px solid ${v.color};${on ? `box-shadow:0 0 0 2px ${v.color};background:${v.color}0d;` : ''}">
       <div class="kpi-top"><div class="kpi-icon" style="background:${v.color}22;color:${v.color}">${v.icon}</div>${v.next ? `<div class="kpi-trend flat" style="font-size:.58rem">&rarr; ${v.next.to}</div>` : ''}</div>
       <div class="kpi-value" style="font-size:1.4rem">${inV.length}</div>
       <div class="kpi-label">${v.label}</div>
       <div class="kpi-sub">${total ? '₹' + Math.round(total).toLocaleString('en-IN') : '—'}</div>
     </div>`;
+  }).join('');
+}
+
+// Compact View selector — simple icon + name + count (no big cards). The rich
+// KPI cards live on the dedicated "Accounts KPI Cards" page (renderAccountsKpiPage).
+function _accStageChipsHtml(allRows) {
+  const rows = (allRows || []).filter(r => !_txnHas(r.uuid));
+  const active = window._accView || 'all';
+  return ACC_VIEWS.map(v => {
+    const inV = (v.id === 'all') ? rows : rows.filter(r => _accStageOf(r) === v.id);
+    const on = active === v.id;
+    return `<button onclick="accSetView('${v.id}')" title="${v.label}"
+      style="display:inline-flex;align-items:center;gap:.45rem;cursor:pointer;
+        border:1px solid ${on ? v.color : 'var(--border)'};border-radius:8px;
+        padding:.32rem .6rem;font-size:.76rem;font-weight:600;white-space:nowrap;
+        background:${on ? v.color + '14' : 'var(--surface2)'};color:var(--txt1);
+        ${on ? 'box-shadow:inset 0 0 0 1px ' + v.color + ';' : ''}">
+      <span style="font-size:.95rem;line-height:1">${v.icon}</span>
+      <span>${v.label}</span>
+      <span style="background:${v.color}22;color:${v.color};font-weight:800;
+        border-radius:20px;padding:0 .4rem;font-size:.72rem;min-width:1.1rem;text-align:center">${inV.length}</span>
+    </button>`;
   }).join('');
 }
 
@@ -4997,6 +5021,64 @@ async function _accAdvance(uuid) {
   }
 }
 
+// Open the Accounts module focused on a given pipeline view (used by the
+// KPI Cards page so each card deep-links into its list).
+window._accKpiOpen = function(id) { window._accPendingView = id; navigate('accounts'); };
+
+// ── Accounts KPI Cards — dedicated dashboard page (route: 'accounts-kpi') ──
+// Hosts the rich pipeline KPI cards (moved off the Accounts module, which now
+// uses a compact selector). Each card deep-links into its view.
+function renderAccountsKpiPage() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-row">
+        <div>
+          <h1>&#128202; Accounts KPI Cards</h1>
+          <p>Payment pipeline overview &middot; click any card to open that view</p>
+        </div>
+        <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-secondary btn-sm" onclick="renderAccountsKpiPage()">&#8635; Refresh</button>
+          <button class="btn btn-primary btn-sm" onclick="navigate('accounts')">&#128178; Open Accounts &amp; Payments</button>
+        </div>
+      </div>
+    </div>
+    <div id="accKpiStageCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:.7rem;margin-bottom:1.2rem">
+      <div style="grid-column:1/-1;text-align:center;color:var(--txt3);padding:2.5rem">Loading…</div>
+    </div>
+    <div id="accKpiCurrencyCards" style="display:none"></div>`;
+
+  _accReloadRows().then(() => {
+    const sc = document.getElementById('accKpiStageCards');
+    if (sc) sc.innerHTML = _accStageCardsHtml(window._accAllRows || [], '_accKpiOpen');
+    // Currency cards (only when a non-INR currency is present).
+    const cmap = {};
+    (window._accAllRows || []).filter(r => r.status && r.status.cat !== 'other').forEach(r => {
+      const c = r.currency || 'INR';
+      if (!cmap[c]) cmap[c] = { count: 0, total: 0 };
+      cmap[c].count++; cmap[c].total += (r.amount || 0);
+    });
+    const ckeys = Object.keys(cmap);
+    if (ckeys.length > 1 || (ckeys.length === 1 && ckeys[0] !== 'INR')) {
+      const ccEl = document.getElementById('accKpiCurrencyCards');
+      if (ccEl) {
+        ccEl.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:.7rem;margin-bottom:1.2rem';
+        ccEl.innerHTML = ckeys.map(c => `
+          <div class="kpi-card" style="border-left:3px solid var(--g5)">
+            <div class="kpi-top"><div class="kpi-icon green">&#128178;</div><div class="kpi-trend flat">${c}</div></div>
+            <div class="kpi-value" style="font-size:1.15rem">${cmap[c].count}</div>
+            <div class="kpi-label">${c} Requests</div>
+            <div class="kpi-sub">${c} ${Math.round(cmap[c].total).toLocaleString('en-IN')}</div>
+          </div>`).join('');
+      }
+    }
+  }).catch(err => {
+    const sc = document.getElementById('accKpiStageCards');
+    if (sc) sc.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2.5rem;color:var(--danger)">&#9888; Could not load PaymentRequest sheet.</div>';
+    console.error('Accounts KPI fetch error:', err);
+  });
+}
+
 function renderAccountsModule() {
   const el = document.getElementById('mainContent');
   el.innerHTML = `
@@ -5007,14 +5089,16 @@ function renderAccountsModule() {
           <p>Payment requests &middot; status tracking &middot; UTR confirmation</p>
         </div>
         <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-secondary btn-sm" onclick="navigate('accounts-kpi')">&#128202; KPI Cards</button>
           <button class="btn btn-secondary btn-sm" onclick="renderAccountsModule()">&#8635; Refresh</button>
           <button class="btn btn-primary btn-sm" onclick="_accOpenNewPR()">&#10133; New Payment Request</button>
         </div>
       </div>
     </div>
 
-    <!-- Pipeline stage cards — the 8 Views; each is a KPI + a filter -->
-    <div id="accStageCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.6rem;margin-bottom:1rem"></div>
+    <!-- Compact View selector — icon + name + count. Rich KPI cards live on the
+         dedicated "Accounts KPI Cards" page (accounts-kpi route). -->
+    <div id="accStageCards" style="display:flex;flex-wrap:wrap;gap:.45rem;margin-bottom:1rem"></div>
 
     <!-- Currency KPI cards -->
     <div id="accCurrencyCards" style="display:none;margin-bottom:1.2rem"></div>
@@ -5127,7 +5211,10 @@ function renderAccountsModule() {
 
   // ── State ─────────────────────────────────────────────
   window._accAllRows      = [];
-  window._accView         = (STATE.role === 'md') ? 'mdqueue' : 'verify';
+  // Honour a deep-link from the KPI Cards page (set window._accPendingView),
+  // otherwise default by role.
+  window._accView         = window._accPendingView || ((STATE.role === 'md') ? 'mdqueue' : 'verify');
+  window._accPendingView  = null;
   window._accSortCol      = 'requestId';   // default: largest PR number first
   window._accSortDir      = -1;
 
@@ -5269,7 +5356,7 @@ function renderAccountsModule() {
     const shelfEl=document.getElementById('accTxnShelf');
     if (shelfEl) shelfEl.innerHTML=_txnShelfHtml('acc');
     const cardsEl=document.getElementById('accStageCards');
-    if (cardsEl) cardsEl.innerHTML=_accStageCardsHtml(window._accAllRows||[]);
+    if (cardsEl) cardsEl.innerHTML=_accStageChipsHtml(window._accAllRows||[]);
     const lblEl=document.getElementById('accViewLabel');
     if (lblEl) lblEl.innerHTML=`<span style="color:${viewDef.color}">${viewDef.icon} ${viewDef.label}</span>`;
 
@@ -5319,7 +5406,7 @@ function renderAccountsModule() {
 
       // Two quick actions: Update (full status form) + Approve \u2192 Next Stage.
       const stageDef=_accViewById(_accStageOf(r));
-      const canUpd=(typeof _accCanUpdate==='function') ? _accCanUpdate() : false;
+      const canUpd=(typeof _accCanUpdate==='function') ? _accCanUpdate(r) : false;
       const canAdv=_accCanAdvance(stageDef);
       const actionsCell=`<td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap;position:sticky;right:0;background:${i%2===0?'var(--surface1)':'#fafbfa'};box-shadow:-4px 0 6px -4px rgba(0,0,0,.12)">
         <div style="display:flex;gap:5px;justify-content:flex-end">
@@ -6073,11 +6160,40 @@ async function _accLoadPaymentStatusMaster() {
 }
 
 // Is the current user allowed to post accounts updates?
-function _accCanUpdate() {
-  const role = STATE.role;
-  if (role === 'md' || role === 'accounts') return true;
-  if (role === 'dept_head') return /finance|account/i.test(STATE.deptHeadDept || '');
-  return false;
+// Admin = full override (MD role OR an admin/owner email): the Update Status
+// quick action shows on EVERY request, at any stage.
+function _accIsAdmin() {
+  if ((STATE.role || '').toLowerCase() === 'md') return true;
+  const e = (STATE.user?.email || '').toLowerCase();
+  return e.includes('admin@evgcpl') || e.includes('neurolooom');
+}
+// Current statuses representing an MD/admin action — Accounts is LOCKED OUT of
+// updating a request sitting at one of these (per the Accounts/Admin matrix).
+// Anything NOT listed here is Accounts-updatable (Verified→MD, Payment
+// Initiated / Re-Initiated, Payment Completed, Pending Due to Queries,
+// Pending With Accounts, Reject Payment (Accounts), and new/blank rows).
+const ACC_ADMIN_ONLY_STATUSES = new Set([
+  'process payment, move to accounts',
+  'reject payment (md)',
+  'hold payment (md)',
+  'on hold by md',
+  'payment on hold by md',
+  'paid (md_ed)',
+  'send back to accounts (md)',
+  'sent back to accounts',
+  'send back to respective department (md)',
+  'sent back to dept (md)',
+]);
+function _accCanUpdate(r) {
+  if (_accIsAdmin()) return true;                       // admin/MD: every stage
+  const role = (STATE.role || '').toLowerCase();
+  const isAcc = role === 'accounts' ||
+                (role === 'dept_head' && /finance|account/i.test(STATE.deptHeadDept || ''));
+  if (!isAcc) return false;
+  if (!r) return true;
+  // Accounts: restricted — no Update button on MD/admin-action statuses.
+  const lbl = (((r.status && r.status.label) || '')).toLowerCase().replace(/\s*,\s*/g, ', ').trim();
+  return !ACC_ADMIN_ONLY_STATUSES.has(lbl);
 }
 
 // Status values this user may SET — from Payment_Status master, with a
@@ -6115,7 +6231,7 @@ function _accRenderDetailActions(r) {
   const host = document.getElementById('acc-detail-actions');
   if (!host) return;
   const stageDef = _accViewById(_accStageOf(r));
-  const canUpd = _accCanUpdate();
+  const canUpd = _accCanUpdate(r);
   const canAdv = _accCanAdvance(stageDef);
   if (!canUpd && !canAdv) { host.innerHTML = ''; return; }
   const uuid = (r.uuid || '').replace(/'/g, "\\'");
@@ -6367,6 +6483,7 @@ const MODULE_REGISTRY = [
   // ── Finance ───────────────────────────────────────────────────
   { route:'md-payments',       label:'Payments & Approvals',   section:'Finance',          defStatus:'live', defRoles:['md'] },
   { route:'accounts',          label:'Accounts & Payments',    section:'Finance',          defStatus:'live', defRoles:['md','accounts','dept_head'] },
+  { route:'accounts-kpi',      label:'Accounts KPI Cards',     section:'Finance',          defStatus:'live', defRoles:['md','accounts','dept_head'] },
 
   // ── Planning ──────────────────────────────────────────────────
   { route:'budgeting',         label:'Budgeting',              section:'Planning',         defStatus:'live', defRoles:['md','hr','site','accounts','purchase','employee','dept_head'] },
