@@ -5893,9 +5893,29 @@ function _accAmountWords(n) {
 }
 
 function _accClosePRDetail() {
+  if (_accEscHandler) { document.removeEventListener('keydown', _accEscHandler); _accEscHandler = null; }
   const ov = document.getElementById('accVoucherOverlay');
   if (ov) { ov.style.opacity = '0'; setTimeout(() => { try { ov.remove(); } catch (e) {} }, 200); }
 }
+
+// Format a date value as a long, human date — "28 May 2026".
+// Handles GViz "Date(2026,4,28)" (month 0-based), ISO, and dd/mm/yyyy strings.
+function _accFmtLongDate(v) {
+  if (!v) return '';
+  const s = String(v).trim();
+  let d = null;
+  if (/^Date\(\d+,\d+,\d+/.test(s)) {
+    d = parseGvizDate(s);
+  } else if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    d = new Date(s);
+  } else {
+    const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    if (m) { let y = +m[3]; if (y < 100) y += 2000; d = new Date(y, +m[2] - 1, +m[1]); }
+  }
+  if (!d || isNaN(d.getTime()) || d.getFullYear() < 1971) return s;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+let _accEscHandler = null;
 
 function _accOpenPRDetail(uuid) {
   if (!uuid) return;
@@ -5913,6 +5933,10 @@ function _accOpenPRDetail(uuid) {
   ov.innerHTML = `<div id="accVoucherCard" style="background:#fff;width:840px;max-width:100%;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden;margin:auto"></div>`;
   _accDrawPRDetail(document.getElementById('accVoucherCard'), row);
   requestAnimationFrame(() => { ov.style.opacity = '1'; });
+  // Close on Esc (single global handler, cleaned up on close)
+  if (_accEscHandler) document.removeEventListener('keydown', _accEscHandler);
+  _accEscHandler = (e) => { if (e.key === 'Escape') { e.preventDefault(); _accClosePRDetail(); } };
+  document.addEventListener('keydown', _accEscHandler);
   // Status Updates + documents + role-gated action bar load asynchronously
   _accDrawStatusUpdates(uuid);
   _accDrawPRAttachments(row);
@@ -5958,6 +5982,7 @@ function _accDrawPRDetail(dr, r) {
       <div style="text-align:right;flex-shrink:0">
         <div style="font-family:monospace;font-size:1rem;font-weight:700">${esc(r.requestId) || esc(r.uuid)}</div>
         <div style="font-size:.74rem;opacity:.9;margin-top:2px">${esc(r.date) || '—'}</div>
+        ${r.accDate ? `<div style="font-size:.72rem;opacity:.95;margin-top:3px;background:rgba(255,255,255,.18);padding:2px 9px;border-radius:8px;display:inline-block">Accounts Date&nbsp;&middot;&nbsp;<b>${esc(_accFmtLongDate(r.accDate))}</b></div>` : ''}
         <button onclick="_accClosePRDetail()" style="margin-top:.5rem;background:rgba(255,255,255,.18);border:none;color:#fff;width:28px;height:28px;border-radius:7px;cursor:pointer;font-size:.95rem">&#10006;</button>
       </div>
     </div>
@@ -6030,11 +6055,11 @@ function _accDrawPRDetail(dr, r) {
         </div>
       </div>
 
-      ${(r.accStatus || r.utr || r.remarks || r.accDate) ? `
+      ${(r.accStatus || r.utr || r.remarks) ? `
       <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">Accounts Processing</div>
       <table style="width:100%;border-collapse:collapse;margin-bottom:1rem">
         ${partRow('Accounts Status', r.accStatus)}
-        ${partRow('Accounts Date', r.accDate)}
+        ${partRow('Accounts Date', _accFmtLongDate(r.accDate))}
         ${partRow('UTR Details', r.utr)}
         ${partRow('Remarks', r.remarks)}
       </table>` : ''}
