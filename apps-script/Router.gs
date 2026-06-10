@@ -103,6 +103,7 @@ function doPost(e) {
     if (action === 'saveAccountsUpdate')       return _wrap(saveAccountsUpdate(body));
     if (action === 'createPRFolder')           return _wrap(createPRFolder(body));
     if (action === 'uploadPRAttachment')       return _wrap(uploadPRAttachment(body));
+    if (action === 'listPRAttachments')        return _wrap(listPRAttachments(body));
 
     return _err('Unknown POST action: ' + action);
 

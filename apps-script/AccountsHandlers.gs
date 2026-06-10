@@ -83,15 +83,38 @@ function _accAppendByHeader(sheetId, tab, row) {
 // ─────────────────────────────────────────────────────────────
 function createPRFolder(body) {
   try {
-    var parentName = 'PaymentRequests';
-    var it = DriveApp.getFoldersByName(parentName);
-    var parent = it.hasNext() ? it.next() : DriveApp.createFolder(parentName);
-    var sub = (body.requestId || body.uuid || 'PR') + '_' + (body.uuid || '');
-    var folder = parent.createFolder(sub);
+    var folder = _getOrCreatePRFolder(body.requestId, body.uuid);
+    if (!folder) return { success: false, message: 'Could not resolve PaymentRequests folder' };
     return { success: true, folderId: folder.getId(), folderUrl: folder.getUrl() };
   } catch (e) {
     return { success: false, message: e.message };
   }
+}
+
+// Find (or create) the per-PR subfolder inside the 'PaymentRequests' parent.
+// Folder name convention: "<requestId>_<uuid>". We reuse an existing folder
+// that matches the uuid (most reliable) or the requestId so re-uploads and
+// later look-ups land in the same place instead of spawning duplicates.
+function _getOrCreatePRFolder(requestId, uuid, createIfMissing) {
+  if (createIfMissing === undefined) createIfMissing = true;
+  var parentIt = DriveApp.getFoldersByName('PaymentRequests');
+  var parent = parentIt.hasNext() ? parentIt.next()
+             : (createIfMissing ? DriveApp.createFolder('PaymentRequests') : null);
+  if (!parent) return null;
+  requestId = String(requestId || '');
+  uuid      = String(uuid || '');
+  var folders = parent.getFolders();
+  while (folders.hasNext()) {
+    var f = folders.next();
+    var name = f.getName();
+    if ((uuid && name.indexOf(uuid) !== -1) ||
+        (requestId && (name === requestId || name.indexOf(requestId + '_') === 0))) {
+      return f;
+    }
+  }
+  if (!createIfMissing) return null;
+  var sub = (requestId || uuid || 'PR') + '_' + uuid;
+  return parent.createFolder(sub);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -104,7 +127,41 @@ function uploadPRAttachment(body) {
     var bytes  = Utilities.base64Decode(body.base64 || '');
     var blob   = Utilities.newBlob(bytes, body.mimeType || 'application/octet-stream', body.filename || 'attachment');
     var file   = folder.createFile(blob);
+    // Make the attachment openable by any portal user who has the link.
+    try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (se) {}
     return { success: true, fileId: file.getId(), fileUrl: file.getUrl() };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ACTION: listPRAttachments
+//  body: { requestId, uuid }
+//  Returns the documents stored in this PR's Drive folder so the portal
+//  can surface "open document" links in the payment-request detail view.
+// ─────────────────────────────────────────────────────────────
+function listPRAttachments(body) {
+  try {
+    var folder = _getOrCreatePRFolder(body.requestId, body.uuid, false);
+    if (!folder) return { success: true, files: [] };
+    var files = [];
+    var it = folder.getFiles();
+    while (it.hasNext()) {
+      var file = it.next();
+      // Ensure legacy files (uploaded before sharing was set) are openable.
+      try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (se) {}
+      files.push({
+        id:       file.getId(),
+        name:     file.getName(),
+        mimeType: file.getMimeType(),
+        url:      file.getUrl(),
+        size:     file.getSize(),
+        updated:  file.getLastUpdated() ? file.getLastUpdated().toISOString() : ''
+      });
+    }
+    files.sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
+    return { success: true, files: files, folderId: folder.getId(), folderUrl: folder.getUrl() };
   } catch (e) {
     return { success: false, message: e.message };
   }
