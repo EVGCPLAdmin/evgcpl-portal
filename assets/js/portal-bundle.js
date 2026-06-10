@@ -1385,11 +1385,11 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','md-payments','accounts-kpi','accounts-v2','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','md-command','md-payments','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
   hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
-  accounts:  new Set(['dashboard','my-profile','accounts','accounts-kpi','accounts-v2','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  accounts:  new Set(['dashboard','my-profile','accounts','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   employee:  new Set(['dashboard','my-profile','my-documents','accounts','policies','rewards','apps','wall','planning-overview','execution','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   dept_head: null,   // built dynamically from DEPT_HEAD_ROUTES below
   vendor:    new Set(['my-portal','my-orders','my-invoices','my-documents']),
@@ -1401,9 +1401,9 @@ const DEPT_HEAD_ROUTES = {
   'hr':                        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps']),
   'human resources':           new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps']),
   // Finance / Accounts
-  'finance':                   new Set(['dashboard','accounts','accounts-kpi','accounts-v2','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
-  'accounts':                  new Set(['dashboard','accounts','accounts-kpi','accounts-v2','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
-  'finance & accounts':        new Set(['dashboard','accounts','accounts-kpi','accounts-v2','my-profile','reports','my-documents','budgeting','execution']),
+  'finance':                   new Set(['dashboard','accounts','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
+  'accounts':                  new Set(['dashboard','accounts','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
+  'finance & accounts':        new Set(['dashboard','accounts','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','my-profile','reports','my-documents','budgeting','execution']),
   // SCM / Purchase / Procurement
   'supply chain management':   new Set(['dashboard','scm','mrs','stores','vendor','accounts','my-profile','reports','my-documents','apps','rewards','wall']),
   'scm':                       new Set(['dashboard','scm','mrs','stores','vendor','accounts','my-profile','reports','my-documents','apps','rewards','wall']),
@@ -1578,7 +1578,9 @@ function renderPage(page) {
     'subcontractor':  () => renderPlaceholder('🤝','Subcontractor Portal (Internal)','SC management for procurement team','Coming in Phase 8'),
     'tendering':      () => renderPlaceholder('📜','Tendering','Client bid management, BOQ uploads & tender register','Coming in Phase 4'),
     'accounts':       renderAccountsModule,
-    'accounts-v2':    renderAccountsWorkspace,
+    'accounts-v2':        () => renderAccountsWorkspace(),
+    'accounts-dashboard': () => renderAccountsWorkspace('dashboard'),
+    'accounts-worklist':  () => renderAccountsWorkspace('worklist'),
     'accounts-kpi':   renderAccountsKpiPage,
     'planning':          () => navigate('budgeting'),
     'planning-overview': () => navigate('budgeting'),
@@ -4923,15 +4925,15 @@ const ACC_HOLD_LABELS = ['On Hold by MD','Payment On Hold by MD','Sent Back to A
 //   Payment Completed            → (terminal)
 const ACC_VIEWS = [
   { id:'verify',   label:'To be Verified',      icon:'&#128269;', color:'#d97706',
-    next:{ status:'Verified, Move to MD Queue',        to:'MD Queue',          roles:['accounts','dept_head'] } },
+    next:{ status:'Verified, Move to MD Queue',        to:'MD Queue',          actionLabel:'Verified, Move to MD Queue', roles:['accounts','dept_head'] } },
   { id:'mdqueue',  label:'MD Queue',            icon:'&#9878;',   color:'#6366f1',
-    next:{ status:'Process Payment, Move to Accounts', to:'Initiate Payment',  roles:['md'] } },
+    next:{ status:'Process Payment, Move to Accounts', to:'Initiate Payment',  actionLabel:'Process Payment', roles:['md'] } },
   { id:'initiate', label:'To Initiate Payment', icon:'&#128640;', color:'#2563eb',
-    next:{ status:'Payment Initiated',                 to:'Paid?',             roles:['md','accounts','dept_head'] } },
+    next:{ status:'Payment Initiated',                 to:'Paid?',             actionLabel:'Initiated Payment in Bank', roles:['md','accounts','dept_head'] } },
   { id:'paid',     label:'Paid?',               icon:'&#128181;', color:'#0891b2',
-    next:{ status:'Paid (MD_ED)',                      to:'Update UTR',        roles:['md'] } },
+    next:{ status:'Paid (MD_ED)',                      to:'Update UTR',        actionLabel:'Bank Transaction Completed', roles:['md'] } },
   { id:'utr',      label:'To Update UTR',       icon:'&#128290;', color:'#7c3aed',
-    next:{ status:'Payment Completed',                 to:'Done', needsUtr:true, roles:['md','accounts','dept_head'] } },
+    next:{ status:'Payment Completed',                 to:'Done', needsUtr:true, actionLabel:'Update UTR', roles:['md','accounts','dept_head'] } },
   { id:'rejected', label:'Rejection Bin',       icon:'&#10060;',  color:'#dc2626', next:null },
   { id:'hold',     label:'Hold Bin',            icon:'&#9208;',   color:'#b45309', next:null },
   { id:'all',      label:'Accounts Database',   icon:'&#128194;', color:'#475569', next:null },
@@ -5046,8 +5048,28 @@ window._accKpiOpen = function(id) { window._accPendingView = id; navigate('accou
 //  · actions). Reuses _accAllRows, the stage model, and the voucher. The
 //  classic Accounts page is untouched, so the two can run side by side.
 // ══════════════════════════════════════════════════════════════════════════
-const ACCW = { tab:'dashboard', stage:'all', groupBy:'stage', search:'', site:'', age:'', sel:new Set(), collapsed:new Set() };
+const ACCW = { tab:'dashboard', stage:'all', groupBy:'stage', search:'', site:'', entity:'', process:'', age:'', sel:new Set(), collapsed:new Set() };
 const _accwOpenStages = ['verify','mdqueue','initiate','paid','utr'];
+function _accwSetStage(id) { ACCW.stage = id; ACCW.sel.clear(); _accwRenderBody(); }
+// Group-View chips (the classic 8 stage views) — clickable, count per stage.
+function _accwStageChipsHtml() {
+  const rows = _accwRows();
+  const chip = (id, label, icon, color, n) => {
+    const on = ACCW.stage === id;
+    return `<button onclick="_accwSetStage('${id}')" title="${label}"
+      style="display:inline-flex;align-items:center;gap:.4rem;cursor:pointer;border:1px solid ${on?color:'var(--border)'};
+        border-radius:8px;padding:.3rem .55rem;font-size:.75rem;font-weight:600;white-space:nowrap;
+        background:${on?color+'14':'var(--surface2)'};color:var(--txt1);${on?'box-shadow:inset 0 0 0 1px '+color+';':''}">
+      <span style="font-size:.9rem;line-height:1">${icon}</span><span>${label}</span>
+      <span style="background:${color}22;color:${color};font-weight:800;border-radius:20px;padding:0 .4rem;font-size:.7rem;min-width:1.1rem;text-align:center">${n}</span>
+    </button>`;
+  };
+  const chips = ACC_VIEWS.map(v => {
+    const n = (v.id === 'all') ? rows.length : rows.filter(r => _accStageOf(r) === v.id).length;
+    return chip(v.id, v.label, v.icon, v.color, n);
+  }).join('');
+  return `<div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.7rem">${chips}</div>`;
+}
 function _accwRows()        { return (window._accAllRows||[]).filter(r=>!_txnHas(r.uuid)); }
 function _accwIsOpen(r)     { return _accwOpenStages.includes(_accStageOf(r)); }
 function _accwFmt(v)        { return '₹' + Math.round(v||0).toLocaleString('en-IN'); }
@@ -5066,7 +5088,8 @@ function _accwAgeChip(n) {
   return `<span style="background:${c[1]};color:${c[0]};font-weight:700;font-size:.7rem;padding:1px 7px;border-radius:8px;white-space:nowrap">${n}d</span>`;
 }
 
-function renderAccountsWorkspace() {
+function renderAccountsWorkspace(initialTab) {
+  if (initialTab) ACCW.tab = initialTab;
   ACCW.sel.clear();
   const el = document.getElementById('mainContent');
   el.innerHTML = `
@@ -5189,7 +5212,9 @@ function _accwFiltered() {
   let rows = _accwRows();
   if (ACCW.stage === 'open') rows = rows.filter(_accwIsOpen);
   else if (ACCW.stage !== 'all') rows = rows.filter(r => _accStageOf(r) === ACCW.stage);
-  if (ACCW.site)   rows = rows.filter(r => r.site === ACCW.site);
+  if (ACCW.site)    rows = rows.filter(r => r.site === ACCW.site);
+  if (ACCW.entity)  rows = rows.filter(r => r.entity === ACCW.entity);
+  if (ACCW.process) rows = rows.filter(r => r.process === ACCW.process);
   if (ACCW.search) { const q = ACCW.search.toLowerCase(); rows = rows.filter(r => r._s.includes(q)); }
   if (ACCW.age) {
     rows = rows.filter(r => { const a=_accwAge(r); if (a==null) return false;
@@ -5211,7 +5236,9 @@ function _accwGroupKey(r) {
 function _accwWorklistHtml() {
   const esc = (typeof escapeHtml_==='function') ? escapeHtml_ : (s=>String(s||''));
   const rows = _accwFiltered();
-  const sites = [...new Set(_accwRows().map(r=>r.site).filter(Boolean))].sort();
+  const sites    = [...new Set(_accwRows().map(r=>r.site).filter(Boolean))].sort();
+  const entities = [...new Set(_accwRows().map(r=>r.entity).filter(Boolean))].sort();
+  const procs    = [...new Set(_accwRows().map(r=>r.process).filter(Boolean))].sort();
   const stageOpts = [['all','All stages'],['open','Open / In-flight'],...ACC_VIEWS.filter(v=>v.id!=='all').map(v=>[v.id,v.label]),['done','Completed']];
   const groupOpts = [['stage','Stage'],['site','Site'],['vendor','Payee'],['process','Process'],['entity','For (Company)'],['month','Month'],['none','No grouping']];
   const ageOpts = [['','Any age'],['0-7','0–7 days'],['8-15','8–15 days'],['16-30','16–30 days'],['30+','30+ days']];
@@ -5227,11 +5254,19 @@ function _accwWorklistHtml() {
         </div>
         <div style="display:flex;flex-direction:column;gap:3px">
           <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Stage</label>
-          <select onchange="ACCW.stage=this.value;ACCW.sel.clear();_accwRenderListOnly()" style="${selStyle}">${opt(stageOpts,ACCW.stage)}</select>
+          <select onchange="_accwSetStage(this.value)" style="${selStyle}">${opt(stageOpts,ACCW.stage)}</select>
         </div>
         <div style="display:flex;flex-direction:column;gap:3px">
           <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Site</label>
           <select onchange="ACCW.site=this.value;_accwRenderListOnly()" style="${selStyle}"><option value="">All Sites</option>${sites.map(s=>`<option ${s===ACCW.site?'selected':''}>${esc(s)}</option>`).join('')}</select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">For</label>
+          <select onchange="ACCW.entity=this.value;_accwRenderListOnly()" style="${selStyle}"><option value="">All</option>${entities.map(s=>`<option ${s===ACCW.entity?'selected':''}>${esc(s)}</option>`).join('')}</select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Process</label>
+          <select onchange="ACCW.process=this.value;_accwRenderListOnly()" style="${selStyle}"><option value="">All Processes</option>${procs.map(s=>`<option ${s===ACCW.process?'selected':''}>${esc(s)}</option>`).join('')}</select>
         </div>
         <div style="display:flex;flex-direction:column;gap:3px">
           <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Age</label>
@@ -5241,12 +5276,13 @@ function _accwWorklistHtml() {
           <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Group by</label>
           <select onchange="ACCW.groupBy=this.value;ACCW.collapsed.clear();_accwRenderListOnly()" style="${selStyle}">${opt(groupOpts,ACCW.groupBy)}</select>
         </div>
-        <button onclick="ACCW.search='';ACCW.site='';ACCW.age='';ACCW.stage='all';_accwRenderListOnly()" class="btn btn-secondary btn-sm" style="align-self:flex-end">&#10006; Reset</button>
+        <button onclick="ACCW.search='';ACCW.site='';ACCW.entity='';ACCW.process='';ACCW.age='';ACCW.stage='all';_accwRenderListOnly()" class="btn btn-secondary btn-sm" style="align-self:flex-end">&#10006; Reset</button>
         <button onclick="_accwExportCsv()" class="btn btn-secondary btn-sm" style="align-self:flex-end;background:var(--g7);color:#fff;border-color:var(--g7)">&#11015; CSV</button>
       </div>
     </div></div>`;
 
-  return toolbar + `<div id="accwList">${_accwTableHtml(rows)}</div>`;
+  const shelf = (typeof _txnShelfHtml === 'function') ? `<div id="accwTxnShelf">${_txnShelfHtml('acc')}</div>` : '';
+  return _accwStageChipsHtml() + shelf + toolbar + `<div id="accwList">${_accwTableHtml(rows)}</div>`;
 }
 function _accwRenderListOnly() {
   const el = document.getElementById('accwList'); if (!el) { _accwRenderBody(); return; }
@@ -5264,23 +5300,45 @@ function _accwTableHtml(rows) {
   const grand = _accwSum(rows);
   const ncol = 10;
 
+  const tc = { 'vendor':['#dbeafe','#1d4ed8'], 'employee':['#dcfce7','#15803d'], 'sub contractor':['#fef3c7','#b45309'], 'others':['#f3e8ff','#7c3aed'] };
   const rowHtml = (r) => {
     const v = _accViewById(_accStageOf(r));
     const st = r.status || {};
     const canAdv = _accCanAdvance(v);
+    const canUpd = (typeof _accCanUpdate === 'function') ? _accCanUpdate(r) : false;
+    const advLabel = (v.next && (v.next.actionLabel || v.next.to)) || '';
     const payee = _accStripCode(r.paidTo) || r.payTo || '—';
+    const uuid = (r.uuid || '').replace(/'/g, "\\'");
     const checked = ACCW.sel.has(r.uuid) ? 'checked' : '';
-    return `<tr style="cursor:pointer" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='BUTTON')_accOpenPRDetail('${(r.uuid||'').replace(/'/g,"\\'")}')">
-      <td style="${TD};text-align:center"><input type="checkbox" ${checked} onclick="event.stopPropagation();_accwToggleSel('${(r.uuid||'').replace(/'/g,"\\'")}')" style="width:15px;height:15px;cursor:pointer"></td>
-      <td style="${TD};font-family:monospace;font-size:.74rem;color:var(--g8);font-weight:700;white-space:nowrap">${esc(r.requestId)||'—'}</td>
-      <td style="${TD};max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(payee)}"><b>${esc(payee)}</b>${r.payTo?` <span style="font-size:.6rem;color:var(--txt3)">${esc(r.payTo)}</span>`:''}</td>
+    const ma = (r.manualAuto || '').toLowerCase();
+    const maBadge = r.manualAuto ? `<span style="font-size:.56rem;padding:1px 5px;border-radius:8px;background:${ma.includes('auto')?'#dbeafe':'#ede9fe'};color:${ma.includes('auto')?'#1d4ed8':'#6d28d9'};font-weight:700">${esc(r.manualAuto)}</span>` : '';
+    const inst = (r.installment && +r.installment > 1) ? `<span title="Installment" style="font-size:.56rem;padding:1px 5px;border-radius:8px;background:#f1f5f9;color:var(--txt2);font-weight:700">#${esc(r.installment)}</span>` : '';
+    const pc = tc[(r.payTo || '').toLowerCase()] || ['#e5e7eb', '#475569'];
+    const typeBadge = r.payTo ? `<span style="font-size:.56rem;font-weight:700;padding:1px 6px;border-radius:8px;background:${pc[0]};color:${pc[1]};white-space:nowrap">${esc(r.payTo)}</span>` : '';
+    return `<tr style="cursor:pointer" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='BUTTON')_accOpenPRDetail('${uuid}')">
+      <td style="${TD};text-align:center"><input type="checkbox" ${checked} onclick="event.stopPropagation();_accwToggleSel('${uuid}')" style="width:15px;height:15px;cursor:pointer"></td>
+      <td style="${TD};white-space:nowrap">
+        <div style="font-family:monospace;font-size:.74rem;color:var(--g8);font-weight:700">${esc(r.requestId)||'—'}</div>
+        <div style="display:flex;gap:.25rem;margin-top:2px">${maBadge}${inst}</div>
+      </td>
+      <td style="${TD};max-width:260px">
+        <div style="display:flex;align-items:center;gap:.35rem;min-width:0"><b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(payee)}</b>${typeBadge}</div>
+        ${r.nature?`<div style="font-size:.7rem;color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.nature)}">${esc(r.nature)}</div>`:''}
+        ${r.narrative?`<div style="font-size:.66rem;color:var(--txt3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.narrative)}">${esc(r.narrative)}</div>`:''}
+      </td>
       <td style="${TD};max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.site)}">${esc(r.site)||'—'}</td>
       <td style="${TD};font-family:monospace;font-size:.72rem;color:var(--txt2);white-space:nowrap">${esc(r.orderNo)||'—'}</td>
       <td style="${TD};text-align:right;font-weight:700;color:${r.amount>0?'var(--g8)':'var(--txt3)'};white-space:nowrap">${_accwFmt(r.amount)}</td>
       <td style="${TD};white-space:nowrap">${st.label?`<span style="background:${st.bg};color:${st.color};padding:2px 8px;border-radius:9px;font-size:.66rem;font-weight:600;border:1px solid ${st.color}22">${esc(st.label)}</span>`:'—'}</td>
       <td style="${TD};text-align:center">${_accwAgeChip(_accwAge(r))}</td>
       <td style="${TD};white-space:nowrap;color:var(--txt2);font-size:.74rem">${esc(r.date)||'—'}</td>
-      <td style="${TD};white-space:nowrap;text-align:center">${canAdv?`<button onclick="event.stopPropagation();_accAdvance('${(r.uuid||'').replace(/'/g,"\\'")}')" class="btn btn-sm" title="Advance to ${v.next.to}" style="background:#16a34a;color:#fff;border:none;padding:2px 9px;font-size:.64rem;font-weight:700">&#10003; ${v.next.to}</button>`:'<span style="color:var(--txt3);font-size:.7rem">—</span>'}</td>
+      <td style="${TD};white-space:nowrap;text-align:center">
+        <div style="display:flex;gap:4px;justify-content:center">
+          ${canUpd?`<button onclick="event.stopPropagation();_accOpenPRDetail('${uuid}')" class="btn btn-secondary btn-sm" title="Update status" style="padding:2px 8px;font-size:.62rem">&#9998; Update</button>`:''}
+          ${canAdv?`<button onclick="event.stopPropagation();_accAdvance('${uuid}')" class="btn btn-sm" title="${advLabel}" style="background:#16a34a;color:#fff;border:none;padding:2px 9px;font-size:.62rem;font-weight:700">&#10003; ${advLabel}</button>`:''}
+          ${(!canUpd&&!canAdv)?'<span style="color:var(--txt3);font-size:.7rem">—</span>':''}
+        </div>
+      </td>
     </tr>`;
   };
 
@@ -5304,9 +5362,9 @@ function _accwTableHtml(rows) {
       <table class="data-table" style="width:100%">
         <thead><tr style="background:var(--g9);color:#fff;position:sticky;top:0;z-index:2">
           <th style="${TH};text-align:center;width:34px"><input type="checkbox" onclick="_accwToggleAll(this.checked)" title="Select all shown" style="width:15px;height:15px;cursor:pointer"></th>
-          <th style="${TH}">Request ID</th><th style="${TH}">Payee</th><th style="${TH}">Site</th>
+          <th style="${TH}">Request ID</th><th style="${TH}">Request Details</th><th style="${TH}">Site</th>
           <th style="${TH}">Order No</th><th style="${TH};text-align:right">Amount</th><th style="${TH}">Status</th>
-          <th style="${TH};text-align:center">Age</th><th style="${TH}">Date</th><th style="${TH};text-align:center">Action</th>
+          <th style="${TH};text-align:center">Age</th><th style="${TH}">Date</th><th style="${TH};text-align:center">Actions</th>
         </tr></thead>
         <tbody>${body || `<tr><td colspan="${ncol}" style="text-align:center;padding:3rem;color:var(--txt3)">No matching requests.</td></tr>`}</tbody>
         <tfoot><tr style="background:var(--g9);color:#fff;position:sticky;bottom:0;font-weight:800">
@@ -5403,7 +5461,6 @@ function renderAccountsModule() {
           <p>Payment requests &middot; status tracking &middot; UTR confirmation</p>
         </div>
         <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
-          <button class="btn btn-secondary btn-sm" onclick="navigate('accounts-kpi')">&#128202; KPI Cards</button>
           <button class="btn btn-secondary btn-sm" onclick="renderAccountsModule()">&#8635; Refresh</button>
           <button class="btn btn-primary btn-sm" onclick="_accOpenNewPR()">&#10133; New Payment Request</button>
         </div>
