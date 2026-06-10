@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.19.15';
-const PORTAL_BUILD    = 450;
-const PORTAL_BUILD_AT = '2026-06-10T18:10:54Z';
+const PORTAL_VERSION  = '3.19.18';
+const PORTAL_BUILD    = 453;
+const PORTAL_BUILD_AT = '2026-06-10T18:59:10Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1385,11 +1385,11 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','md-payments','accounts-kpi','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','md-command','md-payments','accounts-kpi','accounts-v2','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
   hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
-  accounts:  new Set(['dashboard','my-profile','accounts','accounts-kpi','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  accounts:  new Set(['dashboard','my-profile','accounts','accounts-kpi','accounts-v2','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   employee:  new Set(['dashboard','my-profile','my-documents','accounts','policies','rewards','apps','wall','planning-overview','execution','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   dept_head: null,   // built dynamically from DEPT_HEAD_ROUTES below
   vendor:    new Set(['my-portal','my-orders','my-invoices','my-documents']),
@@ -1401,9 +1401,9 @@ const DEPT_HEAD_ROUTES = {
   'hr':                        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps']),
   'human resources':           new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps']),
   // Finance / Accounts
-  'finance':                   new Set(['dashboard','accounts','accounts-kpi','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
-  'accounts':                  new Set(['dashboard','accounts','accounts-kpi','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
-  'finance & accounts':        new Set(['dashboard','accounts','accounts-kpi','my-profile','reports','my-documents','budgeting','execution']),
+  'finance':                   new Set(['dashboard','accounts','accounts-kpi','accounts-v2','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
+  'accounts':                  new Set(['dashboard','accounts','accounts-kpi','accounts-v2','my-profile','reports','my-documents','wall','rewards','budgeting','execution']),
+  'finance & accounts':        new Set(['dashboard','accounts','accounts-kpi','accounts-v2','my-profile','reports','my-documents','budgeting','execution']),
   // SCM / Purchase / Procurement
   'supply chain management':   new Set(['dashboard','scm','mrs','stores','vendor','accounts','my-profile','reports','my-documents','apps','rewards','wall']),
   'scm':                       new Set(['dashboard','scm','mrs','stores','vendor','accounts','my-profile','reports','my-documents','apps','rewards','wall']),
@@ -1578,6 +1578,7 @@ function renderPage(page) {
     'subcontractor':  () => renderPlaceholder('🤝','Subcontractor Portal (Internal)','SC management for procurement team','Coming in Phase 8'),
     'tendering':      () => renderPlaceholder('📜','Tendering','Client bid management, BOQ uploads & tender register','Coming in Phase 4'),
     'accounts':       renderAccountsModule,
+    'accounts-v2':    renderAccountsWorkspace,
     'accounts-kpi':   renderAccountsKpiPage,
     'planning':          () => navigate('budgeting'),
     'planning-overview': () => navigate('budgeting'),
@@ -5039,6 +5040,327 @@ async function _accAdvance(uuid) {
 // KPI Cards page so each card deep-links into its list).
 window._accKpiOpen = function(id) { window._accPendingView = id; navigate('accounts'); };
 
+// ══════════════════════════════════════════════════════════════════════════
+//  ACCOUNTS WORKSPACE (v2) — standalone page (route: accounts-v2)
+//  Two tabs: Dashboard (insights) + Worklist (grouped table · ageing · totals
+//  · actions). Reuses _accAllRows, the stage model, and the voucher. The
+//  classic Accounts page is untouched, so the two can run side by side.
+// ══════════════════════════════════════════════════════════════════════════
+const ACCW = { tab:'dashboard', stage:'all', groupBy:'stage', search:'', site:'', age:'', sel:new Set(), collapsed:new Set() };
+const _accwOpenStages = ['verify','mdqueue','initiate','paid','utr'];
+function _accwRows()        { return (window._accAllRows||[]).filter(r=>!_txnHas(r.uuid)); }
+function _accwIsOpen(r)     { return _accwOpenStages.includes(_accStageOf(r)); }
+function _accwFmt(v)        { return '₹' + Math.round(v||0).toLocaleString('en-IN'); }
+function _accwSum(rows)     { return rows.reduce((s,r)=>s+(r.amount||0),0); }
+function _accwAge(r) {
+  const d = r && r.date; if (!d) return null;
+  const p = String(d).trim().split(/[-\/]/); let t;
+  if (p.length === 3) t = (p[0].length === 4) ? new Date(+p[0],+p[1]-1,+p[2]) : new Date(+p[2],+p[1]-1,+p[0]);
+  else t = new Date(d);
+  if (!t || isNaN(t.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - t.getTime()) / 86400000));
+}
+function _accwAgeChip(n) {
+  if (n == null) return '<span style="color:var(--txt3)">—</span>';
+  const c = n<=7 ? ['#16a34a','#dcfce7'] : n<=15 ? ['#b45309','#fef3c7'] : n<=30 ? ['#ea580c','#ffedd5'] : ['#dc2626','#fee2e2'];
+  return `<span style="background:${c[1]};color:${c[0]};font-weight:700;font-size:.7rem;padding:1px 7px;border-radius:8px;white-space:nowrap">${n}d</span>`;
+}
+
+function renderAccountsWorkspace() {
+  ACCW.sel.clear();
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-row">
+        <div>
+          <h1>&#128188; Accounts Workspace <span style="font-size:.58rem;font-weight:800;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:20px;vertical-align:middle;letter-spacing:.05em">NEW</span></h1>
+          <p>Dashboard insights &middot; grouped worklist &middot; actions — all in one place</p>
+        </div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-secondary btn-sm" onclick="navigate('accounts')">&#8592; Classic view</button>
+          <button class="btn btn-secondary btn-sm" onclick="renderAccountsWorkspace()">&#8635; Refresh</button>
+          <button class="btn btn-primary btn-sm" onclick="_accOpenNewPR()">&#10133; New Request</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:.4rem;margin-top:.7rem">
+        <button id="accwTab-dashboard" onclick="_accwSetTab('dashboard')" class="btn btn-sm">&#128202; Dashboard</button>
+        <button id="accwTab-worklist"  onclick="_accwSetTab('worklist')"  class="btn btn-sm">&#128203; Worklist</button>
+      </div>
+    </div>
+    <div id="accwBody"><div style="text-align:center;padding:3rem;color:var(--txt3)">&#8987; Loading payment requests…</div></div>`;
+  _accReloadRows().then(() => _accwRenderBody())
+    .catch(() => { const b=document.getElementById('accwBody'); if (b) b.innerHTML='<div style="padding:2.5rem;text-align:center;color:var(--danger)">&#9888; Could not load the PaymentRequest sheet.</div>'; });
+}
+function _accwSetTab(t) { ACCW.tab = t; _accwRenderBody(); }
+function _accwSyncTabs() {
+  ['dashboard','worklist'].forEach(t => {
+    const b = document.getElementById('accwTab-' + t); if (!b) return;
+    const on = ACCW.tab === t;
+    b.className = 'btn btn-sm' + (on ? '' : ' btn-secondary');
+    b.style.cssText = on ? 'background:var(--g8);color:#fff;border-color:var(--g8)' : '';
+  });
+}
+function _accwRenderBody() {
+  const body = document.getElementById('accwBody'); if (!body) return;
+  _accwSyncTabs();
+  body.innerHTML = (ACCW.tab === 'dashboard') ? _accwDashboardHtml() : _accwWorklistHtml();
+}
+function _accwOpenStage(stage) { ACCW.tab='worklist'; ACCW.stage=stage; ACCW.age=''; ACCW.sel.clear(); _accwRenderBody(); }
+function _accwOpenAge(age)    { ACCW.tab='worklist'; ACCW.stage='open'; ACCW.age=age; ACCW.sel.clear(); _accwRenderBody(); }
+
+// ── Dashboard ─────────────────────────────────────────────────────────────
+function _accwDashboardHtml() {
+  const esc = (typeof escapeHtml_==='function') ? escapeHtml_ : (s=>String(s||''));
+  const rows = _accwRows();
+  const open = rows.filter(_accwIsOpen);
+  const done = rows.filter(r => _accStageOf(r)==='done');
+  const rej  = rows.filter(r => _accStageOf(r)==='rejected');
+  const hold = rows.filter(r => _accStageOf(r)==='hold');
+  const nonInr = rows.filter(r => r.currency && r.currency!=='INR').length;
+
+  const kpi = (icon,color,val,label,sub,click) => `
+    <div class="kpi-card" ${click?`onclick="${click}" style="cursor:pointer"`:''}>
+      <div class="kpi-top"><div class="kpi-icon" style="background:${color}22;color:${color}">${icon}</div></div>
+      <div class="kpi-value" style="font-size:1.5rem">${val}</div>
+      <div class="kpi-label">${label}</div>
+      <div class="kpi-sub">${sub||''}</div>
+    </div>`;
+
+  const kpis = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.7rem;margin-bottom:1.2rem">
+      ${kpi('&#128194;','#475569', rows.length, 'Total Requests', _accwFmt(_accwSum(rows))+(nonInr?` &middot; +${nonInr} non-INR`:''))}
+      ${kpi('&#128260;','#d97706', open.length, 'Open / In-flight', _accwFmt(_accwSum(open)), `_accwOpenStage('open')`)}
+      ${kpi('&#9208;','#b45309', hold.length, 'On Hold', _accwFmt(_accwSum(hold)), `_accwOpenStage('hold')`)}
+      ${kpi('&#10003;','#16a34a', done.length, 'Completed', _accwFmt(_accwSum(done)), `_accwOpenStage('done')`)}
+      ${kpi('&#10060;','#dc2626', rej.length, 'Rejected', '', `_accwOpenStage('rejected')`)}
+    </div>`;
+
+  // Pipeline stage tiles (open + bins), clickable into the worklist
+  const stageTiles = ACC_VIEWS.filter(v=>v.id!=='all').map(v => {
+    const inV = rows.filter(r => _accStageOf(r)===v.id);
+    return `<div onclick="_accwOpenStage('${v.id}')" class="kpi-card" style="cursor:pointer;border-left:4px solid ${v.color}">
+      <div class="kpi-top"><div class="kpi-icon" style="background:${v.color}22;color:${v.color}">${v.icon}</div>${v.next?`<div class="kpi-trend flat" style="font-size:.56rem">&rarr; ${v.next.to}</div>`:''}</div>
+      <div class="kpi-value" style="font-size:1.3rem">${inV.length}</div>
+      <div class="kpi-label">${v.label}</div>
+      <div class="kpi-sub">${inV.length?_accwFmt(_accwSum(inV)):'—'}</div>
+    </div>`;
+  }).join('');
+
+  // Ageing buckets (open rows only)
+  const buckets = [['0-7','0–7 days','#16a34a'],['8-15','8–15 days','#b45309'],['16-30','16–30 days','#ea580c'],['30+','30+ days','#dc2626']];
+  const inBucket = (r,b) => { const a=_accwAge(r); if (a==null) return false; return b==='0-7'?a<=7:b==='8-15'?(a>=8&&a<=15):b==='16-30'?(a>=16&&a<=30):a>30; };
+  const ageTiles = buckets.map(([k,lbl,c]) => {
+    const inB = open.filter(r => inBucket(r,k));
+    return `<div onclick="_accwOpenAge('${k}')" style="cursor:pointer;flex:1 1 160px;border:1px solid var(--border);border-top:3px solid ${c};border-radius:10px;padding:.7rem .9rem;background:var(--surface1)">
+      <div style="font-size:.68rem;font-weight:700;color:${c};text-transform:uppercase;letter-spacing:.04em">${lbl}</div>
+      <div style="font-size:1.35rem;font-weight:800;color:var(--txt1);margin-top:2px">${inB.length}</div>
+      <div style="font-size:.74rem;color:var(--txt2)">${inB.length?_accwFmt(_accwSum(inB)):'—'}</div>
+    </div>`;
+  }).join('');
+
+  // Top vendors / sites by OPEN amount
+  const topBy = (keyFn) => {
+    const m = new Map();
+    open.forEach(r => { const k=keyFn(r)||'—'; const e=m.get(k)||{n:0,amt:0}; e.n++; e.amt+=r.amount||0; m.set(k,e); });
+    return [...m.entries()].sort((a,b)=>b[1].amt-a[1].amt).slice(0,6);
+  };
+  const listCard = (title, entries) => `
+    <div style="flex:1 1 320px;border:1px solid var(--border);border-radius:10px;background:var(--surface1);overflow:hidden">
+      <div style="background:var(--g9);color:#fff;padding:.45rem .9rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em">${title}</div>
+      ${entries.length ? entries.map(([k,e]) => `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.45rem .9rem;border-bottom:1px solid var(--border)">
+          <span style="font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(k)} <span style="color:var(--txt3);font-size:.7rem">&times;${e.n}</span></span>
+          <span style="font-size:.8rem;font-weight:700;color:var(--g8);white-space:nowrap">${_accwFmt(e.amt)}</span>
+        </div>`).join('') : '<div style="padding:.8rem .9rem;color:var(--txt3);font-size:.8rem">No open items</div>'}
+    </div>`;
+
+  return `
+    ${kpis}
+    <div style="font-weight:700;font-size:.74rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin:.2rem 0 .55rem">Pipeline</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.7rem;margin-bottom:1.3rem">${stageTiles}</div>
+    <div style="font-weight:700;font-size:.74rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin:.2rem 0 .55rem">Ageing of open requests</div>
+    <div style="display:flex;flex-wrap:wrap;gap:.7rem;margin-bottom:1.3rem">${ageTiles}</div>
+    <div style="font-weight:700;font-size:.74rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin:.2rem 0 .55rem">Where the open money sits</div>
+    <div style="display:flex;flex-wrap:wrap;gap:1rem">${listCard('Top Payees · open amount', topBy(r=>_accStripCode(r.paidTo)||r.payTo))}${listCard('Top Sites · open amount', topBy(r=>r.site))}</div>`;
+}
+
+// ── Worklist (grouped table + actions) ──────────────────────────────────────
+function _accwFiltered() {
+  let rows = _accwRows();
+  if (ACCW.stage === 'open') rows = rows.filter(_accwIsOpen);
+  else if (ACCW.stage !== 'all') rows = rows.filter(r => _accStageOf(r) === ACCW.stage);
+  if (ACCW.site)   rows = rows.filter(r => r.site === ACCW.site);
+  if (ACCW.search) { const q = ACCW.search.toLowerCase(); rows = rows.filter(r => r._s.includes(q)); }
+  if (ACCW.age) {
+    rows = rows.filter(r => { const a=_accwAge(r); if (a==null) return false;
+      return ACCW.age==='0-7'?a<=7:ACCW.age==='8-15'?(a>=8&&a<=15):ACCW.age==='16-30'?(a>=16&&a<=30):a>30; });
+  }
+  return rows.sort((a,b) => _accPrNum(b) - _accPrNum(a));
+}
+function _accwGroupKey(r) {
+  switch (ACCW.groupBy) {
+    case 'stage':   return _accViewById(_accStageOf(r)).label;
+    case 'site':    return r.site || '—';
+    case 'entity':  return r.entity || '—';
+    case 'process': return r.process || '—';
+    case 'vendor':  return _accStripCode(r.paidTo) || r.payTo || '—';
+    case 'month':   return r.monthYear || '—';
+    default:        return '';
+  }
+}
+function _accwWorklistHtml() {
+  const esc = (typeof escapeHtml_==='function') ? escapeHtml_ : (s=>String(s||''));
+  const rows = _accwFiltered();
+  const sites = [...new Set(_accwRows().map(r=>r.site).filter(Boolean))].sort();
+  const stageOpts = [['all','All stages'],['open','Open / In-flight'],...ACC_VIEWS.filter(v=>v.id!=='all').map(v=>[v.id,v.label]),['done','Completed']];
+  const groupOpts = [['stage','Stage'],['site','Site'],['vendor','Payee'],['process','Process'],['entity','For (Company)'],['month','Month'],['none','No grouping']];
+  const ageOpts = [['','Any age'],['0-7','0–7 days'],['8-15','8–15 days'],['16-30','16–30 days'],['30+','30+ days']];
+  const opt = (arr,cur) => arr.map(([v,l])=>`<option value="${v}" ${v===cur?'selected':''}>${l}</option>`).join('');
+  const selStyle = 'font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface2)';
+
+  const toolbar = `
+    <div class="card" style="margin-bottom:.8rem"><div class="card-body" style="padding:.7rem 1rem">
+      <div style="display:flex;gap:.7rem;flex-wrap:wrap;align-items:flex-end">
+        <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:200px">
+          <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Search</label>
+          <input id="accwSearch" value="${esc(ACCW.search)}" oninput="ACCW.search=this.value;_accwRenderListOnly()" placeholder="Request ID, payee, Order No, Bill No, UTR…" style="${selStyle};width:100%;box-sizing:border-box">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Stage</label>
+          <select onchange="ACCW.stage=this.value;ACCW.sel.clear();_accwRenderListOnly()" style="${selStyle}">${opt(stageOpts,ACCW.stage)}</select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Site</label>
+          <select onchange="ACCW.site=this.value;_accwRenderListOnly()" style="${selStyle}"><option value="">All Sites</option>${sites.map(s=>`<option ${s===ACCW.site?'selected':''}>${esc(s)}</option>`).join('')}</select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Age</label>
+          <select onchange="ACCW.age=this.value;_accwRenderListOnly()" style="${selStyle}">${opt(ageOpts,ACCW.age)}</select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Group by</label>
+          <select onchange="ACCW.groupBy=this.value;ACCW.collapsed.clear();_accwRenderListOnly()" style="${selStyle}">${opt(groupOpts,ACCW.groupBy)}</select>
+        </div>
+        <button onclick="ACCW.search='';ACCW.site='';ACCW.age='';ACCW.stage='all';_accwRenderListOnly()" class="btn btn-secondary btn-sm" style="align-self:flex-end">&#10006; Reset</button>
+        <button onclick="_accwExportCsv()" class="btn btn-secondary btn-sm" style="align-self:flex-end;background:var(--g7);color:#fff;border-color:var(--g7)">&#11015; CSV</button>
+      </div>
+    </div></div>`;
+
+  return toolbar + `<div id="accwList">${_accwTableHtml(rows)}</div>`;
+}
+function _accwRenderListOnly() {
+  const el = document.getElementById('accwList'); if (!el) { _accwRenderBody(); return; }
+  el.innerHTML = _accwTableHtml(_accwFiltered());
+}
+function _accwTableHtml(rows) {
+  const esc = (typeof escapeHtml_==='function') ? escapeHtml_ : (s=>String(s||''));
+  const TH = 'padding:8px 9px;text-align:left;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,.15)';
+  const TD = 'padding:6px 9px;border-bottom:1px solid var(--border)';
+  // group
+  const groups = new Map();
+  if (ACCW.groupBy === 'none') groups.set('', rows);
+  else rows.forEach(r => { const k=_accwGroupKey(r); if (!groups.has(k)) groups.set(k,[]); groups.get(k).push(r); });
+  const gentries = [...groups.entries()].sort((a,b)=>_accwSum(b[1])-_accwSum(a[1]));
+  const grand = _accwSum(rows);
+  const ncol = 10;
+
+  const rowHtml = (r) => {
+    const v = _accViewById(_accStageOf(r));
+    const st = r.status || {};
+    const canAdv = _accCanAdvance(v);
+    const payee = _accStripCode(r.paidTo) || r.payTo || '—';
+    const checked = ACCW.sel.has(r.uuid) ? 'checked' : '';
+    return `<tr style="cursor:pointer" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='BUTTON')_accOpenPRDetail('${(r.uuid||'').replace(/'/g,"\\'")}')">
+      <td style="${TD};text-align:center"><input type="checkbox" ${checked} onclick="event.stopPropagation();_accwToggleSel('${(r.uuid||'').replace(/'/g,"\\'")}')" style="width:15px;height:15px;cursor:pointer"></td>
+      <td style="${TD};font-family:monospace;font-size:.74rem;color:var(--g8);font-weight:700;white-space:nowrap">${esc(r.requestId)||'—'}</td>
+      <td style="${TD};max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(payee)}"><b>${esc(payee)}</b>${r.payTo?` <span style="font-size:.6rem;color:var(--txt3)">${esc(r.payTo)}</span>`:''}</td>
+      <td style="${TD};max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.site)}">${esc(r.site)||'—'}</td>
+      <td style="${TD};font-family:monospace;font-size:.72rem;color:var(--txt2);white-space:nowrap">${esc(r.orderNo)||'—'}</td>
+      <td style="${TD};text-align:right;font-weight:700;color:${r.amount>0?'var(--g8)':'var(--txt3)'};white-space:nowrap">${_accwFmt(r.amount)}</td>
+      <td style="${TD};white-space:nowrap">${st.label?`<span style="background:${st.bg};color:${st.color};padding:2px 8px;border-radius:9px;font-size:.66rem;font-weight:600;border:1px solid ${st.color}22">${esc(st.label)}</span>`:'—'}</td>
+      <td style="${TD};text-align:center">${_accwAgeChip(_accwAge(r))}</td>
+      <td style="${TD};white-space:nowrap;color:var(--txt2);font-size:.74rem">${esc(r.date)||'—'}</td>
+      <td style="${TD};white-space:nowrap;text-align:center">${canAdv?`<button onclick="event.stopPropagation();_accAdvance('${(r.uuid||'').replace(/'/g,"\\'")}')" class="btn btn-sm" title="Advance to ${v.next.to}" style="background:#16a34a;color:#fff;border:none;padding:2px 9px;font-size:.64rem;font-weight:700">&#10003; ${v.next.to}</button>`:'<span style="color:var(--txt3);font-size:.7rem">—</span>'}</td>
+    </tr>`;
+  };
+
+  const body = gentries.map(([k, grp]) => {
+    const sub = _accwSum(grp);
+    const isCollapsed = ACCW.collapsed.has(k);
+    const header = ACCW.groupBy==='none' ? '' : `
+      <tr style="background:var(--surface2);cursor:pointer" onclick="_accwToggleGroup('${String(k).replace(/'/g,"\\'")}')">
+        <td colspan="${ncol}" style="padding:6px 9px;border-bottom:1px solid var(--border);font-weight:700;font-size:.78rem;color:var(--txt1)">
+          <span style="display:inline-block;width:14px">${isCollapsed?'▸':'▾'}</span>
+          ${esc(k)} <span style="color:var(--txt3);font-weight:500">&middot; ${grp.length}</span>
+          <span style="float:right;color:var(--g8)">${_accwFmt(sub)}</span>
+        </td>
+      </tr>`;
+    const cells = isCollapsed ? '' : grp.map(rowHtml).join('');
+    return header + cells;
+  }).join('');
+
+  return `
+    <div class="card"><div style="overflow:auto;max-height:66vh;border-radius:0 0 var(--rad) var(--rad)">
+      <table class="data-table" style="width:100%">
+        <thead><tr style="background:var(--g9);color:#fff;position:sticky;top:0;z-index:2">
+          <th style="${TH};text-align:center;width:34px"><input type="checkbox" onclick="_accwToggleAll(this.checked)" title="Select all shown" style="width:15px;height:15px;cursor:pointer"></th>
+          <th style="${TH}">Request ID</th><th style="${TH}">Payee</th><th style="${TH}">Site</th>
+          <th style="${TH}">Order No</th><th style="${TH};text-align:right">Amount</th><th style="${TH}">Status</th>
+          <th style="${TH};text-align:center">Age</th><th style="${TH}">Date</th><th style="${TH};text-align:center">Action</th>
+        </tr></thead>
+        <tbody>${body || `<tr><td colspan="${ncol}" style="text-align:center;padding:3rem;color:var(--txt3)">No matching requests.</td></tr>`}</tbody>
+        <tfoot><tr style="background:var(--g9);color:#fff;position:sticky;bottom:0;font-weight:800">
+          <td colspan="5" style="padding:8px 9px;text-align:right">${rows.length} request(s) &middot; Grand total</td>
+          <td style="padding:8px 9px;text-align:right">${_accwFmt(grand)}</td>
+          <td colspan="4"></td>
+        </tr></tfoot>
+      </table>
+    </div></div>
+    <div id="accwBulkBar">${_accwBulkBarHtml()}</div>`;
+}
+function _accwBulkBarHtml() {
+  if (!ACCW.sel.size) return '';
+  const rows = _accwRows().filter(r => ACCW.sel.has(r.uuid));
+  const doable = rows.filter(r => { const v=_accViewById(_accStageOf(r)); return _accCanAdvance(v) && v.next && !v.next.needsUtr; });
+  return `<div style="position:sticky;bottom:0;margin-top:.6rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;background:var(--g9);color:#fff;padding:.6rem 1rem;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.2)">
+    <span style="font-weight:700">${ACCW.sel.size} selected</span>
+    <span style="opacity:.9">Total ${_accwFmt(_accwSum(rows))}</span>
+    <span style="flex:1"></span>
+    ${doable.length?`<button onclick="_accwBulkAdvance()" class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;font-weight:700">&#10003; Advance ${doable.length} &rarr; next stage</button>`:''}
+    <button onclick="ACCW.sel.clear();_accwRenderListOnly()" class="btn btn-secondary btn-sm">Clear</button>
+  </div>`;
+}
+function _accwToggleSel(uuid) { if (ACCW.sel.has(uuid)) ACCW.sel.delete(uuid); else ACCW.sel.add(uuid); _accwSyncBulkBar(); }
+function _accwToggleAll(on)   { ACCW.sel.clear(); if (on) _accwFiltered().forEach(r=>ACCW.sel.add(r.uuid)); _accwRenderListOnly(); }
+function _accwToggleGroup(k)  { if (ACCW.collapsed.has(k)) ACCW.collapsed.delete(k); else ACCW.collapsed.add(k); _accwRenderListOnly(); }
+function _accwSyncBulkBar() {
+  const bar = document.getElementById('accwBulkBar'); if (bar) bar.innerHTML = _accwBulkBarHtml();
+}
+async function _accwBulkAdvance() {
+  const rows = _accwRows().filter(r => ACCW.sel.has(r.uuid));
+  const doable = rows.filter(r => { const v=_accViewById(_accStageOf(r)); return _accCanAdvance(v) && v.next && !v.next.needsUtr; });
+  if (!doable.length) { alert('None of the selected rows can be advanced by you in one step.\n(UTR-completion rows must be done individually.)'); return; }
+  if (!confirm(`Advance ${doable.length} request(s) to their next stage?`)) return;
+  doable.forEach(r => { const v=_accViewById(_accStageOf(r)); _txnParkRow(r, v.next.status, '→ '+v.next.to, 'acc'); });
+  ACCW.sel.clear(); _accwRenderListOnly();
+  if (typeof _accToast==='function') _accToast('Advancing '+doable.length+' request(s)…');
+  for (const r of doable) { const v=_accViewById(_accStageOf(r)); try { await _accQuickStatus(r.uuid, v.next.status, '', '', true); } catch(e){} }
+  if (typeof _accToast==='function') _accToast('✅ Advanced '+doable.length+' request(s)');
+  await _accReloadRows(); _accwRenderBody();
+}
+function _accwExportCsv() {
+  const rows = _accwFiltered();
+  const head = ['Request ID','Payee','Type','Site','For','Order No','Bill No','Amount','Currency','Stage','Status','Age (days)','Date'];
+  const esc = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+  const lines = [head.map(esc).join(',')];
+  rows.forEach(r => lines.push([r.requestId, _accStripCode(r.paidTo)||r.payTo, r.payTo, r.site, r.entity, r.orderNo, r.billNo,
+    r.amount, r.currency, _accViewById(_accStageOf(r)).label, (r.status&&r.status.label)||'', _accwAge(r), r.date].map(esc).join(',')));
+  const blob = new Blob([lines.join('\n')], { type:'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'accounts-worklist-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
 // ── Accounts KPI Cards — dedicated dashboard page (route: 'accounts-kpi') ──
 // Hosts the rich pipeline KPI cards (moved off the Accounts module, which now
 // uses a compact selector). Each card deep-links into its view.
@@ -7107,10 +7429,11 @@ const MODULE_REGISTRY = [
   { route:'subcontractor',     label:'Subcontractor Portal',   section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
   { route:'tendering',         label:'Tendering',              section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
 
-  // ── Finance ───────────────────────────────────────────────────
-  { route:'md-payments',       label:'Payments & Approvals',   section:'Finance',          defStatus:'live', defRoles:['md'] },
-  { route:'accounts',          label:'Accounts & Payments',    section:'Finance',          defStatus:'live', defRoles:['md','accounts','dept_head'] },
-  { route:'accounts-kpi',      label:'Accounts KPI Cards',     section:'Finance',          defStatus:'live', defRoles:['md','accounts','dept_head'] },
+  // ── Accounts ──────────────────────────────────────────────────
+  { route:'md-payments',       label:'Payments & Approvals',   section:'Accounts',         defStatus:'live', defRoles:['md'] },
+  { route:'accounts',          label:'Accounts & Payments',    section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
+  { route:'accounts-v2',       label:'Accounts Workspace',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
+  { route:'accounts-kpi',      label:'Accounts KPI Cards',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
 
   // ── Planning ──────────────────────────────────────────────────
   { route:'budgeting',         label:'Budgeting',              section:'Planning',         defStatus:'live', defRoles:['md','hr','site','accounts','purchase','employee','dept_head'] },
