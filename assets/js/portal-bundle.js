@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.56';
-const PORTAL_BUILD    = 429;
-const PORTAL_BUILD_AT = '2026-06-10T13:59:43Z';
+const PORTAL_VERSION  = '3.18.57';
+const PORTAL_BUILD    = 430;
+const PORTAL_BUILD_AT = '2026-06-10T14:08:20Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5211,28 +5211,7 @@ function renderAccountsModule() {
   _accReloadRows().then(() => {
 
     // Stage cards (the 8 Views + their KPIs) are rendered by accRender().
-
-    // ── Currency cards ───────────────────────────────────
-    const cmap = {};
-    window._accAllRows.filter(r=>r.status.cat!=='other').forEach(r=>{
-      const c = r.currency||'INR';
-      if (!cmap[c]) cmap[c]={count:0,total:0};
-      cmap[c].count++; cmap[c].total+=r.amount;
-    });
-    const ckeys = Object.keys(cmap);
-    if (ckeys.length>1 || (ckeys.length===1 && ckeys[0]!=='INR')) {
-      const ccEl = document.getElementById('accCurrencyCards');
-      if (ccEl) {
-        ccEl.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:.7rem;margin-bottom:1.2rem';
-        ccEl.innerHTML = ckeys.map(c=>`
-          <div class="kpi-card" style="border-left:3px solid var(--g5)">
-            <div class="kpi-top"><div class="kpi-icon green">&#128178;</div><div class="kpi-trend flat">${c}</div></div>
-            <div class="kpi-value" style="font-size:1.15rem">${cmap[c].count}</div>
-            <div class="kpi-label">${c} Requests</div>
-            <div class="kpi-sub">${c} ${Math.round(cmap[c].total).toLocaleString('en-IN')}</div>
-          </div>`).join('');
-      }
-    }
+    // Currency KPI cards were removed per request — only the stage selector remains.
 
     // ── Populate filter dropdowns ────────────────────────
     const populate = (id, values) => {
