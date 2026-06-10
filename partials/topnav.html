@@ -1,0 +1,228 @@
+  <nav id="topNav">
+
+    <!-- Main -->
+    <div class="tnav-group" data-internal="true" data-roles="all">
+      <button class="tnav-btn solo" onclick="navigate('dashboard')" data-route="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </button>
+    </div>
+    <div class="tnav-group" id="tnav-md-command" data-internal="true" data-roles="md" style="display:none">
+      <button class="tnav-btn solo" onclick="navigate('md-command')" data-route="md-command">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        Command
+      </button>
+    </div>
+
+    <!-- HR & People -->
+    <div class="tnav-group" data-internal="true" data-role-section-hide="site">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        HR & People
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="hr-dashboard" onclick="navigate('hr-dashboard')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          HR Dashboard<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="my-profile" onclick="navigate('my-profile')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+          My Profile<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="onboarding" onclick="navigate('onboarding')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
+          Onboarding<span class="tnav-item-badge dev">Dev</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="recruitment" onclick="navigate('recruitment')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Recruitment<span class="tnav-item-badge live">Live</span></div>
+        <div class="tnav-item" data-status="live" data-route="policies" onclick="navigate('policies')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Policies Hub<span class="tnav-item-badge live">Live</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Site Operations -->
+    <div class="tnav-group" data-internal="true" data-roles="all">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Site Ops
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="site-manager" onclick="navigate('site-manager')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          Site Manager<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="safety" onclick="navigate('safety')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Safety Module<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="equipment" onclick="navigate('equipment')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4"/><path d="M14 12h4"/><circle cx="12" cy="12" r="2"/></svg>
+          Equipment<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="store" onclick="navigate('store')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="9" y1="22" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="22"/></svg>
+          Site Store<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="plant" onclick="navigate('plant')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4m4 0h4M12 6v12"/></svg>
+          Plant &amp; Machinery<span class="tnav-item-badge live">Live</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Procurement -->
+    <div class="tnav-group" data-internal="true" data-role-section-hide="site">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        Procurement
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="scm" onclick="navigate('scm')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+          Purchase Dashboard<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="mrs" onclick="navigate('mrs')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+          MRS<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="stores" onclick="navigate('stores')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 8h14M5 8a2 2 0 1 0-4 0v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8m-4-4H7"/></svg>
+          Stores<span class="tnav-item-badge live">Live</span>
+        </div>
+
+        <div class="tnav-item" data-status="live" data-route="vendor" onclick="navigate('vendor')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          Vendor Portal<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="dev" data-route="subcontractor" onclick="navigate('subcontractor')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+          Subcontractor<span class="tnav-item-badge dev">Dev</span>
+        </div>
+        <div class="tnav-item" data-status="dev" data-route="tendering" onclick="navigate('tendering')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Tendering<span class="tnav-item-badge dev">Dev</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Accounts -->
+    <div class="tnav-group" data-internal="true" data-role-section-hide="site">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        Accounts
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="md-payments" onclick="navigate('md-payments')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Payments &amp; Approvals<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="accounts" onclick="navigate('accounts')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Accounts &amp; Payments<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="accounts-v2" onclick="navigate('accounts-v2')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Accounts Workspace<span class="tnav-item-badge live">New</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="accounts-kpi" onclick="navigate('accounts-kpi')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          Accounts KPI Cards<span class="tnav-item-badge live">Live</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Planning -->
+    <div class="tnav-group" data-internal="true" data-role-section-hide="site">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Planning
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="budgeting" onclick="navigate('budgeting')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Budgeting<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="execution" onclick="navigate('execution')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Execution<span class="tnav-item-badge live">Live</span>
+        </div>
+      </div>
+    </div>
+
+
+
+    <!-- Plant & Machinery -->
+    <div class="tnav-group" data-internal="true" data-roles="all">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4"/><path d="M14 12h4"/><circle cx="12" cy="12" r="2"/></svg>
+        Plant &amp; Machinery
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="plant-log" onclick="navigate('plant-log')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
+          Log Entry<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="plant-verify" onclick="navigate('plant-verify')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          Asset Verification<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="plant-maintenance" onclick="navigate('plant-maintenance')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          Maintenance<span class="tnav-item-badge live">Live</span>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- Reports -->
+    <div class="tnav-group" data-internal="true" id="tnav-reports-group">
+      <button class="tnav-btn solo" onclick="navigate('reports')" data-route="reports">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Reports
+      </button>
+    </div>
+
+    <!-- Quick Access -->
+    <div class="tnav-group" data-internal="true" data-roles="all">
+      <button class="tnav-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        Quick Access
+        <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="tnav-dropdown">
+        <div class="tnav-item" data-status="live" data-route="rewards" onclick="navigate('rewards')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          Rewards &amp; Wall<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="apps" onclick="navigate('apps')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Apps<span class="tnav-item-badge live">Live</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="sheets" onclick="navigate('sheets')" id="tnav-sheets-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          Sheets <span style="font-size:.58rem;padding:1px 5px;border-radius:4px;background:rgba(220,38,38,.15);color:#dc2626;font-weight:700;margin-left:2px">Admin</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tnav-spacer"></div>
+
+    <!-- Admin (MD only) -->
+    <div class="tnav-group" data-internal="true" id="tnav-devmode-group" style="display:none">
+      <button class="tnav-btn solo" onclick="navigate('dev-mode')" data-route="dev-mode">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        Config
+        <span id="tnavDevBadge" style="font-size:.6rem;padding:1px 6px;border-radius:4px;background:rgba(240,165,0,.2);color:var(--gold);font-weight:700;margin-left:2px">OFF</span>
+      </button>
+    </div>
+
+  </nav>
