@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.18.38';
-const PORTAL_BUILD    = 411;
-const PORTAL_BUILD_AT = '2026-06-10T09:25:22Z';
+const PORTAL_VERSION  = '3.18.39';
+const PORTAL_BUILD    = 412;
+const PORTAL_BUILD_AT = '2026-06-10T09:35:49Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4809,6 +4809,28 @@ const _accToast = (m) => { try { _showRcToast(m); } catch (e) { /* toast optiona
 const _accV = (id) => { const e = document.getElementById(id); return e ? String(e.value || '').trim() : ''; };
 const _accFlag = (v) => { const s = String(v || '').toLowerCase().trim(); return s === 'yes' || s === 'true' || s === 'y' || s === '1' || s === 'show'; };
 
+// Date/time formatters for values written to the sheet.
+const _ACC_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+// Long date: "10June2026" — accepts a yyyy-mm-dd string or a Date.
+function _accFmtLongDate(d) {
+  let dt;
+  if (!d) dt = new Date();
+  else if (d instanceof Date) dt = d;
+  else {
+    const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    dt = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(d);
+  }
+  if (isNaN(dt)) return String(d || '');
+  return dt.getDate() + _ACC_MONTHS[dt.getMonth()] + dt.getFullYear();
+}
+// Timestamp: "10/06/2026 13:47:38" — local time, DD/MM/YYYY HH:MM:SS.
+function _accFmtDateTime(d) {
+  const dt = d ? (d instanceof Date ? d : new Date(d)) : new Date();
+  if (isNaN(dt)) return String(d || '');
+  const p = n => String(n).padStart(2, '0');
+  return `${p(dt.getDate())}/${p(dt.getMonth() + 1)}/${dt.getFullYear()} ${p(dt.getHours())}:${p(dt.getMinutes())}:${p(dt.getSeconds())}`;
+}
+
 function _accOpenNewPR() {
   let dr = document.getElementById('accPRDrawer');
   if (!dr) {
@@ -5035,7 +5057,7 @@ function _accPRBuildRow() {
     'Link': uuid,
     'Manual / Auto': _accV('acc-pr-manualAuto') || 'Manual',
     'Installment': 1,
-    'Date Of Request': _accV('acc-pr-dateOfRequest'),
+    'Date Of Request': _accFmtLongDate(_accV('acc-pr-dateOfRequest')),
     'Name of the Intiator': _accV('acc-pr-initiator'),
     'NATURE OF EXPENSES': _accV('acc-pr-natureOfExpenses'),
     'ACCOUNT CODE DESCRIPTIONS': _accV('acc-pr-accountCodeDesc'),
@@ -5067,7 +5089,7 @@ function _accPRBuildRow() {
     'BANK NAME': _accV('acc-pr-bankName'),
     'UserEmail': email,
     'SystemEmail': email,
-    'Timestamp': new Date().toISOString(),
+    'Timestamp': _accFmtDateTime(new Date()),
   };
 }
 
@@ -5444,10 +5466,10 @@ function _accUpdateBuildRow(prUuid) {
     'Details of Request': details,
     'Status': _accV('acc-up-status'),
     'Pending Reason': _accV('acc-up-reason'),
-    'Date': _accV('acc-up-date'),
+    'Date': _accFmtLongDate(_accV('acc-up-date')),
     'UTR Details': _accV('acc-up-utr'),
     'Comments (If Any)': _accV('acc-up-comments'),
-    'Timestamp': new Date().toISOString(),
+    'Timestamp': _accFmtDateTime(new Date()),
   };
 }
 
@@ -5520,10 +5542,10 @@ async function _accQuickStatus(uuid, status, comments) {
     'Details of Request': details,
     'Status': status,
     'Pending Reason': '',
-    'Date': new Date().toLocaleDateString('en-CA'),
+    'Date': _accFmtLongDate(new Date()),
     'UTR Details': '',
     'Comments (If Any)': comments || '',
-    'Timestamp': new Date().toISOString(),
+    'Timestamp': _accFmtDateTime(new Date()),
   };
   const resp = await _accPostAwait({ action: 'saveAccountsUpdate', sheetId: PAYMENT_SHEET_ID, tab: 'AccountsUpdate', row: row });
   if (!resp || resp.success === false) {
