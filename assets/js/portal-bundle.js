@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.19.9';
-const PORTAL_BUILD    = 444;
-const PORTAL_BUILD_AT = '2026-06-10T17:17:04Z';
+const PORTAL_VERSION  = '3.19.10';
+const PORTAL_BUILD    = 445;
+const PORTAL_BUILD_AT = '2026-06-10T17:23:39Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5086,6 +5086,17 @@ function renderAccountsModule() {
           <button class="btn btn-primary btn-sm" onclick="_accOpenNewPR()">&#10133; New Payment Request</button>
         </div>
       </div>
+      <!-- Global search — searches the entire Accounts database (all stages) and opens the voucher -->
+      <div style="position:relative;max-width:560px;margin-top:.7rem">
+        <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--txt3);font-size:.95rem">&#128269;</span>
+        <input id="accGlobalSearch" autocomplete="off"
+          oninput="_accGlobalSearch(this.value)" onfocus="_accGlobalSearch(this.value)"
+          onblur="setTimeout(()=>{var b=document.getElementById('accGlobalSearchResults');if(b)b.style.display='none';},160)"
+          onkeydown="if(event.key==='Escape'){this.value='';_accGlobalSearch('');this.blur();}"
+          placeholder="Search all payments — Request ID, payee, Order No, Bill No, UTR… opens the voucher"
+          style="width:100%;box-sizing:border-box;font-size:.85rem;border:1px solid var(--border);border-radius:9px;padding:9px 12px 9px 34px;background:var(--surface2)">
+        <div id="accGlobalSearchResults" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:60;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.18);max-height:420px;overflow-y:auto"></div>
+      </div>
     </div>
 
     <!-- Compact View selector — icon + name + count. Rich KPI cards live on the
@@ -5150,6 +5161,7 @@ function renderAccountsModule() {
             </div>
           </div>
 
+          <button onclick="_accArrangeColumns()" class="btn btn-secondary btn-sm" style="align-self:flex-end;white-space:nowrap" title="Reorder / show / hide table columns">&#9881; Columns</button>
           <button onclick="accResetFilters()" class="btn btn-secondary btn-sm" style="align-self:flex-end;white-space:nowrap">&#10006; Reset</button>
           <button onclick="accExportCSV()" class="btn btn-secondary btn-sm" style="align-self:flex-end;white-space:nowrap;background:var(--g7);color:#fff;border-color:var(--g7)">&#11015; CSV</button>
         </div>
@@ -5164,30 +5176,8 @@ function renderAccountsModule() {
     <div class="card">
       <div style="overflow-x:auto;overflow-y:auto;max-height:72vh;border-radius:0 0 var(--rad) var(--rad)" id="accTableWrap">
         <table class="data-table" style="width:100%">
-          <thead id="accThead">
-            <tr style="background:var(--g9);color:#fff;position:sticky;top:0;z-index:2">
-              <th onclick="accSetSort('manualAuto')" style="padding:9px 10px;text-align:center;white-space:nowrap;cursor:pointer;font-weight:600;min-width:70px;border-right:1px solid rgba(255,255,255,.15)">M/A &#8597;</th>
-              <th onclick="accSetSort('installment')" style="padding:9px 10px;text-align:center;white-space:nowrap;cursor:pointer;font-weight:600;min-width:60px;border-right:1px solid rgba(255,255,255,.15)">Inst &#8597;</th>
-              <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:130px;border-right:1px solid rgba(255,255,255,.15)">Request ID</th>
-              <th onclick="accSetSort('date')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:110px;border-right:1px solid rgba(255,255,255,.15)">Date &#8597;</th>
-              <th onclick="accSetSort('initiator')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:140px;border-right:1px solid rgba(255,255,255,.15)">Initiator &#8597;</th>
-              <th onclick="accSetSort('paidTo')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:240px;border-right:1px solid rgba(255,255,255,.15)">Request Details &#8597;</th>
-              <th onclick="accSetSort('dept')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:100px;border-right:1px solid rgba(255,255,255,.15)">Department &#8597;</th>
-              <th onclick="accSetSort('process')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:120px;border-right:1px solid rgba(255,255,255,.15)">Process &#8597;</th>
-              <th onclick="accSetSort('empCode')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:140px;border-right:1px solid rgba(255,255,255,.15)">Emp/Vendor Code &#8597;</th>
-              <th onclick="accSetSort('site')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:140px;border-right:1px solid rgba(255,255,255,.15)">Site &#8597;</th>
-              <th onclick="accSetSort('entity')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:110px;border-right:1px solid rgba(255,255,255,.15)">For &#8597;</th>
-              <th onclick="accSetSort('orderNo')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:120px;border-right:1px solid rgba(255,255,255,.15)">Order No &#8597;</th>
-              <th onclick="accSetSort('billNo')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:90px;border-right:1px solid rgba(255,255,255,.15)">Bill No &#8597;</th>
-              <th onclick="accSetSort('currency')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:80px;border-right:1px solid rgba(255,255,255,.15)">Currency &#8597;</th>
-              <th onclick="accSetSort('amount')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:100px;text-align:right;border-right:1px solid rgba(255,255,255,.15)">Amount &#8597;</th>
-              <th onclick="accSetSort('status')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:190px;border-right:1px solid rgba(255,255,255,.15)">Status &#8597;</th>
-              <th onclick="accSetSort('accDate')" style="padding:9px 10px;white-space:nowrap;cursor:pointer;font-weight:600;min-width:110px;border-right:1px solid rgba(255,255,255,.15)">Acc. Date &#8597;</th>
-              <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:160px;border-right:1px solid rgba(255,255,255,.15)">UTR Details</th>
-              <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:140px;border-right:1px solid rgba(255,255,255,.15)">Remarks</th>
-              <th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:150px;text-align:center;position:sticky;right:0;background:var(--g9);z-index:3">Actions</th>
-            </tr>
-          </thead>
+          <!-- Header row is built from the (drag-arrangeable) column config in accRender() -->
+          <thead id="accThead"></thead>
           <tbody id="accTbody">
             <tr><td colspan="20" style="text-align:center;padding:3rem;color:var(--txt3)">&#8987; Loading payment requests...</td></tr>
           </tbody>
@@ -5346,10 +5336,16 @@ function renderAccountsModule() {
     const cntEl=document.getElementById('accRowCount');
     if (cntEl) cntEl.textContent=rows.length+' records · '+viewDef.label+(srch?' · matching "'+srch+'"':'');
 
+    // Build the (drag-arrangeable) header, then wire column-header DnD.
+    const theadEl=document.getElementById('accThead');
+    if (theadEl) { theadEl.innerHTML=_accBuildThead(); _accWireColHeaderDnd(); }
+    const _cols=_accVisibleColumns();
+    const _ncols=_cols.length+1; // +1 for sticky Actions
+
     const tbody=document.getElementById('accTbody');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML='<tr><td colspan="22" style="text-align:center;padding:3rem;color:var(--txt3)">No records in '+viewDef.label+'.</td></tr>';
+      tbody.innerHTML='<tr><td colspan="'+_ncols+'" style="text-align:center;padding:3rem;color:var(--txt3)">No records in '+viewDef.label+'.</td></tr>';
       return;
     }
 
@@ -5407,28 +5403,13 @@ function renderAccountsModule() {
       </td>`;
 
       const rowBg=i%2===0?'':'background:#fafbfa';
-      const amtStyle=`padding:7px 10px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:${r.amount>0?'var(--g8)':'var(--txt3)'};white-space:nowrap`;
+      const amtStyle=(rr)=>`padding:7px 10px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:${rr.amount>0?'var(--g8)':'var(--txt3)'};white-space:nowrap`;
 
+      // Cells are generated from the (drag-arrangeable) column config; Actions is pinned last.
+      const _x={ td, tdClip, fmtAmt, amtStyle, maBadge, reqIdCell, detailsCell, pill };
+      const cells=_cols.map(c=>c.cell(r,_x)).join('');
       return `<tr style="cursor:pointer;${rowBg}" data-uuid="${(r.uuid||'').replace(/"/g,'&quot;')}" onclick="_accOpenPRDetail(this.dataset.uuid)" title="Click to view details">
-        <td style="padding:7px 10px;border-bottom:1px solid var(--border);text-align:center">${maBadge}</td>
-        <td style="padding:7px 10px;border-bottom:1px solid var(--border);text-align:center;color:var(--txt2)">${r.installment||'\u2014'}</td>
-        ${reqIdCell}
-        ${td(r.date,'white-space:nowrap;color:var(--txt2)')}
-        ${tdClip(r.initiator,140)}
-        ${detailsCell}
-        ${tdClip(r.dept,110)}
-        ${tdClip(r.process,130)}
-        ${tdClip(r.empCode,150)}
-        ${tdClip(r.site,140)}
-        ${td(r.entity,'white-space:nowrap')}
-        ${td(r.orderNo,'white-space:nowrap;color:var(--txt2);font-family:monospace;font-size:.72rem')}
-        ${td(r.billNo,'white-space:nowrap;color:var(--txt2)')}
-        ${td(r.currency,'text-align:center;font-size:.72rem;font-weight:700;color:var(--g7)')}
-        <td style="${amtStyle}">${fmtAmt(r.amount,r.currency)}</td>
-        <td style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">${pill}</td>
-        ${td(r.accDate,'white-space:nowrap;color:var(--txt2)')}
-        ${tdClip(r.utr,170)}
-        ${tdClip(r.remarks,150)}
+        ${cells}
         ${actionsCell}
       </tr>`;
     }).join('');
@@ -6038,6 +6019,190 @@ function _accResetOrderFields() {
   try { localStorage.removeItem(ACC_ORDER_FIELDS_LS); } catch (e) {}
   const ov = document.getElementById('accFieldArranger'); if (ov) ov.remove();
   _accArrangeOrderFields();
+}
+
+// ── Accounts list TABLE columns — drag-arrangeable order + show/hide ──────────
+// Each column has a cell(r,x) renderer; x carries the per-row helpers & precomputed
+// snippets. The Actions column is pinned last and never part of the config.
+const ACC_COLUMNS_LS = 'evgcpl.acc.columns';
+function _accColumnDefs() {
+  const TD = 'padding:7px 10px;border-bottom:1px solid var(--border)';
+  return [
+    { key:'manualAuto',  label:'M/A',             sort:'manualAuto',  th:'text-align:center;min-width:70px',
+      cell:(r,x)=>`<td style="${TD};text-align:center">${x.maBadge}</td>` },
+    { key:'installment', label:'Inst',            sort:'installment', th:'text-align:center;min-width:60px',
+      cell:(r,x)=>`<td style="${TD};text-align:center;color:var(--txt2)">${r.installment||'—'}</td>` },
+    { key:'requestId',   label:'Request ID',      sort:null,          th:'min-width:130px',
+      cell:(r,x)=>x.reqIdCell },
+    { key:'date',        label:'Date',            sort:'date',        th:'min-width:110px',
+      cell:(r,x)=>x.td(r.date,'white-space:nowrap;color:var(--txt2)') },
+    { key:'initiator',   label:'Initiator',       sort:'initiator',   th:'min-width:140px',
+      cell:(r,x)=>x.tdClip(r.initiator,140) },
+    { key:'details',     label:'Request Details', sort:'paidTo',      th:'min-width:240px',
+      cell:(r,x)=>x.detailsCell },
+    { key:'dept',        label:'Department',      sort:'dept',        th:'min-width:100px',
+      cell:(r,x)=>x.tdClip(r.dept,110) },
+    { key:'process',     label:'Process',         sort:'process',     th:'min-width:120px',
+      cell:(r,x)=>x.tdClip(r.process,130) },
+    { key:'empCode',     label:'Emp/Vendor Code', sort:'empCode',     th:'min-width:140px',
+      cell:(r,x)=>x.tdClip(r.empCode,150) },
+    { key:'site',        label:'Site',            sort:'site',        th:'min-width:140px',
+      cell:(r,x)=>x.tdClip(r.site,140) },
+    { key:'entity',      label:'For',             sort:'entity',      th:'min-width:110px',
+      cell:(r,x)=>x.td(r.entity,'white-space:nowrap') },
+    { key:'orderNo',     label:'Order No',        sort:'orderNo',     th:'min-width:120px',
+      cell:(r,x)=>x.td(r.orderNo,'white-space:nowrap;color:var(--txt2);font-family:monospace;font-size:.72rem') },
+    { key:'billNo',      label:'Bill No',         sort:'billNo',      th:'min-width:90px',
+      cell:(r,x)=>x.td(r.billNo,'white-space:nowrap;color:var(--txt2)') },
+    { key:'currency',    label:'Currency',        sort:'currency',    th:'text-align:center;min-width:80px',
+      cell:(r,x)=>x.td(r.currency,'text-align:center;font-size:.72rem;font-weight:700;color:var(--g7)') },
+    { key:'amount',      label:'Amount',          sort:'amount',      th:'text-align:right;min-width:100px',
+      cell:(r,x)=>`<td style="${x.amtStyle(r)}">${x.fmtAmt(r.amount,r.currency)}</td>` },
+    { key:'status',      label:'Status',          sort:'status',      th:'min-width:190px',
+      cell:(r,x)=>`<td style="${TD};white-space:nowrap">${x.pill}</td>` },
+    { key:'accDate',     label:'Acc. Date',       sort:'accDate',     th:'min-width:110px',
+      cell:(r,x)=>x.td(r.accDate,'white-space:nowrap;color:var(--txt2)') },
+    { key:'utr',         label:'UTR Details',     sort:null,          th:'min-width:160px',
+      cell:(r,x)=>x.tdClip(r.utr,170) },
+    { key:'remarks',     label:'Remarks',         sort:null,          th:'min-width:140px',
+      cell:(r,x)=>x.tdClip(r.remarks,150) },
+  ];
+}
+function _accGetColumnCfg() {
+  const defs = _accColumnDefs();
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(ACC_COLUMNS_LS) || 'null'); } catch (e) {}
+  if (!Array.isArray(saved) || !saved.length) return defs.map(d => ({ key: d.key, enabled: true }));
+  const known = new Set(defs.map(d => d.key));
+  const cfg = saved.filter(s => known.has(s.key)).map(s => ({ key: s.key, enabled: s.enabled !== false }));
+  const seen = new Set(cfg.map(c => c.key));
+  defs.forEach(d => { if (!seen.has(d.key)) cfg.push({ key: d.key, enabled: true }); });
+  return cfg;
+}
+function _accSaveColumnCfg(cfg) {
+  try { localStorage.setItem(ACC_COLUMNS_LS, JSON.stringify(cfg)); } catch (e) {}
+}
+function _accVisibleColumns() {
+  const map = Object.fromEntries(_accColumnDefs().map(d => [d.key, d]));
+  return _accGetColumnCfg().filter(c => c.enabled).map(c => map[c.key]).filter(Boolean);
+}
+// Build the sticky header row from the column config (drag a header to reorder).
+function _accBuildThead() {
+  const cols = _accVisibleColumns();
+  const ths = cols.map(d => {
+    const sortAttr = d.sort ? `onclick="accSetSort('${d.sort}')"` : '';
+    const arrow = d.sort ? ' &#8597;' : '';
+    return `<th draggable="true" data-colkey="${d.key}" ${sortAttr} title="Drag to reorder column"
+      style="padding:9px 10px;white-space:nowrap;${d.sort ? 'cursor:pointer;' : 'cursor:grab;'}font-weight:600;${d.th || ''};border-right:1px solid rgba(255,255,255,.15)">${d.label}${arrow}</th>`;
+  }).join('');
+  const actions = `<th style="padding:9px 10px;white-space:nowrap;font-weight:600;min-width:150px;text-align:center;position:sticky;right:0;background:var(--g9);z-index:3">Actions</th>`;
+  return `<tr style="background:var(--g9);color:#fff;position:sticky;top:0;z-index:2">${ths}${actions}</tr>`;
+}
+// Native drag-and-drop reordering of the column headers.
+function _accWireColHeaderDnd() {
+  const thead = document.getElementById('accThead'); if (!thead) return;
+  let dragKey = null;
+  thead.querySelectorAll('th[data-colkey]').forEach(th => {
+    th.addEventListener('dragstart', (e) => { dragKey = th.dataset.colkey; try { e.dataTransfer.effectAllowed = 'move'; } catch (x) {} th.style.opacity = '.4'; });
+    th.addEventListener('dragend', () => { th.style.opacity = ''; dragKey = null; thead.querySelectorAll('th').forEach(t => t.style.boxShadow = ''); });
+    th.addEventListener('dragover', (e) => { e.preventDefault(); if (dragKey && th.dataset.colkey !== dragKey) th.style.boxShadow = 'inset 3px 0 0 #fbbf24'; });
+    th.addEventListener('dragleave', () => { th.style.boxShadow = ''; });
+    th.addEventListener('drop', (e) => {
+      e.preventDefault(); th.style.boxShadow = '';
+      if (dragKey && dragKey !== th.dataset.colkey) _accMoveColumn(dragKey, th.dataset.colkey);
+    });
+  });
+}
+function _accMoveColumn(fromKey, beforeKey) {
+  const cfg = _accGetColumnCfg();
+  const fromIdx = cfg.findIndex(c => c.key === fromKey); if (fromIdx < 0) return;
+  const [item] = cfg.splice(fromIdx, 1);
+  const beforeIdx = cfg.findIndex(c => c.key === beforeKey);
+  cfg.splice(beforeIdx < 0 ? cfg.length : beforeIdx, 0, item);
+  _accSaveColumnCfg(cfg);
+  if (typeof accRender === 'function') accRender();
+}
+// "Columns" arranger modal — reorder (drag) + show/hide (tick), reusing the field DnD.
+function _accArrangeColumns() {
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const label = Object.fromEntries(_accColumnDefs().map(d => [d.key, d.label]));
+  const cfg = _accGetColumnCfg();
+  const old = document.getElementById('accColArranger'); if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'accColArranger';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:1400;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:4vh 4vw';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = `
+    <div style="background:#fff;width:400px;max-width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:.85rem 1.1rem;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff">
+        <div style="font-weight:800;font-size:.95rem">Arrange Columns</div>
+        <div style="font-size:.72rem;opacity:.9;margin-top:2px">Drag to reorder &middot; tick to show / hide &middot; (Actions is always last)</div>
+      </div>
+      <ul id="accColArrangerList" style="list-style:none;margin:0;padding:.6rem;max-height:58vh;overflow-y:auto">
+        ${cfg.map(c => `
+          <li draggable="true" data-key="${esc(c.key)}" style="display:flex;align-items:center;gap:.6rem;padding:.5rem .7rem;margin-bottom:.35rem;border:1px solid var(--border);border-radius:8px;background:var(--surface1);cursor:grab;user-select:none">
+            <span style="color:var(--txt3);font-size:.95rem;line-height:1">&#8942;&#8942;</span>
+            <input type="checkbox" ${c.enabled ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer" onclick="event.stopPropagation()">
+            <span style="font-size:.84rem;color:var(--txt1);flex:1">${esc(label[c.key] || c.key)}</span>
+          </li>`).join('')}
+      </ul>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.8rem 1.1rem;border-top:1px solid var(--border)">
+        <button onclick="_accResetColumns()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset</button>
+        <div style="display:flex;gap:.5rem">
+          <button onclick="document.getElementById('accColArranger').remove()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Cancel</button>
+          <button onclick="_accSaveArrangedColumns()" class="btn btn-sm" style="background:var(--g7);color:#fff;border:none;font-size:.74rem;font-weight:700;padding:4px 14px">Save</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  _accWireFieldDnd(document.getElementById('accColArrangerList'));
+}
+function _accSaveArrangedColumns() {
+  const list = document.getElementById('accColArrangerList'); if (!list) return;
+  const cfg = [...list.querySelectorAll('li')].map(li => ({
+    key: li.dataset.key,
+    enabled: !!(li.querySelector('input[type=checkbox]') || {}).checked,
+  }));
+  _accSaveColumnCfg(cfg);
+  const ov = document.getElementById('accColArranger'); if (ov) ov.remove();
+  if (typeof accRender === 'function') accRender();
+}
+function _accResetColumns() {
+  try { localStorage.removeItem(ACC_COLUMNS_LS); } catch (e) {}
+  const ov = document.getElementById('accColArranger'); if (ov) ov.remove();
+  _accArrangeColumns();
+}
+
+// ── Global Accounts search — searches the whole DB (all stages) and opens the voucher ──
+function _accGlobalSearch(q) {
+  const box = document.getElementById('accGlobalSearchResults'); if (!box) return;
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const term = String(q || '').toLowerCase().trim();
+  if (term.length < 2) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  const all = (window._accAllRows || []).filter(r => r._s && r._s.includes(term));
+  if (!all.length) {
+    box.innerHTML = '<div style="padding:.7rem .9rem;color:var(--txt3);font-size:.82rem">No matching payments</div>';
+    box.style.display = 'block'; return;
+  }
+  const hits = all.slice(0, 15);
+  const payee = (r) => (typeof _accStripCode === 'function' ? _accStripCode(r.paidTo) : r.paidTo) || r.payTo || '';
+  box.innerHTML = hits.map(r => {
+    const st = r.status || {};
+    return `<div onmousedown="event.preventDefault();_accGlobalSearchOpen('${(r.uuid || '').replace(/'/g, "\\'")}')"
+        style="padding:.5rem .9rem;border-bottom:1px solid var(--border);cursor:pointer;display:flex;align-items:center;gap:.6rem"
+        onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+        <span style="font-family:monospace;font-size:.74rem;color:var(--g8);font-weight:700;min-width:78px">${esc(r.requestId) || '—'}</span>
+        <span style="flex:1;font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(payee(r)) || '—'}${r.site ? ` &middot; ${esc(r.site)}` : ''}</span>
+        <span style="font-size:.76rem;font-weight:700;color:var(--g8);white-space:nowrap">${r.amount ? '&#8377;' + Math.round(r.amount).toLocaleString('en-IN') : ''}</span>
+        ${st.label ? `<span style="font-size:.63rem;color:${st.color};white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis">${esc(st.label)}</span>` : ''}
+      </div>`;
+  }).join('') + (all.length > 15 ? `<div style="padding:.4rem .9rem;color:var(--txt3);font-size:.72rem">Showing first 15 of ${all.length}…</div>` : '');
+  box.style.display = 'block';
+}
+function _accGlobalSearchOpen(uuid) {
+  const box = document.getElementById('accGlobalSearchResults'); if (box) box.style.display = 'none';
+  const inp = document.getElementById('accGlobalSearch'); if (inp) inp.blur();
+  _accOpenPRDetail(uuid);
 }
 
 function _accOpenPRDetail(uuid) {
