@@ -13210,6 +13210,7 @@ function renderProcurementStores() {
     <div style="display:flex;gap:.4rem;border-bottom:2px solid #e0ece4;flex:1">
       <button class="vpi-tab-btn active" id="pst-tab-stockin"  onclick="pstSwitchTab('stockin')">📥 Stock IN</button>
       <button class="vpi-tab-btn"        id="pst-tab-grn"      onclick="pstSwitchTab('grn')">📦 GRN Register</button>
+      <button class="vpi-tab-btn"        id="pst-tab-openpo"   onclick="pstSwitchTab('openpo')">🔓 Open POs</button>
       <button class="vpi-tab-btn"        id="pst-tab-levels"   onclick="pstSwitchTab('levels')">📊 Stock Levels</button>
     </div>
     <div style="display:flex;gap:.5rem;align-items:center">
@@ -13304,6 +13305,8 @@ async function pstLoad() {
 
 function pstRefresh() {
   _pstLoaded = false;
+  _openPOLoaded = false;
+  _poItemsCache = null;
   pstLoad();
 }
 
@@ -13333,6 +13336,20 @@ window.pstDownloadCSV = function(tab) {
       byGRN[key]['Total GRN Qty'] += parseFloat(r['GRN Qty'] || 0);
     });
     downloadCSV(Object.values(byGRN), `GRNRegister_${site||'all'}_${new Date().toISOString().slice(0,10)}.csv`);
+  } else if (tab === 'openpo') {
+    const q = (document.getElementById('pst-search')?.value || '').toLowerCase();
+    const pos = _openPOCompute(q);
+    const flat = [];
+    pos.forEach(p => p.lines.forEach(l => flat.push({
+      'PO No': p.poNo, 'PO Date': (p.date || '').split(' ')[0], 'Age (days)': p.age ?? '',
+      'Vendor': p.vendor, 'Site': p.site, 'PO Status': p.status || '',
+      'Item': l.desc, 'Unit': l.unit || '',
+      'PO Qty': l.qty, 'Invoice Qty': l.invQty, 'GRN Qty': l.grnQty,
+      'Pending Qty': l.pending, 'Rate': l.rate || '',
+      'Pending Value': l.pending && l.rate ? Math.round(l.pending * l.rate) : '',
+      'Line Status': l.lstatus, 'Last GRN No': l.grnNo || '', 'Last Received': (l.recvOn || '').split(' ')[0],
+    })));
+    downloadCSV(flat, `OpenPO_${site||'all'}_${new Date().toISOString().slice(0,10)}.csv`);
   } else if (tab === 'levels') {
     const rows = (site ? _pstLevels.filter(r => r['Site Name'] === site) : _pstLevels)
       .filter(r => !q || (r['Part Details'] || r['Site & Code'] || '').toLowerCase().includes(q) || (r['Site Name'] || '').toLowerCase().includes(q));
@@ -13358,7 +13375,7 @@ function pstSearch(q) {
 
 function pstSwitchTab(t) {
   _pstActiveTab = t;
-  ['stockin','grn','levels'].forEach(x =>
+  ['stockin','grn','openpo','levels'].forEach(x =>
     document.getElementById('pst-tab-' + x)?.classList.toggle('active', x === t));
   const si = document.getElementById('pst-search');
   if (si) si.value = '';
@@ -13426,6 +13443,7 @@ function pstRenderTab(q) {
   if (!c) return;
   if (_pstActiveTab === 'stockin') pstRenderStockIN(c, q || '');
   else if (_pstActiveTab === 'grn')  pstRenderGRNRegister(c, q || '');
+  else if (_pstActiveTab === 'openpo') pstRenderOpenPO(c, q || '');
   else if (_pstActiveTab === 'levels') pstRenderLevels(c, q || '');
 }
 
@@ -13472,6 +13490,220 @@ function pstRenderStockIN(c, q) {
 
   const _t_pstStockIN = (typeof c !== "undefined" ? c : el)?.querySelector(".emp-table, .vpi-tbl");
   if (_t_pstStockIN) { makeTableSortable(_t_pstStockIN); wrapTableScroll(_t_pstStockIN); }
+}
+
+/* ── OPEN PO REPORT TAB ───────────────────────────────
+   A PO is "open" when material it ordered has not 100% reached site.
+   Three-way reconcile per PO line, matched on PO No + item name:
+     • PO Qty      ← PO_Items_Actual (ordered)
+     • Invoice Qty ← StockIN          (dispatched / invoiced)
+     • GRN Qty     ← StockIN          (physically received)
+   Pending = PO Qty − Σ(GRN Qty). Any line with Pending > 0 makes the PO open.
+   Note: the PO header tab (PO_Actual) is header-level, so ordered qty comes
+   from PO_Items_Actual; a PO item never dispatched still shows here (Awaiting
+   dispatch) because it exists in PO_Items_Actual. */
+let _openPOLoaded  = false;
+let _openPOHeaders = [];
+let _openPOItems   = [];
+
+const _opNorm = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const _opPO   = s => String(s == null ? '' : s).trim().toUpperCase();
+const _opNum  = v => { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
+const _opPick = (x, keys) => { for (const k of keys) { if (x[k] != null && String(x[k]).trim() !== '') return String(x[k]).trim(); } return ''; };
+
+async function _openPOEnsure() {
+  if (_openPOLoaded) return;
+  const _po = (typeof getLink === 'function') ? getLink('PO') : { id: PO_SHEET_ID, tab: PO_TAB };
+  const [hdr, items] = await Promise.all([
+    fetchSheet(_po.tab || PO_TAB, 'SELECT *', _po.id || PO_SHEET_ID),
+    _accLoadPOItems(),
+  ]);
+  _openPOHeaders = hdr || [];
+  _openPOItems   = items || [];
+  _openPOLoaded  = true;
+}
+
+// Build the list of open POs with their 3-way line breakdown. Honours the
+// shared site filter (_pstSiteFilter) and an optional text query.
+function _openPOCompute(q) {
+  const TOL = 0.001;
+  // PO header lookup (vendor / site / date / status / amount), keyed by PO No.
+  const hdrByPO = {};
+  _openPOHeaders.forEach(r => {
+    const k = _opPO(r['PO No']); if (!k) return;
+    if (!hdrByPO[k]) hdrByPO[k] = {
+      poNo:   r['PO No'] || k,
+      vendor: r['Vendor Name'] || '',
+      site:   r['Site Name'] || '',
+      date:   r['PO Date'] || '',
+      status: (r['PO Approval Status'] || '').trim(),
+      lock:   (r['Lock'] || '').trim(),
+      amount: _opNum(r['Net Amount']),
+    };
+  });
+
+  // Ordered qty per PO → per item (aggregated by normalised item name).
+  const ordByPO = {};
+  _openPOItems.forEach(x => {
+    const k = _opPO(_opPick(x, ['PO No', 'Order No', 'E'])); if (!k) return;
+    const desc = _opPick(x, ['Item Name', 'Item Description', 'Material Name', 'Material', 'Description', 'Particulars', 'Item', 'Part Description', 'Part Details']);
+    const qty  = _opNum(_opPick(x, ['Qty', 'Quantity', 'PO Qty', 'Order Qty', 'Quantity Ordered']));
+    const unit = _opPick(x, ['Unit', 'UOM', 'Units']);
+    const rate = _opNum(_opPick(x, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
+    if (!desc && !qty) return;
+    const norm = _opNorm(desc) || _opNorm(k + '_' + (rate || ''));
+    const e = ordByPO[k] = ordByPO[k] || {};
+    const it = e[norm] = e[norm] || { desc: desc || '(unnamed item)', norm, unit, qty: 0, rate: 0 };
+    it.qty += qty;
+    if (!it.rate && rate) it.rate = rate;
+    if (!it.unit && unit) it.unit = unit;
+  });
+
+  // Dispatched / received per PO → per item, from StockIN.
+  const siByPO = {};
+  _pstStockIN.forEach(r => {
+    const k = _opPO(r['PO No']); if (!k) return;
+    const norm = _opNorm(r['Part Description'] || r['Part Details']);
+    const e = siByPO[k] = siByPO[k] || {};
+    const it = e[norm] = e[norm] || { invQty: 0, grnQty: 0, grnNo: '', recvOn: '' };
+    it.invQty += _opNum(r['Invoice Qty']);
+    it.grnQty += _opNum(r['GRN Qty']);
+    const cs = (r['CheckSum'] || r['UUID'] || '').trim();
+    const g  = _pstGRNMap[cs] || {};
+    if (g.grnNo) it.grnNo = g.grnNo;
+    const ro = g.receivedOn || r['Received On (At)'] || '';
+    if (ro && ro > it.recvOn) it.recvOn = ro;
+  });
+
+  const lq = (q || '').toLowerCase();
+  const out = [];
+  Object.keys(ordByPO).forEach(k => {
+    const hdr = hdrByPO[k] || { poNo: k, vendor: '', site: '', date: '', status: '', lock: '', amount: 0 };
+    const st  = (hdr.status || '').toUpperCase();
+    if (st.includes('REJECT')) return;                       // dropped/rejected POs aren't "sent"
+    if (_pstSiteFilter && hdr.site && hdr.site !== _pstSiteFilter) return;
+
+    const si = siByPO[k] || {};
+    const lines = [];
+    let totOrd = 0, totInv = 0, totGrn = 0, pendVal = 0, openLines = 0, awaitGRN = 0;
+    Object.values(ordByPO[k]).forEach(it => {
+      const m = si[it.norm] || { invQty: 0, grnQty: 0, grnNo: '', recvOn: '' };
+      const pending = Math.max(0, it.qty - m.grnQty);
+      const isOpen  = pending > TOL;
+      let lstatus;
+      if (!isOpen)                                       lstatus = 'Received';
+      else if (m.grnQty <= TOL && m.invQty <= TOL)       lstatus = 'Awaiting dispatch';
+      else if (m.grnQty <= TOL && m.invQty >  TOL)       lstatus = 'Pending GRN';
+      else                                               lstatus = 'Partial';
+      totOrd += it.qty; totInv += m.invQty; totGrn += m.grnQty;
+      if (isOpen) { openLines++; pendVal += pending * (it.rate || 0); }
+      if (lstatus === 'Pending GRN') awaitGRN++;
+      lines.push({ desc: it.desc, unit: it.unit, qty: it.qty, rate: it.rate,
+        invQty: m.invQty, grnQty: m.grnQty, pending, lstatus, grnNo: m.grnNo, recvOn: m.recvOn });
+    });
+    if (openLines === 0) return;                              // only OPEN POs
+
+    if (lq) {
+      const hay = (hdr.poNo + ' ' + hdr.vendor + ' ' + hdr.site + ' ' +
+        lines.map(l => l.desc).join(' ')).toLowerCase();
+      if (!hay.includes(lq)) return;
+    }
+
+    const jsDate = (typeof parsePODate === 'function') ? parsePODate(hdr.date) : null;
+    const age = jsDate ? Math.floor((Date.now() - jsDate) / 86400000) : null;
+    const pct = totOrd > 0 ? Math.round(totGrn / totOrd * 100) : 0;
+    lines.sort((a, b) => b.pending - a.pending);
+    out.push({ po: k, poNo: hdr.poNo, vendor: hdr.vendor, site: hdr.site, date: hdr.date,
+      status: hdr.status, amount: hdr.amount, lines, totOrd, totInv, totGrn, pendVal,
+      openLines, awaitGRN, age, pct });
+  });
+
+  out.sort((a, b) => (b.age || 0) - (a.age || 0));
+  return out;
+}
+
+function pstRenderOpenPO(c, q) {
+  if (!_openPOLoaded) {
+    c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:var(--txt3)">
+      <div style="font-size:1.6rem;margin-bottom:.4rem">⏳</div>Loading PO items &amp; reconciling…</div>`;
+    _openPOEnsure().then(() => { if (_pstActiveTab === 'openpo') pstRenderTab(q); })
+      .catch(() => { c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:#c62828">Could not load PO data.</div>`; });
+    return;
+  }
+
+  const pos = _openPOCompute(q);
+  const opAge = d => d == null ? '<span style="color:var(--txt3)">—</span>'
+    : `<span style="font-weight:700;color:${d > 30 ? '#c62828' : d > 14 ? '#e65100' : 'var(--txt2)'}">${d}d</span>`;
+  const fmtV = n => (typeof fmtAmtFull === 'function') ? fmtAmtFull(n) : ('₹' + Math.round(n || 0).toLocaleString('en-IN'));
+  const pill = (txt, bg, col) => `<span class="vpi-status-pill" style="background:${bg};color:${col}">${txt}</span>`;
+  const lpill = s =>
+    s === 'Awaiting dispatch' ? pill('Awaiting dispatch', '#fdecea', '#c62828') :
+    s === 'Pending GRN'       ? pill('Pending GRN',       '#fff3e0', '#e65100') :
+    s === 'Partial'           ? pill('Partial',           '#fff8e1', '#8a6d00') :
+                                pill('Received',           '#e8f5e9', '#2e7d32');
+
+  // KPI strip
+  const kOpen   = pos.length;
+  const kPend   = pos.reduce((s, p) => s + p.pendVal, 0);
+  const kAwait  = pos.reduce((s, p) => s + p.awaitGRN, 0);
+  const kOldest = pos.reduce((m, p) => Math.max(m, p.age || 0), 0);
+
+  if (!pos.length) {
+    c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:var(--txt3)">
+      🎉 No open POs${q ? ' for "' + q + '"' : ''}. All ordered material has been received.</div>`;
+    return;
+  }
+
+  const cards = pos.map(p => {
+    const rows = p.lines.map(l => `<tr>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;font-size:.78rem">${l.desc || '—'}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right">${l.qty || '—'}${l.unit ? ' <span style="color:var(--txt3);font-size:.7rem">' + l.unit + '</span>' : ''}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right">${l.invQty || '—'}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right;color:#2e7d32;font-weight:700">${l.grnQty || '—'}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right;color:#c62828;font-weight:700">${l.pending}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right">${l.pending && l.rate ? fmtV(l.pending * l.rate) : '—'}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef">${lpill(l.lstatus)}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;font-size:.72rem;color:var(--txt3)">${l.grnNo || '—'}</td>
+    </tr>`).join('');
+    return `<div style="border:1px solid #e0ece4;border-radius:10px;margin-bottom:.85rem;overflow:hidden">
+      <div style="display:flex;flex-wrap:wrap;gap:.5rem 1.2rem;align-items:center;padding:.7rem .9rem;background:#f6faf7">
+        <div style="font-weight:800;color:var(--green);font-size:.9rem">${p.poNo}</div>
+        <div style="font-size:.8rem">${p.vendor || '—'}</div>
+        <div style="font-size:.76rem;color:var(--txt3)">🏗️ ${p.site || '—'}</div>
+        <div style="font-size:.76rem;color:var(--txt3)">📅 ${(p.date || '').split(' ')[0] || '—'} · ${opAge(p.age)}</div>
+        <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+          ${pill(p.pct + '% received', '#eef4ff', '#1565c0')}
+          ${pill(p.openLines + ' open line' + (p.openLines !== 1 ? 's' : ''), '#fdecea', '#c62828')}
+          <span style="font-weight:800;color:#c62828;font-size:.82rem">${fmtV(p.pendVal)} pending</span>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:.8rem">
+        <thead><tr style="background:#fafdfb;color:var(--txt3);font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">
+          <th style="padding:5px 8px;text-align:left">Item</th>
+          <th style="padding:5px 8px;text-align:right">PO Qty</th>
+          <th style="padding:5px 8px;text-align:right">Inv Qty</th>
+          <th style="padding:5px 8px;text-align:right">GRN Qty</th>
+          <th style="padding:5px 8px;text-align:right">Pending</th>
+          <th style="padding:5px 8px;text-align:right">Pending ₹</th>
+          <th style="padding:5px 8px;text-align:left">Status</th>
+          <th style="padding:5px 8px;text-align:left">GRN No</th>
+        </tr></thead><tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  c.innerHTML = `
+  <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem;margin-bottom:1rem">
+    <div class="kpi-card"><div class="kpi-val" style="color:#c62828">${kOpen}</div><div class="kpi-label">Open POs</div></div>
+    <div class="kpi-card"><div class="kpi-val" style="color:#c62828">${fmtV(kPend)}</div><div class="kpi-label">Pending Value</div></div>
+    <div class="kpi-card"><div class="kpi-val" style="color:#e65100">${kAwait}</div><div class="kpi-label">Lines Pending GRN</div></div>
+    <div class="kpi-card"><div class="kpi-val">${kOldest}d</div><div class="kpi-label">Oldest Open PO</div></div>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;gap:.5rem;flex-wrap:wrap">
+    <span style="font-size:.78rem;color:var(--txt3)">PO Qty (ordered) → Invoice Qty (dispatched) → GRN Qty (received). Pending = PO Qty − GRN Qty.</span>
+    <button onclick="window.pstDownloadCSV('openpo')" class="csv-btn">⬇ CSV</button>
+  </div>
+  ${cards}`;
 }
 
 /* ── GRN REGISTER TAB ─────────────────────────────── */
