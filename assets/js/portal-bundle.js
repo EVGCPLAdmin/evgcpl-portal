@@ -9885,23 +9885,11 @@ async function scmFillOpenPOKpi() {
   const valEl = document.getElementById('scm-kpi-openpo');
   const subEl = document.getElementById('scm-kpi-openpo-sub');
   try {
-    if (!_pstStockIN || !_pstStockIN.length) {
-      const [stockRows, grnRows] = await Promise.all([
-        fetchSheet('StockIN', 'SELECT A,B,C,D,E,F,G,H,K,L,M,N,O,P,Q,U,V,W', STORES_SHEET_ID),
-        fetchSheet('GRN_No',  'SELECT A,B,C,D,E,F,G,H,I,J,K,L,M', STORES_SHEET_ID),
-      ]);
-      _pstStockIN = (stockRows || []).filter(r => (r['UUID'] || r['SI ID'] || '').trim() !== '');
-      _pstGRNMap = {};
-      (grnRows || []).forEach(r => {
-        const uuid = (r['UUID'] || '').trim();
-        if (uuid) _pstGRNMap[uuid] = { grnNo: r['GRN No (Goods Receipt)'] || r['GRN No'] || '', receivedOn: r['Received On (At)'] || '' };
-      });
-    }
-    await _openPOEnsure();
-    const savedFilter = _pstSiteFilter; _pstSiteFilter = '';   // dashboard count is all-sites
+    await _openPOEnsure();                                    // loads both source files itself
+    const savedFilter = _pstSiteFilter; _pstSiteFilter = '';  // dashboard count is all-sites
     const pos = _openPOCompute('');
     _pstSiteFilter = savedFilter;
-    const pend = pos.reduce((s, p) => s + p.pendVal, 0);
+    const pend = pos.reduce((s, p) => s + p.totPendAmt, 0);
     if (valEl) valEl.textContent = pos.length;
     if (subEl) subEl.textContent = pend > 0
       ? ((typeof fmtAmtFull === 'function' ? fmtAmtFull(pend) : '₹' + Math.round(pend).toLocaleString('en-IN')) + ' pending')
@@ -13388,6 +13376,7 @@ async function pstLoad() {
 function pstRefresh() {
   _pstLoaded = false;
   _openPOLoaded = false;
+  _openPOStock = [];
   _poItemsCache = null;
   pstLoad();
 }
@@ -13426,10 +13415,11 @@ window.pstDownloadCSV = function(tab) {
       'PO No': p.poNo, 'PO Date': (p.date || '').split(' ')[0], 'Age (days)': p.age ?? '',
       'Vendor': p.vendor, 'Site': p.site, 'PO Status': p.status || '',
       'Item': l.desc, 'Unit': l.unit || '',
-      'PO Qty': l.qty, 'Invoice Qty': l.invQty, 'GRN Qty': l.grnQty,
-      'Pending Qty': l.pending, 'Rate': l.rate || '',
-      'Pending Value': l.pending && l.rate ? Math.round(l.pending * l.rate) : '',
-      'Line Status': l.lstatus, 'Last GRN No': l.grnNo || '', 'Last Received': (l.recvOn || '').split(' ')[0],
+      'PO Qty': l.qty, 'Invoice Qty': l.invoiced, 'GRN Qty': l.received,
+      'Pending Qty': l.pendingQty > 0 ? l.pendingQty : 0, 'Rate': l.rate || '',
+      'Pending Amount': l.pendingQty > 0 && l.rate ? Math.round(l.pendingAmt) : '',
+      'Pending %': l.pendingQty > 0 ? Math.round(l.pendingPct) : '',
+      'Line Status': l.status,
     })));
     downloadCSV(flat, `OpenPO_${site||'all'}_${new Date().toISOString().slice(0,10)}.csv`);
   } else if (tab === 'levels') {
@@ -13575,40 +13565,61 @@ function pstRenderStockIN(c, q) {
 }
 
 /* ── OPEN PO REPORT TAB ───────────────────────────────
-   A PO is "open" when material it ordered has not 100% reached site.
-   Three-way reconcile per PO line, matched on PO No + item name:
-     • PO Qty      ← PO_Items_Actual (ordered)
-     • Invoice Qty ← StockIN          (dispatched / invoiced)
-     • GRN Qty     ← StockIN          (physically received)
-   Pending = PO Qty − Σ(GRN Qty). Any line with Pending > 0 makes the PO open.
-   Note: the PO header tab (PO_Actual) is header-level, so ordered qty comes
-   from PO_Items_Actual; a PO item never dispatched still shows here (Awaiting
-   dispatch) because it exists in PO_Items_Actual. */
+   A PO line is OPEN when PO Qty − Received(GRN) Qty > 0, else FULFILLED.
+
+   Join (exactly as specified):
+     AND( PO_Items_Actual.CheckSum = StockIN."PO No (Key)",
+          PO_Items_Actual.Part Details = StockIN.Part Details )
+   Against that match:
+     Received Qty = Σ StockIN.GRN Qty
+     Invoice Qty  = Σ StockIN.Invoice Qty
+   PO Qty / Rate come from PO_Items_Actual; header (vendor/site/date) from PO_Actual.
+
+   Both source files (v2_Purchase: PO_Actual + PO_Items_Actual, and v2_Stores:
+   StockIN) are fetched fresh by _openPOEnsure; the tab's Reload button forces it. */
 let _openPOLoaded  = false;
 let _openPOHeaders = [];
 let _openPOItems   = [];
+let _openPOStock   = [];
 
 const _opNorm = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const _opPO   = s => String(s == null ? '' : s).trim().toUpperCase();
 const _opNum  = v => { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
 const _opPick = (x, keys) => { for (const k of keys) { if (x[k] != null && String(x[k]).trim() !== '') return String(x[k]).trim(); } return ''; };
 
-async function _openPOEnsure() {
-  if (_openPOLoaded) return;
-  const _po = (typeof getLink === 'function') ? getLink('PO') : { id: PO_SHEET_ID, tab: PO_TAB };
-  const [hdr, items] = await Promise.all([
+// Column resolvers (defensive — live tab headers aren't mirrored in code).
+const _opItemCheckSum = x => _opPick(x, ['CheckSum', 'Checksum', 'Check Sum', 'CheckSum ']);
+const _opItemPart     = x => _opPick(x, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
+const _opItemPO       = x => _opPick(x, ['PO No', 'Order No']);
+const _opItemQty      = x => _opNum(_opPick(x, ['PO Qty', 'Qty', 'Quantity', 'Order Qty', 'Quantity Ordered']));
+const _opItemRate     = x => _opNum(_opPick(x, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
+const _opItemUnit     = x => _opPick(x, ['Unit', 'UOM', 'Units']);
+const _opStockKey     = r => _opPick(r, ['PO No (Key)', 'PO No(Key)', 'PO (Key)', 'PO No Key', 'PO Key', 'POKey']);
+const _opStockPart    = r => _opPick(r, ['Part Details', 'Part Description']);
+
+// Reload BOTH source files fresh: v2_Purchase (PO_Actual + PO_Items_Actual) and
+// v2_Stores (StockIN). force=true bypasses the loaded flag (the Reload button).
+async function _openPOEnsure(force) {
+  if (_openPOLoaded && !force) return;
+  const _po = (typeof getLink === 'function') ? getLink('PO')       : { id: PO_SHEET_ID, tab: PO_TAB };
+  const _it = (typeof getLink === 'function') ? getLink('PO_ITEMS') : { id: PO_SHEET_ID, tab: 'PO_Items_Actual' };
+  const _st = (typeof getLink === 'function') ? getLink('STORES')   : { id: STORES_SHEET_ID, tab: 'StockIN' };
+  const [hdr, items, stock] = await Promise.all([
     fetchSheet(_po.tab || PO_TAB, 'SELECT *', _po.id || PO_SHEET_ID),
-    _accLoadPOItems(),
+    fetchSheet(_it.tab || 'PO_Items_Actual', 'SELECT *', _it.id || PO_SHEET_ID),
+    fetchSheet('StockIN', 'SELECT *', _st.id || STORES_SHEET_ID),
   ]);
-  _openPOHeaders = hdr || [];
+  _openPOHeaders = hdr   || [];
   _openPOItems   = items || [];
+  _openPOStock   = stock || [];
   _openPOLoaded  = true;
 }
 
-// Build the list of open POs with their 3-way line breakdown. Honours the
-// shared site filter (_pstSiteFilter) and an optional text query.
+// Build the list of open POs with their per-line breakdown. Honours the shared
+// site filter (_pstSiteFilter) and an optional text query.
 function _openPOCompute(q) {
   const TOL = 0.001;
+
   // PO header lookup (vendor / site / date / status / amount), keyed by PO No.
   const hdrByPO = {};
   _openPOHeaders.forEach(r => {
@@ -13624,66 +13635,60 @@ function _openPOCompute(q) {
     };
   });
 
-  // Ordered qty per PO → per item (aggregated by normalised item name).
-  const ordByPO = {};
-  _openPOItems.forEach(x => {
-    const k = _opPO(_opPick(x, ['PO No', 'Order No', 'E'])); if (!k) return;
-    const desc = _opPick(x, ['Item Name', 'Item Description', 'Material Name', 'Material', 'Description', 'Particulars', 'Item', 'Part Description', 'Part Details']);
-    const qty  = _opNum(_opPick(x, ['Qty', 'Quantity', 'PO Qty', 'Order Qty', 'Quantity Ordered']));
-    const unit = _opPick(x, ['Unit', 'UOM', 'Units']);
-    const rate = _opNum(_opPick(x, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
-    if (!desc && !qty) return;
-    const norm = _opNorm(desc) || _opNorm(k + '_' + (rate || ''));
-    const e = ordByPO[k] = ordByPO[k] || {};
-    const it = e[norm] = e[norm] || { desc: desc || '(unnamed item)', norm, unit, qty: 0, rate: 0 };
-    it.qty += qty;
-    if (!it.rate && rate) it.rate = rate;
-    if (!it.unit && unit) it.unit = unit;
+  // StockIN aggregation, keyed by (PO No (Key) + Part Details) — the join target.
+  // Sums GRN Qty (received) and Invoice Qty against each PO item line.
+  const siAgg = {};
+  _openPOStock.forEach(r => {
+    const pk = _opNorm(_opStockKey(r));
+    if (!pk) return;
+    const key = pk + '||' + _opNorm(_opStockPart(r));
+    const e = siAgg[key] = siAgg[key] || { grn: 0, inv: 0, n: 0 };
+    e.grn += _opNum(_opPick(r, ['GRN Qty']));
+    e.inv += _opNum(_opPick(r, ['Invoice Qty']));
+    e.n++;
   });
 
-  // Dispatched / received per PO → per item, from StockIN.
-  const siByPO = {};
-  _pstStockIN.forEach(r => {
-    const k = _opPO(r['PO No']); if (!k) return;
-    const norm = _opNorm(r['Part Description'] || r['Part Details']);
-    const e = siByPO[k] = siByPO[k] || {};
-    const it = e[norm] = e[norm] || { invQty: 0, grnQty: 0, grnNo: '', recvOn: '' };
-    it.invQty += _opNum(r['Invoice Qty']);
-    it.grnQty += _opNum(r['GRN Qty']);
-    const cs = (r['CheckSum'] || r['UUID'] || '').trim();
-    const g  = _pstGRNMap[cs] || {};
-    if (g.grnNo) it.grnNo = g.grnNo;
-    const ro = g.receivedOn || r['Received On (At)'] || '';
-    if (ro && ro > it.recvOn) it.recvOn = ro;
+  // Walk PO item lines, join to StockIN, group by PO No.
+  const byPO = {};
+  _openPOItems.forEach(x => {
+    const poNo = _opItemPO(x);
+    const k = _opPO(poNo); if (!k) return;
+    const cs   = _opItemCheckSum(x);
+    const part = _opItemPart(x);
+    const qty  = _opItemQty(x);
+    if (!cs && !qty) return;
+
+    const joinKey = _opNorm(cs) + '||' + _opNorm(part);
+    const m = siAgg[joinKey] || { grn: 0, inv: 0, n: 0 };
+    const received = m.grn, invoiced = m.inv;
+    const rate     = _opItemRate(x);
+    const pendingQty = qty - received;               // PO Qty − GRN Qty
+    const isOpen     = pendingQty > TOL;
+    const pendingAmt = Math.max(0, pendingQty) * rate;
+    const pendingPct = qty > 0 ? Math.max(0, pendingQty) / qty * 100 : 0;
+
+    (byPO[k] = byPO[k] || { lines: [] }).lines.push({
+      desc: part || _opPick(x, ['Item Name', 'Description']) || '(unnamed item)',
+      unit: _opItemUnit(x), qty, rate, invoiced, received,
+      pendingQty, pendingAmt, pendingPct,
+      status: isOpen ? 'Open' : 'Fulfilled', isOpen,
+    });
   });
 
   const lq = (q || '').toLowerCase();
   const out = [];
-  Object.keys(ordByPO).forEach(k => {
+  Object.keys(byPO).forEach(k => {
     const hdr = hdrByPO[k] || { poNo: k, vendor: '', site: '', date: '', status: '', lock: '', amount: 0 };
-    const st  = (hdr.status || '').toUpperCase();
-    if (st.includes('REJECT')) return;                       // dropped/rejected POs aren't "sent"
+    if ((hdr.status || '').toUpperCase().includes('REJECT')) return;   // not "sent"
     if (_pstSiteFilter && hdr.site && hdr.site !== _pstSiteFilter) return;
 
-    const si = siByPO[k] || {};
-    const lines = [];
-    let totOrd = 0, totInv = 0, totGrn = 0, pendVal = 0, openLines = 0, awaitGRN = 0;
-    Object.values(ordByPO[k]).forEach(it => {
-      const m = si[it.norm] || { invQty: 0, grnQty: 0, grnNo: '', recvOn: '' };
-      const pending = Math.max(0, it.qty - m.grnQty);
-      const isOpen  = pending > TOL;
-      let lstatus;
-      if (!isOpen)                                       lstatus = 'Received';
-      else if (m.grnQty <= TOL && m.invQty <= TOL)       lstatus = 'Awaiting dispatch';
-      else if (m.grnQty <= TOL && m.invQty >  TOL)       lstatus = 'Pending GRN';
-      else                                               lstatus = 'Partial';
-      totOrd += it.qty; totInv += m.invQty; totGrn += m.grnQty;
-      if (isOpen) { openLines++; pendVal += pending * (it.rate || 0); }
-      if (lstatus === 'Pending GRN') awaitGRN++;
-      lines.push({ desc: it.desc, unit: it.unit, qty: it.qty, rate: it.rate,
-        invQty: m.invQty, grnQty: m.grnQty, pending, lstatus, grnNo: m.grnNo, recvOn: m.recvOn });
+    const lines = byPO[k].lines;
+    let totOrd = 0, totInv = 0, totRecv = 0, totPendQty = 0, totPendAmt = 0, openLines = 0;
+    lines.forEach(l => {
+      totOrd += l.qty; totInv += l.invoiced; totRecv += l.received;
+      if (l.isOpen) { openLines++; totPendQty += l.pendingQty; totPendAmt += l.pendingAmt; }
     });
-    if (openLines === 0) return;                              // only OPEN POs
+    if (openLines === 0) return;                       // only OPEN POs
 
     if (lq) {
       const hay = (hdr.poNo + ' ' + hdr.vendor + ' ' + hdr.site + ' ' +
@@ -13693,14 +13698,15 @@ function _openPOCompute(q) {
 
     const jsDate = (typeof parsePODate === 'function') ? parsePODate(hdr.date) : null;
     const age = jsDate ? Math.floor((Date.now() - jsDate) / 86400000) : null;
-    const pct = totOrd > 0 ? Math.round(totGrn / totOrd * 100) : 0;
-    lines.sort((a, b) => b.pending - a.pending);
+    const pctRecv  = totOrd > 0 ? Math.round(totRecv / totOrd * 100) : 0;
+    const pendPctPO = totOrd > 0 ? Math.round(totPendQty / totOrd * 100) : 0;
+    lines.sort((a, b) => b.pendingQty - a.pendingQty);
     out.push({ po: k, poNo: hdr.poNo, vendor: hdr.vendor, site: hdr.site, date: hdr.date,
-      status: hdr.status, amount: hdr.amount, lines, totOrd, totInv, totGrn, pendVal,
-      openLines, awaitGRN, age, pct });
+      status: hdr.status, amount: hdr.amount, lines, totOrd, totInv, totRecv,
+      totPendQty, totPendAmt, openLines, age, pctRecv, pendPctPO });
   });
 
-  out.sort((a, b) => (b.age || 0) - (a.age || 0));
+  out.sort((a, b) => (b.totPendAmt || 0) - (a.totPendAmt || 0));
   return out;
 }
 
@@ -13717,36 +13723,41 @@ function pstRenderOpenPO(c, q) {
   const opAge = d => d == null ? '<span style="color:var(--txt3)">—</span>'
     : `<span style="font-weight:700;color:${d > 30 ? '#c62828' : d > 14 ? '#e65100' : 'var(--txt2)'}">${d}d</span>`;
   const fmtV = n => (typeof fmtAmtFull === 'function') ? fmtAmtFull(n) : ('₹' + Math.round(n || 0).toLocaleString('en-IN'));
+  const fmtQ = n => { const r = Math.round((n || 0) * 1000) / 1000; return r.toLocaleString('en-IN'); };
   const pill = (txt, bg, col) => `<span class="vpi-status-pill" style="background:${bg};color:${col}">${txt}</span>`;
-  const lpill = s =>
-    s === 'Awaiting dispatch' ? pill('Awaiting dispatch', '#fdecea', '#c62828') :
-    s === 'Pending GRN'       ? pill('Pending GRN',       '#fff3e0', '#e65100') :
-    s === 'Partial'           ? pill('Partial',           '#fff8e1', '#8a6d00') :
-                                pill('Received',           '#e8f5e9', '#2e7d32');
+  const lpill = s => s === 'Open'
+    ? pill('Open', '#fdecea', '#c62828')
+    : pill('Fulfilled', '#e8f5e9', '#2e7d32');
 
   // KPI strip
-  const kOpen   = pos.length;
-  const kPend   = pos.reduce((s, p) => s + p.pendVal, 0);
-  const kAwait  = pos.reduce((s, p) => s + p.awaitGRN, 0);
-  const kOldest = pos.reduce((m, p) => Math.max(m, p.age || 0), 0);
+  const kOpen    = pos.length;
+  const kPendAmt = pos.reduce((s, p) => s + p.totPendAmt, 0);
+  const kPendQty = pos.reduce((s, p) => s + p.totPendQty, 0);
+  const kOldest  = pos.reduce((m, p) => Math.max(m, p.age || 0), 0);
 
   if (!pos.length) {
-    c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:var(--txt3)">
-      🎉 No open POs${q ? ' for "' + q + '"' : ''}. All ordered material has been received.</div>`;
+    c.innerHTML = `
+      <div style="display:flex;justify-content:flex-end;margin-bottom:.6rem">
+        <button onclick="window.openPOReload(this)" class="csv-btn">🔄 Reload v2_Purchase + v2_Stores</button>
+      </div>
+      <div style="text-align:center;padding:2.5rem;color:var(--txt3)">
+      🎉 No open POs${q ? ' for "' + q + '"' : ''}. Every PO line is fulfilled (PO Qty − GRN Qty ≤ 0).</div>`;
     return;
   }
 
   const cards = pos.map(p => {
-    const rows = p.lines.map(l => `<tr>
+    const rows = p.lines.map(l => {
+      const pq = l.pendingQty;
+      return `<tr>
       <td style="padding:5px 8px;border-top:1px solid #eef3ef;font-size:.78rem">${l.desc || '—'}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right">${l.qty || '—'}${l.unit ? ' <span style="color:var(--txt3);font-size:.7rem">' + l.unit + '</span>' : ''}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right">${l.invQty || '—'}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right;color:#2e7d32;font-weight:700">${l.grnQty || '—'}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right;color:#c62828;font-weight:700">${l.pending}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right">${l.pending && l.rate ? fmtV(l.pending * l.rate) : '—'}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef">${lpill(l.lstatus)}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;font-size:.72rem;color:var(--txt3)">${l.grnNo || '—'}</td>
-    </tr>`).join('');
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right">${fmtQ(l.qty)}${l.unit ? ' <span style="color:var(--txt3);font-size:.7rem">' + l.unit + '</span>' : ''}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right">${l.invoiced ? fmtQ(l.invoiced) : '—'}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right;color:#2e7d32;font-weight:700">${l.received ? fmtQ(l.received) : '—'}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right;font-weight:700;color:${pq > 0 ? '#c62828' : 'var(--txt3)'}">${pq > 0 ? fmtQ(pq) : '0'}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right;font-weight:700;color:${pq > 0 ? '#c62828' : 'var(--txt3)'}">${pq > 0 && l.rate ? fmtV(l.pendingAmt) : '—'}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right">${pq > 0 ? Math.round(l.pendingPct) + '%' : '—'}</td>
+      <td style="padding:5px 8px;border-top:1px solid #eef3ef">${lpill(l.status)}</td>
+    </tr>`; }).join('');
     return `<div style="border:1px solid #e0ece4;border-radius:10px;margin-bottom:.85rem;overflow:hidden">
       <div style="display:flex;flex-wrap:wrap;gap:.5rem 1.2rem;align-items:center;padding:.7rem .9rem;background:#f6faf7">
         <div style="font-weight:800;color:var(--green);font-size:.9rem">${p.poNo}</div>
@@ -13754,21 +13765,21 @@ function pstRenderOpenPO(c, q) {
         <div style="font-size:.76rem;color:var(--txt3)">🏗️ ${p.site || '—'}</div>
         <div style="font-size:.76rem;color:var(--txt3)">📅 ${(p.date || '').split(' ')[0] || '—'} · ${opAge(p.age)}</div>
         <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-          ${pill(p.pct + '% received', '#eef4ff', '#1565c0')}
+          ${pill(p.pctRecv + '% received', '#eef4ff', '#1565c0')}
           ${pill(p.openLines + ' open line' + (p.openLines !== 1 ? 's' : ''), '#fdecea', '#c62828')}
-          <span style="font-weight:800;color:#c62828;font-size:.82rem">${fmtV(p.pendVal)} pending</span>
+          <span style="font-weight:800;color:#c62828;font-size:.82rem">${fmtV(p.totPendAmt)} pending</span>
         </div>
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:.8rem">
         <thead><tr style="background:#fafdfb;color:var(--txt3);font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">
           <th style="padding:5px 8px;text-align:left">Item</th>
           <th style="padding:5px 8px;text-align:right">PO Qty</th>
-          <th style="padding:5px 8px;text-align:right">Inv Qty</th>
+          <th style="padding:5px 8px;text-align:right">Invoice Qty</th>
           <th style="padding:5px 8px;text-align:right">GRN Qty</th>
-          <th style="padding:5px 8px;text-align:right">Pending</th>
-          <th style="padding:5px 8px;text-align:right">Pending ₹</th>
+          <th style="padding:5px 8px;text-align:right">Pending Qty</th>
+          <th style="padding:5px 8px;text-align:right">Pending Amt</th>
+          <th style="padding:5px 8px;text-align:right">Pending %</th>
           <th style="padding:5px 8px;text-align:left">Status</th>
-          <th style="padding:5px 8px;text-align:left">GRN No</th>
         </tr></thead><tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -13777,16 +13788,28 @@ function pstRenderOpenPO(c, q) {
   c.innerHTML = `
   <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem;margin-bottom:1rem">
     <div class="kpi-card"><div class="kpi-val" style="color:#c62828">${kOpen}</div><div class="kpi-label">Open POs</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:#c62828">${fmtV(kPend)}</div><div class="kpi-label">Pending Value</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:#e65100">${kAwait}</div><div class="kpi-label">Lines Pending GRN</div></div>
+    <div class="kpi-card"><div class="kpi-val" style="color:#c62828">${fmtV(kPendAmt)}</div><div class="kpi-label">Pending Amount</div></div>
+    <div class="kpi-card"><div class="kpi-val" style="color:#e65100">${fmtQ(kPendQty)}</div><div class="kpi-label">Pending Qty</div></div>
     <div class="kpi-card"><div class="kpi-val">${kOldest}d</div><div class="kpi-label">Oldest Open PO</div></div>
   </div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;gap:.5rem;flex-wrap:wrap">
-    <span style="font-size:.78rem;color:var(--txt3)">PO Qty (ordered) → Invoice Qty (dispatched) → GRN Qty (received). Pending = PO Qty − GRN Qty.</span>
-    <button onclick="window.pstDownloadCSV('openpo')" class="csv-btn">⬇ CSV</button>
+    <span style="font-size:.78rem;color:var(--txt3)">Open when PO Qty − GRN Qty &gt; 0. Join: PO_Items CheckSum = StockIN PO No (Key) + Part Details.</span>
+    <div style="display:flex;gap:.5rem">
+      <button onclick="window.openPOReload(this)" class="csv-btn">🔄 Reload</button>
+      <button onclick="window.pstDownloadCSV('openpo')" class="csv-btn">⬇ CSV</button>
+    </div>
   </div>
   ${cards}`;
 }
+
+// Force-reload both source files (v2_Purchase + v2_Stores) and re-render.
+window.openPOReload = function(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Reloading…'; }
+  _openPOLoaded = false;
+  _openPOEnsure(true).then(() => {
+    if (_pstActiveTab === 'openpo') pstRenderTab(document.getElementById('pst-search')?.value || '');
+  }).catch(() => { if (btn) { btn.disabled = false; btn.textContent = '🔄 Reload'; } });
+};
 
 /* ── GRN REGISTER TAB ─────────────────────────────── */
 function pstRenderGRNRegister(c, q) {
