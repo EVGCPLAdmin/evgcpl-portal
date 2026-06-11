@@ -13588,14 +13588,12 @@ const _opNum  = v => { const n = parseFloat(String(v == null ? '' : v).replace(/
 const _opPick = (x, keys) => { for (const k of keys) { if (x[k] != null && String(x[k]).trim() !== '') return String(x[k]).trim(); } return ''; };
 
 // Column resolvers (defensive — live tab headers aren't mirrored in code).
-const _opItemCheckSum = x => _opPick(x, ['CheckSum', 'Checksum', 'Check Sum', 'CheckSum ']);
-const _opItemPart     = x => _opPick(x, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
-const _opItemPO       = x => _opPick(x, ['PO No', 'Order No']);
-const _opItemQty      = x => _opNum(_opPick(x, ['PO Qty', 'Qty', 'Quantity', 'Order Qty', 'Quantity Ordered']));
-const _opItemRate     = x => _opNum(_opPick(x, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
-const _opItemUnit     = x => _opPick(x, ['Unit', 'UOM', 'Units']);
-const _opStockKey     = r => _opPick(r, ['PO No (Key)', 'PO No(Key)', 'PO (Key)', 'PO No Key', 'PO Key', 'POKey']);
-const _opStockPart    = r => _opPick(r, ['Part Details', 'Part Description']);
+// fetchSheet does NOT trim column labels, and headers vary in spacing/case, so
+// we match on a normalised header map rather than exact strings.
+const _opColMap = rows => { const m = {}; if (rows && rows[0]) Object.keys(rows[0]).forEach(k => { const n = _opNorm(k); if (!(n in m)) m[n] = k; }); return m; };
+const _opGet = (r, colMap, candidates) => { for (const c of candidates) { const a = colMap[_opNorm(c)]; if (a != null && r[a] != null && String(r[a]).trim() !== '') return String(r[a]).trim(); } return ''; };
+
+let _openPODiag = { stockRows: 0, stockWithKey: 0, itemRows: 0, matchedLines: 0 };
 
 // Reload BOTH source files fresh: v2_Purchase (PO_Actual + PO_Items_Actual) and
 // v2_Stores (StockIN). force=true bypasses the loaded flag (the Reload button).
@@ -13603,11 +13601,10 @@ async function _openPOEnsure(force) {
   if (_openPOLoaded && !force) return;
   const _po = (typeof getLink === 'function') ? getLink('PO')       : { id: PO_SHEET_ID, tab: PO_TAB };
   const _it = (typeof getLink === 'function') ? getLink('PO_ITEMS') : { id: PO_SHEET_ID, tab: 'PO_Items_Actual' };
-  const _st = (typeof getLink === 'function') ? getLink('STORES')   : { id: STORES_SHEET_ID, tab: 'StockIN' };
   const [hdr, items, stock] = await Promise.all([
     fetchSheet(_po.tab || PO_TAB, 'SELECT *', _po.id || PO_SHEET_ID),
     fetchSheet(_it.tab || 'PO_Items_Actual', 'SELECT *', _it.id || PO_SHEET_ID),
-    fetchSheet('StockIN', 'SELECT *', _st.id || STORES_SHEET_ID),
+    fetchSheet('StockIN', 'SELECT *', STORES_SHEET_ID),     // known-good id (same as pstLoad)
   ]);
   _openPOHeaders = hdr   || [];
   _openPOItems   = items || [];
@@ -13635,41 +13632,49 @@ function _openPOCompute(q) {
     };
   });
 
+  // Resolve columns once per dataset via normalised header maps.
+  const SC = _opColMap(_openPOStock);   // StockIN columns
+  const IC = _opColMap(_openPOItems);   // PO_Items_Actual columns
+
   // StockIN aggregation, keyed by (PO No (Key) + Part Details) — the join target.
   // Sums GRN Qty (received) and Invoice Qty against each PO item line.
+  let stockWithKey = 0;
   const siAgg = {};
   _openPOStock.forEach(r => {
-    const pk = _opNorm(_opStockKey(r));
+    const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey', 'PO No Key)']));
     if (!pk) return;
-    const key = pk + '||' + _opNorm(_opStockPart(r));
+    stockWithKey++;
+    const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
     const e = siAgg[key] = siAgg[key] || { grn: 0, inv: 0, n: 0 };
-    e.grn += _opNum(_opPick(r, ['GRN Qty']));
-    e.inv += _opNum(_opPick(r, ['Invoice Qty']));
+    e.grn += _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
+    e.inv += _opNum(_opGet(r, SC, ['Invoice Qty', 'Inv Qty', 'Invoice Quantity']));
     e.n++;
   });
 
   // Walk PO item lines, join to StockIN, group by PO No.
+  let matchedLines = 0;
   const byPO = {};
   _openPOItems.forEach(x => {
-    const poNo = _opItemPO(x);
+    const poNo = _opGet(x, IC, ['PO No', 'Order No']);
     const k = _opPO(poNo); if (!k) return;
-    const cs   = _opItemCheckSum(x);
-    const part = _opItemPart(x);
-    const qty  = _opItemQty(x);
+    const cs   = _opGet(x, IC, ['CheckSum', 'Check Sum']);
+    const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
+    const qty  = _opNum(_opGet(x, IC, ['PO Qty', 'Qty', 'Quantity', 'Order Qty', 'Quantity Ordered']));
     if (!cs && !qty) return;
 
     const joinKey = _opNorm(cs) + '||' + _opNorm(part);
     const m = siAgg[joinKey] || { grn: 0, inv: 0, n: 0 };
+    if (m.n) matchedLines++;
     const received = m.grn, invoiced = m.inv;
-    const rate     = _opItemRate(x);
+    const rate     = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
     const pendingQty = qty - received;               // PO Qty − GRN Qty
     const isOpen     = pendingQty > TOL;
     const pendingAmt = Math.max(0, pendingQty) * rate;
     const pendingPct = qty > 0 ? Math.max(0, pendingQty) / qty * 100 : 0;
 
     (byPO[k] = byPO[k] || { lines: [] }).lines.push({
-      desc: part || _opPick(x, ['Item Name', 'Description']) || '(unnamed item)',
-      unit: _opItemUnit(x), qty, rate, invoiced, received,
+      desc: part || '(unnamed item)',
+      unit: _opGet(x, IC, ['Unit', 'UOM', 'Units']), qty, rate, invoiced, received,
       pendingQty, pendingAmt, pendingPct,
       status: isOpen ? 'Open' : 'Fulfilled', isOpen,
     });
@@ -13706,6 +13711,7 @@ function _openPOCompute(q) {
       totPendQty, totPendAmt, openLines, age, pctRecv, pendPctPO });
   });
 
+  _openPODiag = { stockRows: _openPOStock.length, stockWithKey, itemRows: _openPOItems.length, matchedLines };
   out.sort((a, b) => (b.totPendAmt || 0) - (a.totPendAmt || 0));
   return out;
 }
@@ -13735,13 +13741,29 @@ function pstRenderOpenPO(c, q) {
   const kPendQty = pos.reduce((s, p) => s + p.totPendQty, 0);
   const kOldest  = pos.reduce((m, p) => Math.max(m, p.age || 0), 0);
 
+  // Data diagnostic — makes "no StockIN data" visible: rows loaded vs matched.
+  const d = _openPODiag;
+  const stockWarn = d.stockRows === 0 ? ';background:#fdecea;color:#c62828'
+    : d.stockWithKey === 0 ? ';background:#fff3e0;color:#e65100'
+    : d.matchedLines === 0 ? ';background:#fff3e0;color:#e65100' : '';
+  const diag = `<div style="font-size:.72rem;color:var(--txt3);padding:.3rem .5rem;border-radius:6px${stockWarn}">
+    v2_Stores StockIN: <b>${d.stockRows}</b> rows (<b>${d.stockWithKey}</b> with PO-Key) ·
+    PO items: <b>${d.itemRows}</b> · matched lines: <b>${d.matchedLines}</b>${
+      d.stockRows === 0 ? ' — StockIN returned no rows (sheet access?)' :
+      d.stockWithKey === 0 ? ' — no "PO No (Key)" column matched in StockIN' :
+      d.matchedLines === 0 ? ' — CheckSum/Part Details join matched nothing' : ''}
+  </div>`;
+
   if (!pos.length) {
     c.innerHTML = `
-      <div style="display:flex;justify-content:flex-end;margin-bottom:.6rem">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.6rem;flex-wrap:wrap">
+        ${diag}
         <button onclick="window.openPOReload(this)" class="csv-btn">🔄 Reload v2_Purchase + v2_Stores</button>
       </div>
       <div style="text-align:center;padding:2.5rem;color:var(--txt3)">
-      🎉 No open POs${q ? ' for "' + q + '"' : ''}. Every PO line is fulfilled (PO Qty − GRN Qty ≤ 0).</div>`;
+      ${d.matchedLines === 0 && d.stockRows > 0
+        ? '⚠️ No PO lines matched StockIN. Check the join columns (see banner above).'
+        : '🎉 No open POs' + (q ? ' for "' + q + '"' : '') + '. Every PO line is fulfilled (PO Qty − GRN Qty ≤ 0).'}</div>`;
     return;
   }
 
@@ -13793,7 +13815,7 @@ function pstRenderOpenPO(c, q) {
     <div class="kpi-card"><div class="kpi-val">${kOldest}d</div><div class="kpi-label">Oldest Open PO</div></div>
   </div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;gap:.5rem;flex-wrap:wrap">
-    <span style="font-size:.78rem;color:var(--txt3)">Open when PO Qty − GRN Qty &gt; 0. Join: PO_Items CheckSum = StockIN PO No (Key) + Part Details.</span>
+    ${diag}
     <div style="display:flex;gap:.5rem">
       <button onclick="window.openPOReload(this)" class="csv-btn">🔄 Reload</button>
       <button onclick="window.pstDownloadCSV('openpo')" class="csv-btn">⬇ CSV</button>
