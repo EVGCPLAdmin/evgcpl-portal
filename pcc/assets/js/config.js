@@ -3,9 +3,9 @@
 ═══════════════════════════════════════════════════════════════ */
 
 // ── Build constants — patched by build-portal.js at build time ──
-const PCC_VERSION  = '3.32.0';
-const PCC_BUILD    = 493;
-const PCC_BUILD_AT = '2026-06-11T19:41:28Z';
+const PCC_VERSION  = '3.32.1';
+const PCC_BUILD    = 494;
+const PCC_BUILD_AT = '2026-06-11T19:49:20Z';
 
 // ── Apps Script URL: read parent portal's endpoint registry ──
 // The PCC subapp loads in an iframe on the same origin. Its parent stores
