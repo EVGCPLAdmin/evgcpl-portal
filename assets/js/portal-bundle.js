@@ -9727,6 +9727,12 @@ function renderSCMDashboard() {
         <div class="kpi-label">Rejected</div>
         <div style="margin-top:.35rem"><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')">🚀 Purchase View</button></div>
       </div>
+      <div class="kpi-card" style="cursor:pointer;border-left:3px solid #c62828" onclick="window.scmOpenPOs()">
+        <div class="kpi-top"><div class="kpi-icon red">🔓</div><div class="kpi-trend flat" style="font-size:.65rem">view report ↓</div></div>
+        <div class="kpi-value" id="scm-kpi-openpo">…</div>
+        <div class="kpi-label">Open POs</div>
+        <div style="margin-top:.35rem;font-size:.68rem;color:var(--txt3)" id="scm-kpi-openpo-sub">material pending receipt</div>
+      </div>
     </div>
 
     <!-- ⏳ Pending Approval — with Age flags -->
@@ -9828,6 +9834,43 @@ function renderSCMDashboard() {
     </div>
   `;
   loadPOData();
+  scmFillOpenPOKpi();
+}
+
+// Jump from the Purchase Dashboard straight to Stores → Open POs tab.
+window.scmOpenPOs = function() { window._pstPendingTab = 'openpo'; navigate('stores'); };
+
+// Lazily compute the open-PO count + pending value for the dashboard KPI,
+// without blocking the dashboard's own PO load. Loads StockIN/GRN here if the
+// Stores module hasn't already (so the card works on a cold dashboard).
+async function scmFillOpenPOKpi() {
+  const valEl = document.getElementById('scm-kpi-openpo');
+  const subEl = document.getElementById('scm-kpi-openpo-sub');
+  try {
+    if (!_pstStockIN || !_pstStockIN.length) {
+      const [stockRows, grnRows] = await Promise.all([
+        fetchSheet('StockIN', 'SELECT A,B,C,D,E,F,G,H,K,L,M,N,O,P,Q,U,V,W', STORES_SHEET_ID),
+        fetchSheet('GRN_No',  'SELECT A,B,C,D,E,F,G,H,I,J,K,L,M', STORES_SHEET_ID),
+      ]);
+      _pstStockIN = (stockRows || []).filter(r => (r['UUID'] || r['SI ID'] || '').trim() !== '');
+      _pstGRNMap = {};
+      (grnRows || []).forEach(r => {
+        const uuid = (r['UUID'] || '').trim();
+        if (uuid) _pstGRNMap[uuid] = { grnNo: r['GRN No (Goods Receipt)'] || r['GRN No'] || '', receivedOn: r['Received On (At)'] || '' };
+      });
+    }
+    await _openPOEnsure();
+    const savedFilter = _pstSiteFilter; _pstSiteFilter = '';   // dashboard count is all-sites
+    const pos = _openPOCompute('');
+    _pstSiteFilter = savedFilter;
+    const pend = pos.reduce((s, p) => s + p.pendVal, 0);
+    if (valEl) valEl.textContent = pos.length;
+    if (subEl) subEl.textContent = pend > 0
+      ? ((typeof fmtAmtFull === 'function' ? fmtAmtFull(pend) : '₹' + Math.round(pend).toLocaleString('en-IN')) + ' pending')
+      : 'material pending receipt';
+  } catch (e) {
+    if (valEl) valEl.textContent = '—';
+  }
 }
 
 // ── LOAD DATA ────────────────────────────────────────────
@@ -13300,7 +13343,8 @@ async function pstLoad() {
   pstUpdateKPIs();
   document.getElementById('pst-loading').style.display = 'none';
   document.getElementById('pst-tab-content').style.display = 'block';
-  pstRenderTab();
+  if (window._pstPendingTab) { const t = window._pstPendingTab; window._pstPendingTab = null; pstSwitchTab(t); }
+  else pstRenderTab();
 }
 
 function pstRefresh() {
