@@ -13729,15 +13729,20 @@ let _openPODiag = { poHeaders: 0, stockRows: 0, stockWithKey: 0, itemRows: 0, ma
 // bypasses the loaded flag (the Reload button).
 async function _openPOEnsure(force) {
   if (_openPOLoaded && !force) return;
-  const grab = async (tab, sid) => {            // light retry — gviz can return partial
-    let r = await fetchSheet(tab, 'SELECT *', sid, { rawId: true });
-    if (!r || r.length < 2) { await new Promise(z => setTimeout(z, 700)); r = await fetchSheet(tab, 'SELECT *', sid, { rawId: true }); }
+  // tq omitted (null) returns the full tab as-is. PO_Items_Actual returned only
+  // ~4 rows under "SELECT *" (gviz query engine choking on the tab's structure)
+  // while PO_Actual/StockIN were fine — a no-query fetch reads every row, the
+  // same way the master loads do. Falls back to SELECT * if no-query is empty.
+  const grab = async (tab, sid, tq) => {
+    let r = await fetchSheet(tab, tq, sid, { rawId: true });
+    if (!r || r.length < 5) { await new Promise(z => setTimeout(z, 600)); r = await fetchSheet(tab, tq, sid, { rawId: true }); }
     return r || [];
   };
-  const [hdr, items, stock] = await Promise.all([
-    grab(PO_TAB, PO_SHEET_ID),
-    grab('PO_Items_Actual', PO_SHEET_ID),
-    grab('StockIN', STORES_SHEET_ID),
+  let items = await grab('PO_Items_Actual', PO_SHEET_ID, null);
+  if (!items || items.length < 5) items = await grab('PO_Items_Actual', PO_SHEET_ID, 'SELECT *');
+  const [hdr, stock] = await Promise.all([
+    grab(PO_TAB, PO_SHEET_ID, null),
+    grab('StockIN', STORES_SHEET_ID, null),
   ]);
   _openPOHeaders = hdr   || [];
   _openPOItems   = items || [];
