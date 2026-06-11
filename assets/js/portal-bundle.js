@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.32.3';
-const PORTAL_BUILD    = 496;
-const PORTAL_BUILD_AT = '2026-06-11T20:04:41Z';
+const PORTAL_VERSION  = '3.32.4';
+const PORTAL_BUILD    = 497;
+const PORTAL_BUILD_AT = '2026-06-11T20:17:11Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1643,21 +1643,36 @@ function _navParentOf(route) { return _navChildParentMap()[route] || null; }
 // this bundle, so a stale page would otherwise hide new menu items even
 // though the latest code is running (the footer build looks current
 // because the version stamp lives in the bundle, not the HTML). Idempotent.
+const _DATAHUB_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>';
 function _navEnsureInjected() {
+  // ── Desktop top nav ──────────────────────────────────────────
   const topNav = document.getElementById('topNav');
-  if (!topNav) return;
-  if (!topNav.querySelector('[data-route="data-hub"]')) {
+  if (topNav && !topNav.querySelector('[data-route="data-hub"]')) {
     const grp = document.createElement('div');
     grp.className = 'tnav-group';
     grp.id = 'tnav-datahub-group';
     grp.setAttribute('data-internal', 'true');
     grp.setAttribute('data-role-section-hide', 'site');
     grp.innerHTML = '<button class="tnav-btn solo" onclick="navigate(\'data-hub\')" data-route="data-hub">' +
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>' +
-      'Data Hub</button>';
+      _DATAHUB_SVG + 'Data Hub</button>';
     const reports = document.getElementById('tnav-reports-group');
     if (reports && reports.parentElement === topNav) topNav.insertBefore(grp, reports.nextSibling);
     else topNav.insertBefore(grp, topNav.querySelector('.tnav-spacer'));
+  }
+  // ── Mobile sidebar — a SEPARATE hand-coded nav (this is the menu
+  //    phones see; the top nav is hidden below 1025px). New top-nav
+  //    items must be mirrored here or they're invisible on mobile.
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar && !sidebar.querySelector('.nav-item[onclick*="data-hub"]')) {
+    const item = document.createElement('div');
+    item.className = 'nav-item';
+    item.setAttribute('data-status', 'live');
+    item.setAttribute('data-role-section-hide', 'site');
+    item.setAttribute('onclick', "navigate('data-hub')");
+    item.innerHTML = '<svg class="ni-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Data Hub<span class="ni-live">New</span>';
+    const rpt = document.getElementById('nav-reports-section');
+    if (rpt) rpt.appendChild(item);
+    else sidebar.appendChild(item);
   }
 }
 
