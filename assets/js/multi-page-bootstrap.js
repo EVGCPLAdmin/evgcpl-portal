@@ -272,6 +272,11 @@
         if (tries > 50) return; // give up after ~5s
         return setTimeout(() => tryRender(tries + 1), 100);
       }
+      // Record the route we're actually on. The bundle defaults
+      // STATE.currentPage to 'dashboard'; leaving it stale made the bundle's
+      // post-load re-validation call navigate('dashboard') from every other
+      // page — a hard redirect back to dashboard.html ~1s after load.
+      try { STATE.currentPage = route; } catch (_) {}
       try { renderPage(route); }
       catch (e) { console.error('renderPage failed for route:', route, e); }
     }
@@ -329,6 +334,7 @@
       const dataPage = (document.body.dataset.page || '').toLowerCase();
       const target = ROUTE_TO_PAGE[route];
       if (!target || target.toLowerCase() === dataPage + '.html') {
+        try { if (typeof STATE !== 'undefined') STATE.currentPage = route; } catch (_) {}
         try { renderPage(route); } catch (e) { console.error(e); }
       }
     }

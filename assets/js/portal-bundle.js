@@ -102,7 +102,16 @@ async function loadSheetConfig() {
     try {
       if (STATE && STATE.role) {
         if (typeof applyRoleNavRestrictions === 'function') applyRoleNavRestrictions(STATE.role);
-        if (STATE.currentPage && typeof navigate === 'function') navigate(STATE.currentPage);
+        // Re-validate the current page, but only redirect when it is actually
+        // disallowed by the freshly-loaded route set. A blind navigate() here
+        // hard-redirected every page back to dashboard.html on multi-page
+        // boots, because STATE.currentPage still held its 'dashboard' default.
+        const cur = STATE.currentPage;
+        const bypass = (typeof _accessIsSuperAdmin === 'function') && _accessIsSuperAdmin();
+        if (cur && !bypass && typeof navigate === 'function' && typeof getRouteSet === 'function') {
+          const allowed = getRouteSet(STATE.role);
+          if (allowed && !allowed.has(cur)) navigate(cur); // navigate()'s guard handles the redirect
+        }
       }
     } catch (e) {}
   } catch (e) {
