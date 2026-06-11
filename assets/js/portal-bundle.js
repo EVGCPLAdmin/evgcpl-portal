@@ -1439,7 +1439,7 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','md-payments','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','md-command','md-payments','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
   hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
@@ -1765,6 +1765,7 @@ function renderPage(page) {
     'dev-mode':       renderDevModePage,
     'settings':       renderSettingsPage,
     'reports':        renderReportsModule,
+    'data-hub':       renderDataHub,
     // Vendor / SC external portal routes
     'my-portal':      renderExternalPortal,
     'my-orders':      renderVendorPOTracker,
@@ -13078,6 +13079,273 @@ function renderReportsModule() {
 
   // Populate Schedule Diagnostics summary if the panel is visible (admin/MD only)
   setTimeout(() => { if (document.getElementById('rpt-sched-diag-summary')) rptSchedRefreshSummary(); }, 60);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  UNIVERSAL DATA HUB
+//  Auto-introspecting dashboards for every registered sheet/tab.
+//  Fetches live in the browser, detects each column's type (numeric /
+//  date / categorical), and builds KPI cards + breakdowns + a preview
+//  table — zero per-dataset configuration. Add a dataset by appending
+//  one row to DATAHUB_SOURCES.
+// ════════════════════════════════════════════════════════════════
+const DATAHUB_SOURCES = [
+  { id:'payments',  label:'Payment Requests',   group:'Accounts', tab:'PaymentRequest',          sid:() => PAYMENT_SHEET_ID,       icon:'💳' },
+  { id:'po',        label:'Purchase Orders',    group:'Purchase', tab:'PO_Actual',               sid:() => PO_SHEET_ID,            icon:'🧾' },
+  { id:'po-items',  label:'PO Line Items',      group:'Purchase', tab:'PO_Items_Actual',         sid:() => PO_SHEET_ID,            icon:'📑' },
+  { id:'mrs',       label:'Material Requests',  group:'Purchase', tab:'MRS',                     sid:() => PO_SHEET_ID,            icon:'📋' },
+  { id:'stockin',   label:'Stock IN (GRN)',     group:'Stores',   tab:'StockIN',                 sid:() => STORES_SHEET_ID_CANON,  raw:true, icon:'📥' },
+  { id:'levels',    label:'Stock Levels',       group:'Stores',   tab:'v3StockLevels',           sid:() => STORES_SHEET_ID,        icon:'📊' },
+  { id:'employees', label:'Employee Register',  group:'HR',       tab:'0_EmployeeRegister_Live', sid:() => EMP_SHEET_ID,           raw:true, icon:'👥' },
+  { id:'recruit',   label:'Offer Tracker',      group:'HR',       tab:'Offer_Tracker',           sid:() => RECRUITMENT_SHEET_ID,   icon:'📨' },
+  { id:'safety',    label:'Safety Incidents',   group:'Safety',   tab:'Incidents',               sid:() => SAFETY_SHEET_ID,        icon:'⚠️' },
+  { id:'vendors',   label:'Vendor Master',      group:'Masters',  tab:'7-VendorMaster',          sid:() => SHEET_ID,               icon:'🏢' },
+  { id:'sites',     label:'Site Master',        group:'Masters',  tab:'5-SiteMaster',            sid:() => SHEET_ID,               icon:'📍' },
+  { id:'assets',    label:'Asset Master',       group:'Masters',  tab:'6-AssetMaster',           sid:() => SHEET_ID,               icon:'🚜' },
+  { id:'subcon',    label:'Subcontractors',     group:'Masters',  tab:'10-SubContractorMaster',  sid:() => SHEET_ID,               icon:'🤝' },
+];
+
+const _dhCache = {};
+let _dhState = { id: null, rows: [], prof: null, q: '' };
+
+// Parse a cell into a number (strips ₹ , % and spaces). Returns null if NaN.
+function _dhNum(v) {
+  if (v === null || v === undefined) return null;
+  let s = String(v).trim();
+  if (s === '') return null;
+  s = s.replace(/[₹$,%\s]/g, '');
+  if (s === '' || s === '-' || !/\d/.test(s)) return null;
+  const n = Number(s);
+  return isFinite(n) ? n : null;
+}
+// Parse a cell into a Date — only when it looks date-like (avoids treating
+// plain integers as dates). Returns a Date or null.
+function _dhDate(v) {
+  const s = String(v).trim();
+  if (!s || /^\d+(\.\d+)?$/.test(s)) return null;           // pure number → not a date
+  if (!/[\/\-]/.test(s) && !/\b(20\d{2}|19\d{2})\b/.test(s)) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+function _dhEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+
+// Profile every column: type + aggregates. The heart of auto-introspection.
+function _dhProfile(rows) {
+  const cols = rows.length ? Object.keys(rows[0]) : [];
+  const n = rows.length;
+  const prof = cols.map(c => {
+    let numC = 0, dateC = 0, nonEmpty = 0, sum = 0, min = Infinity, max = -Infinity, dMin = null, dMax = null;
+    const distinct = new Map();
+    for (let i = 0; i < n; i++) {
+      const v = rows[i][c];
+      if (v === null || v === undefined || v === '') continue;
+      nonEmpty++;
+      const num = _dhNum(v);
+      if (num !== null) { numC++; sum += num; if (num < min) min = num; if (num > max) max = num; }
+      const dt = _dhDate(v);
+      if (dt) { dateC++; const t = dt.getTime(); if (dMin === null || t < dMin) dMin = t; if (dMax === null || t > dMax) dMax = t; }
+      if (distinct.size <= 80) { const k = String(v); distinct.set(k, (distinct.get(k) || 0) + 1); }
+    }
+    const isNum  = nonEmpty > 0 && numC / nonEmpty >= 0.8 && distinct.size > 2;
+    const isDate = !isNum && nonEmpty > 0 && dateC / nonEmpty >= 0.7;
+    const isCat  = !isNum && !isDate && distinct.size > 1 && distinct.size <= 25;
+    return { name: c, nonEmpty, fill: n ? nonEmpty / n : 0, numC, sum, min, max,
+             avg: numC ? sum / numC : 0, isNum, isDate, isCat, dMin, dMax, distinct };
+  });
+  return { cols, prof, count: n };
+}
+
+function renderDataHub() {
+  const el = document.getElementById('mainContent');
+  if (!el) return;
+  const groups = [...new Set(DATAHUB_SOURCES.map(s => s.group))];
+  const chips = groups.map(g => `
+    <div class="dh-group">
+      <div class="dh-group-h">${g}</div>
+      <div class="dh-chip-row">
+        ${DATAHUB_SOURCES.filter(s => s.group === g).map(s => `
+          <button class="dh-chip${_dhState.id === s.id ? ' active' : ''}" onclick="dhSelect('${s.id}')">
+            <span class="dh-chip-ic">${s.icon}</span>${s.label}
+          </button>`).join('')}
+      </div>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div class="dh-wrap">
+      <div class="dh-head">
+        <div>
+          <h1 class="dh-title">📊 Data Hub</h1>
+          <p class="dh-sub">Live dashboards for every dataset — KPIs and breakdowns are generated automatically from each sheet's columns.</p>
+        </div>
+        <button class="dh-refresh" onclick="dhRefresh()" title="Reload the current dataset">↻ Refresh</button>
+      </div>
+      <div class="dh-picker">${chips}</div>
+      <div id="dh-panel" class="dh-panel">
+        ${_dhState.id ? '' : '<div class="dh-empty">Pick a dataset above to see its dashboard.</div>'}
+      </div>
+    </div>`;
+
+  _dhInjectStyles();
+  if (_dhState.id) dhSelect(_dhState.id, true);
+}
+
+window.dhRefresh = function() { if (_dhState.id) { delete _dhCache[_dhState.id]; dhSelect(_dhState.id); } };
+
+window.dhSelect = function(id, keepCache) {
+  _dhState.id = id;
+  const src = DATAHUB_SOURCES.find(s => s.id === id);
+  const panel = document.getElementById('dh-panel');
+  // reflect active chip
+  document.querySelectorAll('.dh-chip').forEach(b => b.classList.remove('active'));
+  const chip = [...document.querySelectorAll('.dh-chip')].find(b => (b.getAttribute('onclick') || '').includes(`'${id}'`));
+  if (chip) chip.classList.add('active');
+  if (!src || !panel) return;
+
+  if (!keepCache && _dhCache[id]) { _dhRenderDash(src, _dhCache[id]); return; }
+  if (_dhCache[id]) { _dhRenderDash(src, _dhCache[id]); return; }
+
+  panel.innerHTML = `<div class="dh-loading">⏳ Loading <strong>${_dhEsc(src.label)}</strong> (${_dhEsc(src.tab)})…</div>`;
+  let sid; try { sid = src.sid(); } catch (e) { sid = null; }
+  if (!sid) { panel.innerHTML = `<div class="dh-err">No spreadsheet ID configured for ${_dhEsc(src.label)}.</div>`; return; }
+
+  fetchSheet(src.tab, null, sid, src.raw ? { rawId: true } : undefined)
+    .then(rows => {
+      rows = rows || [];
+      const prof = _dhProfile(rows);
+      _dhCache[id] = { rows, prof };
+      if (_dhState.id === id) _dhRenderDash(src, _dhCache[id]);
+    })
+    .catch(err => {
+      panel.innerHTML = `<div class="dh-err">Couldn't load ${_dhEsc(src.label)} — ${_dhEsc(err && err.message || 'fetch failed')}.</div>`;
+    });
+};
+
+function _dhRenderDash(src, data) {
+  const panel = document.getElementById('dh-panel');
+  if (!panel) return;
+  const { rows, prof } = data;
+  _dhState.rows = rows; _dhState.prof = prof; _dhState.q = '';
+
+  if (!rows.length) { panel.innerHTML = `<div class="dh-err">${_dhEsc(src.label)} returned no rows.</div>`; return; }
+
+  const numCols  = prof.prof.filter(p => p.isNum).sort((a, b) => Math.abs(b.sum) - Math.abs(a.sum));
+  const dateCols = prof.prof.filter(p => p.isDate).sort((a, b) => (b.dMax || 0) - (a.dMax || 0));
+  const catCols  = prof.prof.filter(p => p.isCat).sort((a, b) => a.distinct.size - b.distinct.size);
+
+  // ── KPI cards ──────────────────────────────────────────────
+  const kpis = [];
+  kpis.push(`<div class="dh-kpi"><div class="dh-kpi-v">${prof.count.toLocaleString('en-IN')}</div><div class="dh-kpi-l">Total Records</div></div>`);
+  kpis.push(`<div class="dh-kpi"><div class="dh-kpi-v">${prof.cols.length}</div><div class="dh-kpi-l">Columns</div></div>`);
+  numCols.slice(0, 4).forEach(p => {
+    const looksMoney = /amount|amt|value|price|rate|total|cost|paid|pending|balance|gst|tax/i.test(p.name);
+    const val = looksMoney ? fmtAmt(p.sum) : p.sum.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+    kpis.push(`<div class="dh-kpi"><div class="dh-kpi-v" title="${p.sum.toLocaleString('en-IN')}">${val}</div><div class="dh-kpi-l">Σ ${_dhEsc(p.name)}</div><div class="dh-kpi-sub">avg ${(looksMoney ? fmtAmt(p.avg) : p.avg.toLocaleString('en-IN', { maximumFractionDigits: 1 }))}</div></div>`);
+  });
+  if (dateCols.length) {
+    const d = dateCols[0];
+    const now = Date.now(), span = 30 * 864e5;
+    let recent = 0;
+    rows.forEach(r => { const dt = _dhDate(r[d.name]); if (dt && now - dt.getTime() <= span) recent++; });
+    const rng = `${new Date(d.dMin).toLocaleDateString('en-IN')} → ${new Date(d.dMax).toLocaleDateString('en-IN')}`;
+    kpis.push(`<div class="dh-kpi"><div class="dh-kpi-v">${recent.toLocaleString('en-IN')}</div><div class="dh-kpi-l">Last 30 days · ${_dhEsc(d.name)}</div><div class="dh-kpi-sub">${rng}</div></div>`);
+  }
+
+  // ── Categorical breakdowns ─────────────────────────────────
+  const breakdowns = catCols.slice(0, 6).map(p => {
+    const entries = [...p.distinct.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const top = entries[0] ? entries[0][1] : 1;
+    const bars = entries.map(([k, c]) => `
+      <div class="dh-bar-row">
+        <span class="dh-bar-k" title="${_dhEsc(k)}">${_dhEsc(k) || '—'}</span>
+        <span class="dh-bar-track"><span class="dh-bar-fill" style="width:${Math.max(4, c / top * 100)}%"></span></span>
+        <span class="dh-bar-c">${c.toLocaleString('en-IN')}</span>
+      </div>`).join('');
+    return `<div class="dh-card"><div class="dh-card-h">${_dhEsc(p.name)} <span class="dh-card-meta">${p.distinct.size} values</span></div>${bars}</div>`;
+  }).join('');
+
+  // ── Preview table ──────────────────────────────────────────
+  const tableHtml = _dhTableHtml(prof.cols, rows, '');
+
+  panel.innerHTML = `
+    <div class="dh-dash-head">
+      <span class="dh-dash-title">${src.icon} ${_dhEsc(src.label)}</span>
+      <span class="dh-dash-meta">${_dhEsc(src.tab)} · ${prof.count.toLocaleString('en-IN')} rows · ${prof.cols.length} cols</span>
+    </div>
+    <div class="dh-kpis">${kpis.join('')}</div>
+    ${breakdowns ? `<div class="dh-cards">${breakdowns}</div>` : ''}
+    <div class="dh-card dh-table-card">
+      <div class="dh-card-h">Records
+        <input class="dh-search" type="text" placeholder="Filter rows…" oninput="dhFilter(this.value)"/>
+      </div>
+      <div id="dh-table" class="dh-table-scroll">${tableHtml}</div>
+    </div>`;
+}
+
+function _dhTableHtml(cols, rows, q) {
+  const show = cols.slice(0, 14);
+  let filtered = rows;
+  if (q) { const lc = q.toLowerCase(); filtered = rows.filter(r => show.some(c => String(r[c] == null ? '' : r[c]).toLowerCase().includes(lc))); }
+  const cap = filtered.slice(0, 200);
+  const head = show.map(c => `<th>${_dhEsc(c)}</th>`).join('');
+  const body = cap.map(r => `<tr>${show.map(c => `<td>${_dhEsc(r[c])}</td>`).join('')}</tr>`).join('');
+  return `<table class="dh-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+    <div class="dh-table-foot">Showing ${cap.length.toLocaleString('en-IN')} of ${filtered.length.toLocaleString('en-IN')} rows${cols.length > show.length ? ` · ${cols.length - show.length} more columns in the sheet` : ''}</div>`;
+}
+
+window.dhFilter = function(q) {
+  _dhState.q = q;
+  const host = document.getElementById('dh-table');
+  if (host && _dhState.prof) host.innerHTML = _dhTableHtml(_dhState.prof.cols, _dhState.rows, q);
+};
+
+function _dhInjectStyles() {
+  if (document.getElementById('dh-styles')) return;
+  const css = `
+    .dh-wrap{max-width:1280px;margin:0 auto}
+    .dh-head{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:1rem}
+    .dh-title{font-size:1.5rem;font-weight:700;color:var(--txt1,#1a2b3c);margin:0}
+    .dh-sub{font-size:.85rem;color:var(--txt3,#64748b);margin:.25rem 0 0;max-width:680px}
+    .dh-refresh{background:#1a6038;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-weight:600;cursor:pointer;font-size:.82rem;white-space:nowrap}
+    .dh-refresh:hover{background:#15502f}
+    .dh-picker{display:flex;flex-direction:column;gap:.6rem;margin-bottom:1.4rem}
+    .dh-group-h{font-size:.66rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--txt3,#94a3b8);margin-bottom:.35rem}
+    .dh-chip-row{display:flex;flex-wrap:wrap;gap:.4rem}
+    .dh-chip{display:flex;align-items:center;gap:.4rem;background:#fff;border:1px solid #e2e8f0;border-radius:20px;padding:6px 14px;font-size:.8rem;font-weight:600;color:#334155;cursor:pointer;transition:all .12s}
+    .dh-chip:hover{border-color:#1a6038;color:#1a6038}
+    .dh-chip.active{background:#1a6038;border-color:#1a6038;color:#fff}
+    .dh-chip-ic{font-size:.95rem}
+    .dh-panel{min-height:200px}
+    .dh-empty,.dh-loading,.dh-err{padding:3rem;text-align:center;color:var(--txt3,#64748b);background:#fff;border:1px dashed #e2e8f0;border-radius:14px}
+    .dh-err{color:#c0392b;border-color:#f3c0b8;background:#fdf3f1}
+    .dh-dash-head{display:flex;align-items:baseline;gap:.7rem;margin-bottom:.9rem;flex-wrap:wrap}
+    .dh-dash-title{font-size:1.15rem;font-weight:700;color:var(--txt1,#1a2b3c)}
+    .dh-dash-meta{font-size:.76rem;color:var(--txt3,#94a3b8)}
+    .dh-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:.7rem;margin-bottom:1.1rem}
+    .dh-kpi{background:#fff;border:1px solid #eef2f6;border-left:3px solid var(--gold,#f0a500);border-radius:12px;padding:.85rem 1rem;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+    .dh-kpi-v{font-size:1.35rem;font-weight:700;color:#1a2b3c;line-height:1.1;word-break:break-word}
+    .dh-kpi-l{font-size:.72rem;color:#64748b;margin-top:.2rem;font-weight:600}
+    .dh-kpi-sub{font-size:.66rem;color:#94a3b8;margin-top:.15rem}
+    .dh-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:.8rem;margin-bottom:1.1rem}
+    .dh-card{background:#fff;border:1px solid #eef2f6;border-radius:12px;padding:.9rem 1rem;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+    .dh-card-h{font-size:.85rem;font-weight:700;color:#1a2b3c;margin-bottom:.6rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+    .dh-card-meta{font-size:.66rem;font-weight:600;color:#94a3b8}
+    .dh-bar-row{display:flex;align-items:center;gap:.5rem;margin-bottom:.3rem;font-size:.76rem}
+    .dh-bar-k{flex:0 0 34%;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .dh-bar-track{flex:1;background:#f1f5f9;border-radius:6px;height:14px;overflow:hidden}
+    .dh-bar-fill{display:block;height:100%;background:linear-gradient(90deg,#1a6038,#37936b);border-radius:6px}
+    .dh-bar-c{flex:0 0 auto;color:#64748b;font-weight:600;min-width:36px;text-align:right}
+    .dh-table-card{overflow:hidden}
+    .dh-search{margin-left:auto;font-size:.76rem;font-weight:400;border:1px solid #e2e8f0;border-radius:8px;padding:5px 10px;width:200px}
+    .dh-table-scroll{overflow-x:auto;border-top:1px solid #f1f5f9}
+    .dh-table{width:100%;border-collapse:collapse;font-size:.76rem}
+    .dh-table th{text-align:left;padding:7px 10px;background:#f8fafc;color:#475569;font-weight:700;position:sticky;top:0;white-space:nowrap;border-bottom:1px solid #e2e8f0}
+    .dh-table td{padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#334155;white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis}
+    .dh-table tbody tr:hover{background:#f8fafc}
+    .dh-table-foot{padding:.6rem 1rem;font-size:.72rem;color:#94a3b8}`;
+  const st = document.createElement('style');
+  st.id = 'dh-styles';
+  st.textContent = css;
+  document.head.appendChild(st);
 }
 
 window.rptSelect = function(id) {
