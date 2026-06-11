@@ -82,6 +82,17 @@ async function loadSheetConfig() {
     window._SHEET_CONFIG_META = meta;
     window._SHEET_CONFIG_LOADED = true;
     console.log('[SheetConfig] Loaded', Object.keys(cfg).length, 'keys:', Object.keys(cfg));
+    // The org-wide access_config (enforcement + group routes) arrives here, on a
+    // separate async chain from login/masters. If the user already logged in
+    // before this resolved (common on slower mobile networks), nav was built
+    // with enforcement reading as "off" — re-apply it now and re-validate the
+    // current page against the freshly-loaded route set.
+    try {
+      if (STATE && STATE.role) {
+        if (typeof applyRoleNavRestrictions === 'function') applyRoleNavRestrictions(STATE.role);
+        if (STATE.currentPage && typeof navigate === 'function') navigate(STATE.currentPage);
+      }
+    } catch (e) {}
   } catch (e) {
     window._SHEET_CONFIG_ERR = 'Fetch failed: ' + e.message;
     window._SHEET_CONFIG_LOADED = true;
