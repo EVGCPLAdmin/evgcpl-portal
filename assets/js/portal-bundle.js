@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.23.0';
-const PORTAL_BUILD    = 467;
-const PORTAL_BUILD_AT = '2026-06-11T05:41:23Z';
+const PORTAL_VERSION  = '3.23.1';
+const PORTAL_BUILD    = 468;
+const PORTAL_BUILD_AT = '2026-06-11T05:48:20Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -8800,8 +8800,13 @@ function _cfgRenderAccess() {
     window._uaEmpTried = true;
     loadAllMasters().then(() => { if (window._cfgActiveTab === 'access') _cfgRenderAccess(); }).catch(() => {});
   }
-  const empOptions = emps.filter(u => u.email).map(u =>
-    `<option value="${u.email}">${(u.name||u.employeeRef||'')}${u.dept?(' — '+u.dept):''}</option>`).join('');
+  // Only CURRENT employees (status ACTIVE) with a Mail ID can be assigned —
+  // the Mail ID is the key access control is enforced on.
+  const currentEmps = emps
+    .filter(u => u.status === 'ACTIVE' && u.email)
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  const empOptions = currentEmps.map(u =>
+    `<option value="${String(u.email).toLowerCase()}">${(u.name||u.employeeRef||u.email)}${u.dept?(' — '+u.dept):''}</option>`).join('');
 
   // Member count per group
   const memberCount = (gid) => Object.values(draft.users).filter(u => (u.groups || []).includes(gid)).length;
@@ -8829,18 +8834,22 @@ function _cfgRenderAccess() {
     <div class="card card-pad" style="margin-bottom:1rem">
       <div style="font-weight:700;font-size:.82rem;color:var(--g9);margin-bottom:.5rem">&#128101; Members</div>
       <div id="uaMembers" style="display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.6rem">
-        ${Object.entries(draft.users).filter(([e,u])=>(u.groups||[]).includes(sel.id)).map(([e])=>`
-          <span style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 6px 3px 10px;font-size:.74rem">
-            ${e}<button onclick="uaRemoveUser('${e}','${sel.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px">&times;</button></span>`).join('')
+        ${Object.entries(draft.users).filter(([e,u])=>(u.groups||[]).includes(sel.id)).map(([e])=>{
+          const emp = emps.find(u => String(u.email).toLowerCase() === e);
+          const nm = emp ? (emp.name || emp.employeeRef || e) : e;
+          return `<span title="${e}" style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 6px 3px 10px;font-size:.74rem">
+            ${nm}<button onclick="uaRemoveUser('${e}','${sel.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px">&times;</button></span>`;}).join('')
         || '<span style="font-size:.74rem;color:var(--txt3)">No users assigned yet</span>'}
       </div>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-        <input id="uaEmail" list="uaEmpList" placeholder="${emps.length ? 'Search employee by name or email…' : 'Loading employees…'}" onkeydown="if(event.key==='Enter'){event.preventDefault();uaAddUser('${sel.id}')}"
-          style="flex:1;min-width:240px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
-        <datalist id="uaEmpList">${empOptions}</datalist>
-        <button onclick="uaAddUser('${sel.id}')" class="btn btn-secondary btn-sm">+ Add user</button>
+        <select id="uaEmpSelect" onchange="uaAddUser('${sel.id}')"
+          style="flex:1;min-width:260px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
+          <option value="">${currentEmps.length ? '— Select a current employee —' : (emps.length ? 'No current employees with a Mail ID' : 'Loading employees…')}</option>
+          ${empOptions}
+        </select>
+        <button onclick="uaAddUser('${sel.id}')" class="btn btn-secondary btn-sm">+ Add</button>
       </div>
-      <div style="font-size:.68rem;color:var(--txt3);margin-top:.35rem">Pick from the Employee Register${emps.length?` · ${emps.filter(u=>u.email).length} users`:''}.</div>
+      <div style="font-size:.68rem;color:var(--txt3);margin-top:.35rem">Employee Register &middot; <strong>Current</strong> employees only${currentEmps.length?` &middot; ${currentEmps.length} available`:''}. Access is enforced on the selected employee's Mail ID.</div>
     </div>
 
     <!-- Permission matrix -->
@@ -8946,13 +8955,13 @@ function _cfgRenderAccess() {
     uaDirty();
   };
   window.uaAddUser = function(gid) {
-    const inp = document.getElementById('uaEmail'); if (!inp) return;
-    const email = inp.value.trim().toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { inp.style.borderColor = '#dc2626'; return; }
+    const sel = document.getElementById('uaEmpSelect'); if (!sel) return;
+    const email = (sel.value || '').trim().toLowerCase();  // option value = employee Mail ID
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { sel.style.borderColor = '#dc2626'; return; }
     const d = uaGetDraft();
     d.users[email] = d.users[email] || { groups:[] };
     if (!d.users[email].groups.includes(gid)) d.users[email].groups.push(gid);
-    inp.value = ''; uaDirty(); _cfgRenderAccess();
+    sel.value = ''; uaDirty(); _cfgRenderAccess();
   };
   window.uaRemoveUser = function(email, gid) {
     const d = uaGetDraft();
