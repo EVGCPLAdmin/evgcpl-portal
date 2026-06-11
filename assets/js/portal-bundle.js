@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.24.3';
-const PORTAL_BUILD    = 472;
-const PORTAL_BUILD_AT = '2026-06-11T07:55:38Z';
+const PORTAL_VERSION  = '3.24.4';
+const PORTAL_BUILD    = 473;
+const PORTAL_BUILD_AT = '2026-06-11T08:06:31Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -82,6 +82,17 @@ async function loadSheetConfig() {
     window._SHEET_CONFIG_META = meta;
     window._SHEET_CONFIG_LOADED = true;
     console.log('[SheetConfig] Loaded', Object.keys(cfg).length, 'keys:', Object.keys(cfg));
+    // The org-wide access_config (enforcement + group routes) arrives here, on a
+    // separate async chain from login/masters. If the user already logged in
+    // before this resolved (common on slower mobile networks), nav was built
+    // with enforcement reading as "off" — re-apply it now and re-validate the
+    // current page against the freshly-loaded route set.
+    try {
+      if (STATE && STATE.role) {
+        if (typeof applyRoleNavRestrictions === 'function') applyRoleNavRestrictions(STATE.role);
+        if (STATE.currentPage && typeof navigate === 'function') navigate(STATE.currentPage);
+      }
+    } catch (e) {}
   } catch (e) {
     window._SHEET_CONFIG_ERR = 'Fetch failed: ' + e.message;
     window._SHEET_CONFIG_LOADED = true;
