@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.25.2';
-const PORTAL_BUILD    = 476;
-const PORTAL_BUILD_AT = '2026-06-11T14:29:14Z';
+const PORTAL_VERSION  = '3.25.3';
+const PORTAL_BUILD    = 477;
+const PORTAL_BUILD_AT = '2026-06-11T15:43:22Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -8715,9 +8715,25 @@ function _accessIsSuperAdmin() {
   return email.includes('admin@evgcpl') || email.includes('neurolooom');
 }
 
+// Browser-local escape hatch so an admin can never be permanently locked out
+// of their own portal (e.g. their Google login isn't in the super-admin list
+// and they got assigned to a restrictive group — they can't reach Configuration
+// to fix it). Visiting the portal with ?access=off disables enforcement for this
+// browser (persisted in localStorage); ?access=on re-enables it. No console needed.
+function _accessEnforcementDisabled() {
+  try {
+    const q = new URLSearchParams(location.search || '');
+    const v = (q.get('access') || '').toLowerCase();
+    if (v === 'off' || v === 'disable') { localStorage.setItem('pc_access_override', 'off'); console.warn('[Access] Enforcement DISABLED for this browser (?access=off). Re-enable with ?access=on.'); }
+    if (v === 'on'  || v === 'enable')  { localStorage.removeItem('pc_access_override'); console.warn('[Access] Enforcement re-enabled for this browser.'); }
+    return localStorage.getItem('pc_access_override') === 'off';
+  } catch (e) { return false; }
+}
+
 // Return the union of routes for the current user's groups, or null when
 // enforcement is off / the user has no group assignment (→ fall back to role).
 function _accessRouteSetForCurrentUser() {
+  if (_accessEnforcementDisabled()) return null;          // admin escape hatch
   const acc = pcReadJSON('access_config', null);
   if (!acc || !acc.enforce) return null;
   const email = ((STATE && STATE.user && STATE.user.email) || '').toLowerCase().trim();
@@ -8738,6 +8754,7 @@ function userCan(route, action) {
   action = action || 'view';
   if (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) return true;
   const role = (STATE && STATE.role) || '';
+  if (_accessEnforcementDisabled()) return action === 'view' ? getRouteSet(role).has(route) : true;
   const acc = pcReadJSON('access_config', null);
   if (!acc || !acc.enforce) return action === 'view' ? getRouteSet(role).has(route) : true;
   const email = ((STATE.user && STATE.user.email) || '').toLowerCase().trim();
