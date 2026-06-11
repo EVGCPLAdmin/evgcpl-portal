@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.21.3';
-const PORTAL_BUILD    = 464;
-const PORTAL_BUILD_AT = '2026-06-10T20:29:05Z';
+const PORTAL_VERSION  = '3.21.4';
+const PORTAL_BUILD    = 465;
+const PORTAL_BUILD_AT = '2026-06-11T04:23:36Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -6874,25 +6874,50 @@ function _accOpenPRDetail(uuid) {
   _accDrawPOItems(row);
 }
 
-// Load PO line items (item / qty / rate / amount) for this request's Order No
-// from the Purchase workbook (PO_Actual tab), matched on PO No. Column names are
-// resolved defensively since the live tab schema isn't mirrored in code yet.
+// Whole-tab cache for PO_Items_Actual (the items tab keys to a request via its
+// CheckSum column). gviz WHERE only works on column letters, and CheckSum's
+// letter isn't known here, so we fetch once and filter client-side by label.
+let _poItemsCache = null;
+let _poItemsCacheAt = 0;
+async function _accLoadPOItems() {
+  if (_poItemsCache && (Date.now() - _poItemsCacheAt) < 300000) return _poItemsCache;
+  let rows = await fetchSheet('PO_Items_Actual', 'SELECT *', PO_SHEET_ID);
+  if (!rows || !rows.length) {            // one retry — gviz can transiently time out
+    await new Promise(r => setTimeout(r, 800));
+    rows = await fetchSheet('PO_Items_Actual', 'SELECT *', PO_SHEET_ID);
+  }
+  if (rows && rows.length) { _poItemsCache = rows; _poItemsCacheAt = Date.now(); }
+  return _poItemsCache || [];
+}
+
+// Load PO line items (item / qty / rate / amount) for this request from the
+// Purchase workbook (PO_Items_Actual tab), matched on the request's Link =
+// the item row's CheckSum. Falls back to PO No / Order No if Link is empty.
+// Column names are resolved defensively since the live tab schema isn't
+// mirrored in code yet.
 function _accDrawPOItems(r) {
   const el = document.getElementById('acc-detail-poitems');
-  if (!el || !r || !r.orderNo) return;
-  const target = String(r.orderNo).trim().toLowerCase();
+  if (!el || !r) return;
+  const linkKey  = String(r.link || '').trim().toLowerCase();
+  const orderKey = String(r.orderNo || '').trim().toLowerCase();
+  if (!linkKey && !orderKey) return;
   const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
   const onMatch = (x) => {
-    const v = (x['PO No'] || x['Order No'] || x['E'] || '').toString().trim().toLowerCase();
-    return v === target;
+    const cs = (x['CheckSum'] || x['Checksum'] || x['CheckSum '] || '').toString().trim().toLowerCase();
+    if (linkKey && cs && cs === linkKey) return true;
+    if (!linkKey && orderKey) {
+      const po = (x['PO No'] || x['Order No'] || x['E'] || '').toString().trim().toLowerCase();
+      return po === orderKey;
+    }
+    return false;
   };
-  fetchSheet(PO_TAB, `SELECT * WHERE E = '${target.replace(/'/g, "\\'")}'`, PO_SHEET_ID)
-    .then(rows => (rows && rows.length) ? rows
-      : fetchSheet(PO_TAB, 'SELECT *', PO_SHEET_ID).then(all => (all || []).filter(onMatch)))
-    .then(rows => {
-      rows = (rows || []).filter(onMatch).length ? rows.filter(onMatch) : (rows || []);
+  el.innerHTML = '<div style="padding:.6rem;color:var(--txt3);font-size:.8rem">Loading PO items…</div>';
+  _accLoadPOItems()
+    .then(all => {
+      const rows = (all || []).filter(onMatch);
       if (!rows.length) {
-        el.innerHTML = `<div style="padding:.6rem;color:var(--txt3);font-size:.8rem">No PO line items found for ${esc(r.orderNo)}.</div>`;
+        const by = linkKey ? `Link ${esc(r.link)}` : `Order ${esc(r.orderNo)}`;
+        el.innerHTML = `<div style="padding:.6rem;color:var(--txt3);font-size:.8rem">No PO line items found (matched on ${by}).</div>`;
         return;
       }
       const pick = (x, keys) => { for (const k of keys) { if (x[k] != null && String(x[k]).trim() !== '') return String(x[k]).trim(); } return ''; };
@@ -7070,9 +7095,9 @@ function _accDrawPRDetail(dr, r) {
           ${partRow('Bank Name', r.bank)}
         </table>
       </div>`,
-    poItems: r.orderNo ? `
+    poItems: (r.link || r.orderNo) ? `
       <div style="margin-bottom:1rem">
-        <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">PO Items &middot; ${esc(r.orderNo)}</div>
+        <div style="font-weight:700;font-size:.72rem;color:var(--g8);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">PO Items${r.orderNo ? ' &middot; ' + esc(r.orderNo) : ''}</div>
         <div id="acc-detail-poitems"><div style="padding:.7rem;color:var(--txt3);font-size:.8rem">&#8987; Loading PO items&hellip;</div></div>
       </div>` : '',
     prevPayments: prevPaysHtml,
