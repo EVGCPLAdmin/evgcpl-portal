@@ -81,6 +81,18 @@ async function loadSheetConfig() {
     window._SHEET_CONFIG      = cfg;
     window._SHEET_CONFIG_META = meta;
     window._SHEET_CONFIG_LOADED = true;
+    // access_config is org-wide and security-critical — the PortalConfig sheet is
+    // the single source of truth. Overwrite any cached copy so a stale localStorage
+    // entry can never pin an old enforcement/group config (which previously could
+    // wrongly lock a user into a restrictive group even after the sheet was fixed).
+    // Personal prefs (other pc_* keys) are intentionally left untouched.
+    try {
+      if (cfg.access_config != null && cfg.access_config !== '') {
+        localStorage.setItem('pc_access_config', cfg.access_config);
+      } else {
+        localStorage.removeItem('pc_access_config');
+      }
+    } catch (e) {}
     console.log('[SheetConfig] Loaded', Object.keys(cfg).length, 'keys:', Object.keys(cfg));
     // The org-wide access_config (enforcement + group routes) arrives here, on a
     // separate async chain from login/masters. If the user already logged in
