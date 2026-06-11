@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.24.2';
-const PORTAL_BUILD    = 471;
-const PORTAL_BUILD_AT = '2026-06-11T07:01:50Z';
+const PORTAL_VERSION  = '3.24.3';
+const PORTAL_BUILD    = 472;
+const PORTAL_BUILD_AT = '2026-06-11T07:55:38Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1451,8 +1451,10 @@ const DEPT_HEAD_ROUTES = {
 function getRouteSet(role) {
   // Group-based access override — when enforcement is on and the current user
   // is assigned to access groups, their visible routes = union of group routes
-  // (plus always-on core). md/admin bypass entirely. Returns null otherwise.
-  if (role !== 'md') {
+  // (plus always-on core). Applies to every assigned user INCLUDING md-role
+  // staff (Directors/Heads); only the access super-admin bypasses. Returns null
+  // when not enforced / not assigned → falls back to the role routes below.
+  if (typeof _accessIsSuperAdmin !== 'function' || !_accessIsSuperAdmin()) {
     try { const gr = _accessRouteSetForCurrentUser(); if (gr) return gr; } catch (e) {}
   }
   if (role === 'dept_head') {
@@ -1476,7 +1478,13 @@ function getRouteSet(role) {
 }
 function applyRoleNavRestrictions(role) {
   const isExternal    = role === 'vendor' || role === 'sc';
-  const isMd          = role === 'md';
+  // A md-role user who is being restricted by an access group loses md-only
+  // nav (Dev Mode, Command); only the super-admin keeps full md privileges.
+  let _restricted = false;
+  if (typeof _accessIsSuperAdmin !== 'function' || !_accessIsSuperAdmin()) {
+    try { _restricted = !!_accessRouteSetForCurrentUser(); } catch (e) {}
+  }
+  const isMd          = role === 'md' && !_restricted;
   const allowedRoutes = getRouteSet(role);
 
   // ── SIDEBAR (mobile) ─────────────────────────────────────────
@@ -1553,10 +1561,14 @@ function navigate(page) {
   // ── ROLE GUARD: enforce allowed routes per role ──
   const isExternal = STATE.role === 'vendor' || STATE.role === 'sc';
   const _allowed = getRouteSet(STATE.role);
+  // Super-admin bypasses; everyone else (incl. md-role staff under enforcement)
+  // is held to their allowed route set — getRouteSet already returns the
+  // enforced set for assigned users, or the full md set when unrestricted.
+  const _bypass = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin());
   if (isExternal && !EXTERNAL_ROUTES.has(page)) {
     page = 'my-portal';
-  } else if (!isExternal && STATE.role !== 'md' && _allowed && !_allowed.has(page)) {
-    // Non-MD accessing a page not in their route set: redirect to dashboard or my-profile
+  } else if (!isExternal && !_bypass && _allowed && !_allowed.has(page)) {
+    // Accessing a page not in the allowed set → redirect to dashboard or my-profile
     page = _allowed.has('dashboard') ? 'dashboard' : 'my-profile';
   }
 
@@ -8670,6 +8682,16 @@ function uaGetDraft() {
 }
 function uaGroup(gid) { return uaGetDraft().groups.find(g => g.id === gid); }
 
+// The access *super-admin* — the person who manages access groups. Identified
+// by email (or the dedicated admin account), NOT by the md role: a Director/
+// Head/AT-code account resolves to md but must still be restrict-able by group.
+// Only the super-admin bypasses enforcement, so they can never lock themselves
+// out of the Access configuration.
+function _accessIsSuperAdmin() {
+  const email = ((STATE && STATE.user && STATE.user.email) || '').toLowerCase();
+  return email.includes('admin@evgcpl') || email.includes('neurolooom');
+}
+
 // Return the union of routes for the current user's groups, or null when
 // enforcement is off / the user has no group assignment (→ fall back to role).
 function _accessRouteSetForCurrentUser() {
@@ -8686,13 +8708,13 @@ function _accessRouteSetForCurrentUser() {
   });
   return set;
 }
-// Permission check for action buttons. md/admin always allowed; when access
-// enforcement is off, behaviour is unchanged (everything allowed for view via
-// role routes, actions permitted).
+// Permission check for action buttons. Only the access super-admin is always
+// allowed; md-role staff are gated when assigned to a group. When access
+// enforcement is off, behaviour is unchanged (view via role routes; actions ok).
 function userCan(route, action) {
   action = action || 'view';
+  if (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) return true;
   const role = (STATE && STATE.role) || '';
-  if (role === 'md') return true;
   const acc = pcReadJSON('access_config', null);
   if (!acc || !acc.enforce) return action === 'view' ? getRouteSet(role).has(route) : true;
   const email = ((STATE.user && STATE.user.email) || '').toLowerCase().trim();
@@ -8724,7 +8746,14 @@ function _cfgTabBar(active) {
 }
 function renderDevModePage(tab) {
   const el = document.getElementById('mainContent');
-  if (STATE.role !== 'md' && !(typeof _accIsAdmin === 'function' && _accIsAdmin())) {
+  // A user being restricted by an access group can never open Configuration
+  // (which manages enforcement) — only the super-admin or an unrestricted
+  // md/admin may. This prevents an assigned md-role user escalating.
+  const _superAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin());
+  let _restricted = false;
+  if (!_superAdmin) { try { _restricted = !!_accessRouteSetForCurrentUser(); } catch (e) {} }
+  const _isAdminRole = STATE.role === 'md' || (typeof _accIsAdmin === 'function' && _accIsAdmin());
+  if (!_superAdmin && (_restricted || !_isAdminRole)) {
     el.innerHTML = `<div class="module-placeholder"><div style="font-size:2rem;margin-bottom:.6rem">&#128274;</div><p>Configuration is restricted to Administrators.</p></div>`;
     return;
   }
