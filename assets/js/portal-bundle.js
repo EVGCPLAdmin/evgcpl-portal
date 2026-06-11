@@ -13819,9 +13819,16 @@ function _openPOCompute(q) {
     const partNo   = pipe >= 0 ? matDesc.slice(0, pipe).trim() : matDesc.trim();
     const partDesc = pipe >= 0 ? matDesc.slice(pipe + 1).trim() : '';
 
-    (byPO[k] = byPO[k] || { lines: [] }).lines.push({
+    const e = byPO[k] = byPO[k] || { lines: [], vendorDetails: '', vendorId: '', site: '', poDate: '' };
+    if (!e.vendorDetails) e.vendorDetails = _opGet(x, IC, ['Vendor Details', 'Vendor Name']);
+    if (!e.vendorId)      e.vendorId      = _opGet(x, IC, ['Vendor ID']);
+    if (!e.site)          e.site          = _opGet(x, IC, ['Site Name']);
+    if (!e.poDate)        e.poDate        = _opGet(x, IC, ['PO Date']);
+    e.lines.push({
       desc: matDesc || part || '(unnamed item)', partNo, partDesc,
-      unit: _opGet(x, IC, ['Unit', 'UOM', 'Units']), qty, rate, invoiced, received,
+      mrNo: _opGet(x, IC, ['MR No']), hsn: _opGet(x, IC, ['HSN Code']),
+      lineAmt: _opNum(_opGet(x, IC, ['Amount'])),
+      unit: _opGet(x, IC, ['UOM', 'Unit', 'Units']), qty, rate, invoiced, received,
       pendingQty, pendingAmt, pendingPct,
       status: isOpen ? 'Open' : 'Fulfilled', isOpen,
     });
@@ -13832,7 +13839,8 @@ function _openPOCompute(q) {
   Object.keys(byPO).forEach(k => {
     const hdr = hdrByPO[k] || { poNo: k, vendor: '', site: '', date: '', status: '', lock: '', amount: 0 };
     if ((hdr.status || '').toUpperCase().includes('REJECT')) return;   // not "sent"
-    if (_pstSiteFilter && hdr.site && hdr.site !== _pstSiteFilter) return;
+    const poSite = hdr.site || (byPO[k] && byPO[k].site) || '';
+    if (_pstSiteFilter && poSite && poSite !== _pstSiteFilter) return;
 
     const lines = byPO[k].lines;
     let totOrd = 0, totInv = 0, totRecv = 0, totPendQty = 0, totPendAmt = 0, openLines = 0;
@@ -13853,10 +13861,15 @@ function _openPOCompute(q) {
     const pctRecv  = totOrd > 0 ? Math.round(totRecv / totOrd * 100) : 0;
     const pendPctPO = totOrd > 0 ? Math.round(totPendQty / totOrd * 100) : 0;
     lines.sort((a, b) => b.pendingQty - a.pendingQty);
-    const ven = _openPOVendor(hdr.vendor);
-    out.push({ po: k, poNo: hdr.poNo, vendor: hdr.vendor, site: hdr.site, date: hdr.date,
+    // Vendor comes straight from PO_Items (Vendor Details / Vendor ID); enrich
+    // type/city/state from Vendor Master, matched by ID first then by name.
+    const e = byPO[k];
+    const venName = e.vendorDetails || hdr.vendor || '';
+    const venId   = e.vendorId || '';
+    const ven = _openPOVendorById(venId) || _openPOVendor(venName);
+    out.push({ po: k, poNo: hdr.poNo, vendor: venName, site: hdr.site || e.site, date: hdr.date || e.poDate,
       status: hdr.status, amount: hdr.amount,
-      vendorId: ven.id || '', vendorType: ven.type || '', vendorCity: ven.city || '', vendorState: ven.state || '',
+      vendorId: venId || ven.id || '', vendorType: ven.type || '', vendorCity: ven.city || '', vendorState: ven.state || '',
       lines, totOrd, totInv, totRecv, totPendQty, totPendAmt, openLines, age, pctRecv, pendPctPO });
   });
 
@@ -13877,6 +13890,17 @@ function _openPOVendor(name) {
   return _openPOVendorMap[n] || {};
 }
 let _openPOVendorMap = null;
+let _openPOVendorByIdMap = null;
+function _openPOVendorById(id) {
+  const key = String(id == null ? '' : id).trim();
+  if (!key) return null;
+  const list = (STATE.masters && STATE.masters.vendors) || [];
+  if (!_openPOVendorByIdMap || _openPOVendorByIdMap._n !== list.length) {
+    _openPOVendorByIdMap = { _n: list.length };
+    list.forEach(v => { const k = String(v.id || '').trim(); if (k && !_openPOVendorByIdMap[k]) _openPOVendorByIdMap[k] = v; });
+  }
+  return _openPOVendorByIdMap[key] || null;
+}
 
 // ── Open PO column registry — every selectable field, with formatter ──
 const _opEsc  = s => String(s == null ? '' : s).replace(/[<>&]/g, ch => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
@@ -13884,7 +13908,7 @@ const _opFmtV = n => (typeof fmtAmtFull === 'function') ? fmtAmtFull(n) : ('₹'
 const _opFmtQ = n => { const r = Math.round((n || 0) * 1000) / 1000; return r.toLocaleString('en-IN'); };
 const OPENPO_FIELDS = [
   { key:'poNo',        label:'PO Number',        align:'left',  def:true,  fmt:l=>`<span style="font-weight:700;color:var(--green)">${_opEsc(l.poNo)}</span>` },
-  { key:'vendor',      label:'Vendor',           align:'left',  def:true,  fmt:l=>_opEsc(l.vendor)||'—' },
+  { key:'vendor',      label:'Vendor Details',   align:'left',  def:true,  fmt:l=>_opEsc(l.vendor)||'—' },
   { key:'vendorId',    label:'Vendor ID',        align:'left',  def:false, fmt:l=>_opEsc(l.vendorId)||'—' },
   { key:'vendorType',  label:'Vendor Type',      align:'left',  def:false, fmt:l=>_opEsc(l.vendorType)||'—' },
   { key:'vendorCity',  label:'Vendor City',      align:'left',  def:false, fmt:l=>_opEsc(l.vendorCity)||'—' },
@@ -13893,10 +13917,13 @@ const OPENPO_FIELDS = [
   { key:'poDate',      label:'PO Date',          align:'left',  def:false, fmt:l=>_opEsc((l.date||'').split(' ')[0])||'—' },
   { key:'age',         label:'Age (days)',       align:'right', def:false, fmt:l=>l.age==null?'—':l.age+'d' },
   { key:'poStatus',    label:'PO Status',        align:'left',  def:false, fmt:l=>_opEsc(l.poStatus)||'—' },
+  { key:'mrNo',        label:'MR No',            align:'left',  def:false, fmt:l=>_opEsc(l.mrNo)||'—' },
   { key:'partNo',      label:'Part No',          align:'left',  def:true,  fmt:l=>_opEsc(l.partNo)||'—' },
   { key:'partDesc',    label:'Part Description', align:'left',  def:true,  fmt:l=>_opEsc(l.partDesc)||'—' },
-  { key:'unit',        label:'Unit',             align:'left',  def:false, fmt:l=>_opEsc(l.unit)||'—' },
+  { key:'hsn',         label:'HSN Code',         align:'left',  def:false, fmt:l=>_opEsc(l.hsn)||'—' },
+  { key:'unit',        label:'UOM',              align:'left',  def:false, fmt:l=>_opEsc(l.unit)||'—' },
   { key:'rate',        label:'Rate',             align:'right', def:false, fmt:l=>l.rate?_opFmtV(l.rate):'—' },
+  { key:'lineAmt',     label:'PO Amount',        align:'right', def:false, fmt:l=>l.lineAmt?_opFmtV(l.lineAmt):'—' },
   { key:'qty',         label:'PO Qty',           align:'right', def:true,  fmt:l=>_opFmtQ(l.qty) },
   { key:'invoiced',    label:'Invoice Qty',      align:'right', def:false, fmt:l=>l.invoiced?_opFmtQ(l.invoiced):'—' },
   { key:'received',    label:'GRN Qty',          align:'right', def:true,  fmt:l=>l.received?`<span style="color:#2e7d32;font-weight:600">${_opFmtQ(l.received)}</span>`:'—' },
@@ -14002,6 +14029,7 @@ function pstRenderOpenPO(c, q) {
     poNo: p.poNo, vendor: p.vendor, vendorId: p.vendorId, vendorType: p.vendorType,
     vendorCity: p.vendorCity, vendorState: p.vendorState, site: p.site, date: p.date,
     age: p.age, poStatus: p.status,
+    mrNo: l.mrNo, hsn: l.hsn, lineAmt: l.lineAmt,
     partNo: l.partNo, partDesc: l.partDesc, unit: l.unit, rate: l.rate,
     qty: l.qty, invoiced: l.invoiced, received: l.received,
     pendingQty: l.pendingQty, pendingAmt: l.pendingAmt, pendingPct: l.pendingPct, status: l.status,
