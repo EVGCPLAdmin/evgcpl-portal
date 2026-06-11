@@ -180,6 +180,7 @@
 
     // Reports
     'reports':           'reports.html',
+    'data-hub':          'reports.html',
 
     // Tendering / Planning
     'tendering':         'planning.html',
