@@ -17,6 +17,38 @@
 (function() {
   'use strict';
 
+  // ── Self-heal stale cache ────────────────────────────────────────
+  // Recurring problem: a freshly deployed build isn't visible because the
+  // browser / GitHub-Pages CDN serves a stale HTML + bundle, so new nav
+  // items and pages are missing even though the code shipped. On every
+  // load we compare the build we're running (PORTAL_BUILD, baked into the
+  // bundle) against the live version.json (always fetched fresh, no-store).
+  // If the deploy is newer, we reload ONCE with a cache-busting query so
+  // the browser pulls the fresh HTML — which in turn references the fresh
+  // ?v= bundle. A per-build sessionStorage guard prevents reload loops.
+  // This is self-contained so it keeps working for every future release.
+  (function selfHealStaleBuild() {
+    let tries = 0;
+    (function check() {
+      const loaded = (typeof window.PORTAL_BUILD !== 'undefined' && window.PORTAL_BUILD != null)
+        ? String(window.PORTAL_BUILD) : null;
+      if (!loaded) { if (tries++ < 40) setTimeout(check, 150); return; }
+      fetch('version.json?_=' + Date.now(), { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : null)
+        .then(v => {
+          if (!v || v.build == null) return;
+          const live = String(v.build);
+          if (live === loaded) return;
+          if (!(parseInt(live, 10) > parseInt(loaded, 10))) return; // only roll forward
+          const key = 'pv_selfheal_' + live;
+          try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch (_) {}
+          console.warn('[Portal] Newer build ' + live + ' deployed (running ' + loaded + ') — refreshing.');
+          location.replace(location.pathname + '?cb=' + live + (location.hash || ''));
+        })
+        .catch(() => {});
+    })();
+  })();
+
   // ── Detect which page we're on ───────────────────────────────────
   const PAGE = (document.body.dataset.page || '').toLowerCase();
   const IS_LOGIN = (PAGE === 'index' || PAGE === '');
