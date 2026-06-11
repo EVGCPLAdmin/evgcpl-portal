@@ -27,9 +27,11 @@ body{min-height:100vh;overflow-x:hidden}
 a{text-decoration:none;color:inherit}
 button{font-family:inherit;cursor:pointer;border:none;outline:none}
 input,select,textarea{font-family:inherit;outline:none}
-::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar{width:9px;height:9px}
 ::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:var(--txt4);background-clip:padding-box}
+*{scrollbar-width:thin;scrollbar-color:var(--border2) transparent}
 img{max-width:100%;display:block}
 
 /* ═══════════════════════════════════════════════════
@@ -1239,4 +1241,53 @@ body.dev-mode .tnav-item[data-status="dev"] { display:flex; }
   #portalVersionFooter .pvf-tail,
   #portalVersionFooter .pvf-date { display: none; }
   #portalVersionFooter .pvf-inner { padding: 3px 10px; gap: 6px; font-size: 10px; }
+}
+
+/* ═══════════════════════════════════════════════════
+   UI POLISH LAYER (v3.32) — additive refinements only.
+   Micro-interactions, accessible focus rings, smoother
+   numerics & motion. No layout/colour restructuring, so
+   it enhances every page without regressing them.
+═══════════════════════════════════════════════════ */
+html { scroll-behavior: smooth; }
+
+/* Crisper numeric alignment everywhere numbers are shown */
+.kpi-value, .dh-kpi-v, .pst-kpi-v, .vpi-kpi-v, td, th { font-variant-numeric: tabular-nums; }
+
+/* Tactile button feedback + consistent hover elevation */
+.btn { transition: background .15s, box-shadow .15s, transform .08s, border-color .15s; }
+.btn-primary:hover, .btn-gold:hover { box-shadow: 0 4px 14px rgba(13,51,32,.18); }
+.btn:not(:disabled):active { transform: translateY(1px); }
+
+/* Accessible keyboard focus — visible ring without affecting mouse users */
+:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(60,185,109,.45); border-radius: var(--rad-sm); }
+.btn:focus-visible, .tnav-item:focus-visible, .tnav-btn:focus-visible,
+input:focus-visible, select:focus-visible, textarea:focus-visible,
+.dh-chip:focus-visible { box-shadow: 0 0 0 3px rgba(60,185,109,.45); }
+
+/* Inputs: subtle focus state for a calmer, more finished feel */
+input:focus, select:focus, textarea:focus {
+  border-color: var(--g4) !important;
+  box-shadow: 0 0 0 3px rgba(60,185,109,.14);
+}
+
+/* KPI cards: smoother lift, slightly richer shadow on hover */
+.kpi-card { transition: transform var(--transition), box-shadow var(--transition); }
+.kpi-card:hover { box-shadow: var(--shadow-lg); }
+
+/* Cards lift gently when they're clickable */
+.card[onclick], .card-pad[onclick] { transition: transform var(--transition), box-shadow var(--transition); }
+.card[onclick]:hover, .card-pad[onclick]:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+/* Generic table rows: quiet hover highlight for scannability */
+.card table tbody tr { transition: background .12s; }
+.card table tbody tr:hover { background: var(--surface2); }
+
+/* Top-nav dropdown items: gold accent slides in on hover */
+.tnav-item { transition: background .12s, color .12s, padding-left .12s; }
+
+/* Honour users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
