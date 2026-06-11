@@ -13444,10 +13444,10 @@ window.pstDownloadCSV = function(tab) {
     const q = (document.getElementById('pst-search')?.value || '').toLowerCase();
     const pos = _openPOCompute(q);
     const flat = [];
-    pos.forEach(p => p.lines.forEach(l => flat.push({
+    pos.forEach(p => p.lines.filter(l => l.isOpen).forEach(l => flat.push({
       'PO No': p.poNo, 'PO Date': (p.date || '').split(' ')[0], 'Age (days)': p.age ?? '',
       'Vendor': p.vendor, 'Site': p.site, 'PO Status': p.status || '',
-      'Item': l.desc, 'Unit': l.unit || '',
+      'Part No': l.partNo, 'Part Description': l.partDesc, 'Unit': l.unit || '',
       'PO Qty': l.qty, 'Invoice Qty': l.invoiced, 'GRN Qty': l.received,
       'Pending Qty': l.pendingQty > 0 ? l.pendingQty : 0, 'Rate': l.rate || '',
       'Pending Amount': l.pendingQty > 0 && l.rate ? Math.round(l.pendingAmt) : '',
@@ -13810,8 +13810,15 @@ function _openPOCompute(q) {
     const pendingAmt = Math.max(0, pendingQty) * rate;
     const pendingPct = qty > 0 ? Math.max(0, pendingQty) / qty * 100 : 0;
 
+    // Item display comes from Material Description, split on the FIRST "|" only:
+    // left → Part No, the remainder → Part Description.
+    const matDesc = _opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name', 'Material']) || part;
+    const pipe = matDesc.indexOf('|');
+    const partNo   = pipe >= 0 ? matDesc.slice(0, pipe).trim() : matDesc.trim();
+    const partDesc = pipe >= 0 ? matDesc.slice(pipe + 1).trim() : '';
+
     (byPO[k] = byPO[k] || { lines: [] }).lines.push({
-      desc: part || '(unnamed item)',
+      desc: matDesc || part || '(unnamed item)', partNo, partDesc,
       unit: _opGet(x, IC, ['Unit', 'UOM', 'Units']), qty, rate, invoiced, received,
       pendingQty, pendingAmt, pendingPct,
       status: isOpen ? 'Open' : 'Fulfilled', isOpen,
@@ -13906,45 +13913,28 @@ function pstRenderOpenPO(c, q) {
     return;
   }
 
-  const cards = pos.map(p => {
-    const rows = p.lines.map(l => {
-      const pq = l.pendingQty;
-      return `<tr>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;font-size:.78rem">${l.desc || '—'}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right">${fmtQ(l.qty)}${l.unit ? ' <span style="color:var(--txt3);font-size:.7rem">' + l.unit + '</span>' : ''}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right">${l.invoiced ? fmtQ(l.invoiced) : '—'}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right;color:#2e7d32;font-weight:700">${l.received ? fmtQ(l.received) : '—'}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right;font-weight:700;color:${pq > 0 ? '#c62828' : 'var(--txt3)'}">${pq > 0 ? fmtQ(pq) : '0'}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right;font-weight:700;color:${pq > 0 ? '#c62828' : 'var(--txt3)'}">${pq > 0 && l.rate ? fmtV(l.pendingAmt) : '—'}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef;text-align:right">${pq > 0 ? Math.round(l.pendingPct) + '%' : '—'}</td>
-      <td style="padding:5px 8px;border-top:1px solid #eef3ef">${lpill(l.status)}</td>
-    </tr>`; }).join('');
-    return `<div style="border:1px solid #e0ece4;border-radius:10px;margin-bottom:.85rem;overflow:hidden">
-      <div style="display:flex;flex-wrap:wrap;gap:.5rem 1.2rem;align-items:center;padding:.7rem .9rem;background:#f6faf7">
-        <div style="font-weight:800;color:var(--green);font-size:.9rem">${p.poNo}</div>
-        <div style="font-size:.8rem">${p.vendor || '—'}</div>
-        <div style="font-size:.76rem;color:var(--txt3)">🏗️ ${p.site || '—'}</div>
-        <div style="font-size:.76rem;color:var(--txt3)">📅 ${(p.date || '').split(' ')[0] || '—'} · ${opAge(p.age)}</div>
-        <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-          ${pill(p.pctRecv + '% received', '#eef4ff', '#1565c0')}
-          ${pill(p.openLines + ' open line' + (p.openLines !== 1 ? 's' : ''), '#fdecea', '#c62828')}
-          <span style="font-weight:800;color:#c62828;font-size:.82rem">${fmtV(p.totPendAmt)} pending</span>
-        </div>
-      </div>
-      <table style="width:100%;border-collapse:collapse;font-size:.8rem">
-        <thead><tr style="background:#fafdfb;color:var(--txt3);font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">
-          <th style="padding:5px 8px;text-align:left">Item</th>
-          <th style="padding:5px 8px;text-align:right">PO Qty</th>
-          <th style="padding:5px 8px;text-align:right">Invoice Qty</th>
-          <th style="padding:5px 8px;text-align:right">GRN Qty</th>
-          <th style="padding:5px 8px;text-align:right">Pending Qty</th>
-          <th style="padding:5px 8px;text-align:right">Pending Amt</th>
-          <th style="padding:5px 8px;text-align:right">Pending %</th>
-          <th style="padding:5px 8px;text-align:left">Status</th>
-        </tr></thead><tbody>${rows}</tbody>
-      </table>
-    </div>`;
-  }).join('');
+  // Flat, simple table — one row per OPEN line, sorted by pending amount.
+  const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, ch => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
+  const flat = [];
+  pos.forEach(p => p.lines.forEach(l => { if (l.isOpen) flat.push({
+    poNo: p.poNo, vendor: p.vendor, site: p.site, date: p.date,
+    partNo: l.partNo, partDesc: l.partDesc, unit: l.unit,
+    qty: l.qty, received: l.received, pendingQty: l.pendingQty,
+    pendingAmt: l.pendingAmt, pendingPct: l.pendingPct,
+  }); }));
+  flat.sort((a, b) => b.pendingAmt - a.pendingAmt);
+
+  const body = flat.map(l => `<tr>
+    <td style="font-weight:700;color:var(--green);font-size:.77rem;white-space:nowrap">${esc(l.poNo)}</td>
+    <td style="font-size:.76rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(l.vendor)}">${esc(l.vendor) || '—'}</td>
+    <td style="font-size:.76rem;white-space:nowrap">${esc(l.partNo) || '—'}</td>
+    <td style="font-size:.77rem;max-width:280px;white-space:normal">${esc(l.partDesc) || '—'}</td>
+    <td style="text-align:right">${fmtQ(l.qty)}${l.unit ? ' <span style="color:var(--txt3);font-size:.68rem">' + esc(l.unit) + '</span>' : ''}</td>
+    <td style="text-align:right;color:#2e7d32;font-weight:600">${l.received ? fmtQ(l.received) : '—'}</td>
+    <td style="text-align:right;font-weight:700;color:#c62828">${fmtQ(l.pendingQty)}</td>
+    <td style="text-align:right;font-weight:700;color:#c62828">${l.pendingAmt ? fmtV(l.pendingAmt) : '—'}</td>
+    <td style="text-align:right">${Math.round(l.pendingPct)}%</td>
+  </tr>`).join('');
 
   c.innerHTML = `
   <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem;margin-bottom:1rem">
@@ -13956,11 +13946,25 @@ function pstRenderOpenPO(c, q) {
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;gap:.5rem;flex-wrap:wrap">
     ${diag}
     <div style="display:flex;gap:.5rem">
+      <span style="font-size:.78rem;color:var(--txt3);align-self:center">${flat.length} open line${flat.length !== 1 ? 's' : ''}</span>
       <button onclick="window.openPOReload(this)" class="csv-btn">🔄 Reload</button>
       <button onclick="window.pstDownloadCSV('openpo')" class="csv-btn">⬇ CSV</button>
     </div>
   </div>
-  ${cards}`;
+  <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
+    <table class="vpi-tbl">
+      <thead><tr>
+        <th>PO Number</th><th>Vendor</th><th>Part No</th><th>Part Description</th>
+        <th style="text-align:right">PO Qty</th><th style="text-align:right">GRN Qty</th>
+        <th style="text-align:right">Pending Qty</th><th style="text-align:right">Pending Amt</th>
+        <th style="text-align:right">Pending %</th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </div>`;
+
+  const t = c.querySelector('.vpi-tbl');
+  if (t) { makeTableSortable(t); wrapTableScroll(t); }
 }
 
 // Force-reload both source files (v2_Purchase + v2_Stores) and re-render.
