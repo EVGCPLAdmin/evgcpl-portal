@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.26.2';
-const PORTAL_BUILD    = 481;
-const PORTAL_BUILD_AT = '2026-06-11T17:05:53Z';
+const PORTAL_VERSION  = '3.27.0';
+const PORTAL_BUILD    = 482;
+const PORTAL_BUILD_AT = '2026-06-11T17:15:14Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -13278,6 +13278,7 @@ function renderProcurementStores() {
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem;margin-bottom:.75rem">
     <div style="display:flex;gap:.4rem;border-bottom:2px solid #e0ece4;flex:1">
       <button class="vpi-tab-btn active" id="pst-tab-stockin"  onclick="pstSwitchTab('stockin')">📥 Stock IN</button>
+      <button class="vpi-tab-btn"        id="pst-tab-siraw"    onclick="pstSwitchTab('siraw')">📋 StockIN Table</button>
       <button class="vpi-tab-btn"        id="pst-tab-grn"      onclick="pstSwitchTab('grn')">📦 GRN Register</button>
       <button class="vpi-tab-btn"        id="pst-tab-openpo"   onclick="pstSwitchTab('openpo')">🔓 Open POs</button>
       <button class="vpi-tab-btn"        id="pst-tab-levels"   onclick="pstSwitchTab('levels')">📊 Stock Levels</button>
@@ -13318,10 +13319,12 @@ async function pstLoad() {
   document.getElementById('pst-loading').style.display = 'block';
   document.getElementById('pst-tab-content').style.display = 'none';
 
+  // rawId bypass: always read the canonical Stores sheet, ignoring any stale
+  // STORES sheet-link override that was redirecting StockIN to an empty sheet.
   const [stockRows, grnRows, levelRows] = await Promise.all([
-    fetchSheet('StockIN', 'SELECT A,B,C,D,E,F,G,H,K,L,M,N,O,P,Q,U,V,W', STORES_SHEET_ID),
-    fetchSheet('GRN_No',  'SELECT A,B,C,D,E,F,G,H,I,J,K,L,M', STORES_SHEET_ID),
-    fetchSheet('v3StockLevels', 'SELECT A,B,C,D,E,F,G,H', STORES_SHEET_ID),
+    fetchSheet('StockIN', 'SELECT A,B,C,D,E,F,G,H,K,L,M,N,O,P,Q,U,V,W', STORES_SHEET_ID, { rawId: true }),
+    fetchSheet('GRN_No',  'SELECT A,B,C,D,E,F,G,H,I,J,K,L,M', STORES_SHEET_ID, { rawId: true }),
+    fetchSheet('v3StockLevels', 'SELECT A,B,C,D,E,F,G,H', STORES_SHEET_ID, { rawId: true }),
   ]);
 
   if (!stockRows.length && !levelRows.length) {
@@ -13377,6 +13380,7 @@ function pstRefresh() {
   _pstLoaded = false;
   _openPOLoaded = false;
   _openPOStock = [];
+  _siRawLoaded = false;
   _poItemsCache = null;
   pstLoad();
 }
@@ -13384,6 +13388,17 @@ function pstRefresh() {
 window.pstDownloadCSV = function(tab) {
   const site = _pstSiteFilter;
   const q    = (document.getElementById('pst-search')?.value || '').toLowerCase();
+  if (tab === 'siraw') {
+    const f = _siRawFilters; const lq = (f.q || '').toLowerCase();
+    const colSite = _siRawCol(['Site Name', 'Site']);
+    const colType = _siRawCol(['Invoice / Stock Transfer', 'Invoice/Stock Transfer', 'Type']);
+    const rows = _siRawRows.filter(r =>
+      (!f.site || (colSite && r[colSite] === f.site)) &&
+      (!f.type || (colType && r[colType] === f.type)) &&
+      (!lq || _siRawCols.some(k => String(r[k] || '').toLowerCase().includes(lq))));
+    downloadCSV(rows, `StockIN_${new Date().toISOString().slice(0,10)}.csv`);
+    return;
+  }
   if (tab === 'stockin') {
     const rows = pstFilteredStockIN(q);
     downloadCSV(rows.map(r => ({
@@ -13447,7 +13462,7 @@ function pstSearch(q) {
 
 function pstSwitchTab(t) {
   _pstActiveTab = t;
-  ['stockin','grn','openpo','levels'].forEach(x =>
+  ['stockin','siraw','grn','openpo','levels'].forEach(x =>
     document.getElementById('pst-tab-' + x)?.classList.toggle('active', x === t));
   const si = document.getElementById('pst-search');
   if (si) si.value = '';
@@ -13515,6 +13530,7 @@ function pstRenderTab(q) {
   if (!c) return;
   if (_pstActiveTab === 'stockin') pstRenderStockIN(c, q || '');
   else if (_pstActiveTab === 'grn')  pstRenderGRNRegister(c, q || '');
+  else if (_pstActiveTab === 'siraw')  pstRenderStockINRaw(c, q || '');
   else if (_pstActiveTab === 'openpo') pstRenderOpenPO(c, q || '');
   else if (_pstActiveTab === 'levels') pstRenderLevels(c, q || '');
 }
@@ -13564,6 +13580,99 @@ function pstRenderStockIN(c, q) {
   if (_t_pstStockIN) { makeTableSortable(_t_pstStockIN); wrapTableScroll(_t_pstStockIN); }
 }
 
+/* ── STOCK IN — TABULAR VIEW ───────────────────────────
+   A fresh, self-contained table of the raw StockIN tab, read straight from the
+   canonical v2_Stores sheet (rawId bypass — immune to stale Sheet-Linking
+   overrides). Shows every column with Site / Type / search filters. */
+const STORES_SHEET_ID_CANON = '1iMQxgqGilUh2_3NCZl5D-EMt-NC8FwugX83q2fWb8fE';
+let _siRawLoaded = false;
+let _siRawRows   = [];
+let _siRawCols   = [];
+let _siRawFilters = { site: '', type: '', q: '' };
+
+async function _siRawEnsure(force) {
+  if (_siRawLoaded && !force) return;
+  const rows = await fetchSheet('StockIN', 'SELECT *', STORES_SHEET_ID_CANON, { rawId: true });
+  _siRawRows = (rows || []).filter(r => Object.values(r).some(v => String(v || '').trim() !== ''));
+  _siRawCols = _siRawRows.length ? Object.keys(_siRawRows[0]).filter(k => k && k.trim() !== '') : [];
+  _siRawLoaded = true;
+}
+
+window.siRawSetFilter = function(which, val) { _siRawFilters[which] = val; pstRenderTab(); };
+window.siRawReload = function(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Reloading…'; }
+  _siRawLoaded = false;
+  _siRawEnsure(true).then(() => { if (_pstActiveTab === 'siraw') pstRenderTab(); })
+    .catch(() => { if (btn) { btn.disabled = false; btn.textContent = '🔄 Reload'; } });
+};
+
+function _siRawCol(cands) {  // resolve a column name case/space-insensitively
+  for (const c of cands) { const hit = _siRawCols.find(k => _opNorm(k) === _opNorm(c)); if (hit) return hit; }
+  return '';
+}
+
+function pstRenderStockINRaw(c) {
+  if (!_siRawLoaded) {
+    c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:var(--txt3)">
+      <div style="font-size:1.6rem;margin-bottom:.4rem">⏳</div>Loading StockIN…</div>`;
+    _siRawEnsure().then(() => { if (_pstActiveTab === 'siraw') pstRenderTab(); })
+      .catch(() => { c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:#c62828">Could not load StockIN.</div>`; });
+    return;
+  }
+
+  const colSite = _siRawCol(['Site Name', 'Site']);
+  const colType = _siRawCol(['Invoice / Stock Transfer', 'Invoice/Stock Transfer', 'Type']);
+  const sites = colSite ? [...new Set(_siRawRows.map(r => r[colSite]).filter(Boolean))].sort() : [];
+  const types = colType ? [...new Set(_siRawRows.map(r => r[colType]).filter(Boolean))].sort() : [];
+
+  const f = _siRawFilters;
+  const lq = (f.q || '').toLowerCase();
+  const rows = _siRawRows.filter(r =>
+    (!f.site || (colSite && r[colSite] === f.site)) &&
+    (!f.type || (colType && r[colType] === f.type)) &&
+    (!lq || _siRawCols.some(k => String(r[k] || '').toLowerCase().includes(lq)))
+  );
+
+  // Show a focused, useful subset of columns when the tab is very wide.
+  const preferred = ['SI ID', 'CheckSum', 'Site Name', 'Invoice / Stock Transfer', 'PO No', 'PO No (Key)',
+    'Vendor Name', 'Invoice No / ST No', 'MR No', 'Part Description', 'Part Details',
+    'MR Qty', 'Invoice Qty', 'GRN Qty', 'Received On (At)'];
+  let showCols = _siRawCols.filter(k => preferred.some(p => _opNorm(p) === _opNorm(k)));
+  if (!showCols.length) showCols = _siRawCols.slice(0, 16);
+
+  const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, ch => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
+  const sel = (id, label, opts, cur, which) => `
+    <select onchange="siRawSetFilter('${which}', this.value)"
+      style="padding:.36rem .6rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.8rem;font-family:inherit;background:#fff;outline:none">
+      <option value="">${label}</option>
+      ${opts.map(o => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${esc(o)}</option>`).join('')}
+    </select>`;
+
+  c.innerHTML = `
+  <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.7rem">
+    ${colSite ? sel('f-site', 'All Sites', sites, f.site, 'site') : ''}
+    ${colType ? sel('f-type', 'All Types', types, f.type, 'type') : ''}
+    <input type="text" value="${esc(f.q)}" placeholder="🔍 Search StockIN…" oninput="siRawSetFilter('q', this.value)"
+      style="padding:.36rem .6rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.8rem;font-family:inherit;outline:none;min-width:200px;flex:1" />
+    <span style="font-size:.78rem;color:var(--txt3)">${rows.length} / ${_siRawRows.length} rows</span>
+    <button onclick="window.siRawReload(this)" class="csv-btn">🔄 Reload</button>
+    <button onclick="window.pstDownloadCSV('siraw')" class="csv-btn">⬇ CSV</button>
+  </div>
+  ${_siRawRows.length === 0
+    ? `<div style="background:#fdecea;color:#c62828;border-radius:8px;padding:1rem;font-size:.85rem">
+         ⚠️ StockIN returned 0 rows from the canonical sheet. Verify the tab is named exactly <b>StockIN</b> and the sheet is shared “Anyone with the link → Viewer”.</div>`
+    : `<div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
+       <table class="vpi-tbl">
+         <thead><tr>${showCols.map(k => `<th style="white-space:nowrap">${esc(k)}</th>`).join('')}</tr></thead>
+         <tbody>${rows.slice(0, 500).map(r => `<tr>${showCols.map(k =>
+           `<td style="font-size:.77rem;white-space:nowrap">${esc(r[k]) || '—'}</td>`).join('')}</tr>`).join('')}</tbody>
+       </table></div>
+       ${rows.length > 500 ? `<div style="font-size:.74rem;color:var(--txt3);padding:.5rem">Showing first 500 of ${rows.length} matching rows — refine filters or use CSV for the full set.</div>` : ''}`}`;
+
+  const t = c.querySelector('.vpi-tbl');
+  if (t) { makeTableSortable(t); wrapTableScroll(t); }
+}
+
 /* ── OPEN PO REPORT TAB ───────────────────────────────
    A PO line is OPEN when PO Qty − Received(GRN) Qty > 0, else FULFILLED.
 
@@ -13604,10 +13713,9 @@ async function _openPOEnsure(force) {
   const [hdr, items, stock] = await Promise.all([
     fetchSheet(_po.tab || PO_TAB, 'SELECT *', _po.id || PO_SHEET_ID),
     fetchSheet(_it.tab || 'PO_Items_Actual', 'SELECT *', _it.id || PO_SHEET_ID),
-    // StockIN: explicit contiguous columns (A–W). SELECT * was returning 0 rows
-    // for this wide tab (gviz times out / errors on the full-width response),
-    // while an explicit column query succeeds — same approach pstLoad uses.
-    fetchSheet('StockIN', 'SELECT A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W', STORES_SHEET_ID),
+    // StockIN: read the canonical Stores sheet directly (rawId bypass), since a
+    // stale STORES sheet-link override was redirecting it to an empty sheet.
+    fetchSheet('StockIN', 'SELECT *', STORES_SHEET_ID, { rawId: true }),
   ]);
   _openPOHeaders = hdr   || [];
   _openPOItems   = items || [];
@@ -15456,10 +15564,14 @@ window.google.visualization.Query.setResponse = function(json) {
 
 let _gvizReqId = 0;
 
-function fetchSheet(sheetName, tq, spreadsheetId) {
+function fetchSheet(sheetName, tq, spreadsheetId, opts) {
   return new Promise((resolve) => {
     const reqId = String(++_gvizReqId);
-    const sid = (typeof _resolveSheetId === 'function') ? _resolveSheetId(spreadsheetId || SHEET_ID) : (spreadsheetId || SHEET_ID);
+    // opts.rawId bypasses the Sheet-Linking override (_resolveSheetId) so a fetch
+    // can hit the literal spreadsheet id — used by StockIN, which a stale STORES
+    // link override was silently redirecting to an empty/old sheet (→ 0 rows).
+    const _raw = opts && opts.rawId;
+    const sid = (!_raw && typeof _resolveSheetId === 'function') ? _resolveSheetId(spreadsheetId || SHEET_ID) : (spreadsheetId || SHEET_ID);
     let url = `https://docs.google.com/spreadsheets/d/${sid}/gviz/tq`
             + `?tqx=out:json;reqId:${reqId}`
             + `&sheet=${encodeURIComponent(sheetName)}`;
