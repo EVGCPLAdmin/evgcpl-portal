@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.27.0';
-const PORTAL_BUILD    = 482;
-const PORTAL_BUILD_AT = '2026-06-11T17:15:14Z';
+const PORTAL_VERSION  = '3.27.1';
+const PORTAL_BUILD    = 483;
+const PORTAL_BUILD_AT = '2026-06-11T18:25:54Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -13702,20 +13702,24 @@ const _opPick = (x, keys) => { for (const k of keys) { if (x[k] != null && Strin
 const _opColMap = rows => { const m = {}; if (rows && rows[0]) Object.keys(rows[0]).forEach(k => { const n = _opNorm(k); if (!(n in m)) m[n] = k; }); return m; };
 const _opGet = (r, colMap, candidates) => { for (const c of candidates) { const a = colMap[_opNorm(c)]; if (a != null && r[a] != null && String(r[a]).trim() !== '') return String(r[a]).trim(); } return ''; };
 
-let _openPODiag = { stockRows: 0, stockWithKey: 0, itemRows: 0, matchedLines: 0 };
+let _openPODiag = { poHeaders: 0, stockRows: 0, stockWithKey: 0, itemRows: 0, matchedLines: 0 };
 
 // Reload BOTH source files fresh: v2_Purchase (PO_Actual + PO_Items_Actual) and
-// v2_Stores (StockIN). force=true bypasses the loaded flag (the Reload button).
+// v2_Stores (StockIN). All read via rawId from the canonical sheet ids, since
+// stale Sheet-Linking overrides were redirecting PO_Items_Actual and StockIN to
+// near-empty sheets (PO items came back as only a handful of rows). force=true
+// bypasses the loaded flag (the Reload button).
 async function _openPOEnsure(force) {
   if (_openPOLoaded && !force) return;
-  const _po = (typeof getLink === 'function') ? getLink('PO')       : { id: PO_SHEET_ID, tab: PO_TAB };
-  const _it = (typeof getLink === 'function') ? getLink('PO_ITEMS') : { id: PO_SHEET_ID, tab: 'PO_Items_Actual' };
+  const grab = async (tab, sid) => {            // light retry — gviz can return partial
+    let r = await fetchSheet(tab, 'SELECT *', sid, { rawId: true });
+    if (!r || r.length < 2) { await new Promise(z => setTimeout(z, 700)); r = await fetchSheet(tab, 'SELECT *', sid, { rawId: true }); }
+    return r || [];
+  };
   const [hdr, items, stock] = await Promise.all([
-    fetchSheet(_po.tab || PO_TAB, 'SELECT *', _po.id || PO_SHEET_ID),
-    fetchSheet(_it.tab || 'PO_Items_Actual', 'SELECT *', _it.id || PO_SHEET_ID),
-    // StockIN: read the canonical Stores sheet directly (rawId bypass), since a
-    // stale STORES sheet-link override was redirecting it to an empty sheet.
-    fetchSheet('StockIN', 'SELECT *', STORES_SHEET_ID, { rawId: true }),
+    grab(PO_TAB, PO_SHEET_ID),
+    grab('PO_Items_Actual', PO_SHEET_ID),
+    grab('StockIN', STORES_SHEET_ID),
   ]);
   _openPOHeaders = hdr   || [];
   _openPOItems   = items || [];
@@ -13822,7 +13826,7 @@ function _openPOCompute(q) {
       totPendQty, totPendAmt, openLines, age, pctRecv, pendPctPO });
   });
 
-  _openPODiag = { stockRows: _openPOStock.length, stockWithKey, itemRows: _openPOItems.length, matchedLines };
+  _openPODiag = { poHeaders: _openPOHeaders.length, stockRows: _openPOStock.length, stockWithKey, itemRows: _openPOItems.length, matchedLines };
   out.sort((a, b) => (b.totPendAmt || 0) - (a.totPendAmt || 0));
   return out;
 }
@@ -13854,13 +13858,14 @@ function pstRenderOpenPO(c, q) {
 
   // Data diagnostic — makes "no StockIN data" visible: rows loaded vs matched.
   const d = _openPODiag;
-  const stockWarn = d.stockRows === 0 ? ';background:#fdecea;color:#c62828'
+  const stockWarn = (d.stockRows === 0 || d.itemRows < 5) ? ';background:#fdecea;color:#c62828'
     : d.stockWithKey === 0 ? ';background:#fff3e0;color:#e65100'
     : d.matchedLines === 0 ? ';background:#fff3e0;color:#e65100' : '';
   const diag = `<div style="font-size:.72rem;color:var(--txt3);padding:.3rem .5rem;border-radius:6px${stockWarn}">
-    v2_Stores StockIN: <b>${d.stockRows}</b> rows (<b>${d.stockWithKey}</b> with PO-Key) ·
-    PO items: <b>${d.itemRows}</b> · matched lines: <b>${d.matchedLines}</b>${
+    PO headers: <b>${d.poHeaders}</b> · PO items: <b>${d.itemRows}</b> ·
+    StockIN: <b>${d.stockRows}</b> rows (<b>${d.stockWithKey}</b> with PO-Key) · matched lines: <b>${d.matchedLines}</b>${
       d.stockRows === 0 ? ' — StockIN returned no rows (sheet access?)' :
+      d.itemRows < 5 ? ' — PO_Items_Actual returned almost no rows (stale PO sheet-link override?)' :
       d.stockWithKey === 0 ? ' — no "PO No (Key)" column matched in StockIN' :
       d.matchedLines === 0 ? ' — CheckSum/Part Details join matched nothing' : ''}
   </div>`;
@@ -15659,7 +15664,7 @@ async function loadAllMasters() {
   // Employees: separate spreadsheet — 0_EmployeeRegister_Live + 07_Mess_Accomodation
   const [sitesRows, empRows, messRows, assetsRows, vendorsRows, scRows] = await Promise.all([
     fetchSheet('5-SiteMaster',           null, SHEET_ID),
-    (function(){ const e=(typeof getLink==='function')?getLink('EMP'):{id:EMP_SHEET_ID,tab:'0_EmployeeRegister_Live'}; return fetchSheet(e.tab||'0_EmployeeRegister_Live', null, e.id||EMP_SHEET_ID); })(),
+    fetchSheet('0_EmployeeRegister_Live', null, EMP_SHEET_ID, { rawId: true }),
     fetchSheet('07_Mess_Accomodation',   null, EMP_SHEET_ID),
     fetchSheet('6-AssetMaster',          null, SHEET_ID),
     fetchSheet('7-VendorMaster',        'SELECT C,J,K,L,Q,R,AK', SHEET_ID),
