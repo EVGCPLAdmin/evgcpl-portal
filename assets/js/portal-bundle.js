@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.29.1';
-const PORTAL_BUILD    = 489;
-const PORTAL_BUILD_AT = '2026-06-11T19:18:16Z';
+const PORTAL_VERSION  = '3.30.0';
+const PORTAL_BUILD    = 490;
+const PORTAL_BUILD_AT = '2026-06-11T19:28:36Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1481,6 +1481,22 @@ const DEPT_HEAD_ROUTES = {
   'it':                        new Set(['dashboard','my-profile','reports','my-documents','wall','rewards']),
 };
 function getRouteSet(role) {
+  // Expand the base set so any allowed level-2 parent also grants its
+  // level-3 child pages (defined in NAV_SUBMENUS). Keeps access groups
+  // simple: assign the parent and its sub-pages come along.
+  const base = _getRouteSetRaw(role);
+  if (!base || typeof NAV_SUBMENUS === 'undefined') return base;
+  let out = null;
+  for (const parent in NAV_SUBMENUS) {
+    if (!base.has(parent)) continue;
+    (NAV_SUBMENUS[parent].children || []).forEach(ch => {
+      if (!base.has(ch.route)) { if (!out) out = new Set(base); out.add(ch.route); }
+    });
+  }
+  return out || base;
+}
+
+function _getRouteSetRaw(role) {
   // Group-based access override — when enforcement is on and the current user
   // is assigned to access groups, their visible routes = union of group routes
   // (plus always-on core). Applies to every assigned user INCLUDING md-role
@@ -1509,6 +1525,7 @@ function getRouteSet(role) {
   return ROLE_ROUTES[role] || ROLE_ROUTES.employee;
 }
 function applyRoleNavRestrictions(role) {
+  try { _navBuildSubmenus(); } catch (e) {}
   const isExternal    = role === 'vendor' || role === 'sc';
   // A md-role user who is being restricted by an access group loses md-only
   // nav (Dev Mode, Command); only the super-admin keeps full md privileges.
@@ -1586,6 +1603,69 @@ function applyRoleNavRestrictions(role) {
 }
 
 
+// ════════════════════════════════════════════════════════════════
+//  3-LEVEL NAVIGATION — sub-page flyout menus
+//  A level-2 top-nav dropdown item (e.g. "Stores" under Procurement)
+//  can own a flyout of level-3 pages. Add as many pages as you like by
+//  extending the `children` array for any parent route below — routing,
+//  access enforcement and the flyout all render off this single config,
+//  so no per-page HTML edits are needed (the nav HTML is duplicated
+//  across files, but the submenus are injected at runtime from here).
+//
+//  To add a page under a module:
+//    1. add a `{ route, label, status }` entry to that module's children
+//    2. map the route → a render in renderPage() (and ROUTE_TO_PAGE in
+//       multi-page-bootstrap.js if it lives on a different .html page)
+// ════════════════════════════════════════════════════════════════
+const NAV_SUBMENUS = {
+  stores: {
+    children: [
+      { route:'stores',         label:'Overview',      status:'live' },
+      { route:'stores-stockin', label:'Stock IN',      status:'live' },
+      { route:'stores-siraw',   label:'StockIN Table', status:'live' },
+      { route:'stores-grn',     label:'GRN Register',  status:'live' },
+      { route:'stores-openpo',  label:'Open POs',      status:'live', badge:{ text:'New', cls:'live' } },
+      { route:'stores-levels',  label:'Stock Levels',  status:'live' },
+    ],
+  },
+};
+
+// route → parent-route map for every level-3 child
+function _navChildParentMap() {
+  const out = {};
+  for (const p in NAV_SUBMENUS) (NAV_SUBMENUS[p].children || []).forEach(c => { if (c.route !== p) out[c.route] = p; });
+  return out;
+}
+function _navParentOf(route) { return _navChildParentMap()[route] || null; }
+
+// Inject the level-3 flyout markup into the (hand-coded) top nav. Idempotent.
+function _navBuildSubmenus() {
+  const topNav = document.getElementById('topNav');
+  if (!topNav) return;
+  for (const parent in NAV_SUBMENUS) {
+    const host = topNav.querySelector(`.tnav-item[data-route="${parent}"]`);
+    if (!host || host.querySelector('.tnav-subdropdown')) continue;
+    host.classList.add('has-sub');
+    host.insertAdjacentHTML('beforeend',
+      '<svg class="tnav-sub-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 6 15 12 9 18"/></svg>');
+    const fly = document.createElement('div');
+    fly.className = 'tnav-subdropdown';
+    (NAV_SUBMENUS[parent].children || []).forEach(ch => {
+      const it = document.createElement('div');
+      it.className = 'tnav-item';
+      it.setAttribute('data-route', ch.route);
+      it.setAttribute('data-parent', parent);
+      if (ch.status) it.setAttribute('data-status', ch.status);
+      it.onclick = (e) => { e.stopPropagation(); navigate(ch.route); };
+      const badge = ch.badge ? `<span class="tnav-item-badge ${ch.badge.cls || 'live'}">${ch.badge.text}</span>` : '';
+      it.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/></svg>${ch.label}${badge}`;
+      fly.appendChild(it);
+    });
+    host.appendChild(fly);
+  }
+}
+
+
 // Routes accessible by vendor/SC external users ONLY
 const EXTERNAL_ROUTES = new Set(['my-portal','my-orders','my-invoices']);
 
@@ -1613,6 +1693,12 @@ function navigate(page) {
   document.querySelectorAll('#topNav .tnav-item, #topNav .tnav-btn.solo').forEach(el => el.classList.remove('nav-active'));
   const tnavItem = document.querySelector(`#topNav .tnav-item[data-route="${page}"]`);
   if (tnavItem) tnavItem.classList.add('nav-active');
+  // If this is a level-3 sub-page, also light up its parent menu item
+  const _navParent = (typeof _navParentOf === 'function') ? _navParentOf(page) : null;
+  if (_navParent) {
+    const pEl = document.querySelector(`#topNav .tnav-item[data-route="${_navParent}"]`);
+    if (pEl) pEl.classList.add('nav-active');
+  }
   const tnavSolo = document.querySelector(`#topNav .tnav-btn.solo[data-route="${page}"]`);
   if (tnavSolo) tnavSolo.classList.add('nav-active');
   // Close sidebar on mobile
@@ -1645,6 +1731,11 @@ function renderPage(page) {
     'scm':            renderSCMDashboard,
     'mrs':            renderMRSDashboard,
     'stores':         renderProcurementStores,
+    'stores-stockin': () => { window._pstPendingTab = 'stockin'; renderProcurementStores(); },
+    'stores-siraw':   () => { window._pstPendingTab = 'siraw';   renderProcurementStores(); },
+    'stores-grn':     () => { window._pstPendingTab = 'grn';     renderProcurementStores(); },
+    'stores-openpo':  () => { window._pstPendingTab = 'openpo';  renderProcurementStores(); },
+    'stores-levels':  () => { window._pstPendingTab = 'levels';  renderProcurementStores(); },
     'purchase':       renderPurchaseDashboard,
     'vendor':         renderVendorPortalInternal,
     'subcontractor':  () => renderPlaceholder('🤝','Subcontractor Portal (Internal)','SC management for procurement team','Coming in Phase 8'),

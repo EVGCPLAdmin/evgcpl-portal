@@ -161,6 +161,11 @@
     'mrs':               'scm.html',
     'purchase':          'scm.html',
     'stores':            'scm.html',
+    'stores-stockin':    'scm.html',
+    'stores-siraw':      'scm.html',
+    'stores-grn':        'scm.html',
+    'stores-openpo':     'scm.html',
+    'stores-levels':     'scm.html',
     'vendor':            'scm.html',
     'subcontractor':     'scm.html',
 
