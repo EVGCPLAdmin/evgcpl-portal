@@ -1,8 +1,8 @@
 {
   "major": 3,
-  "minor": 27,
-  "patch": 4,
-  "build": 486,
-  "semver": "3.27.4",
-  "builtAt": "2026-06-11T18:55:39Z"
+  "minor": 29,
+  "patch": 0,
+  "build": 488,
+  "semver": "3.29.0",
+  "builtAt": "2026-06-11T19:10:54Z"
 }
