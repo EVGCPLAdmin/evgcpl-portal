@@ -13443,20 +13443,28 @@ window.pstDownloadCSV = function(tab) {
   } else if (tab === 'openpo') {
     const q = (document.getElementById('pst-search')?.value || '').toLowerCase();
     const pos = _openPOCompute(q);
-    const flat = [];
-    pos.forEach(p => p.lines.filter(l => l.isOpen).forEach(l => flat.push({
-      'PO No': p.poNo, 'PO Date': (p.date || '').split(' ')[0], 'Age (days)': p.age ?? '',
-      'Vendor': p.vendor, 'Vendor ID': p.vendorId || '', 'Vendor Type': p.vendorType || '',
-      'Vendor City': p.vendorCity || '', 'Vendor State': p.vendorState || '',
-      'Site': p.site, 'PO Status': p.status || '',
-      'Part No': l.partNo, 'Part Description': l.partDesc, 'Unit': l.unit || '',
+    const all = [];
+    pos.forEach(p => p.lines.filter(l => l.isOpen).forEach(l => all.push({
+      poNo: p.poNo, date: p.date, age: p.age, ageBucket: _opAgeBucket(p.age),
+      vendor: p.vendor, vendorId: p.vendorId, vendorType: p.vendorType,
+      vendorCity: p.vendorCity, vendorState: p.vendorState, site: p.site, poStatus: p.status,
+      mrNo: l.mrNo, hsn: l.hsn, partNo: l.partNo, partDesc: l.partDesc, unit: l.unit,
+      qty: l.qty, invoiced: l.invoiced, received: l.received, rate: l.rate,
+      pendingQty: l.pendingQty, pendingAmt: l.pendingAmt, pendingPct: l.pendingPct, status: l.status,
+    })));
+    const flat = _openPOApplyFilters(all).map(l => ({
+      'PO No': l.poNo, 'PO Date': (l.date || '').split(' ')[0], 'Age (days)': l.age ?? '', 'Aging': l.ageBucket,
+      'Vendor': l.vendor, 'Vendor ID': l.vendorId || '', 'Vendor Type': l.vendorType || '',
+      'Vendor City': l.vendorCity || '', 'Vendor State': l.vendorState || '',
+      'Site': l.site, 'PO Status': l.poStatus || '', 'MR No': l.mrNo || '', 'HSN Code': l.hsn || '',
+      'Part No': l.partNo, 'Part Description': l.partDesc, 'UOM': l.unit || '',
       'PO Qty': l.qty, 'Invoice Qty': l.invoiced, 'GRN Qty': l.received,
       'Pending Qty': l.pendingQty > 0 ? l.pendingQty : 0, 'Rate': l.rate || '',
       'Pending Amount': l.pendingQty > 0 && l.rate ? Math.round(l.pendingAmt) : '',
       'Pending %': l.pendingQty > 0 ? Math.round(l.pendingPct) : '',
       'Line Status': l.status,
-    })));
-    downloadCSV(flat, `OpenPO_${site||'all'}_${new Date().toISOString().slice(0,10)}.csv`);
+    }));
+    downloadCSV(flat, `OpenPO_${new Date().toISOString().slice(0,10)}.csv`);
   } else if (tab === 'levels') {
     const rows = (site ? _pstLevels.filter(r => r['Site Name'] === site) : _pstLevels)
       .filter(r => !q || (r['Part Details'] || r['Site & Code'] || '').toLowerCase().includes(q) || (r['Site Name'] || '').toLowerCase().includes(q));
@@ -13915,7 +13923,8 @@ const OPENPO_FIELDS = [
   { key:'vendorState', label:'Vendor State',     align:'left',  def:false, fmt:l=>_opEsc(l.vendorState)||'—' },
   { key:'site',        label:'Site',             align:'left',  def:false, fmt:l=>_opEsc(l.site)||'—' },
   { key:'poDate',      label:'PO Date',          align:'left',  def:false, fmt:l=>_opEsc((l.date||'').split(' ')[0])||'—' },
-  { key:'age',         label:'Age (days)',       align:'right', def:false, fmt:l=>l.age==null?'—':l.age+'d' },
+  { key:'age',         label:'Age (days)',       align:'right', def:false, fmt:l=>l.age==null?'—':`<span style="font-weight:700;color:${l.age>30?'#c62828':l.age>14?'#e65100':'var(--txt2)'}">${l.age}d</span>` },
+  { key:'ageBucket',   label:'Aging',            align:'left',  def:true,  fmt:l=>{ const b=l.ageBucket; const col=l.age>30?'#c62828':l.age>14?'#e65100':l.age>7?'#8a6d00':'#2e7d32'; return `<span class="vpi-status-pill" style="background:${col}1a;color:${col}">${b}</span>`; } },
   { key:'poStatus',    label:'PO Status',        align:'left',  def:false, fmt:l=>_opEsc(l.poStatus)||'—' },
   { key:'mrNo',        label:'MR No',            align:'left',  def:false, fmt:l=>_opEsc(l.mrNo)||'—' },
   { key:'partNo',      label:'Part No',          align:'left',  def:true,  fmt:l=>_opEsc(l.partNo)||'—' },
@@ -13945,6 +13954,92 @@ window.openPOColAdd    = (k) => { const c = _openPOColsGet(); if (!c.includes(k)
 window.openPOColRemove = (k) => { const c = _openPOColsGet().filter(x => x !== k); _openPOColsSet(c.length ? c : ['poNo']); _openPORerender(); };
 window.openPOColMove   = (k, dir) => { const c = _openPOColsGet(); const i = c.indexOf(k), j = i + dir; if (i < 0 || j < 0 || j >= c.length) return; [c[i], c[j]] = [c[j], c[i]]; _openPOColsSet(c); _openPORerender(); };
 window.openPOColReset  = () => { _openPOColsSet(OPENPO_FIELDS.filter(f => f.def).map(f => f.key)); window._openPOPanel = false; _openPORerender(); };
+
+function _opAgeBucket(age) {
+  if (age == null) return '—';
+  if (age <= 7)  return '0–7 days';
+  if (age <= 15) return '8–15 days';
+  if (age <= 30) return '16–30 days';
+  if (age <= 60) return '31–60 days';
+  if (age <= 90) return '61–90 days';
+  return '90+ days';
+}
+
+// ── Open PO filter engine ──
+function _openPOFiltersGet() { return (window._openPOFilters = window._openPOFilters || {}); }
+function _openPOActiveFilterCount() { const f = _openPOFiltersGet(); return Object.keys(f).filter(k => String(f[k] ?? '').trim() !== '').length; }
+window.openPOFilterSet   = (k, v) => { _openPOFiltersGet()[k] = v; _openPORerender(); };
+window.openPOFilterClear = () => { window._openPOFilters = {}; _openPORerender(); };
+window.openPOFilterPanel = () => { window._openPOFiltPanel = !window._openPOFiltPanel; _openPORerender(); };
+
+function _openPOApplyFilters(flat) {
+  const f = _openPOFiltersGet();
+  const q = (f.q || '').toLowerCase().trim();
+  const minPct = f.minPct !== '' && f.minPct != null ? parseFloat(f.minPct) : null;
+  const minAmt = f.minAmt !== '' && f.minAmt != null ? parseFloat(f.minAmt) : null;
+  const minQty = f.minQty !== '' && f.minQty != null ? parseFloat(f.minQty) : null;
+  const dFrom  = f.dateFrom ? new Date(f.dateFrom + 'T00:00:00') : null;
+  const dTo    = f.dateTo   ? new Date(f.dateTo + 'T23:59:59') : null;
+  return flat.filter(l => {
+    if (q && !(`${l.poNo} ${l.vendor} ${l.vendorId} ${l.partNo} ${l.partDesc} ${l.mrNo} ${l.hsn} ${l.site}`.toLowerCase().includes(q))) return false;
+    if (f.vendor && l.vendor !== f.vendor) return false;
+    if (f.vendorType && l.vendorType !== f.vendorType) return false;
+    if (f.site && l.site !== f.site) return false;
+    if (f.poStatus && l.poStatus !== f.poStatus) return false;
+    if (f.aging && l.ageBucket !== f.aging) return false;
+    if (f.uom && l.unit !== f.uom) return false;
+    if (minPct != null && !(l.pendingPct >= minPct)) return false;
+    if (minAmt != null && !(l.pendingAmt >= minAmt)) return false;
+    if (minQty != null && !(l.pendingQty >= minQty)) return false;
+    if (dFrom || dTo) {
+      const d = (typeof parsePODate === 'function') ? parsePODate(l.date) : null;
+      if (!d) return false;
+      if (dFrom && d < dFrom) return false;
+      if (dTo && d > dTo) return false;
+    }
+    return true;
+  });
+}
+
+function _openPOFilterBarHtml(allFlat) {
+  const f = _openPOFiltersGet();
+  const uniq = key => [...new Set(allFlat.map(r => r[key]).filter(v => v != null && String(v).trim() !== ''))].sort();
+  const sel = (k, label, opts) => `
+    <label style="display:flex;flex-direction:column;gap:.15rem;font-size:.66rem;color:var(--txt3);text-transform:uppercase">${label}
+      <select onchange="openPOFilterSet('${k}', this.value)" style="padding:.34rem .5rem;border:1.5px solid #cce3d4;border-radius:7px;font-size:.78rem;font-family:inherit;background:#fff;outline:none;min-width:120px">
+        <option value="">All</option>
+        ${opts.map(o => `<option value="${_opEsc(o)}" ${f[k] === o ? 'selected' : ''}>${_opEsc(o)}</option>`).join('')}
+      </select></label>`;
+  const num = (k, label, ph) => `
+    <label style="display:flex;flex-direction:column;gap:.15rem;font-size:.66rem;color:var(--txt3);text-transform:uppercase">${label}
+      <input type="number" value="${f[k] ?? ''}" placeholder="${ph}" oninput="openPOFilterSet('${k}', this.value)" style="width:100px;padding:.34rem .5rem;border:1.5px solid #cce3d4;border-radius:7px;font-size:.78rem;font-family:inherit;outline:none"></label>`;
+  const dat = (k, label) => `
+    <label style="display:flex;flex-direction:column;gap:.15rem;font-size:.66rem;color:var(--txt3);text-transform:uppercase">${label}
+      <input type="date" value="${f[k] ?? ''}" onchange="openPOFilterSet('${k}', this.value)" style="padding:.3rem .5rem;border:1.5px solid #cce3d4;border-radius:7px;font-size:.76rem;font-family:inherit;outline:none"></label>`;
+  const AGING = ['0–7 days','8–15 days','16–30 days','31–60 days','61–90 days','90+ days'];
+  return `<div style="border:1px solid #cce3d4;border-radius:10px;padding:.8rem;margin-bottom:.8rem;background:#f6faf7">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem">
+      <b style="font-size:.82rem">Filters</b>
+      <div><button onclick="openPOFilterClear()" class="csv-btn">↺ Clear all</button>
+      <button onclick="openPOFilterPanel()" class="csv-btn">✓ Done</button></div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:flex-end">
+      <label style="display:flex;flex-direction:column;gap:.15rem;font-size:.66rem;color:var(--txt3);text-transform:uppercase">Search
+        <input type="text" value="${_opEsc(f.q || '')}" placeholder="PO / vendor / part / MR / HSN" oninput="openPOFilterSet('q', this.value)" style="min-width:200px;padding:.34rem .5rem;border:1.5px solid #cce3d4;border-radius:7px;font-size:.78rem;font-family:inherit;outline:none"></label>
+      ${sel('vendor', 'Vendor', uniq('vendor'))}
+      ${sel('vendorType', 'Vendor Type', uniq('vendorType'))}
+      ${sel('site', 'Site', uniq('site'))}
+      ${sel('poStatus', 'PO Status', uniq('poStatus'))}
+      ${sel('uom', 'UOM', uniq('unit'))}
+      ${sel('aging', 'Aging', AGING)}
+      ${num('minPct', 'Pending % ≥', '%')}
+      ${num('minQty', 'Pending Qty ≥', 'qty')}
+      ${num('minAmt', 'Pending Amt ≥', '₹')}
+      ${dat('dateFrom', 'PO Date from')}
+      ${dat('dateTo', 'PO Date to')}
+    </div>
+  </div>`;
+}
 
 function _openPOColPanelHtml() {
   const cols = _openPOColsGet();
@@ -13980,20 +14075,8 @@ function pstRenderOpenPO(c, q) {
   }
 
   const pos = _openPOCompute(q);
-  const opAge = d => d == null ? '<span style="color:var(--txt3)">—</span>'
-    : `<span style="font-weight:700;color:${d > 30 ? '#c62828' : d > 14 ? '#e65100' : 'var(--txt2)'}">${d}d</span>`;
   const fmtV = n => (typeof fmtAmtFull === 'function') ? fmtAmtFull(n) : ('₹' + Math.round(n || 0).toLocaleString('en-IN'));
   const fmtQ = n => { const r = Math.round((n || 0) * 1000) / 1000; return r.toLocaleString('en-IN'); };
-  const pill = (txt, bg, col) => `<span class="vpi-status-pill" style="background:${bg};color:${col}">${txt}</span>`;
-  const lpill = s => s === 'Open'
-    ? pill('Open', '#fdecea', '#c62828')
-    : pill('Fulfilled', '#e8f5e9', '#2e7d32');
-
-  // KPI strip
-  const kOpen    = pos.length;
-  const kPendAmt = pos.reduce((s, p) => s + p.totPendAmt, 0);
-  const kPendQty = pos.reduce((s, p) => s + p.totPendQty, 0);
-  const kOldest  = pos.reduce((m, p) => Math.max(m, p.age || 0), 0);
 
   // Data diagnostic — makes "no StockIN data" visible: rows loaded vs matched.
   const d = _openPODiag;
@@ -14024,22 +14107,31 @@ function pstRenderOpenPO(c, q) {
 
   // Flat rows (one per OPEN line) carrying EVERY selectable field; columns and
   // their order come from the user's saved arrangement (_openPOColsGet).
-  const flat = [];
-  pos.forEach(p => p.lines.forEach(l => { if (l.isOpen) flat.push({
+  const allFlat = [];
+  pos.forEach(p => p.lines.forEach(l => { if (l.isOpen) allFlat.push({
     poNo: p.poNo, vendor: p.vendor, vendorId: p.vendorId, vendorType: p.vendorType,
     vendorCity: p.vendorCity, vendorState: p.vendorState, site: p.site, date: p.date,
-    age: p.age, poStatus: p.status,
+    age: p.age, ageBucket: _opAgeBucket(p.age), poStatus: p.status,
     mrNo: l.mrNo, hsn: l.hsn, lineAmt: l.lineAmt,
     partNo: l.partNo, partDesc: l.partDesc, unit: l.unit, rate: l.rate,
     qty: l.qty, invoiced: l.invoiced, received: l.received,
     pendingQty: l.pendingQty, pendingAmt: l.pendingAmt, pendingPct: l.pendingPct, status: l.status,
   }); }));
+  const flat = _openPOApplyFilters(allFlat);
   flat.sort((a, b) => b.pendingAmt - a.pendingAmt);
+
+  // KPIs reflect the FILTERED rows.
+  const kOpen    = new Set(flat.map(l => l.poNo)).size;
+  const kPendAmt = flat.reduce((s, l) => s + l.pendingAmt, 0);
+  const kPendQty = flat.reduce((s, l) => s + l.pendingQty, 0);
+  const kOldest  = flat.reduce((m, l) => Math.max(m, l.age || 0), 0);
+  const nFilt    = _openPOActiveFilterCount();
 
   const cols = _openPOColsGet().map(_opField).filter(Boolean);
   const thead = cols.map(f => `<th style="text-align:${f.align}">${f.label}</th>`).join('');
-  const body = flat.map(l => `<tr>${cols.map(f =>
-    `<td style="text-align:${f.align};font-size:.77rem;${f.align==='left'?'white-space:nowrap':''}">${f.fmt(l)}</td>`).join('')}</tr>`).join('');
+  const body = flat.length ? flat.map(l => `<tr>${cols.map(f =>
+    `<td style="text-align:${f.align};font-size:.77rem;${f.align==='left'?'white-space:nowrap':''}">${f.fmt(l)}</td>`).join('')}</tr>`).join('')
+    : `<tr><td colspan="${cols.length}" style="text-align:center;padding:2rem;color:var(--txt3)">No rows match the current filters.</td></tr>`;
 
   c.innerHTML = `
   <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem;margin-bottom:1rem">
@@ -14051,12 +14143,14 @@ function pstRenderOpenPO(c, q) {
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;gap:.5rem;flex-wrap:wrap">
     ${diag}
     <div style="display:flex;gap:.5rem">
-      <span style="font-size:.78rem;color:var(--txt3);align-self:center">${flat.length} open line${flat.length !== 1 ? 's' : ''}</span>
+      <span style="font-size:.78rem;color:var(--txt3);align-self:center">${flat.length} of ${allFlat.length} line${allFlat.length !== 1 ? 's' : ''}</span>
+      <button onclick="window.openPOFilterPanel()" class="csv-btn"${nFilt ? ' style="background:#fef3c7;border-color:#f59e0b;color:#92400e"' : ''}>🔎 Filters${nFilt ? ' (' + nFilt + ')' : ''}</button>
       <button onclick="window.openPOColPanel()" class="csv-btn">⚙ Columns</button>
       <button onclick="window.openPOReload(this)" class="csv-btn">🔄 Reload</button>
       <button onclick="window.pstDownloadCSV('openpo')" class="csv-btn">⬇ CSV</button>
     </div>
   </div>
+  ${window._openPOFiltPanel ? _openPOFilterBarHtml(allFlat) : ''}
   ${window._openPOPanel ? _openPOColPanelHtml() : ''}
   <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
     <table class="vpi-tbl">
