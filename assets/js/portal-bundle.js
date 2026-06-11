@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.29.0';
-const PORTAL_BUILD    = 488;
-const PORTAL_BUILD_AT = '2026-06-11T19:10:54Z';
+const PORTAL_VERSION  = '3.29.1';
+const PORTAL_BUILD    = 489;
+const PORTAL_BUILD_AT = '2026-06-11T19:18:16Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -13953,7 +13953,35 @@ window.openPOColPanel  = () => { window._openPOPanel = !window._openPOPanel; _op
 window.openPOColAdd    = (k) => { const c = _openPOColsGet(); if (!c.includes(k)) { c.push(k); _openPOColsSet(c); } _openPORerender(); };
 window.openPOColRemove = (k) => { const c = _openPOColsGet().filter(x => x !== k); _openPOColsSet(c.length ? c : ['poNo']); _openPORerender(); };
 window.openPOColMove   = (k, dir) => { const c = _openPOColsGet(); const i = c.indexOf(k), j = i + dir; if (i < 0 || j < 0 || j >= c.length) return; [c[i], c[j]] = [c[j], c[i]]; _openPOColsSet(c); _openPORerender(); };
-window.openPOColReset  = () => { _openPOColsSet(OPENPO_FIELDS.filter(f => f.def).map(f => f.key)); window._openPOPanel = false; _openPORerender(); };
+window.openPOColReset  = () => { _openPOColsSet(OPENPO_FIELDS.filter(f => f.def).map(f => f.key)); try { localStorage.removeItem('openpo_colw'); } catch (e) {} window._openPOPanel = false; _openPORerender(); };
+
+// Per-column default widths (px) and which columns wrap their text.
+const _OPENPO_W = { poNo:130, vendor:180, vendorId:90, vendorType:120, vendorCity:110, vendorState:110, site:130, poDate:100, age:75, ageBucket:115, poStatus:120, mrNo:110, partNo:130, partDesc:340, hsn:95, unit:70, rate:95, lineAmt:110, qty:90, invoiced:100, received:95, pendingQty:105, pendingAmt:120, pendingPct:90, status:95 };
+const _OPENPO_WRAP = new Set(['partDesc', 'vendor', 'vendorType']);
+function _openPOColWGet() { try { const w = JSON.parse(localStorage.getItem('openpo_colw') || '{}'); return (w && typeof w === 'object') ? w : {}; } catch (e) { return {}; } }
+function _openPOColWSet(w) { try { localStorage.setItem('openpo_colw', JSON.stringify(w)); } catch (e) {} }
+
+// Drag-to-resize columns. A grip on each header's right edge sets the matching
+// <col> width (table-layout:fixed → the column resizes and wrapping cells
+// reflow). Width is persisted per-user; clicking the grip never triggers sort.
+function _openPOMakeResizable(table) {
+  const cols = Array.from(table.querySelectorAll('colgroup col'));
+  Array.from(table.querySelectorAll('thead th')).forEach((th, i) => {
+    if (th.querySelector('.op-rs')) return;
+    const h = document.createElement('div'); h.className = 'op-rs';
+    h.addEventListener('click', e => e.stopPropagation());
+    h.addEventListener('mousedown', e => {
+      e.preventDefault(); e.stopPropagation();
+      const col = cols[i]; const startX = e.pageX; const startW = parseInt(col.style.width) || col.offsetWidth || 110;
+      const move = ev => { const w = Math.max(50, startW + (ev.pageX - startX)); col.style.width = w + 'px';
+        table.style.width = cols.reduce((s, c) => s + (parseInt(c.style.width) || 110), 0) + 'px'; };
+      const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+        const widths = _openPOColWGet(); widths[col.dataset.k] = parseInt(col.style.width) || 110; _openPOColWSet(widths); };
+      document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+    });
+    th.appendChild(h);
+  });
+}
 
 function _opAgeBucket(age) {
   if (age == null) return '—';
@@ -14066,6 +14094,20 @@ function _openPOColPanelHtml() {
 }
 
 function pstRenderOpenPO(c, q) {
+  if (!document.getElementById('openpo-styles')) {
+    const s = document.createElement('style'); s.id = 'openpo-styles';
+    s.textContent = `
+      .openpo-scroll{scrollbar-width:auto;scrollbar-color:#7fae93 #e6efe9;padding-bottom:3px}
+      .openpo-scroll::-webkit-scrollbar{height:16px}
+      .openpo-scroll::-webkit-scrollbar-track{background:#e6efe9;border-radius:8px}
+      .openpo-scroll::-webkit-scrollbar-thumb{background:#7fae93;border-radius:8px;border:3px solid #e6efe9}
+      .openpo-scroll::-webkit-scrollbar-thumb:hover{background:#5f9678}
+      .openpo-tbl th{overflow:hidden;text-overflow:ellipsis;position:relative}
+      .openpo-tbl td{padding:5px 8px}
+      .openpo-tbl .op-rs{position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;user-select:none}
+      .openpo-tbl .op-rs:hover{background:#7fae93}`;
+    document.head.appendChild(s);
+  }
   if (!_openPOLoaded) {
     c.innerHTML = `<div style="text-align:center;padding:2.5rem;color:var(--txt3)">
       <div style="font-size:1.6rem;margin-bottom:.4rem">⏳</div>Loading PO items &amp; reconciling…</div>`;
@@ -14128,9 +14170,16 @@ function pstRenderOpenPO(c, q) {
   const nFilt    = _openPOActiveFilterCount();
 
   const cols = _openPOColsGet().map(_opField).filter(Boolean);
+  const widths = _openPOColWGet();
+  const colW = f => widths[f.key] || _OPENPO_W[f.key] || 110;
+  const totalW = cols.reduce((s, f) => s + colW(f), 0);
+  const colgroup = `<colgroup>${cols.map(f => `<col data-k="${f.key}" style="width:${colW(f)}px">`).join('')}</colgroup>`;
   const thead = cols.map(f => `<th style="text-align:${f.align}">${f.label}</th>`).join('');
+  const tdStyle = f => `text-align:${f.align};font-size:.77rem;` + (_OPENPO_WRAP.has(f.key)
+    ? 'white-space:normal;overflow-wrap:break-word;word-break:break-word;vertical-align:top'
+    : 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis');
   const body = flat.length ? flat.map(l => `<tr>${cols.map(f =>
-    `<td style="text-align:${f.align};font-size:.77rem;${f.align==='left'?'white-space:nowrap':''}">${f.fmt(l)}</td>`).join('')}</tr>`).join('')
+    `<td style="${tdStyle(f)}">${f.fmt(l)}</td>`).join('')}</tr>`).join('')
     : `<tr><td colspan="${cols.length}" style="text-align:center;padding:2rem;color:var(--txt3)">No rows match the current filters.</td></tr>`;
 
   c.innerHTML = `
@@ -14152,15 +14201,17 @@ function pstRenderOpenPO(c, q) {
   </div>
   ${window._openPOFiltPanel ? _openPOFilterBarHtml(allFlat) : ''}
   ${window._openPOPanel ? _openPOColPanelHtml() : ''}
-  <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
-    <table class="vpi-tbl">
+  <div style="font-size:.7rem;color:var(--txt3);margin-bottom:.3rem">↔ Drag a column's right edge to resize · Part Description wraps to the column width</div>
+  <div class="openpo-scroll" style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
+    <table class="vpi-tbl openpo-tbl" style="table-layout:fixed;width:${totalW}px">
+      ${colgroup}
       <thead><tr>${thead}</tr></thead>
       <tbody>${body}</tbody>
     </table>
   </div>`;
 
   const t = c.querySelector('.vpi-tbl');
-  if (t) { makeTableSortable(t); wrapTableScroll(t); }
+  if (t) { makeTableSortable(t); _openPOMakeResizable(t); }
 }
 
 // Force-reload both source files (v2_Purchase + v2_Stores) and re-render.
