@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.31.0';
-const PORTAL_BUILD    = 491;
-const PORTAL_BUILD_AT = '2026-06-11T19:35:46Z';
+const PORTAL_VERSION  = '3.31.1';
+const PORTAL_BUILD    = 492;
+const PORTAL_BUILD_AT = '2026-06-11T19:39:29Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -6101,17 +6101,7 @@ const _accFlag = (v) => { const s = String(v || '').toLowerCase().trim(); return
 // Date/time formatters for values written to the sheet.
 const _ACC_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 // Long date: "10Jun2026" — accepts a yyyy-mm-dd string or a Date.
-function _accFmtLongDate(d) {
-  let dt;
-  if (!d) dt = new Date();
-  else if (d instanceof Date) dt = d;
-  else {
-    const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    dt = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(d);
-  }
-  if (isNaN(dt)) return String(d || '');
-  return String(dt.getDate()).padStart(2, '0') + _ACC_MONTHS[dt.getMonth()] + dt.getFullYear();
-}
+// (_accFmtLongDate is defined once, later in this file — the canonical version.)
 // Timestamp: "10/06/2026 13:47:38" — local time, DD/MM/YYYY HH:MM:SS.
 function _accFmtDateTime(d) {
   const dt = d ? (d instanceof Date ? d : new Date(d)) : new Date();
@@ -6590,10 +6580,7 @@ function _accReadModalList(listId) {
     enabled: !!(li.querySelector('input[type=checkbox]') || {}).checked,
   }));
 }
-function _accIsAdmin() {
-  const email = ((STATE && STATE.user && STATE.user.email) || '').toLowerCase();
-  return (STATE && STATE.role === 'md') || email.includes('admin@evgcpl') || email.includes('neurolooom') || (STATE && STATE.isDevMode);
-}
+// (_accIsAdmin is defined once, later in this file — the canonical version.)
 // Footer button (admin only) that pushes the modal's current arrangement to the sheet.
 function _accDefaultBtn(sheetKey, listId) {
   if (!_accIsAdmin()) return '';
@@ -17601,129 +17588,7 @@ window.wallSubmitPost = function() {
 };
 
 
-// ════════════════════════════════════════════════════════════════
-//  PROJECTS — Planning & Budget (Overview + Project Setup sub-pages)
-// ════════════════════════════════════════════════════════════════
-function renderProjectsPage(subPage) {
-  const el = document.getElementById('mainContent');
-  const current = subPage || 'overview';
-
-  const subNav = (id, label, icon) => `
-    <button onclick="renderProjectsPage('${id}')"
-      style="display:flex;align-items:center;gap:.5rem;padding:.55rem 1.1rem;border:none;background:none;
-      font-family:inherit;font-size:.84rem;font-weight:600;cursor:pointer;border-bottom:2px solid ${current===id?'var(--g7)':'transparent'};
-      margin-bottom:-2px;color:${current===id?'var(--g7)':'var(--txt3)'};transition:all .15s">
-      ${icon} ${label}
-    </button>`;
-
-  el.innerHTML = `
-    <div class="page-header" style="margin-bottom:1rem">
-      <div class="page-header-row">
-        <div>
-          <h1>📐 Planning &amp; Budget</h1>
-          <p>Project overview · Setup · Budget control · Measurement book</p>
-        </div>
-        <div style="display:flex;gap:.6rem">
-          <button class="btn btn-secondary btn-sm" onclick="renderProjectsPage('${current}')">↻ Refresh</button>
-        </div>
-      </div>
-      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-top:.6rem">
-        ${subNav('overview',      'Overview',       '📊')}
-        ${subNav('project-setup', 'Project Setup',  '⚙️')}
-      </div>
-    </div>`;
-
-  if (current === 'overview') {
-    // Overview: KPIs + link into full planning module
-    const users   = STATE.masters.users || [];
-    const sites   = STATE.masters.sites || [];
-    const assets  = STATE.masters.assets || [];
-    const active  = users.filter(u => u.status === 'ACTIVE').length;
-    el.innerHTML += `
-      <div class="kpi-grid" style="margin-bottom:1.4rem">
-        <div class="kpi-card gold">
-          <div class="kpi-top"><div class="kpi-icon gold">🏗️</div><div class="kpi-trend flat">Active</div></div>
-          <div class="kpi-value">${sites.filter(s=>(s.status||'').toUpperCase()==='ACTIVE').length}</div>
-          <div class="kpi-label">Active Sites</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-top"><div class="kpi-icon green">👷</div><div class="kpi-trend flat">Current</div></div>
-          <div class="kpi-value">${active}</div>
-          <div class="kpi-label">Deployed Staff</div>
-        </div>
-        <div class="kpi-card info">
-          <div class="kpi-top"><div class="kpi-icon blue">🚜</div><div class="kpi-trend flat">Fleet</div></div>
-          <div class="kpi-value">${assets.length}</div>
-          <div class="kpi-label">Equipment Units</div>
-        </div>
-        <div class="kpi-card" style="border-left:4px solid var(--gold)">
-          <div class="kpi-top"><div class="kpi-icon gold">📋</div><div class="kpi-trend flat">Modules</div></div>
-          <div class="kpi-value">2</div>
-          <div class="kpi-label">Planning Tools</div>
-        </div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.2rem">
-        <div class="card card-pad" style="cursor:pointer;border-left:4px solid var(--g7)"
-          onclick="navigate('planning')" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.08)'" onmouseout="this.style.boxShadow=''">
-          <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:.6rem">
-            <div style="font-size:1.6rem">📏</div>
-            <div>
-              <div style="font-weight:700;color:var(--g9)">Measurement Book</div>
-              <div style="font-size:.78rem;color:var(--txt3)">BOQ planning &amp; execution entries</div>
-            </div>
-          </div>
-          <div style="font-size:.82rem;color:var(--txt2);line-height:1.5">
-            Track BOQ items, log measurements, compute cumulative quantities, resource-wise cost breakup.
-          </div>
-          <div style="margin-top:.8rem">
-            <span style="font-size:.72rem;background:var(--g7)18;color:var(--g7);padding:2px 10px;border-radius:10px;font-weight:700">Open →</span>
-          </div>
-        </div>
-
-        <div class="card card-pad" style="cursor:pointer;border-left:4px solid var(--gold)"
-          onclick="renderProjectsPage('project-setup')" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.08)'" onmouseout="this.style.boxShadow=''">
-          <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:.6rem">
-            <div style="font-size:1.6rem">⚙️</div>
-            <div>
-              <div style="font-weight:700;color:var(--g9)">Project Setup</div>
-              <div style="font-size:.78rem;color:var(--txt3)">Configure rates, categories &amp; personnel</div>
-            </div>
-          </div>
-          <div style="font-size:.82rem;color:var(--txt2);line-height:1.5">
-            Set up project master: labour rates, material norms, equipment rates, overhead categories.
-          </div>
-          <div style="margin-top:.8rem">
-            <span style="font-size:.72rem;background:#f0a50018;color:var(--gold);padding:2px 10px;border-radius:10px;font-weight:700">Configure →</span>
-          </div>
-        </div>
-
-        <div class="card card-pad" style="cursor:pointer;border-left:4px solid #0ea5e9"
-          onclick="navigate('execution')" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.08)'" onmouseout="this.style.boxShadow=''">
-          <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:.6rem">
-            <div style="font-size:1.6rem">📝</div>
-            <div>
-              <div style="font-weight:700;color:var(--g9)">DPR / Execution</div>
-              <div style="font-size:.78rem;color:var(--txt3)">Daily progress reports &amp; site entries</div>
-            </div>
-          </div>
-          <div style="font-size:.82rem;color:var(--txt2);line-height:1.5">
-            Log daily progress, submit DPRs, track work done vs planned.
-          </div>
-          <div style="margin-top:.8rem">
-            <span style="font-size:.72rem;background:#0ea5e918;color:#0ea5e9;padding:2px 10px;border-radius:10px;font-weight:700">Open →</span>
-          </div>
-        </div>
-      </div>`;
-  } else {
-    // Project Setup — delegate to existing renderPlanningModule setup tab
-    renderPlanningModule();
-  }
-}
-
-// ════════════════════════════════════════════════════════════════
-//  EXECUTION — DPR Entries sub-page
-// ════════════════════════════════════════════════════════════════
+// (PROJECTS — renderProjectsPage is defined once, later in this file.)
 // ════════════════════════════════════════════════════════════════
 //  BUDGETING — embeds the Project Cost Control (PCC) multipage app
 // ════════════════════════════════════════════════════════════════
