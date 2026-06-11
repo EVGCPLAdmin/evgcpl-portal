@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.25.3';
-const PORTAL_BUILD    = 477;
-const PORTAL_BUILD_AT = '2026-06-11T15:43:22Z';
+const PORTAL_VERSION  = '3.25.4';
+const PORTAL_BUILD    = 478;
+const PORTAL_BUILD_AT = '2026-06-11T15:56:56Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -102,7 +102,16 @@ async function loadSheetConfig() {
     try {
       if (STATE && STATE.role) {
         if (typeof applyRoleNavRestrictions === 'function') applyRoleNavRestrictions(STATE.role);
-        if (STATE.currentPage && typeof navigate === 'function') navigate(STATE.currentPage);
+        // Re-validate the current page, but only redirect when it is actually
+        // disallowed by the freshly-loaded route set. A blind navigate() here
+        // hard-redirected every page back to dashboard.html on multi-page
+        // boots, because STATE.currentPage still held its 'dashboard' default.
+        const cur = STATE.currentPage;
+        const bypass = (typeof _accessIsSuperAdmin === 'function') && _accessIsSuperAdmin();
+        if (cur && !bypass && typeof navigate === 'function' && typeof getRouteSet === 'function') {
+          const allowed = getRouteSet(STATE.role);
+          if (allowed && !allowed.has(cur)) navigate(cur); // navigate()'s guard handles the redirect
+        }
       }
     } catch (e) {}
   } catch (e) {
