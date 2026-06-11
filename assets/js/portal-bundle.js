@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.21.4';
-const PORTAL_BUILD    = 465;
-const PORTAL_BUILD_AT = '2026-06-11T04:23:36Z';
+const PORTAL_VERSION  = '3.22.0';
+const PORTAL_BUILD    = 466;
+const PORTAL_BUILD_AT = '2026-06-11T05:34:40Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1449,6 +1449,12 @@ const DEPT_HEAD_ROUTES = {
   'it':                        new Set(['dashboard','my-profile','reports','my-documents','wall','rewards']),
 };
 function getRouteSet(role) {
+  // Group-based access override — when enforcement is on and the current user
+  // is assigned to access groups, their visible routes = union of group routes
+  // (plus always-on core). md/admin bypass entirely. Returns null otherwise.
+  if (role !== 'md') {
+    try { const gr = _accessRouteSetForCurrentUser(); if (gr) return gr; } catch (e) {}
+  }
   if (role === 'dept_head') {
     const dept = (STATE.deptHeadDept || '').toLowerCase().trim();
     // Exact match first
@@ -4928,14 +4934,16 @@ async function _accReloadRows() {
   // sync POST is in flight.
   try { _accLoadPaymentStatusMaster(); } catch (e) {}
 
+  const lk = (typeof getLink === 'function') ? getLink('PAYMENT') : { id: PAYMENT_SHEET_ID, tab: 'PaymentRequest' };
+  const payTab = lk.tab || 'PaymentRequest', paySid = lk.id || PAYMENT_SHEET_ID;
   const map = raw => (raw || []).filter(r => (r['Payment To'] || '').trim()).map(_accMapRow);
-  let rows = map(await fetchSheet('PaymentRequest', null, PAYMENT_SHEET_ID));
+  let rows = map(await fetchSheet(payTab, null, paySid));
   // gviz JSONP resolves to [] on timeout/parse-error. The PaymentRequest sheet has
   // thousands of rows, so an empty result is virtually always a transient failure
   // (often while a sync POST is occupying the connection). Retry once…
   if (!rows.length) {
     await new Promise(r => setTimeout(r, 900));
-    rows = map(await fetchSheet('PaymentRequest', null, PAYMENT_SHEET_ID));
+    rows = map(await fetchSheet(payTab, null, paySid));
   }
   // …and if it is STILL empty, keep whatever good data we already had rather than
   // wiping the whole module to "0 records".
@@ -6881,10 +6889,12 @@ let _poItemsCache = null;
 let _poItemsCacheAt = 0;
 async function _accLoadPOItems() {
   if (_poItemsCache && (Date.now() - _poItemsCacheAt) < 300000) return _poItemsCache;
-  let rows = await fetchSheet('PO_Items_Actual', 'SELECT *', PO_SHEET_ID);
+  const lk = (typeof getLink === 'function') ? getLink('PO_ITEMS') : { id: PO_SHEET_ID, tab: 'PO_Items_Actual' };
+  const tab = lk.tab || 'PO_Items_Actual', sid = lk.id || PO_SHEET_ID;
+  let rows = await fetchSheet(tab, 'SELECT *', sid);
   if (!rows || !rows.length) {            // one retry — gviz can transiently time out
     await new Promise(r => setTimeout(r, 800));
-    rows = await fetchSheet('PO_Items_Actual', 'SELECT *', PO_SHEET_ID);
+    rows = await fetchSheet(tab, 'SELECT *', sid);
   }
   if (rows && rows.length) { _poItemsCache = rows; _poItemsCacheAt = Date.now(); }
   return _poItemsCache || [];
@@ -8527,13 +8537,427 @@ window.sheetConfigReload = async function() {
 };
 
 
-function renderDevModePage() {
+// ════════════════════════════════════════════════════════════════════
+//  CONFIGURATION HUB — tabbed admin surface
+//  Tabs: Modules & Roles (visibility matrix) · Access Groups (group →
+//  view+action permissions → users) · Sheet Linking (editable Sheet ID +
+//  Tab per data source). Org-wide settings persist to the PortalConfig
+//  sheet via the savePortalConfig backend, cached in localStorage for
+//  instant reads and offline fallback.
+// ════════════════════════════════════════════════════════════════════
+
+// ── Org-wide config read/write (PortalConfig sheet ⇄ localStorage cache) ──
+function _pcWriteUrl() {
+  for (const k of ['portalConfig', 'pcc', 'main']) {
+    const u = getExec(k);
+    if (u && /^https:\/\/script\.google\.com\/macros\//.test(u)) return u;
+  }
+  return '';
+}
+function pcReadJSON(key, fallback) {
+  try { const ls = localStorage.getItem('pc_' + key); if (ls) return JSON.parse(ls); } catch (e) {}
+  try {
+    const sv = (window._SHEET_CONFIG || {})[key];
+    if (sv) { const o = JSON.parse(sv); try { localStorage.setItem('pc_' + key, JSON.stringify(o)); } catch (e) {} return o; }
+  } catch (e) {}
+  return fallback;
+}
+async function pcWriteJSON(key, valueObj) {
+  try { localStorage.setItem('pc_' + key, JSON.stringify(valueObj)); } catch (e) {}
+  if (window._SHEET_CONFIG) window._SHEET_CONFIG[key] = JSON.stringify(valueObj);
+  const url = _pcWriteUrl();
+  if (!url) return { ok: false, message: 'No PortalConfig backend URL set (configure it under Endpoints in the Configuration page).' };
+  try {
+    const r = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'savePortalConfig', key, value: JSON.stringify(valueObj),
+        updatedBy: (window.STATE && STATE.user && STATE.user.email) || 'unknown' }),
+    });
+    const data = await r.json();
+    return data.success ? { ok: true } : { ok: false, message: data.message || 'Save failed' };
+  } catch (e) { return { ok: false, message: e.message }; }
+}
+
+// ── Sheet linking: editable {id, tab} per data source, consumed live ──
+const SHEET_LINKS = [
+  { key:'PAYMENT',  label:'Payments — PaymentRequest',     dfltId: (typeof PAYMENT_SHEET_ID!=='undefined'?PAYMENT_SHEET_ID:''), dfltTab:'PaymentRequest',   usedBy:'Accounts module — list, voucher, worklist' },
+  { key:'PO_ITEMS', label:'PO Line Items — PO_Items_Actual',dfltId: (typeof PO_SHEET_ID!=='undefined'?PO_SHEET_ID:''),       dfltTab:'PO_Items_Actual', usedBy:'Voucher → PO Items table' },
+  { key:'PO',       label:'Purchase Orders — PO_Actual',    dfltId: (typeof PO_SHEET_ID!=='undefined'?PO_SHEET_ID:''),       dfltTab:'PO_Actual',        usedBy:'SCM dashboards & PO lists (reference)' },
+];
+function getLink(key) {
+  const links = pcReadJSON('sheet_links', {}) || {};
+  const def = SHEET_LINKS.find(s => s.key === key) || {};
+  const ov  = links[key] || {};
+  return { id: (ov.id || def.dfltId || '').trim(), tab: (ov.tab || def.dfltTab || '').trim() };
+}
+
+// ── Access groups: per-module view + action permissions, assigned to users ──
+const UA_ACTION_LABELS = { view:'View', create:'Create', edit:'Edit', verify:'Verify', advance:'Advance', update:'Update Status', approve:'Approve', reject:'Reject', close:'Close', export:'Export', schedule:'Schedule', setDefault:'Set Default' };
+const MODULE_ACTIONS = {
+  'accounts':           ['view','create','verify','advance','update','setDefault','export'],
+  'accounts-v2':        ['view','create','verify','advance','update','setDefault','export'],
+  'accounts-worklist':  ['view','advance','update','export'],
+  'accounts-dashboard': ['view','export'],
+  'md-payments':        ['view','approve','reject'],
+  'safety':             ['view','create','close'],
+  'reports':            ['view','export','schedule'],
+  'mrs':                ['view','create','edit'],
+  'scm':                ['view','export'],
+};
+function uaActionsFor(route) { return MODULE_ACTIONS[route] || ['view']; }
+
+// Seed default groups from the 7 portal roles + their default module access.
+function uaSeedGroups() {
+  const cfg = loadPortalConfig();
+  const palette = ['#1a6038','#7c3aed','#0ea5e9','#f59e0b','#dc2626','#0f766e','#6366f1'];
+  return ALL_ROLES.map((r, i) => {
+    const routes = MODULE_REGISTRY.filter(m => {
+      const mc = cfg.modules[m.route] || { status:m.defStatus, roles:m.defRoles };
+      return mc.status === 'live' && (r.key === 'md' || mc.roles.includes(r.key));
+    }).map(m => m.route);
+    const actions = {};
+    routes.forEach(rt => { actions[rt] = (r.key === 'md') ? uaActionsFor(rt).slice() : ['view']; });
+    return { id:'role_'+r.key, name:r.label, desc:'Seeded from the "'+r.key+'" role', color:palette[i%palette.length], routes, actions };
+  });
+}
+function uaGetDraft() {
+  if (window._uaDraft) return window._uaDraft;
+  let cfg = pcReadJSON('access_config', null);
+  if (!cfg) cfg = { enforce:false, groups: uaSeedGroups(), users:{} };
+  cfg.groups = cfg.groups || []; cfg.users = cfg.users || {};
+  window._uaDraft = cfg;
+  return cfg;
+}
+function uaGroup(gid) { return uaGetDraft().groups.find(g => g.id === gid); }
+
+// Return the union of routes for the current user's groups, or null when
+// enforcement is off / the user has no group assignment (→ fall back to role).
+function _accessRouteSetForCurrentUser() {
+  const acc = pcReadJSON('access_config', null);
+  if (!acc || !acc.enforce) return null;
+  const email = ((window.STATE && STATE.user && STATE.user.email) || '').toLowerCase().trim();
+  if (!email) return null;
+  const u = (acc.users || {})[email];
+  if (!u || !Array.isArray(u.groups) || !u.groups.length) return null;
+  const set = new Set(['dashboard','my-profile','my-documents']); // always-on core
+  u.groups.forEach(gid => {
+    const g = (acc.groups || []).find(x => x.id === gid);
+    if (g && Array.isArray(g.routes)) g.routes.forEach(rt => set.add(rt));
+  });
+  return set;
+}
+// Permission check for action buttons. md/admin always allowed; when access
+// enforcement is off, behaviour is unchanged (everything allowed for view via
+// role routes, actions permitted).
+function userCan(route, action) {
+  action = action || 'view';
+  const role = (window.STATE && STATE.role) || '';
+  if (role === 'md') return true;
+  const acc = pcReadJSON('access_config', null);
+  if (!acc || !acc.enforce) return action === 'view' ? getRouteSet(role).has(route) : true;
+  const email = ((STATE.user && STATE.user.email) || '').toLowerCase().trim();
+  const u = (acc.users || {})[email];
+  if (!u || !Array.isArray(u.groups) || !u.groups.length) {
+    return action === 'view' ? getRouteSet(role).has(route) : true;
+  }
+  for (const gid of u.groups) {
+    const g = (acc.groups || []).find(x => x.id === gid);
+    if (!g) continue;
+    if (action === 'view') { if ((g.routes || []).includes(route)) return true; }
+    else { const a = (g.actions || {})[route] || []; if (a.includes(action) || a.includes('admin')) return true; }
+  }
+  return false;
+}
+
+// ── Tab bar + dispatcher ──────────────────────────────────────────────
+const CFG_TABS = [
+  { id:'modules', icon:'&#129513;', label:'Modules &amp; Roles' },
+  { id:'access',  icon:'&#128101;', label:'Access Groups' },
+  { id:'sheets',  icon:'&#128279;', label:'Sheet Linking' },
+];
+function _cfgTabBar(active) {
+  return `<div style="display:flex;gap:.3rem;flex-wrap:wrap;border-bottom:2px solid var(--border);margin-bottom:1.1rem">
+    ${CFG_TABS.map(t => { const on = t.id === active; return `<button onclick="renderDevModePage('${t.id}')"
+      style="display:inline-flex;align-items:center;gap:.4rem;padding:.6rem 1.15rem;border:none;border-bottom:3px solid ${on?'var(--g7)':'transparent'};background:none;color:${on?'var(--g8)':'var(--txt3)'};font-weight:${on?'700':'600'};font-size:.88rem;cursor:pointer;font-family:inherit;margin-bottom:-2px">
+      <span>${t.icon}</span>${t.label}</button>`; }).join('')}
+  </div>`;
+}
+function renderDevModePage(tab) {
+  const el = document.getElementById('mainContent');
+  if (STATE.role !== 'md' && !(typeof _accIsAdmin === 'function' && _accIsAdmin())) {
+    el.innerHTML = `<div class="module-placeholder"><div style="font-size:2rem;margin-bottom:.6rem">&#128274;</div><p>Configuration is restricted to Administrators.</p></div>`;
+    return;
+  }
+  window._cfgActiveTab = tab || window._cfgActiveTab || 'modules';
+  const t = window._cfgActiveTab;
+  if (t === 'access') return _cfgRenderAccess();
+  if (t === 'sheets') return _cfgRenderSheets();
+  return _cfgRenderModules();
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  TAB: SHEET LINKING
+// ════════════════════════════════════════════════════════════════════
+function _cfgRenderSheets() {
+  const el = document.getElementById('mainContent');
+  const links = pcReadJSON('sheet_links', {}) || {};
+  const row = (s) => {
+    const ov = links[s.key] || {};
+    const id  = ov.id  != null ? ov.id  : s.dfltId;
+    const tab = ov.tab != null ? ov.tab : s.dfltTab;
+    const overridden = (ov.id && ov.id !== s.dfltId) || (ov.tab && ov.tab !== s.dfltTab);
+    return `<div class="card card-pad" style="margin-bottom:.8rem;border-left:4px solid ${overridden?'#f59e0b':'var(--g7)'}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;margin-bottom:.6rem">
+        <div>
+          <div style="font-weight:700;color:var(--g9);font-size:.92rem">${s.label}
+            ${overridden?'<span style="font-size:.62rem;background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:8px;margin-left:.3rem;font-weight:700">OVERRIDDEN</span>':''}</div>
+          <div style="font-size:.74rem;color:var(--txt3)">Used by: ${s.usedBy}</div>
+        </div>
+        <code style="font-size:.66rem;color:var(--txt3)">key: ${s.key}</code>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 200px;gap:.6rem">
+        <div>
+          <label style="font-size:.7rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Spreadsheet ID</label>
+          <input id="slId-${s.key}" value="${id}" placeholder="${s.dfltId||'paste sheet ID'}"
+            style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.78rem;font-family:'JetBrains Mono',monospace;background:var(--surface2);color:var(--txt)">
+        </div>
+        <div>
+          <label style="font-size:.7rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Tab</label>
+          <input id="slTab-${s.key}" value="${tab}" placeholder="${s.dfltTab||'tab name'}"
+            style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.78rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
+        </div>
+      </div>
+      <div style="display:flex;gap:.5rem;align-items:center;margin-top:.6rem;flex-wrap:wrap">
+        <button onclick="slSaveOne('${s.key}')" class="btn btn-primary btn-sm" style="font-size:.72rem">&#128190; Save</button>
+        <button onclick="slResetOne('${s.key}')" class="btn btn-secondary btn-sm" style="font-size:.72rem">&#8635; Default</button>
+        <a id="slOpen-${s.key}" href="https://docs.google.com/spreadsheets/d/${id}" target="_blank" rel="noopener" style="font-size:.72rem;color:var(--g7)">&#8599; Open sheet</a>
+        <span id="slSt-${s.key}" style="font-size:.72rem;color:var(--txt3)"></span>
+      </div>
+    </div>`;
+  };
+  el.innerHTML = `
+    ${_cfgTabBar('sheets')}
+    <div class="page-header"><div class="page-header-row"><div>
+      <h1>&#128279; Sheet Linking</h1>
+      <p>Point each data source at its Spreadsheet ID and Tab &middot; saved org-wide &middot; Admin only</p>
+    </div></div></div>
+    <div class="alert-strip" style="margin-bottom:1rem">
+      <span class="alert-icon">&#8505;&#65039;</span>
+      <span>Changes save to the PortalConfig sheet and take effect on the next data load. The sheet must be shared as <em>Anyone with the link → Viewer</em>.</span>
+    </div>
+    ${SHEET_LINKS.map(row).join('')}`;
+
+  window.slSaveOne = async function(key) {
+    const idEl = document.getElementById('slId-'+key), tabEl = document.getElementById('slTab-'+key), st = document.getElementById('slSt-'+key);
+    if (!idEl || !tabEl) return;
+    const links = pcReadJSON('sheet_links', {}) || {};
+    links[key] = { id: idEl.value.trim(), tab: tabEl.value.trim() };
+    if (st) { st.textContent = 'Saving…'; st.style.color = '#92400e'; }
+    const res = await pcWriteJSON('sheet_links', links);
+    if (st) { st.textContent = res.ok ? '✓ Saved org-wide' : '✗ ' + res.message; st.style.color = res.ok ? '#16a34a' : '#dc2626'; }
+    if (res.ok) setTimeout(() => _cfgRenderSheets(), 900);
+  };
+  window.slResetOne = async function(key) {
+    const links = pcReadJSON('sheet_links', {}) || {};
+    delete links[key];
+    await pcWriteJSON('sheet_links', links);
+    _cfgRenderSheets();
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  TAB: ACCESS GROUPS
+// ════════════════════════════════════════════════════════════════════
+function _cfgRenderAccess() {
+  const el = document.getElementById('mainContent');
+  const draft = uaGetDraft();
+  if (!window._uaSel && draft.groups.length) window._uaSel = draft.groups[0].id;
+  const sel = uaGroup(window._uaSel) || draft.groups[0];
+  const sections = [...new Set(MODULE_REGISTRY.map(m => m.section))];
+
+  // Member count per group
+  const memberCount = (gid) => Object.values(draft.users).filter(u => (u.groups || []).includes(gid)).length;
+
+  const groupListHtml = draft.groups.map(g => {
+    const on = sel && g.id === sel.id;
+    return `<div onclick="uaSelectGroup('${g.id}')"
+      style="display:flex;align-items:center;gap:.55rem;padding:.6rem .7rem;border-radius:9px;cursor:pointer;border:1.5px solid ${on?g.color:'var(--border)'};background:${on?g.color+'12':'var(--surface)'};margin-bottom:.4rem">
+      <span style="width:10px;height:10px;border-radius:50%;background:${g.color};flex-shrink:0"></span>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:.84rem;color:var(--g9);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${g.name}</div>
+        <div style="font-size:.66rem;color:var(--txt3)">${(g.routes||[]).length} views &middot; ${memberCount(g.id)} users</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const editorHtml = !sel ? `<div style="padding:2rem;text-align:center;color:var(--txt3)">Select or create a group.</div>` : `
+    <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.9rem">
+      <input id="uaName" value="${sel.name}" onchange="uaRename('${sel.id}',this.value)"
+        style="font-size:1rem;font-weight:700;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--txt);flex:1;min-width:200px">
+      <button onclick="uaDeleteGroup('${sel.id}')" class="btn btn-secondary btn-sm" style="font-size:.72rem;color:#dc2626">&#128465; Delete group</button>
+    </div>
+
+    <!-- Members -->
+    <div class="card card-pad" style="margin-bottom:1rem">
+      <div style="font-weight:700;font-size:.82rem;color:var(--g9);margin-bottom:.5rem">&#128101; Members</div>
+      <div id="uaMembers" style="display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.6rem">
+        ${Object.entries(draft.users).filter(([e,u])=>(u.groups||[]).includes(sel.id)).map(([e])=>`
+          <span style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 6px 3px 10px;font-size:.74rem">
+            ${e}<button onclick="uaRemoveUser('${e}','${sel.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px">&times;</button></span>`).join('')
+        || '<span style="font-size:.74rem;color:var(--txt3)">No users assigned yet</span>'}
+      </div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <input id="uaEmail" type="email" placeholder="user@evgcpl.com" onkeydown="if(event.key==='Enter'){event.preventDefault();uaAddUser('${sel.id}')}"
+          style="flex:1;min-width:220px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
+        <button onclick="uaAddUser('${sel.id}')" class="btn btn-secondary btn-sm">+ Add user</button>
+      </div>
+    </div>
+
+    <!-- Permission matrix -->
+    <div class="card" style="overflow:visible">
+      <div class="card-head"><h3>&#128203; Views &amp; Actions</h3>
+        <span style="font-size:.72rem;color:var(--txt3)">Tick a module to grant the view, then pick allowed actions</span></div>
+      <div style="padding:.4rem .6rem 1rem">
+        ${sections.map(sectionName => {
+          const mods = MODULE_REGISTRY.filter(m => m.section === sectionName);
+          return `<div style="margin-bottom:.5rem">
+            <div style="font-size:.72rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em;padding:.4rem .3rem">${sectionName}</div>
+            ${mods.map(m => {
+              const hasView = (sel.routes||[]).includes(m.route);
+              const acts = uaActionsFor(m.route).filter(a => a !== 'view');
+              const granted = (sel.actions && sel.actions[m.route]) || [];
+              return `<div class="ua-row" style="display:flex;align-items:flex-start;gap:.6rem;padding:.45rem .5rem;border-bottom:1px solid var(--border)">
+                <label style="display:inline-flex;align-items:center;gap:.4rem;min-width:200px;cursor:pointer">
+                  <input type="checkbox" ${hasView?'checked':''} onchange="uaToggleRoute('${sel.id}','${m.route}',this.checked,this)" style="width:14px;height:14px;accent-color:${sel.color}">
+                  <span style="font-weight:600;font-size:.82rem;color:var(--g9)">${m.label}</span>
+                </label>
+                <div style="display:flex;gap:.3rem;flex-wrap:wrap;flex:1">
+                  ${acts.length ? acts.map(a => { const on = granted.includes(a); return `
+                    <label class="ua-act" title="${UA_ACTION_LABELS[a]||a}" style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border:1.2px solid ${on?sel.color:'var(--border)'};border-radius:12px;background:${on?sel.color+'18':'var(--surface2)'};color:${on?sel.color:'var(--txt3)'};font-size:.68rem;font-weight:600;cursor:pointer;opacity:${hasView?'1':'.35'};pointer-events:${hasView?'auto':'none'}">
+                      <input type="checkbox" ${on?'checked':''} onchange="uaToggleAction('${sel.id}','${m.route}','${a}',this.checked,this)" style="width:11px;height:11px;accent-color:${sel.color};margin:0">
+                      ${UA_ACTION_LABELS[a]||a}</label>`; }).join('')
+                    : '<span style="font-size:.68rem;color:var(--txt3)">view only</span>'}
+                </div>
+              </div>`;
+            }).join('')}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+
+  el.innerHTML = `
+    ${_cfgTabBar('access')}
+    <div class="page-header"><div class="page-header-row">
+      <div><h1>&#128101; Access Groups</h1>
+        <p>Groups &rarr; view + action permissions &rarr; users &middot; org-wide &middot; Admin only</p></div>
+      <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+        <button onclick="uaResetDefaults()" class="btn btn-secondary btn-sm">&#8635; Reset to role defaults</button>
+        <button onclick="uaSave()" class="btn btn-primary btn-sm" id="uaSaveBtn">&#10003; Save &amp; Apply</button>
+      </div>
+    </div></div>
+
+    <!-- Enforcement -->
+    <div class="card card-pad" style="margin-bottom:1.1rem;border-left:4px solid ${draft.enforce?'#16a34a':'#f0a500'}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:700;color:var(--g9)">Enforce group access
+            <span style="font-size:.72rem;padding:2px 9px;border-radius:10px;background:${draft.enforce?'#dcfce7':'#fef3c7'};color:${draft.enforce?'#166534':'#92400e'};font-weight:700;margin-left:.3rem">${draft.enforce?'ON':'OFF'}</span></div>
+          <div style="font-size:.78rem;color:var(--txt3);margin-top:.2rem">When ON, users assigned to groups see only their groups' views. Users with no group keep their role's access. Admins always bypass.</div>
+        </div>
+        <button onclick="uaToggleEnforce(${!draft.enforce})" class="btn btn-sm" style="background:${draft.enforce?'#f0a500':'var(--g7)'};color:#fff;border:none;padding:.55rem 1.4rem;font-weight:700">${draft.enforce?'Turn OFF':'Turn ON'}</button>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:260px 1fr;gap:1rem;align-items:start">
+      <div class="card card-pad">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem">
+          <div style="font-weight:700;font-size:.84rem;color:var(--g9)">Groups</div>
+          <button onclick="uaNewGroup()" class="btn btn-secondary btn-sm" style="font-size:.7rem">+ New</button>
+        </div>
+        ${groupListHtml || '<div style="font-size:.74rem;color:var(--txt3)">No groups yet</div>'}
+      </div>
+      <div>${editorHtml}</div>
+    </div>`;
+
+  // ── handlers ──
+  window.uaSelectGroup = function(id) { window._uaSel = id; _cfgRenderAccess(); };
+  window.uaNewGroup = function() {
+    const d = uaGetDraft();
+    const id = 'grp_' + Date.now().toString(36);
+    d.groups.push({ id, name:'New Group', desc:'', color:'#6366f1', routes:['dashboard'], actions:{} });
+    window._uaSel = id; uaDirty(); _cfgRenderAccess();
+  };
+  window.uaDeleteGroup = function(id) {
+    if (!confirm('Delete this group? Users assigned only to it will fall back to their role.')) return;
+    const d = uaGetDraft();
+    d.groups = d.groups.filter(g => g.id !== id);
+    Object.values(d.users).forEach(u => { u.groups = (u.groups||[]).filter(g => g !== id); });
+    window._uaSel = d.groups[0] ? d.groups[0].id : null; uaDirty(); _cfgRenderAccess();
+  };
+  window.uaRename = function(id, name) { const g = uaGroup(id); if (g) { g.name = name.trim() || g.name; uaDirty(); } };
+  window.uaToggleRoute = function(gid, route, on, elc) {
+    const g = uaGroup(gid); if (!g) return;
+    g.routes = g.routes || [];
+    const i = g.routes.indexOf(route);
+    if (on && i < 0) g.routes.push(route);
+    if (!on && i >= 0) g.routes.splice(i, 1);
+    const row = elc && elc.closest('.ua-row');
+    if (row) row.querySelectorAll('.ua-act').forEach(c => { c.style.opacity = on ? '1' : '.35'; c.style.pointerEvents = on ? 'auto' : 'none'; });
+    uaDirty();
+  };
+  window.uaToggleAction = function(gid, route, action, on, elc) {
+    const g = uaGroup(gid); if (!g) return;
+    g.actions = g.actions || {}; g.actions[route] = g.actions[route] || [];
+    const arr = g.actions[route]; const i = arr.indexOf(action);
+    if (on && i < 0) arr.push(action);
+    if (!on && i >= 0) arr.splice(i, 1);
+    const lab = elc && elc.closest('.ua-act');
+    if (lab) { lab.style.borderColor = on ? g.color : 'var(--border)'; lab.style.background = on ? g.color+'18' : 'var(--surface2)'; lab.style.color = on ? g.color : 'var(--txt3)'; }
+    uaDirty();
+  };
+  window.uaAddUser = function(gid) {
+    const inp = document.getElementById('uaEmail'); if (!inp) return;
+    const email = inp.value.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { inp.style.borderColor = '#dc2626'; return; }
+    const d = uaGetDraft();
+    d.users[email] = d.users[email] || { groups:[] };
+    if (!d.users[email].groups.includes(gid)) d.users[email].groups.push(gid);
+    inp.value = ''; uaDirty(); _cfgRenderAccess();
+  };
+  window.uaRemoveUser = function(email, gid) {
+    const d = uaGetDraft();
+    if (d.users[email]) {
+      d.users[email].groups = (d.users[email].groups||[]).filter(g => g !== gid);
+      if (!d.users[email].groups.length) delete d.users[email];
+    }
+    uaDirty(); _cfgRenderAccess();
+  };
+  window.uaToggleEnforce = function(on) { uaGetDraft().enforce = !!on; uaDirty(); _cfgRenderAccess(); };
+  window.uaDirty = function() { const b = document.getElementById('uaSaveBtn'); if (b) { b.innerHTML = '&#10003; Save &amp; Apply *'; b.style.background = '#f0a500'; b.style.color = '#0d3320'; } };
+  window.uaResetDefaults = function() {
+    if (!confirm('Reset all access groups to the role-based defaults? This clears custom groups and user assignments.')) return;
+    window._uaDraft = { enforce: uaGetDraft().enforce, groups: uaSeedGroups(), users:{} };
+    window._uaSel = null; _cfgRenderAccess(); uaDirty();
+  };
+  window.uaSave = async function() {
+    const b = document.getElementById('uaSaveBtn');
+    if (b) { b.innerHTML = 'Saving…'; b.style.background = '#92400e'; }
+    const res = await pcWriteJSON('access_config', uaGetDraft());
+    if (res.ok) {
+      try { applyPortalConfig(); applyRoleNavRestrictions(STATE.role); } catch (e) {}
+      if (b) { b.innerHTML = '&#10003; Saved &amp; applied'; b.style.background = '#16a34a'; b.style.color = '#fff'; }
+    } else if (b) { b.innerHTML = '✗ ' + (res.message || 'Failed'); b.style.background = '#dc2626'; b.style.color = '#fff'; }
+  };
+}
+
+function _cfgRenderModules() {
   const el = document.getElementById('mainContent');
   const cfg = loadPortalConfig();
   const devOn = STATE.isDevMode;
   const sections = [...new Set(MODULE_REGISTRY.map(m => m.section))];
 
   el.innerHTML = `
+    ${_cfgTabBar('modules')}
     <div class="page-header">
       <div class="page-header-row">
         <div>
@@ -15472,7 +15896,10 @@ function renderSheetsHub() {
           <h1>📊 Sheets</h1>
           <p>Google Sheets — source of truth for all portal data &nbsp;·&nbsp; Admin only</p>
         </div>
-        <span style="background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;padding:4px 12px;border-radius:20px;font-size:.75rem;font-weight:700">🔒 Admin Only</span>
+        <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+          <button onclick="renderDevModePage('sheets')" class="btn btn-primary btn-sm" style="font-size:.74rem">🔗 Edit Sheet Links</button>
+          <span style="background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;padding:4px 12px;border-radius:20px;font-size:.75rem;font-weight:700">🔒 Admin Only</span>
+        </div>
       </div>
     </div>
     <div style="display:flex;flex-direction:column;gap:1.4rem">
