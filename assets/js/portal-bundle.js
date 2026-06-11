@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.26.1';
-const PORTAL_BUILD    = 480;
-const PORTAL_BUILD_AT = '2026-06-11T16:45:14Z';
+const PORTAL_VERSION  = '3.26.2';
+const PORTAL_BUILD    = 481;
+const PORTAL_BUILD_AT = '2026-06-11T17:05:53Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -13604,7 +13604,10 @@ async function _openPOEnsure(force) {
   const [hdr, items, stock] = await Promise.all([
     fetchSheet(_po.tab || PO_TAB, 'SELECT *', _po.id || PO_SHEET_ID),
     fetchSheet(_it.tab || 'PO_Items_Actual', 'SELECT *', _it.id || PO_SHEET_ID),
-    fetchSheet('StockIN', 'SELECT *', STORES_SHEET_ID),     // known-good id (same as pstLoad)
+    // StockIN: explicit contiguous columns (A–W). SELECT * was returning 0 rows
+    // for this wide tab (gviz times out / errors on the full-width response),
+    // while an explicit column query succeeds — same approach pstLoad uses.
+    fetchSheet('StockIN', 'SELECT A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W', STORES_SHEET_ID),
   ]);
   _openPOHeaders = hdr   || [];
   _openPOItems   = items || [];
