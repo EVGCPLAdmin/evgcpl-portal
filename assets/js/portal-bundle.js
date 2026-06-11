@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.27.1';
-const PORTAL_BUILD    = 483;
-const PORTAL_BUILD_AT = '2026-06-11T18:25:54Z';
+const PORTAL_VERSION  = '3.27.2';
+const PORTAL_BUILD    = 484;
+const PORTAL_BUILD_AT = '2026-06-11T18:29:41Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -8851,12 +8851,19 @@ function _cfgRenderSheets() {
       </div>
     </div>`;
   };
+  const overriddenKeys = SHEET_LINKS.filter(s => links[s.key] && links[s.key].id && links[s.key].id !== s.dfltId).map(s => s.key);
   el.innerHTML = `
     ${_cfgTabBar('sheets')}
-    <div class="page-header"><div class="page-header-row"><div>
+    <div class="page-header"><div class="page-header-row" style="display:flex;align-items:flex-start;justify-content:space-between;gap:.6rem;flex-wrap:wrap"><div>
       <h1>&#128279; Sheet Linking</h1>
       <p>Re-point any source spreadsheet by its ID &middot; every table it holds follows &middot; saved org-wide &middot; Admin only</p>
-    </div></div></div>
+    </div>
+    <button onclick="slResetAll()" class="btn btn-secondary btn-sm" style="font-size:.72rem;white-space:nowrap">&#8635; Reset all to defaults</button>
+    </div></div>
+    ${overriddenKeys.length ? `<div class="alert-strip" style="margin-bottom:1rem;background:#fef3c7;border-color:#f59e0b">
+      <span class="alert-icon">&#9888;&#65039;</span>
+      <span><b>${overriddenKeys.length} source${overriddenKeys.length>1?'s are':' is'} overridden</b> (${overriddenKeys.join(', ')}). A stale override silently redirects every table of that source to the wrong sheet (empty data). Use <b>Reset all to defaults</b> to clear them.</span>
+    </div>` : ''}
     <div class="alert-strip" style="margin-bottom:1rem">
       <span class="alert-icon">&#8505;&#65039;</span>
       <span>Changes save to the PortalConfig sheet and take effect on the next data load. The sheet must be shared as <em>Anyone with the link → Viewer</em>.</span>
@@ -8877,6 +8884,17 @@ function _cfgRenderSheets() {
     const links = pcReadJSON('sheet_links', {}) || {};
     delete links[key];
     await pcWriteJSON('sheet_links', links);
+    _cfgRenderSheets();
+  };
+  // Clear EVERY override so all sources revert to their built-in canonical ids.
+  // Wipes the org-wide config (PortalConfig sheet) AND the local cache so a
+  // stale entry can't reapply on reload.
+  window.slResetAll = async function() {
+    if (!confirm('Reset ALL sheet links to their built-in defaults? This clears every override org-wide.')) return;
+    try { localStorage.removeItem('pc_sheet_links'); } catch (e) {}
+    if (window._SHEET_CONFIG) delete window._SHEET_CONFIG.sheet_links;
+    const res = await pcWriteJSON('sheet_links', {});
+    if (!res.ok) alert('Saved locally, but could not persist to the sheet: ' + (res.message || 'unknown'));
     _cfgRenderSheets();
   };
 }
