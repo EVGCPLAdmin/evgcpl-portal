@@ -13446,7 +13446,9 @@ window.pstDownloadCSV = function(tab) {
     const flat = [];
     pos.forEach(p => p.lines.filter(l => l.isOpen).forEach(l => flat.push({
       'PO No': p.poNo, 'PO Date': (p.date || '').split(' ')[0], 'Age (days)': p.age ?? '',
-      'Vendor': p.vendor, 'Site': p.site, 'PO Status': p.status || '',
+      'Vendor': p.vendor, 'Vendor ID': p.vendorId || '', 'Vendor Type': p.vendorType || '',
+      'Vendor City': p.vendorCity || '', 'Vendor State': p.vendorState || '',
+      'Site': p.site, 'PO Status': p.status || '',
       'Part No': l.partNo, 'Part Description': l.partDesc, 'Unit': l.unit || '',
       'PO Qty': l.qty, 'Invoice Qty': l.invoiced, 'GRN Qty': l.received,
       'Pending Qty': l.pendingQty > 0 ? l.pendingQty : 0, 'Rate': l.rate || '',
@@ -13851,14 +13853,94 @@ function _openPOCompute(q) {
     const pctRecv  = totOrd > 0 ? Math.round(totRecv / totOrd * 100) : 0;
     const pendPctPO = totOrd > 0 ? Math.round(totPendQty / totOrd * 100) : 0;
     lines.sort((a, b) => b.pendingQty - a.pendingQty);
+    const ven = _openPOVendor(hdr.vendor);
     out.push({ po: k, poNo: hdr.poNo, vendor: hdr.vendor, site: hdr.site, date: hdr.date,
-      status: hdr.status, amount: hdr.amount, lines, totOrd, totInv, totRecv,
-      totPendQty, totPendAmt, openLines, age, pctRecv, pendPctPO });
+      status: hdr.status, amount: hdr.amount,
+      vendorId: ven.id || '', vendorType: ven.type || '', vendorCity: ven.city || '', vendorState: ven.state || '',
+      lines, totOrd, totInv, totRecv, totPendQty, totPendAmt, openLines, age, pctRecv, pendPctPO });
   });
 
   _openPODiag = { poHeaders: _openPOHeaders.length, stockRows: _openPOStock.length, stockWithKey, itemRows: _openPOItems.length, matchedLines };
   out.sort((a, b) => (b.totPendAmt || 0) - (a.totPendAmt || 0));
   return out;
+}
+
+// Vendor detail lookup (id / type / city / state) from the Vendor Master, by name.
+function _openPOVendor(name) {
+  const n = _opNorm(name);
+  if (!n) return {};
+  const list = (STATE.masters && STATE.masters.vendors) || [];
+  if (!_openPOVendorMap || _openPOVendorMap._n !== list.length) {
+    _openPOVendorMap = { _n: list.length };
+    list.forEach(v => { const k = _opNorm(v.name); if (k && !_openPOVendorMap[k]) _openPOVendorMap[k] = v; });
+  }
+  return _openPOVendorMap[n] || {};
+}
+let _openPOVendorMap = null;
+
+// ── Open PO column registry — every selectable field, with formatter ──
+const _opEsc  = s => String(s == null ? '' : s).replace(/[<>&]/g, ch => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
+const _opFmtV = n => (typeof fmtAmtFull === 'function') ? fmtAmtFull(n) : ('₹' + Math.round(n || 0).toLocaleString('en-IN'));
+const _opFmtQ = n => { const r = Math.round((n || 0) * 1000) / 1000; return r.toLocaleString('en-IN'); };
+const OPENPO_FIELDS = [
+  { key:'poNo',        label:'PO Number',        align:'left',  def:true,  fmt:l=>`<span style="font-weight:700;color:var(--green)">${_opEsc(l.poNo)}</span>` },
+  { key:'vendor',      label:'Vendor',           align:'left',  def:true,  fmt:l=>_opEsc(l.vendor)||'—' },
+  { key:'vendorId',    label:'Vendor ID',        align:'left',  def:false, fmt:l=>_opEsc(l.vendorId)||'—' },
+  { key:'vendorType',  label:'Vendor Type',      align:'left',  def:false, fmt:l=>_opEsc(l.vendorType)||'—' },
+  { key:'vendorCity',  label:'Vendor City',      align:'left',  def:false, fmt:l=>_opEsc(l.vendorCity)||'—' },
+  { key:'vendorState', label:'Vendor State',     align:'left',  def:false, fmt:l=>_opEsc(l.vendorState)||'—' },
+  { key:'site',        label:'Site',             align:'left',  def:false, fmt:l=>_opEsc(l.site)||'—' },
+  { key:'poDate',      label:'PO Date',          align:'left',  def:false, fmt:l=>_opEsc((l.date||'').split(' ')[0])||'—' },
+  { key:'age',         label:'Age (days)',       align:'right', def:false, fmt:l=>l.age==null?'—':l.age+'d' },
+  { key:'poStatus',    label:'PO Status',        align:'left',  def:false, fmt:l=>_opEsc(l.poStatus)||'—' },
+  { key:'partNo',      label:'Part No',          align:'left',  def:true,  fmt:l=>_opEsc(l.partNo)||'—' },
+  { key:'partDesc',    label:'Part Description', align:'left',  def:true,  fmt:l=>_opEsc(l.partDesc)||'—' },
+  { key:'unit',        label:'Unit',             align:'left',  def:false, fmt:l=>_opEsc(l.unit)||'—' },
+  { key:'rate',        label:'Rate',             align:'right', def:false, fmt:l=>l.rate?_opFmtV(l.rate):'—' },
+  { key:'qty',         label:'PO Qty',           align:'right', def:true,  fmt:l=>_opFmtQ(l.qty) },
+  { key:'invoiced',    label:'Invoice Qty',      align:'right', def:false, fmt:l=>l.invoiced?_opFmtQ(l.invoiced):'—' },
+  { key:'received',    label:'GRN Qty',          align:'right', def:true,  fmt:l=>l.received?`<span style="color:#2e7d32;font-weight:600">${_opFmtQ(l.received)}</span>`:'—' },
+  { key:'pendingQty',  label:'Pending Qty',      align:'right', def:true,  fmt:l=>`<span style="color:#c62828;font-weight:700">${_opFmtQ(l.pendingQty)}</span>` },
+  { key:'pendingAmt',  label:'Pending Amount',   align:'right', def:true,  fmt:l=>l.pendingAmt?`<span style="color:#c62828;font-weight:700">${_opFmtV(l.pendingAmt)}</span>`:'—' },
+  { key:'pendingPct',  label:'Pending %',        align:'right', def:true,  fmt:l=>Math.round(l.pendingPct)+'%' },
+  { key:'status',      label:'Status',           align:'left',  def:false, fmt:l=>l.status },
+];
+const _opField = k => OPENPO_FIELDS.find(f => f.key === k);
+function _openPOColsGet() {
+  try { const s = JSON.parse(localStorage.getItem('openpo_cols') || 'null');
+    if (Array.isArray(s) && s.length) { const v = s.filter(k => _opField(k)); if (v.length) return v; } } catch (e) {}
+  return OPENPO_FIELDS.filter(f => f.def).map(f => f.key);
+}
+function _openPOColsSet(arr) { try { localStorage.setItem('openpo_cols', JSON.stringify(arr)); } catch (e) {} }
+function _openPORerender() { if (_pstActiveTab === 'openpo') pstRenderTab(document.getElementById('pst-search')?.value || ''); }
+window.openPOColPanel  = () => { window._openPOPanel = !window._openPOPanel; _openPORerender(); };
+window.openPOColAdd    = (k) => { const c = _openPOColsGet(); if (!c.includes(k)) { c.push(k); _openPOColsSet(c); } _openPORerender(); };
+window.openPOColRemove = (k) => { const c = _openPOColsGet().filter(x => x !== k); _openPOColsSet(c.length ? c : ['poNo']); _openPORerender(); };
+window.openPOColMove   = (k, dir) => { const c = _openPOColsGet(); const i = c.indexOf(k), j = i + dir; if (i < 0 || j < 0 || j >= c.length) return; [c[i], c[j]] = [c[j], c[i]]; _openPOColsSet(c); _openPORerender(); };
+window.openPOColReset  = () => { _openPOColsSet(OPENPO_FIELDS.filter(f => f.def).map(f => f.key)); window._openPOPanel = false; _openPORerender(); };
+
+function _openPOColPanelHtml() {
+  const cols = _openPOColsGet();
+  const shown = cols.map((k, i) => { const f = _opField(k); if (!f) return '';
+    return `<div style="display:flex;align-items:center;gap:.4rem;padding:.25rem .4rem;border:1px solid #e0ece4;border-radius:6px;background:#fff;margin-bottom:.3rem">
+      <span style="flex:1;font-size:.78rem">${f.label}</span>
+      <button onclick="openPOColMove('${k}',-1)" ${i===0?'disabled':''} style="border:none;background:none;cursor:pointer;font-size:.85rem;${i===0?'opacity:.3':''}">↑</button>
+      <button onclick="openPOColMove('${k}',1)" ${i===cols.length-1?'disabled':''} style="border:none;background:none;cursor:pointer;font-size:.85rem;${i===cols.length-1?'opacity:.3':''}">↓</button>
+      <button onclick="openPOColRemove('${k}')" title="Remove" style="border:none;background:none;cursor:pointer;color:#c62828;font-weight:700">✕</button>
+    </div>`; }).join('');
+  const available = OPENPO_FIELDS.filter(f => !cols.includes(f.key)).map(f =>
+    `<button onclick="openPOColAdd('${f.key}')" class="csv-btn" style="margin:0 .3rem .3rem 0">+ ${f.label}</button>`).join('') || '<span style="font-size:.76rem;color:var(--txt3)">All fields are shown.</span>';
+  return `<div style="border:1px solid #cce3d4;border-radius:10px;padding:.8rem;margin-bottom:.8rem;background:#f6faf7">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+      <b style="font-size:.82rem">Arrange columns</b>
+      <div><button onclick="openPOColReset()" class="csv-btn">↺ Reset</button>
+      <button onclick="openPOColPanel()" class="csv-btn">✓ Done</button></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+      <div><div style="font-size:.7rem;text-transform:uppercase;color:var(--txt3);margin-bottom:.35rem">Shown (drag order with ↑↓)</div>${shown}</div>
+      <div><div style="font-size:.7rem;text-transform:uppercase;color:var(--txt3);margin-bottom:.35rem">Add a field</div>${available}</div>
+    </div>
+  </div>`;
 }
 
 function pstRenderOpenPO(c, q) {
@@ -13913,28 +13995,23 @@ function pstRenderOpenPO(c, q) {
     return;
   }
 
-  // Flat, simple table — one row per OPEN line, sorted by pending amount.
-  const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, ch => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
+  // Flat rows (one per OPEN line) carrying EVERY selectable field; columns and
+  // their order come from the user's saved arrangement (_openPOColsGet).
   const flat = [];
   pos.forEach(p => p.lines.forEach(l => { if (l.isOpen) flat.push({
-    poNo: p.poNo, vendor: p.vendor, site: p.site, date: p.date,
-    partNo: l.partNo, partDesc: l.partDesc, unit: l.unit,
-    qty: l.qty, received: l.received, pendingQty: l.pendingQty,
-    pendingAmt: l.pendingAmt, pendingPct: l.pendingPct,
+    poNo: p.poNo, vendor: p.vendor, vendorId: p.vendorId, vendorType: p.vendorType,
+    vendorCity: p.vendorCity, vendorState: p.vendorState, site: p.site, date: p.date,
+    age: p.age, poStatus: p.status,
+    partNo: l.partNo, partDesc: l.partDesc, unit: l.unit, rate: l.rate,
+    qty: l.qty, invoiced: l.invoiced, received: l.received,
+    pendingQty: l.pendingQty, pendingAmt: l.pendingAmt, pendingPct: l.pendingPct, status: l.status,
   }); }));
   flat.sort((a, b) => b.pendingAmt - a.pendingAmt);
 
-  const body = flat.map(l => `<tr>
-    <td style="font-weight:700;color:var(--green);font-size:.77rem;white-space:nowrap">${esc(l.poNo)}</td>
-    <td style="font-size:.76rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(l.vendor)}">${esc(l.vendor) || '—'}</td>
-    <td style="font-size:.76rem;white-space:nowrap">${esc(l.partNo) || '—'}</td>
-    <td style="font-size:.77rem;max-width:280px;white-space:normal">${esc(l.partDesc) || '—'}</td>
-    <td style="text-align:right">${fmtQ(l.qty)}${l.unit ? ' <span style="color:var(--txt3);font-size:.68rem">' + esc(l.unit) + '</span>' : ''}</td>
-    <td style="text-align:right;color:#2e7d32;font-weight:600">${l.received ? fmtQ(l.received) : '—'}</td>
-    <td style="text-align:right;font-weight:700;color:#c62828">${fmtQ(l.pendingQty)}</td>
-    <td style="text-align:right;font-weight:700;color:#c62828">${l.pendingAmt ? fmtV(l.pendingAmt) : '—'}</td>
-    <td style="text-align:right">${Math.round(l.pendingPct)}%</td>
-  </tr>`).join('');
+  const cols = _openPOColsGet().map(_opField).filter(Boolean);
+  const thead = cols.map(f => `<th style="text-align:${f.align}">${f.label}</th>`).join('');
+  const body = flat.map(l => `<tr>${cols.map(f =>
+    `<td style="text-align:${f.align};font-size:.77rem;${f.align==='left'?'white-space:nowrap':''}">${f.fmt(l)}</td>`).join('')}</tr>`).join('');
 
   c.innerHTML = `
   <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem;margin-bottom:1rem">
@@ -13947,18 +14024,15 @@ function pstRenderOpenPO(c, q) {
     ${diag}
     <div style="display:flex;gap:.5rem">
       <span style="font-size:.78rem;color:var(--txt3);align-self:center">${flat.length} open line${flat.length !== 1 ? 's' : ''}</span>
+      <button onclick="window.openPOColPanel()" class="csv-btn">⚙ Columns</button>
       <button onclick="window.openPOReload(this)" class="csv-btn">🔄 Reload</button>
       <button onclick="window.pstDownloadCSV('openpo')" class="csv-btn">⬇ CSV</button>
     </div>
   </div>
+  ${window._openPOPanel ? _openPOColPanelHtml() : ''}
   <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
     <table class="vpi-tbl">
-      <thead><tr>
-        <th>PO Number</th><th>Vendor</th><th>Part No</th><th>Part Description</th>
-        <th style="text-align:right">PO Qty</th><th style="text-align:right">GRN Qty</th>
-        <th style="text-align:right">Pending Qty</th><th style="text-align:right">Pending Amt</th>
-        <th style="text-align:right">Pending %</th>
-      </tr></thead>
+      <thead><tr>${thead}</tr></thead>
       <tbody>${body}</tbody>
     </table>
   </div>`;
