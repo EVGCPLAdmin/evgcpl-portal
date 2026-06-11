@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.24.1';
-const PORTAL_BUILD    = 470;
-const PORTAL_BUILD_AT = '2026-06-11T06:52:36Z';
+const PORTAL_VERSION  = '3.24.2';
+const PORTAL_BUILD    = 471;
+const PORTAL_BUILD_AT = '2026-06-11T07:01:50Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -8824,8 +8824,28 @@ function _cfgRenderAccess() {
   const currentEmps = emps
     .filter(u => u.status === 'ACTIVE' && u.email)
     .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-  const empOptions = currentEmps.map(u =>
-    `<option value="${String(u.email).toLowerCase()}">${(u.name||u.employeeRef||u.email)}${u.dept?(' — '+u.dept):''}</option>`).join('');
+  const _uaIsMember = (email) => !!(sel && draft.users[email] && (draft.users[email].groups || []).includes(sel.id));
+  // Searchable, click-to-add result list (filtered by name / email / dept).
+  function empResultsHtml(q) {
+    if (!currentEmps.length) return `<div style="padding:.8rem;text-align:center;color:var(--txt3);font-size:.74rem">${emps.length ? 'No current employees with a Mail ID' : 'Loading employees…'}</div>`;
+    q = String(q || '').trim().toLowerCase();
+    const list = q ? currentEmps.filter(u => (`${u.name||''} ${u.email||''} ${u.dept||''} ${u.employeeRef||''}`).toLowerCase().includes(q)) : currentEmps;
+    if (!list.length) return `<div style="padding:.8rem;text-align:center;color:var(--txt3);font-size:.74rem">No employee matches that search.</div>`;
+    const rows = list.slice(0, 80).map(u => {
+      const em = String(u.email).toLowerCase(), mem = _uaIsMember(em);
+      return `<div ${mem ? '' : `onclick="uaPickUser('${sel.id}','${em}')" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'"`}
+        style="display:flex;align-items:center;gap:.5rem;padding:6px 9px;border-bottom:1px solid var(--border);cursor:${mem ? 'default' : 'pointer'};opacity:${mem ? '.5' : '1'}">
+        <span style="flex:1;min-width:0;line-height:1.25">
+          <span style="font-size:.78rem;font-weight:600;color:var(--g9)">${u.name || u.employeeRef || em}</span>${u.dept ? `<span style="font-size:.66rem;color:var(--txt3)"> &middot; ${u.dept}</span>` : ''}
+          <br><span style="font-size:.64rem;color:var(--txt3)">${em}</span>
+        </span>
+        ${mem ? '<span style="font-size:.7rem;color:#16a34a;font-weight:700">&#10003; added</span>' : '<span style="font-size:1rem;color:var(--g7);font-weight:700">+</span>'}
+      </div>`;
+    }).join('');
+    const more = list.length > 80 ? `<div style="padding:.5rem;text-align:center;color:var(--txt3);font-size:.66rem">Showing first 80 of ${list.length} — refine your search</div>` : '';
+    return rows + more;
+  }
+  const _uaQuery = window._uaEmpQuery || '';
 
   // Member count per group
   const memberCount = (gid) => Object.values(draft.users).filter(u => (u.groups || []).includes(gid)).length;
@@ -8860,14 +8880,11 @@ function _cfgRenderAccess() {
             ${nm}<button onclick="uaRemoveUser('${e}','${sel.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px">&times;</button></span>`;}).join('')
         || '<span style="font-size:.74rem;color:var(--txt3)">No users assigned yet</span>'}
       </div>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-start">
-        <select id="uaEmpSelect" multiple size="6"
-          style="flex:1;min-width:260px;padding:4px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
-          ${currentEmps.length ? empOptions : `<option value="" disabled>${emps.length ? 'No current employees with a Mail ID' : 'Loading employees…'}</option>`}
-        </select>
-        <button onclick="uaAddUser('${sel.id}')" class="btn btn-secondary btn-sm">+ Add selected</button>
-      </div>
-      <div style="font-size:.68rem;color:var(--txt3);margin-top:.35rem">Employee Register &middot; <strong>Current</strong> employees only${currentEmps.length?` &middot; ${currentEmps.length} available`:''}. Hold Ctrl/&#8984; (or Shift) to pick several &middot; access is enforced on each selected employee's Mail ID.</div>
+      <input id="uaEmpSearch" value="${_uaQuery}" oninput="uaEmpFilter(this.value)" autocomplete="off"
+        placeholder="&#128269; Search current employees by name, email or department…"
+        style="width:100%;padding:8px 11px;border:1px solid var(--border);border-radius:7px 7px 0 0;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
+      <div id="uaEmpResults" style="max-height:240px;overflow:auto;border:1px solid var(--border);border-top:none;border-radius:0 0 7px 7px;background:var(--surface)">${empResultsHtml(_uaQuery)}</div>
+      <div style="font-size:.68rem;color:var(--txt3);margin-top:.35rem">Employee Register &middot; <strong>Current</strong> employees only${currentEmps.length?` &middot; ${currentEmps.length} available`:''}. Click a result to add &middot; access is enforced on each employee's Mail ID.</div>
     </div>
 
     <!-- Permission matrix -->
@@ -8972,19 +8989,23 @@ function _cfgRenderAccess() {
     if (lab) { lab.style.borderColor = on ? g.color : 'var(--border)'; lab.style.background = on ? g.color+'18' : 'var(--surface2)'; lab.style.color = on ? g.color : 'var(--txt3)'; }
     uaDirty();
   };
-  window.uaAddUser = function(gid) {
-    const selEl = document.getElementById('uaEmpSelect'); if (!selEl) return;
-    // option value = employee Mail ID; supports multi-select.
-    const emails = Array.from(selEl.selectedOptions || [])
-      .map(o => (o.value || '').trim().toLowerCase())
-      .filter(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
-    if (!emails.length) { selEl.style.borderColor = '#dc2626'; return; }
+  // Live-filter the employee results without a full re-render (keeps focus).
+  window._uaEmpResultsHtml = empResultsHtml;
+  window.uaEmpFilter = function(q) {
+    window._uaEmpQuery = q;
+    const box = document.getElementById('uaEmpResults');
+    if (box && typeof window._uaEmpResultsHtml === 'function') box.innerHTML = window._uaEmpResultsHtml(q);
+  };
+  // Add a single employee (by Mail ID) from the search results.
+  window.uaPickUser = function(gid, email) {
+    email = (email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
     const d = uaGetDraft();
-    emails.forEach(email => {
-      d.users[email] = d.users[email] || { groups:[] };
-      if (!d.users[email].groups.includes(gid)) d.users[email].groups.push(gid);
-    });
+    d.users[email] = d.users[email] || { groups:[] };
+    if (!d.users[email].groups.includes(gid)) d.users[email].groups.push(gid);
     uaDirty(); _cfgRenderAccess();
+    // restore focus to the search box for rapid multi-add
+    setTimeout(() => { const s = document.getElementById('uaEmpSearch'); if (s) { s.focus(); const v = s.value; s.value=''; s.value=v; } }, 0);
   };
   window.uaRemoveUser = function(email, gid) {
     const d = uaGetDraft();
