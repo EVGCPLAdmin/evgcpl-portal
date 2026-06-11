@@ -6455,8 +6455,8 @@ function _accReadModalList(listId) {
   }));
 }
 function _accIsAdmin() {
-  const email = ((window.STATE && STATE.user && STATE.user.email) || '').toLowerCase();
-  return (window.STATE && STATE.role === 'md') || email.includes('admin@evgcpl') || email.includes('neurolooom') || (window.STATE && STATE.isDevMode);
+  const email = ((STATE && STATE.user && STATE.user.email) || '').toLowerCase();
+  return (STATE && STATE.role === 'md') || email.includes('admin@evgcpl') || email.includes('neurolooom') || (STATE && STATE.isDevMode);
 }
 // Footer button (admin only) that pushes the modal's current arrangement to the sheet.
 function _accDefaultBtn(sheetKey, listId) {
@@ -6476,7 +6476,7 @@ async function _accSetSystemDefault(sheetKey, listId, btn) {
   const prev = btn ? btn.innerHTML : '';
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   try {
-    const email = (window.STATE && STATE.user && STATE.user.email) || 'unknown';
+    const email = (STATE && STATE.user && STATE.user.email) || 'unknown';
     const res = await fetch(writeUrl, {
       method: 'POST', headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ action: 'savePortalConfig', key: sheetKey, value: JSON.stringify(value), updatedBy: email }),
@@ -8506,7 +8506,7 @@ window.sheetConfigSaveOne = async function(key) {
       alert('Deploy the PortalConfigBackend Apps Script first, then paste its URL into the T1 override card under "Portal Config Backend".');
       return;
     }
-    const userEmail = (window.STATE && STATE.user && STATE.user.email) || 'unknown';
+    const userEmail = (STATE && STATE.user && STATE.user.email) || 'unknown';
     const r = await fetch(writeUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
@@ -8589,7 +8589,7 @@ async function pcWriteJSON(key, valueObj) {
     const r = await fetch(url, {
       method: 'POST', headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ action: 'savePortalConfig', key, value: JSON.stringify(valueObj),
-        updatedBy: (window.STATE && STATE.user && STATE.user.email) || 'unknown' }),
+        updatedBy: (STATE && STATE.user && STATE.user.email) || 'unknown' }),
     });
     const data = await r.json();
     return data.success ? { ok: true } : { ok: false, message: data.message || 'Save failed' };
@@ -8675,7 +8675,7 @@ function uaGroup(gid) { return uaGetDraft().groups.find(g => g.id === gid); }
 function _accessRouteSetForCurrentUser() {
   const acc = pcReadJSON('access_config', null);
   if (!acc || !acc.enforce) return null;
-  const email = ((window.STATE && STATE.user && STATE.user.email) || '').toLowerCase().trim();
+  const email = ((STATE && STATE.user && STATE.user.email) || '').toLowerCase().trim();
   if (!email) return null;
   const u = (acc.users || {})[email];
   if (!u || !Array.isArray(u.groups) || !u.groups.length) return null;
@@ -8691,7 +8691,7 @@ function _accessRouteSetForCurrentUser() {
 // role routes, actions permitted).
 function userCan(route, action) {
   action = action || 'view';
-  const role = (window.STATE && STATE.role) || '';
+  const role = (STATE && STATE.role) || '';
   if (role === 'md') return true;
   const acc = pcReadJSON('access_config', null);
   if (!acc || !acc.enforce) return action === 'view' ? getRouteSet(role).has(route) : true;
@@ -8814,7 +8814,7 @@ function _cfgRenderAccess() {
   const sections = [...new Set(MODULE_REGISTRY.map(m => m.section))];
 
   // Assignable users come from the Employee Register (loaded into masters).
-  const emps = (window.STATE && STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
+  const emps = (STATE && STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
   if (!emps.length && typeof loadAllMasters === 'function' && !window._uaEmpTried) {
     window._uaEmpTried = true;
     loadAllMasters().then(() => { if (window._cfgActiveTab === 'access') _cfgRenderAccess(); }).catch(() => {});
