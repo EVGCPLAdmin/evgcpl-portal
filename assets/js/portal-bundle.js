@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.25.1';
-const PORTAL_BUILD    = 475;
-const PORTAL_BUILD_AT = '2026-06-11T13:21:52Z';
+const PORTAL_VERSION  = '3.25.2';
+const PORTAL_BUILD    = 476;
+const PORTAL_BUILD_AT = '2026-06-11T14:29:14Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -81,6 +81,18 @@ async function loadSheetConfig() {
     window._SHEET_CONFIG      = cfg;
     window._SHEET_CONFIG_META = meta;
     window._SHEET_CONFIG_LOADED = true;
+    // access_config is org-wide and security-critical — the PortalConfig sheet is
+    // the single source of truth. Overwrite any cached copy so a stale localStorage
+    // entry can never pin an old enforcement/group config (which previously could
+    // wrongly lock a user into a restrictive group even after the sheet was fixed).
+    // Personal prefs (other pc_* keys) are intentionally left untouched.
+    try {
+      if (cfg.access_config != null && cfg.access_config !== '') {
+        localStorage.setItem('pc_access_config', cfg.access_config);
+      } else {
+        localStorage.removeItem('pc_access_config');
+      }
+    } catch (e) {}
     console.log('[SheetConfig] Loaded', Object.keys(cfg).length, 'keys:', Object.keys(cfg));
     // The org-wide access_config (enforcement + group routes) arrives here, on a
     // separate async chain from login/masters. If the user already logged in
