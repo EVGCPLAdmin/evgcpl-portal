@@ -1155,6 +1155,30 @@ th.sort-desc .sort-arrow::after{content:'▼';opacity:1}
 .tnav-item[data-status="dev"] { display:none; }
 body.dev-mode .tnav-item[data-status="dev"] { display:flex; }
 
+/* ── Level-3 sub-page flyout (3-layer nav) ── */
+.tnav-item.has-sub { position:relative; }
+.tnav-sub-caret { width:13px;height:13px;margin-left:6px;opacity:.45;flex-shrink:0;transition:opacity .12s,transform .12s; }
+.tnav-item.has-sub:hover .tnav-sub-caret { opacity:1;transform:translateX(2px); }
+.tnav-subdropdown {
+  position:absolute;
+  top:-.45rem;
+  left:100%;
+  min-width:198px;
+  background:var(--g9);
+  border:1px solid rgba(255,255,255,.1);
+  border-left:2px solid var(--gold);
+  border-radius:0 10px 10px 10px;
+  box-shadow:0 12px 36px rgba(0,0,0,.45);
+  padding:.4rem 0;
+  display:none;
+  z-index:600;
+  animation:tnav-drop .12s ease;
+}
+.tnav-item.has-sub:hover > .tnav-subdropdown { display:block; }
+/* If the flyout would overflow the right edge, flip it to the left */
+.tnav-group:last-of-type .tnav-subdropdown,
+.tnav-subdropdown.flip-left { left:auto; right:100%; border-left:none; border-right:2px solid var(--gold); border-radius:10px 0 0 10px; }
+
 /* ── Layout adjustments for top nav (desktop only) ── */
 @media(min-width:1025px){
   /* Push layout down to accommodate topnav */
