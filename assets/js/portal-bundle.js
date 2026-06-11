@@ -1525,7 +1525,7 @@ function _getRouteSetRaw(role) {
   return ROLE_ROUTES[role] || ROLE_ROUTES.employee;
 }
 function applyRoleNavRestrictions(role) {
-  try { _navBuildSubmenus(); } catch (e) {}
+  try { _navEnsureInjected(); _navBuildSubmenus(); } catch (e) {}
   const isExternal    = role === 'vendor' || role === 'sc';
   // A md-role user who is being restricted by an access group loses md-only
   // nav (Dev Mode, Command); only the super-admin keeps full md privileges.
@@ -1637,6 +1637,29 @@ function _navChildParentMap() {
   return out;
 }
 function _navParentOf(route) { return _navChildParentMap()[route] || null; }
+
+// Inject nav entries added in newer builds when the page's static HTML
+// predates them. Page HTML is cached by the browser/CDN independently of
+// this bundle, so a stale page would otherwise hide new menu items even
+// though the latest code is running (the footer build looks current
+// because the version stamp lives in the bundle, not the HTML). Idempotent.
+function _navEnsureInjected() {
+  const topNav = document.getElementById('topNav');
+  if (!topNav) return;
+  if (!topNav.querySelector('[data-route="data-hub"]')) {
+    const grp = document.createElement('div');
+    grp.className = 'tnav-group';
+    grp.id = 'tnav-datahub-group';
+    grp.setAttribute('data-internal', 'true');
+    grp.setAttribute('data-role-section-hide', 'site');
+    grp.innerHTML = '<button class="tnav-btn solo" onclick="navigate(\'data-hub\')" data-route="data-hub">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>' +
+      'Data Hub</button>';
+    const reports = document.getElementById('tnav-reports-group');
+    if (reports && reports.parentElement === topNav) topNav.insertBefore(grp, reports.nextSibling);
+    else topNav.insertBefore(grp, topNav.querySelector('.tnav-spacer'));
+  }
+}
 
 // Inject the level-3 flyout markup into the (hand-coded) top nav. Idempotent.
 function _navBuildSubmenus() {
