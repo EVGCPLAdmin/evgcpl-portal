@@ -13604,7 +13604,10 @@ async function _openPOEnsure(force) {
   const [hdr, items, stock] = await Promise.all([
     fetchSheet(_po.tab || PO_TAB, 'SELECT *', _po.id || PO_SHEET_ID),
     fetchSheet(_it.tab || 'PO_Items_Actual', 'SELECT *', _it.id || PO_SHEET_ID),
-    fetchSheet('StockIN', 'SELECT *', STORES_SHEET_ID),     // known-good id (same as pstLoad)
+    // StockIN: explicit contiguous columns (A–W). SELECT * was returning 0 rows
+    // for this wide tab (gviz times out / errors on the full-width response),
+    // while an explicit column query succeeds — same approach pstLoad uses.
+    fetchSheet('StockIN', 'SELECT A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W', STORES_SHEET_ID),
   ]);
   _openPOHeaders = hdr   || [];
   _openPOItems   = items || [];
