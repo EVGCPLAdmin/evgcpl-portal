@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.22.0';
-const PORTAL_BUILD    = 466;
-const PORTAL_BUILD_AT = '2026-06-11T05:34:40Z';
+const PORTAL_VERSION  = '3.23.0';
+const PORTAL_BUILD    = 467;
+const PORTAL_BUILD_AT = '2026-06-11T05:41:23Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5059,6 +5059,7 @@ function _accStageChipsHtml(allRows) {
 async function _accAdvance(uuid) {
   const r = (window._accAllRows || []).find(x => x.uuid === uuid);
   if (!r) return;
+  if (typeof _accCan === 'function' && !_accCan('advance')) { alert('You do not have permission to advance payments.'); return; }
   const view = _accViewById(_accStageOf(r));
   if (!_accCanAdvance(view)) { alert('Your role cannot advance this stage.'); return; }
   const nx = view.next;
@@ -5485,6 +5486,7 @@ async function _accwBulkAdvance() {
   await _accReloadRows(); _accwRenderBody();
 }
 function _accwExportCsv() {
+  if (typeof _accCan === 'function' && !_accCan('export')) { alert('You do not have permission to export.'); return; }
   const rows = _accwFiltered();
   const head = ['Request ID','Payee','Type','Site','For','Order No','Bill No','Amount','Currency','Stage','Status','Age (days)','Date'];
   const esc = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
@@ -6265,6 +6267,7 @@ async function _accPRUploadAttachments(uuid, requestId) {
 }
 
 async function _accPRSubmit() {
+  if (typeof _accCan === 'function' && !_accCan('create')) { alert('You do not have permission to create payment requests.'); return; }
   const errors = [];
   const amount  = parseFloat(_accV('acc-pr-amount')) || 0;
   const payTo   = _accV('acc-pr-paymentTo');
@@ -6461,6 +6464,7 @@ function _accDefaultBtn(sheetKey, listId) {
   return `<button onclick="_accSetSystemDefault('${sheetKey}','${listId}',this)" class="btn btn-secondary btn-sm" title="Make this arrangement the org-wide default for everyone" style="font-size:.74rem">&#9733; Set as system default</button>`;
 }
 async function _accSetSystemDefault(sheetKey, listId, btn) {
+  if (typeof _accCan === 'function' && !_accCan('setDefault')) { alert('You do not have permission to change the system default.'); return; }
   const value = _accReadModalList(listId);
   if (!value.length) return;
   let writeUrl = '';
@@ -7564,7 +7568,21 @@ function _accGotoMDQueue() {
   navigate('accounts');
 }
 
+// Group-access gate for Accounts write actions. True when the user holds the
+// given action on ANY accounts surface (md/admin always true; when enforcement
+// is off, userCan returns true → unchanged behaviour).
+function _accCan(action) {
+  if (typeof userCan !== 'function') return true;
+  return ['accounts','accounts-v2','accounts-worklist','accounts-dashboard','md-payments'].some(rt => userCan(rt, action));
+}
+
 async function _accQuickStatus(uuid, status, comments, utr, silent) {
+  // Central write-path gate: a user with no Accounts action permission cannot
+  // post status/advance updates when group access is enforced.
+  if (!_accCan('update') && !_accCan('advance') && !_accCan('verify') && !_accCan('approve')) {
+    if (!silent) _accToast('🔒 You do not have permission to update payments.');
+    return false;
+  }
   const rid = (crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0, 8) : String(Date.now()).slice(-8);
   const email = STATE.user?.email || '';
   const me = (STATE.masters.users || []).find(u => (u.email || '').toLowerCase() === email.toLowerCase());
@@ -8582,7 +8600,8 @@ async function pcWriteJSON(key, valueObj) {
 const SHEET_LINKS = [
   { key:'PAYMENT',  label:'Payments — PaymentRequest',     dfltId: (typeof PAYMENT_SHEET_ID!=='undefined'?PAYMENT_SHEET_ID:''), dfltTab:'PaymentRequest',   usedBy:'Accounts module — list, voucher, worklist' },
   { key:'PO_ITEMS', label:'PO Line Items — PO_Items_Actual',dfltId: (typeof PO_SHEET_ID!=='undefined'?PO_SHEET_ID:''),       dfltTab:'PO_Items_Actual', usedBy:'Voucher → PO Items table' },
-  { key:'PO',       label:'Purchase Orders — PO_Actual',    dfltId: (typeof PO_SHEET_ID!=='undefined'?PO_SHEET_ID:''),       dfltTab:'PO_Actual',        usedBy:'SCM dashboards & PO lists (reference)' },
+  { key:'PO',       label:'Purchase Orders — PO_Actual',    dfltId: (typeof PO_SHEET_ID!=='undefined'?PO_SHEET_ID:''),       dfltTab:'PO_Actual',        usedBy:'SCM dashboard PO data' },
+  { key:'EMP',      label:'Employee Register',              dfltId: '1HWKZPhKRhcuvxBgyyN8zRt8p-SzYmKjJWiOdCgykBHs',          dfltTab:'0_EmployeeRegister_Live', usedBy:'People masters, Access user picker' },
 ];
 function getLink(key) {
   const links = pcReadJSON('sheet_links', {}) || {};
@@ -8775,6 +8794,15 @@ function _cfgRenderAccess() {
   const sel = uaGroup(window._uaSel) || draft.groups[0];
   const sections = [...new Set(MODULE_REGISTRY.map(m => m.section))];
 
+  // Assignable users come from the Employee Register (loaded into masters).
+  const emps = (window.STATE && STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
+  if (!emps.length && typeof loadAllMasters === 'function' && !window._uaEmpTried) {
+    window._uaEmpTried = true;
+    loadAllMasters().then(() => { if (window._cfgActiveTab === 'access') _cfgRenderAccess(); }).catch(() => {});
+  }
+  const empOptions = emps.filter(u => u.email).map(u =>
+    `<option value="${u.email}">${(u.name||u.employeeRef||'')}${u.dept?(' — '+u.dept):''}</option>`).join('');
+
   // Member count per group
   const memberCount = (gid) => Object.values(draft.users).filter(u => (u.groups || []).includes(gid)).length;
 
@@ -8807,10 +8835,12 @@ function _cfgRenderAccess() {
         || '<span style="font-size:.74rem;color:var(--txt3)">No users assigned yet</span>'}
       </div>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-        <input id="uaEmail" type="email" placeholder="user@evgcpl.com" onkeydown="if(event.key==='Enter'){event.preventDefault();uaAddUser('${sel.id}')}"
-          style="flex:1;min-width:220px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
+        <input id="uaEmail" list="uaEmpList" placeholder="${emps.length ? 'Search employee by name or email…' : 'Loading employees…'}" onkeydown="if(event.key==='Enter'){event.preventDefault();uaAddUser('${sel.id}')}"
+          style="flex:1;min-width:240px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
+        <datalist id="uaEmpList">${empOptions}</datalist>
         <button onclick="uaAddUser('${sel.id}')" class="btn btn-secondary btn-sm">+ Add user</button>
       </div>
+      <div style="font-size:.68rem;color:var(--txt3);margin-top:.35rem">Pick from the Employee Register${emps.length?` · ${emps.filter(u=>u.email).length} users`:''}.</div>
     </div>
 
     <!-- Permission matrix -->
@@ -9709,7 +9739,8 @@ function renderSCMDashboard() {
 
 // ── LOAD DATA ────────────────────────────────────────────
 function loadPOData() {
-  fetchSheet(PO_TAB, 'SELECT A,E,F,G,J,R,S,AF,AG,AP,AQ', PO_SHEET_ID).then(rawRows => {
+  const _po = (typeof getLink === 'function') ? getLink('PO') : { id: PO_SHEET_ID, tab: PO_TAB };
+  fetchSheet(_po.tab || PO_TAB, 'SELECT A,E,F,G,J,R,S,AF,AG,AP,AQ', _po.id || PO_SHEET_ID).then(rawRows => {
     if (!rawRows || rawRows.length === 0) {
       document.getElementById('scm-pending-table').innerHTML =
         `<div style="padding:2rem;text-align:center;color:#c62828">
@@ -15061,7 +15092,7 @@ async function loadAllMasters() {
   // Employees: separate spreadsheet — 0_EmployeeRegister_Live + 07_Mess_Accomodation
   const [sitesRows, empRows, messRows, assetsRows, vendorsRows, scRows] = await Promise.all([
     fetchSheet('5-SiteMaster',           null, SHEET_ID),
-    fetchSheet('0_EmployeeRegister_Live',null, EMP_SHEET_ID),
+    (function(){ const e=(typeof getLink==='function')?getLink('EMP'):{id:EMP_SHEET_ID,tab:'0_EmployeeRegister_Live'}; return fetchSheet(e.tab||'0_EmployeeRegister_Live', null, e.id||EMP_SHEET_ID); })(),
     fetchSheet('07_Mess_Accomodation',   null, EMP_SHEET_ID),
     fetchSheet('6-AssetMaster',          null, SHEET_ID),
     fetchSheet('7-VendorMaster',        'SELECT C,J,K,L,Q,R,AK', SHEET_ID),
