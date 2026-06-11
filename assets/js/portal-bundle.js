@@ -8597,17 +8597,38 @@ async function pcWriteJSON(key, valueObj) {
 }
 
 // ── Sheet linking: editable {id, tab} per data source, consumed live ──
+// Every Google Sheet the portal reads, grouped by source spreadsheet. Each
+// source can be re-pointed (override the Spreadsheet ID) org-wide; the override
+// is applied centrally in fetchSheet() so ALL tabs of that sheet follow.
+// IDs are literals (not the *_SHEET_ID consts) because several of those consts
+// are declared LATER in the file — referencing them here would hit the const
+// temporal-dead-zone (typeof on a TDZ const throws, it doesn't return undefined).
 const SHEET_LINKS = [
-  { key:'PAYMENT',  label:'Payments — PaymentRequest',     dfltId: (typeof PAYMENT_SHEET_ID!=='undefined'?PAYMENT_SHEET_ID:''), dfltTab:'PaymentRequest',   usedBy:'Accounts module — list, voucher, worklist' },
-  { key:'PO_ITEMS', label:'PO Line Items — PO_Items_Actual',dfltId: (typeof PO_SHEET_ID!=='undefined'?PO_SHEET_ID:''),       dfltTab:'PO_Items_Actual', usedBy:'Voucher → PO Items table' },
-  { key:'PO',       label:'Purchase Orders — PO_Actual',    dfltId: (typeof PO_SHEET_ID!=='undefined'?PO_SHEET_ID:''),       dfltTab:'PO_Actual',        usedBy:'SCM dashboard PO data' },
-  { key:'EMP',      label:'Employee Register',              dfltId: '1HWKZPhKRhcuvxBgyyN8zRt8p-SzYmKjJWiOdCgykBHs',          dfltTab:'0_EmployeeRegister_Live', usedBy:'People masters, Access user picker' },
+  { key:'MASTERS',     label:'Masters spreadsheet',          dfltId:'1B2wb38KhNwlLoZnsAGWQkO0FdEGFFfsh3ycRRurigq4', tabs:['5-SiteMaster','6-AssetMaster','7-VendorMaster','10-SubContractorMaster','1-BillingMaster','M17_CostCenter'], usedBy:'Sites, assets, vendors, sub-contractors, billing & cost-centre masters' },
+  { key:'PO',          label:'Purchase / SCM spreadsheet',   dfltId:'1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c', tabs:['PO_Actual','PO_Items_Actual','MRS','Invoice'], usedBy:'SCM dashboards, MRS, Accounts voucher PO items' },
+  { key:'PAYMENT',     label:'Accounts spreadsheet',         dfltId:'1mLddxLRf719EaXE9XSET9gT8l0a8Cxns362yIbHo63g', tabs:['PaymentRequest','Payment_Mater','AccountsUpdate'], usedBy:'Accounts — list, voucher, worklist, payment master' },
+  { key:'STORES',      label:'Stores spreadsheet',           dfltId:'1iMQxgqGilUh2_3NCZl5D-EMt-NC8FwugX83q2fWb8fE', tabs:['StockIN','v3StockLevels','GRN_No'], usedBy:'Stores / inventory dashboards' },
+  { key:'EMP',         label:'Employee Register spreadsheet',dfltId:'1HWKZPhKRhcuvxBgyyN8zRt8p-SzYmKjJWiOdCgykBHs', tabs:['0_EmployeeRegister_Live','0A_EmployeePersonalDetails','07_Mess_Accomodation'], usedBy:'People masters, Access user picker, mess/accommodation' },
+  { key:'SAFETY',      label:'Safety spreadsheet',           dfltId:'1B8P0PawV43ksazbzhKsil1X6-INOfxx9PFvGycNOvDY', tabs:['Incidents','DailyChecks'], usedBy:'Safety incidents & daily checks' },
+  { key:'RECRUITMENT', label:'Recruitment spreadsheet',      dfltId:'1Dw48OEDmIAAu9Va1-a9z7PZT7wKS_mWU7cwpK6osRNI', tabs:['v1_JoiningList','Offer_Tracker','MRF_Register'], usedBy:'Recruitment & onboarding' },
+  { key:'REWARDS',     label:'Rewards & Recognition sheet',  dfltId:'1vz8HLopjlSF8TF7rzYuVu5JjqukT929I7aSx7kdehlI', tabs:['Nomination'], usedBy:'Rewards & recognition nominations' },
+  { key:'PIN',         label:'User Secrets sheet',           dfltId:'1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0', tabs:['UserSecrets'], usedBy:'Login PIN verification' },
 ];
+// Map a default Spreadsheet ID to its admin override (if any). Called from
+// fetchSheet(), so every tab of every source honours the re-point automatically.
+function _resolveSheetId(defaultId) {
+  if (!defaultId) return defaultId;
+  const links = (typeof pcReadJSON === 'function') ? (pcReadJSON('sheet_links', {}) || {}) : {};
+  const src = SHEET_LINKS.find(s => s.dfltId === defaultId);
+  if (src && links[src.key] && links[src.key].id) return String(links[src.key].id).trim();
+  return defaultId;
+}
+// Legacy helper kept for existing callers — returns {id (override-resolved), tab}.
 function getLink(key) {
-  const links = pcReadJSON('sheet_links', {}) || {};
-  const def = SHEET_LINKS.find(s => s.key === key) || {};
-  const ov  = links[key] || {};
-  return { id: (ov.id || def.dfltId || '').trim(), tab: (ov.tab || def.dfltTab || '').trim() };
+  const legacy = { PAYMENT:['PAYMENT','PaymentRequest'], PO_ITEMS:['PO','PO_Items_Actual'], PO:['PO','PO_Actual'], EMP:['EMP','0_EmployeeRegister_Live'] };
+  const [srcKey, tab] = legacy[key] || [key, ''];
+  const src = SHEET_LINKS.find(s => s.key === srcKey) || {};
+  return { id: _resolveSheetId(src.dfltId || ''), tab };
 }
 
 // ── Access groups: per-module view + action permissions, assigned to users ──
@@ -8722,9 +8743,10 @@ function _cfgRenderSheets() {
   const links = pcReadJSON('sheet_links', {}) || {};
   const row = (s) => {
     const ov = links[s.key] || {};
-    const id  = ov.id  != null ? ov.id  : s.dfltId;
-    const tab = ov.tab != null ? ov.tab : s.dfltTab;
-    const overridden = (ov.id && ov.id !== s.dfltId) || (ov.tab && ov.tab !== s.dfltTab);
+    const id  = ov.id != null ? ov.id : s.dfltId;
+    const overridden = ov.id && ov.id !== s.dfltId;
+    const tabChips = (s.tabs || []).map(t =>
+      `<code style="font-size:.64rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:1px 6px;color:var(--txt2)">${t}</code>`).join(' ');
     return `<div class="card card-pad" style="margin-bottom:.8rem;border-left:4px solid ${overridden?'#f59e0b':'var(--g7)'}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;margin-bottom:.6rem">
         <div>
@@ -8734,17 +8756,14 @@ function _cfgRenderSheets() {
         </div>
         <code style="font-size:.66rem;color:var(--txt3)">key: ${s.key}</code>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 200px;gap:.6rem">
-        <div>
-          <label style="font-size:.7rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Spreadsheet ID</label>
-          <input id="slId-${s.key}" value="${id}" placeholder="${s.dfltId||'paste sheet ID'}"
-            style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.78rem;font-family:'JetBrains Mono',monospace;background:var(--surface2);color:var(--txt)">
-        </div>
-        <div>
-          <label style="font-size:.7rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Tab</label>
-          <input id="slTab-${s.key}" value="${tab}" placeholder="${s.dfltTab||'tab name'}"
-            style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.78rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
-        </div>
+      <div style="margin-bottom:.6rem">
+        <label style="font-size:.7rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Tables (${(s.tabs||[]).length})</label>
+        <div style="display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.25rem">${tabChips}</div>
+      </div>
+      <div>
+        <label style="font-size:.7rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Spreadsheet ID</label>
+        <input id="slId-${s.key}" value="${id}" placeholder="${s.dfltId||'paste sheet ID'}"
+          style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.78rem;font-family:'JetBrains Mono',monospace;background:var(--surface2);color:var(--txt)">
       </div>
       <div style="display:flex;gap:.5rem;align-items:center;margin-top:.6rem;flex-wrap:wrap">
         <button onclick="slSaveOne('${s.key}')" class="btn btn-primary btn-sm" style="font-size:.72rem">&#128190; Save</button>
@@ -8758,7 +8777,7 @@ function _cfgRenderSheets() {
     ${_cfgTabBar('sheets')}
     <div class="page-header"><div class="page-header-row"><div>
       <h1>&#128279; Sheet Linking</h1>
-      <p>Point each data source at its Spreadsheet ID and Tab &middot; saved org-wide &middot; Admin only</p>
+      <p>Re-point any source spreadsheet by its ID &middot; every table it holds follows &middot; saved org-wide &middot; Admin only</p>
     </div></div></div>
     <div class="alert-strip" style="margin-bottom:1rem">
       <span class="alert-icon">&#8505;&#65039;</span>
@@ -8767,10 +8786,10 @@ function _cfgRenderSheets() {
     ${SHEET_LINKS.map(row).join('')}`;
 
   window.slSaveOne = async function(key) {
-    const idEl = document.getElementById('slId-'+key), tabEl = document.getElementById('slTab-'+key), st = document.getElementById('slSt-'+key);
-    if (!idEl || !tabEl) return;
+    const idEl = document.getElementById('slId-'+key), st = document.getElementById('slSt-'+key);
+    if (!idEl) return;
     const links = pcReadJSON('sheet_links', {}) || {};
-    links[key] = { id: idEl.value.trim(), tab: tabEl.value.trim() };
+    links[key] = { id: idEl.value.trim() };
     if (st) { st.textContent = 'Saving…'; st.style.color = '#92400e'; }
     const res = await pcWriteJSON('sheet_links', links);
     if (st) { st.textContent = res.ok ? '✓ Saved org-wide' : '✗ ' + res.message; st.style.color = res.ok ? '#16a34a' : '#dc2626'; }
@@ -8841,15 +8860,14 @@ function _cfgRenderAccess() {
             ${nm}<button onclick="uaRemoveUser('${e}','${sel.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px">&times;</button></span>`;}).join('')
         || '<span style="font-size:.74rem;color:var(--txt3)">No users assigned yet</span>'}
       </div>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-        <select id="uaEmpSelect" onchange="uaAddUser('${sel.id}')"
-          style="flex:1;min-width:260px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
-          <option value="">${currentEmps.length ? '— Select a current employee —' : (emps.length ? 'No current employees with a Mail ID' : 'Loading employees…')}</option>
-          ${empOptions}
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-start">
+        <select id="uaEmpSelect" multiple size="6"
+          style="flex:1;min-width:260px;padding:4px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
+          ${currentEmps.length ? empOptions : `<option value="" disabled>${emps.length ? 'No current employees with a Mail ID' : 'Loading employees…'}</option>`}
         </select>
-        <button onclick="uaAddUser('${sel.id}')" class="btn btn-secondary btn-sm">+ Add</button>
+        <button onclick="uaAddUser('${sel.id}')" class="btn btn-secondary btn-sm">+ Add selected</button>
       </div>
-      <div style="font-size:.68rem;color:var(--txt3);margin-top:.35rem">Employee Register &middot; <strong>Current</strong> employees only${currentEmps.length?` &middot; ${currentEmps.length} available`:''}. Access is enforced on the selected employee's Mail ID.</div>
+      <div style="font-size:.68rem;color:var(--txt3);margin-top:.35rem">Employee Register &middot; <strong>Current</strong> employees only${currentEmps.length?` &middot; ${currentEmps.length} available`:''}. Hold Ctrl/&#8984; (or Shift) to pick several &middot; access is enforced on each selected employee's Mail ID.</div>
     </div>
 
     <!-- Permission matrix -->
@@ -8955,13 +8973,18 @@ function _cfgRenderAccess() {
     uaDirty();
   };
   window.uaAddUser = function(gid) {
-    const sel = document.getElementById('uaEmpSelect'); if (!sel) return;
-    const email = (sel.value || '').trim().toLowerCase();  // option value = employee Mail ID
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { sel.style.borderColor = '#dc2626'; return; }
+    const selEl = document.getElementById('uaEmpSelect'); if (!selEl) return;
+    // option value = employee Mail ID; supports multi-select.
+    const emails = Array.from(selEl.selectedOptions || [])
+      .map(o => (o.value || '').trim().toLowerCase())
+      .filter(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+    if (!emails.length) { selEl.style.borderColor = '#dc2626'; return; }
     const d = uaGetDraft();
-    d.users[email] = d.users[email] || { groups:[] };
-    if (!d.users[email].groups.includes(gid)) d.users[email].groups.push(gid);
-    sel.value = ''; uaDirty(); _cfgRenderAccess();
+    emails.forEach(email => {
+      d.users[email] = d.users[email] || { groups:[] };
+      if (!d.users[email].groups.includes(gid)) d.users[email].groups.push(gid);
+    });
+    uaDirty(); _cfgRenderAccess();
   };
   window.uaRemoveUser = function(email, gid) {
     const d = uaGetDraft();
@@ -15013,7 +15036,7 @@ let _gvizReqId = 0;
 function fetchSheet(sheetName, tq, spreadsheetId) {
   return new Promise((resolve) => {
     const reqId = String(++_gvizReqId);
-    const sid = spreadsheetId || SHEET_ID;
+    const sid = (typeof _resolveSheetId === 'function') ? _resolveSheetId(spreadsheetId || SHEET_ID) : (spreadsheetId || SHEET_ID);
     let url = `https://docs.google.com/spreadsheets/d/${sid}/gviz/tq`
             + `?tqx=out:json;reqId:${reqId}`
             + `&sheet=${encodeURIComponent(sheetName)}`;
