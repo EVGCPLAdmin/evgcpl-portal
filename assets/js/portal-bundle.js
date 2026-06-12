@@ -2114,7 +2114,7 @@ function renderPage(page) {
     'store':          renderStoreModule,
     'scm':            renderSCMDashboard,
     'mrs':            renderMRSDashboard,
-    'stores':         renderProcurementStores,
+    'stores':         renderStoresOverview,
     'stores-stockin': () => { window._pstPendingTab = 'stockin'; renderProcurementStores(); },
     'stores-siraw':   () => { window._pstPendingTab = 'siraw';   renderProcurementStores(); },
     'stores-grn':     () => { window._pstPendingTab = 'grn';     renderProcurementStores(); },
@@ -10040,7 +10040,7 @@ function renderSCMDashboard() {
 }
 
 // Jump from the Purchase Dashboard straight to Stores → Open POs tab.
-window.scmOpenPOs = function() { window._pstPendingTab = 'openpo'; navigate('stores'); };
+window.scmOpenPOs = function() { window._pstPendingTab = 'openpo'; navigate('stores-openpo'); };
 
 // Lazily compute the open-PO count + pending value for the dashboard KPI,
 // without blocking the dashboard's own PO load. Loads StockIN/GRN here if the
@@ -13698,6 +13698,74 @@ let _pstLevels     = [];   // v3StockLevels rows
 let _pstLoaded     = false;
 let _pstActiveTab  = 'stockin';
 let _pstSiteFilter = '';
+
+// ── Stores LEVEL-2 OVERVIEW (#4) ──────────────────────────────────
+//  Clicking "Stores" (a non-leaf node with level-3 sub-pages) shows a
+//  consolidated overview: KPI cards + tiles into each sub-page. The
+//  detail tables live on their own level-3 sub-pages (#3). This is the
+//  reference pattern for "max level − 1 shows Overview/KPIs/Consolidation".
+const STORES_SUBPAGES = [
+  { route:'stores-stockin', icon:'📥', label:'Stock IN',      desc:'Stock-in / stock-out register' },
+  { route:'stores-siraw',   icon:'📋', label:'StockIN Table', desc:'Tabular StockIN with filters' },
+  { route:'stores-grn',     icon:'📦', label:'GRN Register',  desc:'Goods received notes' },
+  { route:'stores-openpo',  icon:'🔓', label:'Open POs',      desc:'Approved POs with pending qty', accent:'#d97706' },
+  { route:'stores-levels',  icon:'📊', label:'Stock Levels',  desc:'Current stock per site/item' },
+];
+function renderStoresOverview() {
+  const el = document.getElementById('mainContent');
+  _pstSiteFilter = '';
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">🏪 Stores — Overview</div>
+        <div class="page-sub">Consolidated summary · open a sub-page for full detail</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="renderStoresOverview()" style="height:36px">🔄 Refresh</button>
+    </div>
+    <div id="storesOvKpi" class="evg-kpi-grid" style="margin-bottom:1.3rem">
+      <div style="color:var(--txt3);padding:1rem;grid-column:1/-1">⏳ Loading summary…</div>
+    </div>
+    <div style="font-size:.75rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em;margin:0 0 .6rem">Sub-pages</div>
+    <div class="evg-dash-grid">
+      ${STORES_SUBPAGES.map(s => `
+        <div class="evg-kpi" data-click="1" onclick="navigate('${s.route}')" style="--g7:${s.accent || 'var(--g7)'}">
+          <div style="font-size:1.4rem">${s.icon}</div>
+          <div class="evg-kpi-lbl" style="font-weight:700;color:var(--g9);font-size:.92rem">${s.label}</div>
+          <div class="evg-kpi-lbl">${s.desc}</div>
+        </div>`).join('')}
+    </div>`;
+  _tblEngineEnsureStyles();
+  _storesOverviewLoad();
+}
+async function _storesOverviewLoad() {
+  const kpiEl = document.getElementById('storesOvKpi');
+  if (!kpiEl) return;
+  try {
+    const [stockRows, levelRows] = await Promise.all([
+      fetchSheet('StockIN', 'SELECT A,B,C,D,E,F,G,H,K,L,M,N,O,P,Q,U,V,W', STORES_SHEET_ID, { rawId: true }),
+      fetchSheet('v3StockLevels', 'SELECT A,B,C,D,E,F,G,H', STORES_SHEET_ID, { rawId: true }),
+    ]);
+    const sites = new Set((stockRows || []).map(r => r['Site Name']).filter(Boolean)).size;
+    const totalStock = (levelRows || []).reduce((s, r) => s + (parseFloat(r['Site Stock'] || r['StockIN'] || 0) || 0), 0);
+    let openPOs = 0, pendAmt = 0;
+    try {
+      await _openPOEnsure();
+      const out = _openPOCompute('') || [];
+      openPOs = out.length;
+      pendAmt = out.reduce((s, p) => s + (p.totPendAmt || 0), 0);
+    } catch (e) {}
+    if (!document.getElementById('storesOvKpi')) return;   // navigated away
+    kpiEl.innerHTML = [
+      evgKpiCard({ icon: '📥', value: (stockRows || []).length.toLocaleString('en-IN'), label: 'Stock IN Lines', onclick: "navigate('stores-stockin')" }),
+      evgKpiCard({ icon: '🔓', value: openPOs.toLocaleString('en-IN'), label: 'Open POs', accent: '#d97706', onclick: "navigate('stores-openpo')" }),
+      evgKpiCard({ icon: '⏳', value: pendAmt ? '₹' + Math.round(pendAmt).toLocaleString('en-IN') : '—', label: 'Pending PO Value', accent: '#c62828', onclick: "navigate('stores-openpo')" }),
+      evgKpiCard({ icon: '🏗️', value: sites, label: 'Sites' }),
+      evgKpiCard({ icon: '📊', value: Math.round(totalStock).toLocaleString('en-IN'), label: 'Stock Qty', onclick: "navigate('stores-levels')" }),
+    ].join('');
+  } catch (e) {
+    if (document.getElementById('storesOvKpi')) kpiEl.innerHTML = `<div style="color:#c62828;padding:1rem;grid-column:1/-1">Could not load summary: ${e.message}</div>`;
+  }
+}
 
 function renderProcurementStores() {
   const el = document.getElementById('mainContent');
