@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.55.0';
-const PORTAL_BUILD    = 540;
-const PORTAL_BUILD_AT = '2026-06-12T19:55:56Z';
+const PORTAL_VERSION  = '3.56.1';
+const PORTAL_BUILD    = 542;
+const PORTAL_BUILD_AT = '2026-06-12T20:09:22Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -953,7 +953,10 @@ function _tblEngineEnsureStyles() {
   s.id = 'evg-tbl-engine';
   s.textContent = `
     /* ── EVG.table ── */
-    #mainContent .tbl-wrap { overflow:auto; ${rcap > 0 ? `max-height:${Math.round(46 + rcap * rowH)}px;` : ''} }
+    /* A capped scroll region (explicit row cap, else viewport-based) so the body
+       scrolls INSIDE the wrap — that's what makes the sticky header actually
+       stick. Without a cap the page scrolls and the header scrolls away. */
+    #mainContent .tbl-wrap { overflow:auto; max-height:${rcap > 0 ? Math.round(46 + rcap * rowH) + 'px' : 'calc(100vh - 140px)'}; }
     ${wpct < 100 ? `#mainContent .tbl-outer { max-width:${wpct}%; }` : ''}
     #mainContent .tbl-wrap::-webkit-scrollbar { height:${sb}px; width:${sb}px; }
     #mainContent .tbl-wrap::-webkit-scrollbar-track { background:#eef3f0; border-radius:8px; }
@@ -964,8 +967,10 @@ function _tblEngineEnsureStyles() {
       ${T.wrap ? 'white-space:normal; overflow-wrap:break-word; word-break:break-word;' : ''} vertical-align:top;
     }
     #mainContent .tbl-wrap table.evg-fixed { table-layout:fixed; }
-    /* Sticky header so it stays visible when the body scrolls (row cap) */
-    #mainContent .tbl-wrap table th { position:sticky; top:0; z-index:5; }
+    /* Sticky header — stays frozen at the top while the body scrolls. Needs an
+       opaque background on the TH itself (custom tables put the green on the
+       <tr>, which scrolls away under a sticky th), so default it to g9. */
+    #mainContent .tbl-wrap table th { position:sticky; top:0; z-index:5; background:var(--g9,#0d3320); }
     ${T.zebra ? '#mainContent .tbl-wrap table tbody tr:nth-child(even) td { background:rgba(26,96,56,.05); }' : ''}
     ${T.rowBorders ? '' : '#mainContent .tbl-wrap table td { border-bottom:none; }'}
     /* Per-table style overrides (set via the 🎨 Style button; beat the global
@@ -4477,6 +4482,32 @@ function _poRegRows() {
   rows.sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date));
   return rows;
 }
+// PO_Items carry the readable item text in "Material Description" (formatted
+// "PartNo | Description"); the "Part Details" column is just a CheckSum that
+// StockIN also stores. Map that CheckSum → Material Description so the part can
+// be shown readable wherever only the code is on hand (StockIN, GRN section).
+function _opMatMap() {
+  const IC = _opColMap(_openPOItems);
+  const m = {};
+  (_openPOItems || []).forEach(x => {
+    const key = _opNorm(_opGet(x, IC, ['Part Details', 'Part Description']));
+    if (!key || m[key]) return;
+    const md = _opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name', 'Material']);
+    if (md) m[key] = md;
+  });
+  return m;
+}
+// Split "PartNo | Description" → { partNo, partDesc, text }. `raw` may be the
+// readable Material Description already, or a CheckSum-part resolved via matMap.
+function _opPartReadable(raw, matMap) {
+  let s = String(raw == null ? '' : raw).trim();
+  const mapped = matMap && matMap[_opNorm(s)];
+  if (mapped) s = String(mapped).trim();
+  const pipe = s.indexOf('|');
+  const partNo = pipe >= 0 ? s.slice(0, pipe).trim() : '';
+  const partDesc = pipe >= 0 ? s.slice(pipe + 1).trim() : s;
+  return { partNo, partDesc, text: partNo ? partNo + ' · ' + partDesc : partDesc };
+}
 // PO detail — portal-native layout inspired by the PO format (summary, line
 // items, totals, terms, quote attachments). Quotes are referenced by the
 // PO_Actual UUID. No print/letterhead: AppSheet owns the printable PO.
@@ -4493,13 +4524,13 @@ window._poOpenDetail = function(poNo) {
 
   // Goods received (GRN) — every StockIN receipt booked against this PO, with
   // its GRN No (StockIN ColAA) and invoice number so the receipt is unambiguous.
-  const grnMap = _siGRNMapBuild();
+  const grnMap = _siGRNMapBuild(), matMap = _opMatMap();
   const grnRows = _openPOStock
     .filter(r => _opPO(_opGet(r, SC, ['PO No', 'PO No (Key)'])) === K)
     .map(r => {
       const g = c => _opGet(r, SC, c);
       return { grn: _siGRNResolve(r, SC, grnMap), date: _mdpFmtDate(g(['Received On (At)', 'Received On'])),
-        inv: g(['Invoice No / ST No', 'Invoice No']), part: g(['Part Details', 'Part Description']),
+        inv: g(['Invoice No / ST No', 'Invoice No']), part: _opPartReadable(g(['Part Details', 'Part Description']), matMap).text,
         qty: g(['GRN Qty', 'GRN Quantity', 'Received Qty']) };
     });
 
@@ -4516,7 +4547,9 @@ window._poOpenDetail = function(poNo) {
   const itemRows = items.map(x => {
     const g = c => _opGet(x, IC, c);
     const mr = g(['MR ID', 'MR No', 'MRS', 'MR']);
-    const desc = g(['Part Details', 'Description', 'Item Description', 'Part Description', 'Material', 'Particulars', 'Item']);
+    const partKey = g(['Part Details', 'Part Description']);   // CheckSum-based receipt-join key (matches StockIN)
+    const pr = _opPartReadable(g(['Material Description', 'Material Desc', 'Material Name', 'Material']) || g(['Description', 'Item Description', 'Particulars', 'Item']) || partKey);
+    const descHtml = (pr.partNo ? `<span style="font-family:monospace;font-size:.72rem;color:var(--g7)">${esc(pr.partNo)}</span> &middot; ` : '') + (esc(pr.partDesc) || '—');
     const hsn = g(['HSN Code', 'HSNCode', 'HSN']);
     const uom = g(['UOM', 'Unit', 'Units']);
     const qty = num(g(['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
@@ -4524,11 +4557,11 @@ window._poOpenDetail = function(poNo) {
     const taxp = g(['Tax (%)', 'Tax %', 'Tax Percentage', 'GST %', 'Tax Percent']);
     const taxa = num(g(['Tax. Amount', 'Tax Amount', 'Tax Amt', 'Total Tax']));
     const tot = num(g(['Total Amount', 'Amount', 'Line Total'])) || qty * rate;
-    const recv = siAgg[_opNorm(g(['CheckSum', 'Check Sum'])) + '||' + _opNorm(desc)] || 0;
+    const recv = siAgg[_opNorm(g(['CheckSum', 'Check Sum'])) + '||' + _opNorm(partKey)] || 0;
     const td = 'padding:5px 8px';
     return `<tr>
       <td style="${td};font-size:.72rem;white-space:nowrap">${esc(mr) || '—'}</td>
-      <td style="${td}">${esc(desc) || '—'}${recv ? `<span style="color:#b45309;font-size:.68rem"> &middot; recv ${recv}</span>` : ''}</td>
+      <td style="${td}">${descHtml}${recv ? `<span style="color:#b45309;font-size:.68rem"> &middot; recv ${recv}</span>` : ''}</td>
       <td style="${td}">${esc(hsn) || '—'}</td>
       <td style="${td}">${esc(uom) || '—'}</td>
       <td style="${td};text-align:right">${qty || '—'}</td>
@@ -4664,7 +4697,7 @@ function _siGRNResolve(r, SC, grnMap) {
 }
 function _siRegRows() {
   const SC = _opColMap(_openPOStock), HC = _opColMap(_openPOHeaders);
-  const grnMap = _siGRNMapBuild();
+  const grnMap = _siGRNMapBuild(), matMap = _opMatMap();
   const hdrByPO = {};
   _openPOHeaders.forEach(r => { const k = _opPO(_opGet(r, HC, ['PO No'])); if (k && !hdrByPO[k]) hdrByPO[k] = { vendor: _opGet(r, HC, ['Vendor Name']), site: _opGet(r, HC, ['Site Name']) }; });
   return _openPOStock.map((r, idx) => {
@@ -4676,10 +4709,18 @@ function _siRegRows() {
       vendor: _opGet(r, SC, ['Vendor Name']) || (hdrByPO[k] && hdrByPO[k].vendor) || '',
       site: _opGet(r, SC, ['Site Name']) || (hdrByPO[k] && hdrByPO[k].site) || '',
       inv: _opGet(r, SC, ['Invoice No / ST No', 'Invoice No']),
-      part: _opGet(r, SC, ['Part Details', 'Part Description']),
+      part: _opPartReadable(_opGet(r, SC, ['Part Details', 'Part Description']), matMap).text,
       grnQty: _opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']),
     };
   });
+}
+// Heuristic: does this raw cell value look like a date/timestamp? (gviz
+// "Date(…)", ISO, DD/MM/YYYY, a time, or a month name). Guards against
+// reformatting plain numbers (qty/amount) as dates.
+function _siLooksDate(v) {
+  v = String(v);
+  return /^Date\(\d/.test(v) || /\d{4}-\d{1,2}-\d{1,2}/.test(v) || /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(v)
+    || /\d{1,2}:\d{2}/.test(v) || /\d.*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(v);
 }
 window._siOpenDetail = function(idx) {
   const r = _openPOStock[+idx]; if (!r) return;
@@ -4688,13 +4729,42 @@ window._siOpenDetail = function(idx) {
   const grn = _siGRNResolve(r, SC);
   const k = _opPO(_opGet(r, SC, ['PO No', 'PO No (Key)']));
   const hdr = _openPOHeaders.find(h => _opPO(_opGet(h, HC, ['PO No'])) === k);
-  const top = [['GRN No', grn || 'Pending'], ['PO No', _opGet(r, SC, ['PO No', 'PO No (Key)'])], ['Received On', _mdpFmtDate(_opGet(r, SC, ['Received On (At)']))], ['SI ID', _opGet(r, SC, ['SI ID'])]];
+  // Invoice attachments are stored in Drive under the StockIN CheckSum reference.
+  const cs = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID']) || '').trim();
+  const top = [['GRN No', grn || 'Pending'], ['PO No', _opGet(r, SC, ['PO No', 'PO No (Key)'])], ['Received On', _mdpFmtDate(_opGet(r, SC, ['Received On (At)']))], ['Invoice No', _opGet(r, SC, ['Invoice No / ST No', 'Invoice No'])], ['SI ID', _opGet(r, SC, ['SI ID'])]];
   if (hdr) { top.push(['Vendor', _opGet(hdr, HC, ['Vendor Name'])]); top.push(['PO Status', _opGet(hdr, HC, ['PO Approval Status'])]); top.push(['Net Amount', _regINR(_opNum(_opGet(hdr, HC, ['Net Amount'])))]); }
-  const allRows = Object.keys(r).filter(kk => String(r[kk]).trim() !== '').map(kk => `<tr><td style="padding:4px 8px;font-weight:600;color:var(--txt2);white-space:nowrap;vertical-align:top">${esc(kk)}</td><td style="padding:4px 8px;word-break:break-word">${esc(String(r[kk]))}</td></tr>`).join('');
+  const directUrls = ['Invoice(Attachment)', 'Invoice (Attachment)', 'Invoice Attachment', 'Invoice Copy', 'Bill(Attachment)', 'Attachment']
+    .map(c => ({ url: _opGet(r, SC, [c]), label: 'Invoice / Attachment' })).filter(o => o.url);
+  const allRows = Object.keys(r).filter(kk => String(r[kk]).trim() !== '').map(kk => {
+    const raw = String(r[kk]);
+    // Unify timestamp/date columns to one display format (12Jun2026); leave
+    // non-date values untouched.
+    const disp = (_siLooksDate(raw) && _mdpDateVal(raw)) ? _mdpFmtDate(raw) : raw;
+    return `<tr><td style="padding:4px 8px;font-weight:600;color:var(--txt2);white-space:nowrap;vertical-align:top">${esc(kk)}</td><td style="padding:4px 8px;word-break:break-word">${esc(disp)}</td></tr>`;
+  }).join('');
   const body = _regKV(top)
-    + `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">All StockIN Fields</h4>`
+    + `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">&#129534; Invoice Attachments</h4>`
+    + `<div id="siAttBox"><div style="color:var(--txt3);font-size:.78rem;padding:.5rem">&#9203; Loading invoice attachments&hellip;</div></div>`
+    + `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.6rem 0 .5rem">All StockIN Fields</h4>`
     + `<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px"><table style="width:100%;border-collapse:collapse;font-size:.75rem"><tbody>${allRows}</tbody></table></div>`;
   _regOpenModal('StockIN · ' + (esc(grn) || esc(_opGet(r, SC, ['SI ID'])) || 'Receipt'), body);
+  _siLoadAttachments(cs, directUrls);
+};
+// Invoice attachments for a StockIN receipt — referenced by CheckSum (Drive
+// search), plus any direct URL columns on the row. Mirrors _poLoadAttachments.
+window._siLoadAttachments = async function(checksum, directUrls) {
+  const box = document.getElementById('siAttBox'); if (!box) return;
+  const esc = _mdpEsc;
+  const cards = [];
+  (directUrls || []).forEach(o => cards.push(_regAttCard(o.url, o.label, 'StockIN sheet')));
+  let files = [];
+  if (checksum) { try { const resp = await _accPostAwait({ action: 'listPRAttachments', link: checksum, orderNo: checksum }); if (resp && resp.success !== false) files = resp.files || []; } catch (e) {} }
+  if (!document.getElementById('siAttBox')) return;            // modal closed / switched
+  files.forEach(f => cards.push(_regAttCard(f.url, f.name, f.matchedOn || 'Drive', f.mimeType, f.size)));
+  if (!cards.length) { box.innerHTML = `<div style="color:var(--txt3);font-size:.78rem;padding:.5rem">No invoice attachments found. <span style="font-size:.7rem">(searched Drive by CheckSum ${esc(checksum || '—')})</span></div>`; return; }
+  const firstUrl = (directUrls && directUrls[0] && directUrls[0].url) || (files[0] && files[0].url) || '';
+  const pv = _regDrivePreview(firstUrl);
+  box.innerHTML = cards.join('') + (pv ? `<iframe src="${esc(pv)}" style="width:100%;height:520px;border:1px solid var(--border);border-radius:9px;margin-top:.6rem;background:#fff"></iframe>` : '');
 };
 
 function renderMDCommand() {
