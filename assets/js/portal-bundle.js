@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.46.0';
-const PORTAL_BUILD    = 524;
-const PORTAL_BUILD_AT = '2026-06-12T13:48:55Z';
+const PORTAL_VERSION  = '3.47.0';
+const PORTAL_BUILD    = 525;
+const PORTAL_BUILD_AT = '2026-06-12T14:33:40Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2028,11 +2028,11 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','md-payments','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','md-command','md-payments','ledgers','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
   hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
-  accounts:  new Set(['dashboard','my-profile','accounts','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  accounts:  new Set(['dashboard','my-profile','accounts','ledgers','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   employee:  new Set(['dashboard','my-profile','my-documents','accounts','policies','rewards','apps','wall','planning-overview','execution','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   dept_head: null,   // built dynamically from DEPT_HEAD_ROUTES below
   vendor:    new Set(['my-portal','my-orders','my-invoices','my-documents']),
@@ -2465,6 +2465,7 @@ function renderPage(page) {
     'dashboard':      renderDashboard,
     'md-command':     renderMDCommand,
     'md-payments':    renderMDPayments,
+    'ledgers':        renderLedgers,
     'onboarding':     renderOnboardingPortal,
     'recruitment':    renderRecruitmentModule,
     'hr-dashboard':   renderHRDashboard,
@@ -3925,6 +3926,62 @@ function _mdpLedgerHtml() {
     <span style="font-size:.72rem;color:var(--txt3)">${tx.length} transactions</span>
   </div>`;
   return selector + head + partyLedgerRender(tx, { onRowClick: '_accOpenPRDetail' });
+}
+
+// ── Dedicated Ledgers page (route 'ledgers') ─────────────────────────────
+// Standalone party-statement view for Employee / Vendor / Sub Contractor,
+// reusing the Party Ledger building blocks (_mdpLoad, _plParties,
+// partyLedgerRender). Independent selection state from the MD dashboard.
+const LEDGER_TYPES = ['Employee', 'Vendor', 'Sub Contractor'];
+let _ledType = 'Vendor', _ledParty = '';
+function renderLedgers() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-row">
+        <div><h1>&#128210; Ledgers</h1><p>Party statements &middot; running balance &middot; Billed / Paid / Outstanding</p></div>
+        <button class="btn btn-secondary btn-sm" onclick="_ledReload(this)">&#8635; Refresh</button>
+      </div>
+    </div>
+    <div id="ledger-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading payment data&hellip;</div></div>`;
+  _mdpLoad().then(() => _ledRenderBody()).catch(() => {
+    const b = document.getElementById('ledger-body');
+    if (b) b.innerHTML = '<div class="card card-pad" style="text-align:center;color:var(--danger);padding:2.5rem">&#9888; Could not load the PaymentRequest data.</div>';
+  });
+}
+window._ledReload = function(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  _mdpLoad(true).then(() => _ledRenderBody()).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } });
+};
+window._ledSetType  = function(t) { _ledType = t; _ledParty = ''; _ledRenderBody(); };
+window._ledSetParty = function(v) { _ledParty = v; _ledRenderBody(); };
+function _ledRenderBody() {
+  const c = document.getElementById('ledger-body'); if (!c) return;
+  const esc = _mdpEsc;
+  const typeBtns = LEDGER_TYPES.map(t =>
+    `<button onclick="_ledSetType('${t}')" class="btn btn-sm ${t === _ledType ? 'btn-primary' : 'btn-secondary'}">${esc(t)}</button>`).join('');
+  const parties = _plParties(_ledType);
+  const partyOpts = `<option value="">Select ${esc(_ledType)}&hellip;</option>` +
+    parties.map(p => `<option value="${esc(p.key)}"${p.key === _ledParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` &middot; A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
+  const selector = `
+    <div class="card card-pad" style="margin-bottom:1rem">
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.7rem">${typeBtns}</div>
+      <div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
+        <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
+          <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">${esc(_ledType.toUpperCase())}</label>
+          <select id="led-party" onchange="_ledSetParty(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${partyOpts}</select>
+        </div>
+        <div style="font-size:.72rem;color:var(--txt3)">${parties.length} ${esc(_ledType.toLowerCase())}(s)</div>
+      </div>
+    </div>`;
+  if (!_ledParty) { c.innerHTML = selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a ${esc(_ledType.toLowerCase())} to view their ledger.</div>`; return; }
+  const parts = _ledParty.split('|'); const type = parts[0], name = parts[1], acc = parts[2];
+  const tx = (_mdpRows || []).filter(r => _plPartyKey(r) === _ledParty);
+  const head = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem">
+    <div><div style="font-weight:700;font-size:1rem">${esc(name)}</div><div style="font-size:.74rem;color:var(--txt3)">${esc(type)}${acc ? ` &middot; A/C ${esc(acc)}` : ''}</div></div>
+    <span style="font-size:.72rem;color:var(--txt3)">${tx.length} transactions</span>
+  </div>`;
+  c.innerHTML = selector + head + partyLedgerRender(tx, { onRowClick: '_accOpenPRDetail' });
 }
 
 function renderMDCommand() {
@@ -8570,6 +8627,7 @@ const MODULE_REGISTRY = [
 
   // ── Accounts ──────────────────────────────────────────────────
   { route:'md-payments',       label:'Payments & Approvals',   section:'Accounts',         defStatus:'live', defRoles:['md'] },
+  { route:'ledgers',           label:'Ledgers',                section:'Accounts',         defStatus:'live', defRoles:['md','accounts'] },
   { route:'accounts',          label:'Accounts & Payments',    section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-dashboard',label:'Accounts Dashboard',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-worklist', label:'Accounts Worklist',      section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
@@ -9532,6 +9590,7 @@ const MODULE_ACTIONS = {
   'accounts-worklist':  ['view','advance','update','export'],
   'accounts-dashboard': ['view','export'],
   'md-payments':        ['view','approve','reject'],
+  'ledgers':            ['view','export'],
   'safety':             ['view','create','close'],
   'reports':            ['view','export','schedule'],
   'mrs':                ['view','create','edit'],

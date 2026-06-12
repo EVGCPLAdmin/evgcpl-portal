@@ -213,6 +213,7 @@
 
     // Accounts
     'accounts':          'accounts.html',
+    'ledgers':           'accounts.html',
 
     // Reports
     'reports':           'reports.html',
