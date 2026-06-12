@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.41.0';
-const PORTAL_BUILD    = 509;
-const PORTAL_BUILD_AT = '2026-06-12T07:10:19Z';
+const PORTAL_VERSION  = '3.42.0';
+const PORTAL_BUILD    = 510;
+const PORTAL_BUILD_AT = '2026-06-12T07:17:55Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -13919,8 +13919,8 @@ function renderProcurementStores() {
   el.innerHTML = `
   <div class="page-header">
     <div>
-      <div class="page-title">🏪 Stores</div>
-      <div class="page-sub">Stock IN · GRN Register · Site Stock Levels</div>
+      <div class="page-title" id="pst-page-title">🏪 Stores</div>
+      <div class="page-sub" id="pst-page-sub">Stock IN · GRN Register · Site Stock Levels</div>
     </div>
     <button class="btn btn-primary btn-sm" onclick="pstRefresh()" id="pst-refresh-btn" style="height:36px">🔄 Refresh</button>
   </div>
@@ -14089,6 +14089,10 @@ window.pstDownloadCSV = function(tab) {
       'Pending Amount': l.pendingQty > 0 && l.rate ? Math.round(l.pendingAmt) : '',
       'Pending %': l.pendingQty > 0 ? Math.round(l.pendingPct) : '',
       'Line Status': l.status,
+      'Amount Paid': l.paidTotal ? Math.round(l.paidTotal) : '',
+      'Unpaid (PO-Paid)': l.unpaidAmt ? Math.round(l.unpaidAmt) : '',
+      'Payment Requests': l.payCount || '',
+      'UTR Details': l.utrList || '', 'Request IDs': l.reqIdList || '',
     }; rawSel.forEach(f => { o[f.label] = l[f.key] != null ? l[f.key] : ''; }); return o; });
     downloadCSV(flat, `OpenPO_${new Date().toISOString().slice(0,10)}.csv`);
   } else if (tab === 'levels') {
@@ -14118,6 +14122,15 @@ function pstSwitchTab(t) {
   _pstActiveTab = t;
   ['stockin','siraw','grn','openpo','levels'].forEach(x =>
     document.getElementById('pst-tab-' + x)?.classList.toggle('active', x === t));
+  // Align the page header with the active sub-page (Open PO is reached as its own
+  // route 'stores-openpo', so the heading must not keep saying "Stores").
+  const titleEl = document.getElementById('pst-page-title');
+  const subEl   = document.getElementById('pst-page-sub');
+  if (titleEl && subEl) {
+    if (t === 'openpo') { titleEl.textContent = '🔓 Open PO Report';
+      subEl.textContent = 'Approved POs with pending quantity · GRN & payments reconciled'; }
+    else { titleEl.textContent = '🏪 Stores'; subEl.textContent = 'Stock IN · GRN Register · Site Stock Levels'; }
+  }
   const si = document.getElementById('pst-search');
   if (si) si.value = '';
   pstRenderTab();
@@ -14341,10 +14354,11 @@ function pstRenderStockINRaw(c) {
 
    Both source files (v2_Purchase: PO_Actual + PO_Items_Actual, and v2_Stores:
    StockIN) are fetched fresh by _openPOEnsure; the tab's Reload button forces it. */
-let _openPOLoaded  = false;
-let _openPOHeaders = [];
-let _openPOItems   = [];
-let _openPOStock   = [];
+let _openPOLoaded   = false;
+let _openPOHeaders  = [];
+let _openPOItems    = [];
+let _openPOStock    = [];
+let _openPOPayments = [];   // raw PaymentRequest rows, joined to POs by Order No
 
 const _opNorm = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const _opPO   = s => String(s == null ? '' : s).trim().toUpperCase();
@@ -14384,6 +14398,17 @@ async function _openPOEnsure(force) {
   _openPOHeaders = hdr   || [];
   _openPOItems   = items || [];
   _openPOStock   = stock || [];
+  // PaymentRequest tab (separate Accounts sheet) — joined to POs by Order No so
+  // the report can show total amount paid + UTR / Request IDs against each PO.
+  let pay = [];
+  try {
+    const lk = (typeof getLink === 'function') ? getLink('PAYMENT') : null;
+    const payTab = (lk && lk.tab) || 'PaymentRequest';
+    const paySid = (lk && lk.id)  || PAYMENT_SHEET_ID;
+    pay = await fetchSheet(payTab, null, paySid);
+    if (!pay || !pay.length) { await new Promise(z => setTimeout(z, 600)); pay = await fetchSheet(payTab, null, paySid); }
+  } catch (e) { pay = []; }
+  _openPOPayments = pay || [];
   _openPOLoaded  = true;
 }
 
@@ -14410,6 +14435,22 @@ function _openPOCompute(q) {
   // Resolve columns once per dataset via normalised header maps.
   const SC = _opColMap(_openPOStock);   // StockIN columns
   const IC = _opColMap(_openPOItems);   // PO_Items_Actual columns
+
+  // PaymentRequest aggregation, keyed by PO No (Order No on the payment row).
+  // Sums the amount paid against each PO and collects UTR / Request IDs.
+  const PC = _opColMap(_openPOPayments);
+  const payByPO = {};
+  _openPOPayments.forEach(r => {
+    const k = _opPO(_opGet(r, PC, ['PO No (Key)', 'Order No', 'PO No', 'PO Number', 'WO / PO No']));
+    if (!k) return;
+    const e = payByPO[k] = payByPO[k] || { paid: 0, req: 0, utrs: [], reqIds: [], n: 0 };
+    const paid = _opNum(_opGet(r, PC, ['Paid Value', 'Paid Amount', 'Amount Paid']));
+    e.paid += paid;
+    e.req  += _opNum(_opGet(r, PC, ['Amount']));
+    e.n++;
+    const utr = _opGet(r, PC, ['UTR Details', 'UTR']);            if (utr && e.utrs.indexOf(utr)   < 0) e.utrs.push(utr);
+    const rid = _opGet(r, PC, ['Request ID', 'PR No', 'PR ID']);  if (rid && e.reqIds.indexOf(rid) < 0) e.reqIds.push(rid);
+  });
 
   // StockIN aggregation, keyed by (PO No (Key) + Part Details) — the join target.
   // Sums GRN Qty (received) and Invoice Qty against each PO item line.
@@ -14504,13 +14545,17 @@ function _openPOCompute(q) {
     const venName = e.vendorDetails || hdr.vendor || '';
     const venId   = e.vendorId || '';
     const ven = _openPOVendorById(venId) || _openPOVendor(venName);
+    const pm = payByPO[k] || { paid: 0, req: 0, utrs: [], reqIds: [], n: 0 };
     out.push({ po: k, poNo: hdr.poNo, vendor: venName, site: hdr.site || e.site, date: hdr.date || e.poDate,
       status: hdr.status, amount: hdr.amount,
       vendorId: venId || ven.id || '', vendorType: ven.type || '', vendorCity: ven.city || '', vendorState: ven.state || '',
-      lines, totOrd, totInv, totRecv, totPendQty, totPendAmt, openLines, age, pctRecv, pendPctPO });
+      lines, totOrd, totInv, totRecv, totPendQty, totPendAmt, openLines, age, pctRecv, pendPctPO,
+      paidTotal: pm.paid, payReqAmt: pm.req, payCount: pm.n,
+      unpaidAmt: Math.max(0, (hdr.amount || 0) - pm.paid),
+      utrList: pm.utrs.join(', '), reqIdList: pm.reqIds.join(', ') });
   });
 
-  _openPODiag = { poHeaders: _openPOHeaders.length, stockRows: _openPOStock.length, stockWithKey, itemRows: _openPOItems.length, matchedLines };
+  _openPODiag = { poHeaders: _openPOHeaders.length, stockRows: _openPOStock.length, stockWithKey, itemRows: _openPOItems.length, matchedLines, payRows: _openPOPayments.length, payMatched: Object.keys(payByPO).length };
   out.sort((a, b) => (b.totPendAmt || 0) - (a.totPendAmt || 0));
   return out;
 }
@@ -14569,6 +14614,13 @@ const OPENPO_FIELDS = [
   { key:'pendingAmt',  label:'Pending Amount',   align:'right', def:true,  fmt:l=>l.pendingAmt?`<span style="color:#c62828;font-weight:700">${_opFmtV(l.pendingAmt)}</span>`:'—' },
   { key:'pendingPct',  label:'Pending %',        align:'right', def:true,  fmt:l=>Math.round(l.pendingPct)+'%' },
   { key:'status',      label:'Status',           align:'left',  def:false, fmt:l=>l.status },
+  // Payment Requests joined by PO (Order No) → amount paid + UTR / Request IDs.
+  { key:'paidTotal',   label:'Amount Paid',      align:'right', def:false, fmt:l=>l.paidTotal?`<span style="color:#2e7d32;font-weight:700">${_opFmtV(l.paidTotal)}</span>`:'—' },
+  { key:'unpaidAmt',   label:'Unpaid (PO−Paid)', align:'right', def:false, fmt:l=>l.unpaidAmt?`<span style="color:#c62828;font-weight:600">${_opFmtV(l.unpaidAmt)}</span>`:'—' },
+  { key:'payReqAmt',   label:'Payment Req Amt',  align:'right', def:false, fmt:l=>l.payReqAmt?_opFmtV(l.payReqAmt):'—' },
+  { key:'payCount',    label:'Payment Requests', align:'right', def:false, fmt:l=>l.payCount||'—' },
+  { key:'utrList',     label:'UTR Details',      align:'left',  def:false, fmt:l=>_opEsc(l.utrList)||'—' },
+  { key:'reqIdList',   label:'Request IDs',      align:'left',  def:false, fmt:l=>_opEsc(l.reqIdList)||'—' },
 ];
 // ── Dynamic raw-column engine ──────────────────────────────────────
 // Beyond the curated fields above, EVERY raw header in PO_Items_Actual
@@ -14620,6 +14672,8 @@ function _openPOFlatRow(p, l) {
     mrNo: l.mrNo, hsn: l.hsn, lineAmt: l.lineAmt, partNo: l.partNo, partDesc: l.partDesc,
     unit: l.unit, rate: l.rate, qty: l.qty, invoiced: l.invoiced, received: l.received,
     pendingQty: l.pendingQty, pendingAmt: l.pendingAmt, pendingPct: l.pendingPct, status: l.status,
+    paidTotal: p.paidTotal, payReqAmt: p.payReqAmt, payCount: p.payCount,
+    unpaidAmt: p.unpaidAmt, utrList: p.utrList, reqIdList: p.reqIdList,
   };
   const rf = _openPORawFields();
   for (let i = 0; i < rf.length; i++) { const f = rf[i];
@@ -14679,8 +14733,8 @@ window.openPOColSetDefault = async function(btn) {
 };
 
 // Per-column default widths (px) and which columns wrap their text.
-const _OPENPO_W = { poNo:130, vendor:180, vendorId:90, vendorType:120, vendorCity:110, vendorState:110, site:130, poDate:100, age:75, ageBucket:115, poStatus:120, mrNo:110, partNo:130, partDesc:340, hsn:95, unit:70, rate:95, lineAmt:110, qty:90, invoiced:100, received:95, pendingQty:105, pendingAmt:120, pendingPct:90, status:95 };
-const _OPENPO_WRAP = new Set(['partDesc', 'vendor', 'vendorType']);
+const _OPENPO_W = { poNo:130, vendor:180, vendorId:90, vendorType:120, vendorCity:110, vendorState:110, site:130, poDate:100, age:75, ageBucket:115, poStatus:120, mrNo:110, partNo:130, partDesc:340, hsn:95, unit:70, rate:95, lineAmt:110, qty:90, invoiced:100, received:95, pendingQty:105, pendingAmt:120, pendingPct:90, status:95, paidTotal:120, unpaidAmt:130, payReqAmt:130, payCount:120, utrList:210, reqIdList:170 };
+const _OPENPO_WRAP = new Set(['partDesc', 'vendor', 'vendorType', 'utrList', 'reqIdList']);
 function _openPOColWGet() { try { const w = JSON.parse(localStorage.getItem('openpo_colw') || '{}'); return (w && typeof w === 'object') ? w : {}; } catch (e) { return {}; } }
 function _openPOColWSet(w) { try { localStorage.setItem('openpo_colw', JSON.stringify(w)); } catch (e) {} }
 
@@ -14772,6 +14826,8 @@ const OPENPO_FILTERS = [
   { key:'minQty',     label:'Pending Qty ≥',  type:'min',    cmp:'pendingQty',  def:false },
   { key:'minAmt',     label:'Pending Amt ≥',  type:'min',    cmp:'pendingAmt',  def:true },
   { key:'minRate',    label:'Rate ≥',         type:'min',    cmp:'rate',        def:false },
+  { key:'minPaid',    label:'Amount Paid ≥',  type:'min',    cmp:'paidTotal',   def:false },
+  { key:'minUnpaid',  label:'Unpaid ≥',       type:'min',    cmp:'unpaidAmt',   def:false },
   { key:'dateRange',  label:'PO Date',        type:'daterange',                 def:false },
 ];
 // Resolve a filter key → its definition; raw sheet columns become 'select'
@@ -14833,7 +14889,7 @@ function _openPOApplyFilters(flat) {
       const def = _openPOFilterDef(key); if (!def) continue;
       if (def.type === 'text') {
         const q = (f[key] || '').toLowerCase().trim();
-        if (q && !(`${l.poNo} ${l.vendor} ${l.vendorId} ${l.partNo} ${l.partDesc} ${l.mrNo} ${l.hsn} ${l.site}`.toLowerCase().includes(q))) return false;
+        if (q && !(`${l.poNo} ${l.vendor} ${l.vendorId} ${l.partNo} ${l.partDesc} ${l.mrNo} ${l.hsn} ${l.site} ${l.utrList} ${l.reqIdList}`.toLowerCase().includes(q))) return false;
       } else if (def.type === 'select') {
         const v = f[key]; if (v && String(l[def.src] ?? '') !== String(v)) return false;
       } else if (def.type === 'min') {
@@ -14985,7 +15041,7 @@ function pstRenderOpenPO(c, q) {
     : d.matchedLines === 0 ? ';background:#fff3e0;color:#e65100' : '';
   const diag = `<div style="font-size:.72rem;color:var(--txt3);padding:.3rem .5rem;border-radius:6px${stockWarn}">
     PO headers: <b>${d.poHeaders}</b> · PO items: <b>${d.itemRows}</b> ·
-    StockIN: <b>${d.stockRows}</b> rows (<b>${d.stockWithKey}</b> with PO-Key) · matched lines: <b>${d.matchedLines}</b>${
+    StockIN: <b>${d.stockRows}</b> rows (<b>${d.stockWithKey}</b> with PO-Key) · matched lines: <b>${d.matchedLines}</b> · Payments: <b>${d.payRows || 0}</b> rows (<b>${d.payMatched || 0}</b> POs)${
       d.stockRows === 0 ? ' — StockIN returned no rows (sheet access?)' :
       d.itemRows < 5 ? ' — PO_Items_Actual returned almost no rows (stale PO sheet-link override?)' :
       d.stockWithKey === 0 ? ' — no "PO No (Key)" column matched in StockIN' :
