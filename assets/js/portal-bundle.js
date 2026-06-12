@@ -1,3 +1,15 @@
+// ── Theme bootstrap — MUST stay at the very top of the bundle ──────
+// Re-applies the saved color theme before anything renders so there is
+// no flash of the default theme. Theme CSS lives in assets/css/portal.css
+// (html[data-theme="…"] blocks); picker/apply logic is _themeOpenPicker /
+// _themeApply near the user-menu code below.
+(function () {
+  try {
+    var t = localStorage.getItem('evg_theme');
+    if (t && t !== 'evergreen') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) { /* localStorage unavailable — keep default theme */ }
+})();
+
 // ══════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════
@@ -8,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.58.0';
-const PORTAL_BUILD    = 544;
-const PORTAL_BUILD_AT = '2026-06-12T20:25:57Z';
+const PORTAL_VERSION  = '3.59.0';
+const PORTAL_BUILD    = 545;
+const PORTAL_BUILD_AT = '2026-06-12T20:35:56Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -959,10 +971,10 @@ function _tblEngineEnsureStyles() {
     #mainContent .tbl-wrap { overflow:auto; max-height:${rcap > 0 ? Math.round(46 + rcap * rowH) + 'px' : 'calc(100vh - 140px)'}; }
     ${wpct < 100 ? `#mainContent .tbl-outer { max-width:${wpct}%; }` : ''}
     #mainContent .tbl-wrap::-webkit-scrollbar { height:${sb}px; width:${sb}px; }
-    #mainContent .tbl-wrap::-webkit-scrollbar-track { background:#eef3f0; border-radius:8px; }
-    #mainContent .tbl-wrap::-webkit-scrollbar-thumb { background:#1a6038; border-radius:8px; border:3px solid #eef3f0; }
-    #mainContent .tbl-wrap::-webkit-scrollbar-thumb:hover { background:#14502f; }
-    #mainContent .tbl-wrap { scrollbar-width:auto; scrollbar-color:#1a6038 #eef3f0; }
+    #mainContent .tbl-wrap::-webkit-scrollbar-track { background:var(--surface3,#eef3f0); border-radius:8px; }
+    #mainContent .tbl-wrap::-webkit-scrollbar-thumb { background:var(--g7,#1a6038); border-radius:8px; border:3px solid var(--surface3,#eef3f0); }
+    #mainContent .tbl-wrap::-webkit-scrollbar-thumb:hover { background:var(--g8,#14502f); }
+    #mainContent .tbl-wrap { scrollbar-width:auto; scrollbar-color:var(--g7,#1a6038) var(--surface3,#eef3f0); }
     #mainContent .tbl-wrap table th, #mainContent .tbl-wrap table td {
       ${T.wrap ? 'white-space:normal; overflow-wrap:break-word; word-break:break-word;' : ''} vertical-align:top;
     }
@@ -18386,6 +18398,81 @@ function _evgToast(msg, ms) {
   setTimeout(() => t.remove(), ms || 2200);
 }
 
+// ── Color Theme switcher ──────────────────────────────────────────
+// Themes are CSS-variable override blocks in assets/css/portal.css
+// (html[data-theme="<id>"]). 'evergreen' is the default :root palette.
+// The saved choice ('evg_theme' in localStorage) is re-applied before
+// paint by the bootstrap IIFE at the very top of this bundle.
+// sw = [background, accent, text] swatch colors for the picker preview.
+const THEMES = [
+  { id: 'evergreen', label: 'Evergreen (default)',  sw: ['#f0f4f1', '#1a6038', '#0f2318'] },
+  { id: 'contrast',  label: 'High-Contrast Light',  sw: ['#ffffff', '#0a5226', '#000000'] },
+  { id: 'dark',      label: 'Dark Green',           sw: ['#0d1411', '#2c9a5d', '#f1f8f3'] },
+  { id: 'midnight',  label: 'Midnight Blue',        sw: ['#0b1220', '#2563eb', '#eef4ff'] },
+  { id: 'ocean',     label: 'Ocean Teal',           sw: ['#edf5f7', '#0e7490', '#0a2630'] },
+  { id: 'amber',     label: 'Warm Amber',           sw: ['#faf5ec', '#b45309', '#291c0c'] }
+];
+
+window._themeCurrent = function () {
+  try { return localStorage.getItem('evg_theme') || 'evergreen'; } catch (e) { return 'evergreen'; }
+};
+
+window._themeApply = function (id) {
+  if (!THEMES.some(t => t.id === id)) id = 'evergreen';
+  if (id === 'evergreen') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', id);
+  try { localStorage.setItem('evg_theme', id); } catch (e) { /* tolerate */ }
+};
+
+window._themeOpenPicker = function () {
+  document.getElementById('themePickerOverlay')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'themePickerOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,.45);' +
+    'display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+  _themeRenderPicker(ov);
+};
+
+function _themeRenderPicker(ov) {
+  const cur = window._themeCurrent();
+  const rows = THEMES.map(t => {
+    const active = t.id === cur;
+    const sw = t.sw.map(c =>
+      `<span style="width:18px;height:18px;border-radius:50%;border:1px solid rgba(128,128,128,.55);background:${c};display:inline-block;"></span>`
+    ).join('');
+    return `
+      <button type="button" data-theme-id="${t.id}"
+        style="display:flex;align-items:center;gap:12px;width:100%;padding:10px 14px;border-radius:9px;
+               border:1.5px solid ${active ? 'var(--g7)' : 'var(--border)'};
+               background:${active ? 'var(--surface3)' : 'var(--surface)'};
+               color:var(--txt);font-size:.88rem;font-weight:600;text-align:left;cursor:pointer;">
+        <span style="display:inline-flex;gap:4px;flex-shrink:0;">${sw}</span>
+        <span style="flex:1;">${t.label}</span>
+        ${active ? '<span style="color:var(--g7);font-weight:800;" aria-hidden="true">✓</span>' : ''}
+      </button>`;
+  }).join('');
+  ov.innerHTML = `
+    <div style="background:var(--surface);color:var(--txt);border:1px solid var(--border);border-radius:14px;
+                box-shadow:var(--shadow-lg);width:380px;max-width:100%;max-height:85vh;overflow:auto;
+                padding:18px 18px 16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <h3 style="font-size:1rem;font-weight:700;color:var(--g9);margin:0;">🎨 Color Theme</h3>
+        <button type="button" id="themePickerClose" aria-label="Close"
+          style="background:none;border:none;font-size:1.05rem;color:var(--txt3);cursor:pointer;line-height:1;padding:4px;">✕</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">${rows}</div>
+    </div>`;
+  ov.querySelector('#themePickerClose').addEventListener('click', () => ov.remove());
+  ov.querySelectorAll('[data-theme-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      window._themeApply(btn.getAttribute('data-theme-id'));
+      _themeRenderPicker(ov); // re-render so the ✓ moves
+    });
+  });
+}
+
 function _ensureUserMenuPanel() {
   let panel = document.getElementById('userMenuPanel');
   if (!panel) {
@@ -18432,6 +18519,7 @@ function _renderUserMenuContent(panel) {
     ${isStaff ? `<button class="ump-row" onclick="navigate('my-documents');closeUserMenu()">📂 My Documents</button>` : ''}
     ${isStaff ? `<button class="ump-row" onclick="_mpJumpTab('timeoff');navigate('my-profile');closeUserMenu()">🌴 Time Off</button>` : ''}
     ${isStaff ? `<button class="ump-row" onclick="_mpJumpTab('team');navigate('my-profile');closeUserMenu()">👥 My Team</button>` : ''}
+    <button class="ump-row" onclick="_themeOpenPicker();closeUserMenu()">🎨 Color Theme</button>
     <button class="ump-row" onclick="_evgToast('Preferences coming soon');closeUserMenu()">⚙️ Preferences</button>
     <div class="ump-divider"></div>
     <button class="ump-row ump-row-danger" onclick="signOut()">🚪 Sign Out</button>
