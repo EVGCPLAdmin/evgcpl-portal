@@ -84,6 +84,20 @@ step 4 overwrites them all consistently.
 - End commit messages / PR bodies with the session URL footer.
 
 ## Architecture gotchas
+- **EVG design system (style+behavior layer).** `window.EVG` holds one base
+  definition per component type — `EVG.table` (wrap, resize, columnManager,
+  gutter, scrollbar), `EVG.card` (KPI), `EVG.form`, `EVG.dashboard`. Change a
+  default there → every instance updates. `applyTableFeatures()` stamps
+  `EVG.table` onto every rendered table; `evgKpiCard(def)` renders a standard
+  KPI card; `.evg-kpi`/`.evg-kpi-grid`/`.evg-dash-grid`/`.evg-form` are the
+  component classes (CSS generated from EVG values in `_tblEngineEnsureStyles`).
+  Per-instance override via the helper's overrides arg; **opt a single instance
+  out entirely with `data-evg-defaults="off"`** on the element/ancestor. New
+  render sites should consume these rather than re-style from scratch.
+  - Universal table column manager: ⚙ Columns button → drag-reorder + show/hide
+    + ★ Set-as-default (personal localStorage `evg_tbl_cols`; admin org-wide via
+    PortalConfig `tbl_cols`). Widths persist in `evg_tbl_widths`. Only simple
+    1:1 list tables are eligible; Open PO has its own chooser and is skipped.
 - **⚠️ EVERY new page/route MUST be registered in `MODULE_REGISTRY`.**
   `applyPortalConfig()` rebuilds `ROLE_ROUTES` *entirely* from `MODULE_REGISTRY`
   on every load, so any navigable route that is **not** in the registry is
