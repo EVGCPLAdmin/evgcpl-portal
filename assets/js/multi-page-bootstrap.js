@@ -204,6 +204,8 @@
     'stores-levels':     'scm.html',
     'vendor':            'scm.html',
     'subcontractor':     'scm.html',
+    'po-register':       'scm.html',
+    'stockin-register':  'scm.html',
 
     // Site Ops
     'site-manager':      'site-ops.html',

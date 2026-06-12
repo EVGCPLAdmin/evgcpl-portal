@@ -2029,11 +2029,11 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','md-payments','ledgers','vendor-ledger-po','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','subcontractor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','md-command','md-payments','ledgers','vendor-ledger-po','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','subcontractor','po-register','stockin-register','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
   hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
-  purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','subcontractor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
-  accounts:  new Set(['dashboard','my-profile','accounts','ledgers','vendor-ledger-po','subcontractor','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','subcontractor','po-register','stockin-register','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  accounts:  new Set(['dashboard','my-profile','accounts','ledgers','vendor-ledger-po','subcontractor','po-register','stockin-register','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   employee:  new Set(['dashboard','my-profile','my-documents','accounts','policies','rewards','apps','wall','planning-overview','execution','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   dept_head: null,   // built dynamically from DEPT_HEAD_ROUTES below
   vendor:    new Set(['my-portal','my-orders','my-invoices','my-documents']),
@@ -2496,6 +2496,8 @@ function renderPage(page) {
     'purchase':       renderPurchaseDashboard,
     'vendor':         renderVendorPortalInternal,
     'subcontractor':  renderSubcontractorPortal,
+    'po-register':    renderPORegister,
+    'stockin-register': renderStockINRegister,
     'tendering':      () => renderPlaceholder('📜','Tendering','Client bid management, BOQ uploads & tender register','Coming in Phase 4'),
     'accounts':       renderAccountsModule,
     'accounts-v2':        () => renderAccountsWorkspace(),
@@ -4269,6 +4271,231 @@ function _vplpLedger(v) {
         <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">UTR</th>
       </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PO & STOCKIN REGISTERS — consolidated data UIs with click-to-detail modals
+//  (mirrors the Accounts voucher pattern). Reuse the Open PO caches
+//  (_openPOHeaders / _openPOItems / _openPOStock / _openPOPayments) + GRN_No.
+// ═══════════════════════════════════════════════════════════════════════
+let _regGRNRows = null;
+async function _regEnsure(force) {
+  await _openPOEnsure(force);
+  if (force || !_regGRNRows) {
+    try { _regGRNRows = await fetchSheet('GRN_No', null, STORES_SHEET_ID, { rawId: true }) || []; }
+    catch (e) { _regGRNRows = []; }
+  }
+}
+// Shared detail-modal overlay (escape / click-out to close).
+function _regCloseModal() { const o = document.getElementById('regModalOverlay'); if (o) o.remove(); document.removeEventListener('keydown', _regEsc); }
+function _regEsc(e) { if (e.key === 'Escape') _regCloseModal(); }
+window._regCloseModal = _regCloseModal;
+function _regOpenModal(title, bodyHtml) {
+  _regCloseModal();
+  const ov = document.createElement('div');
+  ov.id = 'regModalOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
+  ov.addEventListener('click', e => { if (e.target === ov) _regCloseModal(); });
+  ov.innerHTML = `<div style="background:var(--surface);border-radius:14px;max-width:900px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.4)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.2rem;border-bottom:1px solid var(--border);flex-shrink:0">
+      <h3 style="font-size:.95rem;font-weight:700;color:var(--g9);margin:0">${title}</h3>
+      <button onclick="_regCloseModal()" style="border:none;background:none;font-size:1.4rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
+    </div>
+    <div style="padding:1rem 1.2rem;overflow:auto">${bodyHtml}</div>
+  </div>`;
+  document.body.appendChild(ov);
+  document.addEventListener('keydown', _regEsc);
+}
+function _regKV(pairs) {
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.55rem;margin-bottom:1.1rem">` +
+    pairs.map(([l, v]) => `<div style="background:var(--surface1);border:1px solid var(--border);border-radius:8px;padding:.5rem .7rem"><div style="font-size:.62rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">${_mdpEsc(l)}</div><div style="font-size:.82rem;font-weight:600;color:var(--txt);word-break:break-word">${(v == null || v === '') ? '—' : _mdpEsc(String(v))}</div></div>`).join('') +
+    `</div>`;
+}
+function _regTbl(headers, bodyHtml) {
+  return `<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:1.1rem"><table style="width:100%;border-collapse:collapse;font-size:.76rem"><thead><tr style="background:var(--g9);color:#fff;text-align:left">${headers.map(h => `<th style="padding:6px 8px">${h}</th>`).join('')}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
+}
+const _regINR = n => '₹' + Math.round(n).toLocaleString('en-IN');
+
+// ── PO Register (route 'po-register') ────────────────────────────────────
+let _poRegAll = [], _poRegSearch = '', _poRegStatus = '';
+function renderPORegister() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `<div class="page-header"><div class="page-header-row"><div><h1>&#128196; Purchase Orders</h1><p>Consolidated PO register &middot; click a PO for full details</p></div><button class="btn btn-secondary btn-sm" onclick="_poRegReload(this)">&#8635; Refresh</button></div></div><div id="po-reg-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading PO data&hellip;</div></div>`;
+  _regEnsure().then(() => { _poRegAll = _poRegRows(); _poRegRender(); }).catch(() => { const b = document.getElementById('po-reg-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load PO data.</div>'; });
+}
+window._poRegReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _poRegAll = _poRegRows(); _poRegRender(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._poRegSetSearch = function(v) { _poRegSearch = v; _poRegRender(); };
+window._poRegSetStatus = function(v) { _poRegStatus = v; _poRegRender(); };
+function _poRegRows() {
+  const HC = _opColMap(_openPOHeaders), IC = _opColMap(_openPOItems), SC = _opColMap(_openPOStock), PC = _opColMap(_openPOPayments);
+  const siAgg = {};
+  _openPOStock.forEach(r => {
+    const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey']));
+    if (!pk) return;
+    const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
+    siAgg[key] = (siAgg[key] || 0) + _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
+  });
+  const itemAgg = {};
+  _openPOItems.forEach(x => {
+    const k = _opPO(_opGet(x, IC, ['PO No', 'Order No'])); if (!k) return;
+    const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
+    const cs = _opGet(x, IC, ['CheckSum', 'Check Sum']);
+    const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
+    const recvQty = siAgg[_opNorm(cs) + '||' + _opNorm(part)] || 0;
+    const e = itemAgg[k] = itemAgg[k] || { lines: 0, recvVal: 0 };
+    e.lines++; e.recvVal += recvQty * rate;
+  });
+  const payAgg = {};
+  _openPOPayments.forEach(r => {
+    const k = _opPO(_opGet(r, PC, ['Order No', 'PO No (Key)', 'PO No', 'PO Number'])); if (!k) return;
+    const amt = _opNum(_opGet(r, PC, ['Amount']));
+    const st = _opGet(r, PC, ['Status', 'Accounts Status', 'Payment Status']).toLowerCase();
+    const e = payAgg[k] = payAgg[k] || { paid: 0, n: 0 };
+    e.n++;
+    if (/payment\s*complet/.test(st) || (/\bpaid\b/.test(st) && /utr/.test(st))) e.paid += amt;
+  });
+  const rows = [];
+  _openPOHeaders.forEach(r => {
+    const k = _opPO(_opGet(r, HC, ['PO No'])); if (!k) return;
+    const ia = itemAgg[k] || { lines: 0, recvVal: 0 }, pa = payAgg[k] || { paid: 0, n: 0 };
+    rows.push({ poNo: _opGet(r, HC, ['PO No']), date: _opGet(r, HC, ['PO Date']), vendor: _opGet(r, HC, ['Vendor Name']), site: _opGet(r, HC, ['Site Name']), status: _opGet(r, HC, ['PO Approval Status']), net: _opNum(_opGet(r, HC, ['Net Amount'])), lines: ia.lines, recvVal: ia.recvVal, paid: pa.paid });
+  });
+  rows.sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date));
+  return rows;
+}
+function _poRegRender() {
+  const c = document.getElementById('po-reg-body'); if (!c) return;
+  const esc = _mdpEsc;
+  const statuses = Array.from(new Set(_poRegAll.map(r => r.status).filter(Boolean))).sort();
+  const q = _poRegSearch.trim().toLowerCase();
+  let rows = _poRegAll;
+  if (_poRegStatus) rows = rows.filter(r => r.status === _poRegStatus);
+  if (q) rows = rows.filter(r => (r.poNo + ' ' + r.vendor + ' ' + r.site).toLowerCase().includes(q));
+  const bar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+    <input type="text" value="${esc(_poRegSearch)}" oninput="_poRegSetSearch(this.value)" placeholder="Search PO / vendor / site…" style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+    <select onchange="_poRegSetStatus(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 9px;background:var(--surface2)"><option value="">All statuses</option>${statuses.map(s => `<option value="${esc(s)}"${s === _poRegStatus ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select>
+    <span style="font-size:.72rem;color:var(--txt3)">${rows.length} PO(s)</span></div>`;
+  if (!rows.length) { c.innerHTML = bar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No POs match.</div>'; return; }
+  const body = rows.map(r => `<tr style="cursor:pointer" data-po="${esc(r.poNo)}" onclick="_poOpenDetail(this.dataset.po)">
+    <td style="padding:6px 9px;font-family:monospace;font-size:.74rem">${esc(r.poNo)}</td>
+    <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(r.date)}</td>
+    <td style="padding:6px 9px">${esc(r.vendor) || '—'}</td>
+    <td style="padding:6px 9px">${esc(r.site) || '—'}</td>
+    <td style="padding:6px 9px">${esc(r.status) || '—'}</td>
+    <td style="padding:6px 9px;text-align:right">${r.net ? _regINR(r.net) : '—'}</td>
+    <td style="padding:6px 9px;text-align:right;color:#b45309">${r.recvVal ? _regINR(r.recvVal) : '—'}</td>
+    <td style="padding:6px 9px;text-align:right;color:#16a34a">${r.paid ? _regINR(r.paid) : '—'}</td></tr>`).join('');
+  c.innerHTML = bar + `<div class="card"><div style="overflow-x:auto"><table class="data-table" style="width:100%;border-collapse:collapse;font-size:.78rem"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
+  try { applyTableFeatures(); } catch (e) {}
+}
+window._poOpenDetail = function(poNo) {
+  const esc = _mdpEsc;
+  const HC = _opColMap(_openPOHeaders), IC = _opColMap(_openPOItems), SC = _opColMap(_openPOStock), PC = _opColMap(_openPOPayments);
+  const K = _opPO(poNo);
+  const hdr = _openPOHeaders.find(r => _opPO(_opGet(r, HC, ['PO No'])) === K) || {};
+  const siAgg = {};
+  _openPOStock.forEach(r => { const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey'])); if (!pk) return; const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description'])); siAgg[key] = (siAgg[key] || 0) + _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty'])); });
+  const items = _openPOItems.filter(x => _opPO(_opGet(x, IC, ['PO No', 'Order No'])) === K);
+  const pays = _openPOPayments.filter(r => _opPO(_opGet(r, PC, ['Order No', 'PO No (Key)', 'PO No', 'PO Number'])) === K);
+  const fields = [
+    ['PO No', _opGet(hdr, HC, ['PO No'])], ['PO Date', _mdpFmtDate(_opGet(hdr, HC, ['PO Date']))],
+    ['Vendor', _opGet(hdr, HC, ['Vendor Name'])], ['Site', _opGet(hdr, HC, ['Site Name'])],
+    ['Status', _opGet(hdr, HC, ['PO Approval Status'])], ['Lock', _opGet(hdr, HC, ['Lock'])],
+    ['Payment Terms', _opGet(hdr, HC, ['Payment Terms', 'Payment Term', 'Terms of Payment', 'Payment Terms (Days)'])],
+    ['Net Amount', _regINR(_opNum(_opGet(hdr, HC, ['Net Amount'])))],
+    ['Tax (b)', _regINR(_opNum(_opGet(hdr, HC, ['Tax (b)', 'Tax(b)', 'Tax B'])))],
+    ['Sub Total (b)', _regINR(_opNum(_opGet(hdr, HC, ['Sub Total (b)', 'Sub Total(b)', 'SubTotal (b)', 'Sub Total B'])))],
+  ];
+  const itemRows = items.map(x => {
+    const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
+    const cs = _opGet(x, IC, ['CheckSum', 'Check Sum']);
+    const qty = _opNum(_opGet(x, IC, ['PO Qty', 'Qty', 'Quantity', 'Order Qty']));
+    const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
+    const recv = siAgg[_opNorm(cs) + '||' + _opNorm(part)] || 0;
+    const tax = _opNum(_opGet(x, IC, ['Tax Amt', 'Tax Amount', 'Total Tax']));
+    const matDesc = _opGet(x, IC, ['Material Description', 'Material Desc']) || part;
+    return `<tr><td style="padding:5px 8px">${esc(matDesc) || '—'}</td><td style="padding:5px 8px;text-align:right">${qty || '—'}</td><td style="padding:5px 8px;text-align:right">${rate ? _regINR(rate) : '—'}</td><td style="padding:5px 8px;text-align:right">${qty * rate ? _regINR(qty * rate) : '—'}</td><td style="padding:5px 8px;text-align:right;color:#2563eb">${tax ? _regINR(tax) : '—'}</td><td style="padding:5px 8px;text-align:right;color:#b45309">${recv || '—'}</td></tr>`;
+  }).join('');
+  const payRows = pays.map(r => {
+    const amt = _opNum(_opGet(r, PC, ['Amount']));
+    return `<tr><td style="padding:5px 8px;font-family:monospace;font-size:.72rem">${esc(_opGet(r, PC, ['Request ID', 'PR No', 'PR ID'])) || '—'}</td><td style="padding:5px 8px;white-space:nowrap">${_mdpFmtDate(_opGet(r, PC, ['Date Of Request', 'Date of Request', 'Date']))}</td><td style="padding:5px 8px;text-align:right">${amt ? _regINR(amt) : '—'}</td><td style="padding:5px 8px">${esc(_opGet(r, PC, ['Status', 'Accounts Status', 'Payment Status'])) || '—'}</td><td style="padding:5px 8px;font-size:.7rem">${esc(_opGet(r, PC, ['UTR Details', 'UTR'])) || '—'}</td></tr>`;
+  }).join('');
+  const body = _regKV(fields)
+    + `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">Line Items (${items.length})</h4>`
+    + (items.length ? _regTbl(['Item', 'Qty', 'Rate', 'Amount', 'Tax Amt', 'Received Qty'], itemRows) : '<div style="color:var(--txt3);font-size:.8rem;margin-bottom:1rem">No line items.</div>')
+    + (pays.length ? `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">Payments (${pays.length})</h4>` + _regTbl(['PR No', 'Date', 'Amount', 'Status', 'UTR'], payRows) : '');
+  _regOpenModal('Purchase Order · ' + esc(poNo), body);
+};
+
+// ── StockIN Register (route 'stockin-register') ──────────────────────────
+let _siRegAll = [], _siRegSearch = '';
+function renderStockINRegister() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `<div class="page-header"><div class="page-header-row"><div><h1>&#128230; StockIN Register</h1><p>Goods received entries &middot; click a row for full details</p></div><button class="btn btn-secondary btn-sm" onclick="_siRegReload(this)">&#8635; Refresh</button></div></div><div id="si-reg-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading StockIN data&hellip;</div></div>`;
+  _regEnsure().then(() => { _siRegAll = _siRegRows(); _siRegRender(); }).catch(() => { const b = document.getElementById('si-reg-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load StockIN data.</div>'; });
+}
+window._siRegReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _siRegAll = _siRegRows(); _siRegRender(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._siRegSetSearch = function(v) { _siRegSearch = v; _siRegRender(); };
+function _siGRNMapBuild() {
+  const m = {};
+  (_regGRNRows || []).forEach(g => { const u = String(g['UUID'] || g['CheckSum'] || '').trim(); if (u) m[u] = (g['GRN No (Goods Receipt)'] || g['GRN No'] || '').toString().trim(); });
+  return m;
+}
+function _siRegRows() {
+  const SC = _opColMap(_openPOStock), HC = _opColMap(_openPOHeaders);
+  const grnMap = _siGRNMapBuild();
+  const hdrByPO = {};
+  _openPOHeaders.forEach(r => { const k = _opPO(_opGet(r, HC, ['PO No'])); if (k && !hdrByPO[k]) hdrByPO[k] = { vendor: _opGet(r, HC, ['Vendor Name']), site: _opGet(r, HC, ['Site Name']) }; });
+  return _openPOStock.map((r, idx) => {
+    const k = _opPO(_opGet(r, SC, ['PO No', 'PO No (Key)']));
+    const grn = grnMap[String(_opGet(r, SC, ['CheckSum', 'UUID', 'SI ID'])).trim()] || '';
+    return {
+      idx, grn, received: _opGet(r, SC, ['Received On (At)']), siId: _opGet(r, SC, ['SI ID']),
+      poNo: _opGet(r, SC, ['PO No', 'PO No (Key)']),
+      vendor: _opGet(r, SC, ['Vendor Name']) || (hdrByPO[k] && hdrByPO[k].vendor) || '',
+      site: _opGet(r, SC, ['Site Name']) || (hdrByPO[k] && hdrByPO[k].site) || '',
+      inv: _opGet(r, SC, ['Invoice No / ST No', 'Invoice No']),
+      part: _opGet(r, SC, ['Part Details', 'Part Description']),
+      grnQty: _opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']),
+    };
+  });
+}
+function _siRegRender() {
+  const c = document.getElementById('si-reg-body'); if (!c) return;
+  const esc = _mdpEsc;
+  const q = _siRegSearch.trim().toLowerCase();
+  let rows = _siRegAll;
+  if (q) rows = rows.filter(r => (r.grn + ' ' + r.poNo + ' ' + r.vendor + ' ' + r.part + ' ' + r.inv).toLowerCase().includes(q));
+  const bar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+    <input type="text" value="${esc(_siRegSearch)}" oninput="_siRegSetSearch(this.value)" placeholder="Search GRN / PO / vendor / part / invoice…" style="flex:1;min-width:240px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+    <span style="font-size:.72rem;color:var(--txt3)">${rows.length} receipt(s)</span></div>`;
+  if (!rows.length) { c.innerHTML = bar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No StockIN records match.</div>'; return; }
+  const body = rows.map(r => `<tr style="cursor:pointer" data-idx="${r.idx}" onclick="_siOpenDetail(this.dataset.idx)">
+    <td style="padding:6px 9px;font-weight:600;color:var(--g7)">${esc(r.grn) || '<span style="color:var(--txt3);font-style:italic">Pending</span>'}</td>
+    <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(r.received)}</td>
+    <td style="padding:6px 9px;font-family:monospace;font-size:.74rem">${esc(r.poNo) || '—'}</td>
+    <td style="padding:6px 9px">${esc(r.vendor) || '—'}</td>
+    <td style="padding:6px 9px">${esc(r.site) || '—'}</td>
+    <td style="padding:6px 9px">${esc(r.inv) || '—'}</td>
+    <td style="padding:6px 9px">${esc(r.part) || '—'}</td>
+    <td style="padding:6px 9px;text-align:right">${esc(r.grnQty) || '—'}</td></tr>`).join('');
+  c.innerHTML = bar + `<div class="card"><div style="overflow-x:auto"><table class="data-table" style="width:100%;border-collapse:collapse;font-size:.78rem"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
+  try { applyTableFeatures(); } catch (e) {}
+}
+window._siOpenDetail = function(idx) {
+  const r = _openPOStock[+idx]; if (!r) return;
+  const esc = _mdpEsc;
+  const SC = _opColMap(_openPOStock), HC = _opColMap(_openPOHeaders);
+  const grn = _siGRNMapBuild()[String(_opGet(r, SC, ['CheckSum', 'UUID', 'SI ID'])).trim()] || '';
+  const k = _opPO(_opGet(r, SC, ['PO No', 'PO No (Key)']));
+  const hdr = _openPOHeaders.find(h => _opPO(_opGet(h, HC, ['PO No'])) === k);
+  const top = [['GRN No', grn || 'Pending'], ['PO No', _opGet(r, SC, ['PO No', 'PO No (Key)'])], ['Received On', _mdpFmtDate(_opGet(r, SC, ['Received On (At)']))], ['SI ID', _opGet(r, SC, ['SI ID'])]];
+  if (hdr) { top.push(['Vendor', _opGet(hdr, HC, ['Vendor Name'])]); top.push(['PO Status', _opGet(hdr, HC, ['PO Approval Status'])]); top.push(['Net Amount', _regINR(_opNum(_opGet(hdr, HC, ['Net Amount'])))]); }
+  const allRows = Object.keys(r).filter(kk => String(r[kk]).trim() !== '').map(kk => `<tr><td style="padding:4px 8px;font-weight:600;color:var(--txt2);white-space:nowrap;vertical-align:top">${esc(kk)}</td><td style="padding:4px 8px;word-break:break-word">${esc(String(r[kk]))}</td></tr>`).join('');
+  const body = _regKV(top)
+    + `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">All StockIN Fields</h4>`
+    + `<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px"><table style="width:100%;border-collapse:collapse;font-size:.75rem"><tbody>${allRows}</tbody></table></div>`;
+  _regOpenModal('StockIN · ' + (esc(grn) || esc(_opGet(r, SC, ['SI ID'])) || 'Receipt'), body);
+};
 
 function renderMDCommand() {
   const el = document.getElementById('mainContent');
@@ -8909,6 +9136,8 @@ const MODULE_REGISTRY = [
   { route:'stores-levels',     label:'Stores · Stock Levels',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'vendor',            label:'Vendor Portal',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts','dept_head'] },
   { route:'subcontractor',     label:'Subcontractor Portal',   section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
+  { route:'po-register',       label:'Purchase Orders',        section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
+  { route:'stockin-register',  label:'StockIN Register',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
   { route:'tendering',         label:'Tendering',              section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
 
   // ── Accounts ──────────────────────────────────────────────────
@@ -9879,6 +10108,8 @@ const MODULE_ACTIONS = {
   'md-payments':        ['view','approve','reject'],
   'ledgers':            ['view','export'],
   'vendor-ledger-po':   ['view','export'],
+  'po-register':        ['view','export'],
+  'stockin-register':   ['view','export'],
   'safety':             ['view','create','close'],
   'reports':            ['view','export','schedule'],
   'mrs':                ['view','create','edit'],
