@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.56.1';
-const PORTAL_BUILD    = 542;
-const PORTAL_BUILD_AT = '2026-06-12T20:09:22Z';
+const PORTAL_VERSION  = '3.57.0';
+const PORTAL_BUILD    = 543;
+const PORTAL_BUILD_AT = '2026-06-12T20:16:06Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2276,6 +2276,16 @@ const NAV_SUBMENUS = {
       { route:'stores-levels',  label:'Stock Levels',  status:'live' },
     ],
   },
+  // Ledgers parent → each ledger is its own level-3 sub-page. The parent route
+  // ('ledgers') is the landing (Employee). Vendor Ledger (PO) folds in here too.
+  ledgers: {
+    children: [
+      { route:'ledgers',          label:'Employee Ledger',       status:'live' },
+      { route:'ledger-vendor',    label:'Vendor Ledger',         status:'live' },
+      { route:'ledger-sc',        label:'Sub Contractor Ledger', status:'live' },
+      { route:'vendor-ledger-po', label:'Vendor Ledger (PO)',    status:'live' },
+    ],
+  },
 };
 
 // route → parent-route map for every level-3 child
@@ -2482,7 +2492,9 @@ function renderPage(page) {
     'dashboard':      renderDashboard,
     'md-command':     renderMDCommand,
     'md-payments':    renderMDPayments,
-    'ledgers':        renderLedgers,
+    'ledgers':        () => renderLedgers('Employee'),
+    'ledger-vendor':  () => renderLedgers('Vendor'),
+    'ledger-sc':      () => renderLedgers('Sub Contractor'),
     'vendor-ledger-po': renderVendorLedgerPO,
     'onboarding':     renderOnboardingPortal,
     'recruitment':    renderRecruitmentModule,
@@ -3997,12 +4009,14 @@ function _mdpLedgerHtml() {
 // partyLedgerRender). Independent selection state from the MD dashboard.
 const LEDGER_TYPES = ['Employee', 'Vendor', 'Sub Contractor'];
 let _ledType = 'Vendor', _ledParty = '';
-function renderLedgers() {
+function renderLedgers(type) {
+  if (type && LEDGER_TYPES.indexOf(type) >= 0 && type !== _ledType) { _ledType = type; _ledParty = ''; }
   const el = document.getElementById('mainContent');
+  const icon = _ledType === 'Employee' ? '&#128100;' : _ledType === 'Sub Contractor' ? '&#129309;' : '&#127970;';
   el.innerHTML = `
     <div class="page-header">
       <div class="page-header-row">
-        <div><h1>&#128210; Ledgers</h1><p>Party statements &middot; running balance &middot; Billed / Paid / Outstanding</p></div>
+        <div><h1>${icon} ${_mdpEsc(_ledType)} Ledger</h1><p>Party statement &middot; running balance &middot; Billed / Paid / Outstanding</p></div>
         <button class="btn btn-secondary btn-sm" onclick="_ledReload(this)">&#8635; Refresh</button>
       </div>
     </div>
@@ -4021,14 +4035,11 @@ window._ledSetParty = function(v) { _ledParty = v; _ledRenderBody(); };
 function _ledRenderBody() {
   const c = document.getElementById('ledger-body'); if (!c) return;
   const esc = _mdpEsc;
-  const typeBtns = LEDGER_TYPES.map(t =>
-    `<button onclick="_ledSetType('${t}')" class="btn btn-sm ${t === _ledType ? 'btn-primary' : 'btn-secondary'}">${esc(t)}</button>`).join('');
   const parties = _plParties(_ledType);
   const partyOpts = `<option value="">Select ${esc(_ledType)}&hellip;</option>` +
     parties.map(p => `<option value="${esc(p.key)}"${p.key === _ledParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` &middot; A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
   const selector = `
     <div class="card card-pad" style="margin-bottom:1rem">
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.7rem">${typeBtns}</div>
       <div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
           <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">${esc(_ledType.toUpperCase())}</label>
@@ -9413,7 +9424,6 @@ const MODULE_REGISTRY = [
   // ── Accounts ──────────────────────────────────────────────────
   { route:'md-payments',       label:'Payments & Approvals',   section:'Accounts',         defStatus:'live', defRoles:['md'] },
   { route:'ledgers',           label:'Ledgers',                section:'Accounts',         defStatus:'live', defRoles:['md','accounts'] },
-  { route:'vendor-ledger-po',  label:'Vendor Ledger (PO)',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts'] },
   { route:'accounts',          label:'Accounts & Payments',    section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-dashboard',label:'Accounts Dashboard',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-worklist', label:'Accounts Worklist',      section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
