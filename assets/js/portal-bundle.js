@@ -630,10 +630,17 @@ function makeTableSortable(table) {
 
 function exportTableCSV(table, filename) {
   if (!table) return;
+  // Honour the column manager: export visible columns only, in the on-screen
+  // (DOM) order — which _tblColApply has already reordered/hidden. So the CSV
+  // always matches the arranged column order and show/hide state.
+  const hidden = el => !!(el && el.style && el.style.display === 'none');
   const rows = [];
-  const ths = table.querySelectorAll('thead th');
+  const ths = Array.from(table.querySelectorAll('thead th'));
+  const visIdx = [];
   const headers = [];
-  ths.forEach(th => {
+  ths.forEach((th, i) => {
+    if (hidden(th)) return;
+    visIdx.push(i);
     // Strip sort arrows from header text
     const clone = th.cloneNode(true);
     clone.querySelectorAll('.sort-arrow').forEach(a => a.remove());
@@ -641,8 +648,8 @@ function exportTableCSV(table, filename) {
   });
   rows.push(headers.join(','));
   table.querySelectorAll('tbody tr').forEach(tr => {
-    const cells = [];
-    tr.querySelectorAll('td').forEach(td => cells.push('"' + td.textContent.trim().replace(/"/g,'""') + '"'));
+    const tds = Array.from(tr.children);
+    const cells = visIdx.map(i => '"' + ((tds[i] && tds[i].textContent) || '').trim().replace(/"/g, '""') + '"');
     if (cells.length) rows.push(cells.join(','));
   });
   const csv = rows.join('\n');
