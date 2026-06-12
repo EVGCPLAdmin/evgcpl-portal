@@ -19,6 +19,87 @@
 }
 
 /* ═══════════════════════════════════════════════════
+   COLOR THEMES
+   Selected via html[data-theme="<id>"] (set by _themeApply()
+   in portal-bundle.js, persisted in localStorage 'evg_theme').
+   Default theme = Evergreen = the :root values above (no attribute).
+   NOTE on the accent ramp: --g9/--g8/--g7 are dual-role — they are
+   used as heading/accent TEXT on surfaces AND as backgrounds under
+   white text (table headers, buttons). Dark themes therefore pick
+   mid-luminance accents that pass both ways.
+═══════════════════════════════════════════════════ */
+
+/* ── High-Contrast Light: pure white, near-black text, strong borders ── */
+html[data-theme="contrast"] {
+  --g9:#03240f; --g8:#06381d; --g7:#0a5226; --g6:#0c6330;
+  --g5:#0f7a3c; --g4:#13954a; --g3:#1cb35d;
+  --gold:#8a5800; --gold-lt:#ffefc2;
+  --bg:#ffffff; --surface:#ffffff; --surface1:#ffffff; --surface2:#fafafa; --surface3:#efefef;
+  --border:#444444; --border2:#1a1a1a;
+  --txt:#000000; --txt2:#111111; --txt3:#2e2e2e; --txt4:#555555;
+  --shadow-sm:0 1px 4px rgba(0,0,0,.20);
+  --shadow:0 2px 10px rgba(0,0,0,.22);
+  --shadow-md:0 4px 20px rgba(0,0,0,.25);
+  --shadow-lg:0 8px 32px rgba(0,0,0,.32);
+}
+
+/* ── Dark (green): deep green-black surfaces, bright text, vivid greens ── */
+html[data-theme="dark"] {
+  --g9:#2e9c5f; --g8:#288a52; --g7:#2c9a5d; --g6:#3fbb76;
+  --g5:#57cc8a; --g4:#7fdda6; --g3:#aeeec9;
+  --gold:#ffc233; --gold-lt:#3e3208;
+  --bg:#0d1411; --surface:#15201a; --surface1:#15201a; --surface2:#1b2a21; --surface3:#26362b;
+  --border:#2d4135; --border2:#3e5a4a;
+  --txt:#f1f8f3; --txt2:#c7dccd; --txt3:#97b4a1; --txt4:#6e8d79;
+  --shadow-sm:0 1px 4px rgba(0,0,0,.40);
+  --shadow:0 2px 10px rgba(0,0,0,.45);
+  --shadow-md:0 4px 20px rgba(0,0,0,.52);
+  --shadow-lg:0 8px 32px rgba(0,0,0,.60);
+}
+
+/* ── Midnight: dark navy/slate surfaces, bright text, blue accent ramp ── */
+html[data-theme="midnight"] {
+  --g9:#3b82f6; --g8:#2f72e8; --g7:#2563eb; --g6:#4d8ef7;
+  --g5:#6ba3f9; --g4:#8fbbfb; --g3:#bcd7fd;
+  --gold:#fbbf24; --gold-lt:#3d3110;
+  --bg:#0b1220; --surface:#121c2e; --surface1:#121c2e; --surface2:#182438; --surface3:#243349;
+  --border:#2b3c55; --border2:#3d5170;
+  --txt:#eef4ff; --txt2:#c3d2e8; --txt3:#92a8c6; --txt4:#6a7e9e;
+  --shadow-sm:0 1px 4px rgba(0,0,0,.40);
+  --shadow:0 2px 10px rgba(0,0,0,.45);
+  --shadow-md:0 4px 20px rgba(0,0,0,.52);
+  --shadow-lg:0 8px 32px rgba(0,0,0,.60);
+}
+
+/* ── Ocean: light cool surfaces, dark text, teal/blue accent ramp ── */
+html[data-theme="ocean"] {
+  --g9:#0c3d4d; --g8:#0f5e72; --g7:#0e7490; --g6:#0891b2;
+  --g5:#15a3c4; --g4:#3ec0dd; --g3:#90def0;
+  --gold:#e08e00; --gold-lt:#fdf1d2;
+  --bg:#edf5f7; --surface:#ffffff; --surface1:#ffffff; --surface2:#f4fafc; --surface3:#e4eff3;
+  --border:#d2e4ea; --border2:#b6d3dd;
+  --txt:#0a2630; --txt2:#35596a; --txt3:#5f8495; --txt4:#92b1be;
+  --shadow-sm:0 1px 4px rgba(12,61,77,.08);
+  --shadow:0 2px 10px rgba(12,61,77,.10);
+  --shadow-md:0 4px 20px rgba(12,61,77,.13);
+  --shadow-lg:0 8px 32px rgba(12,61,77,.18);
+}
+
+/* ── Amber: warm off-white surfaces, dark brown text, amber accent ramp ── */
+html[data-theme="amber"] {
+  --g9:#54300a; --g8:#7c440c; --g7:#b45309; --g6:#c2620b;
+  --g5:#d97706; --g4:#f59e0b; --g3:#fcd34d;
+  --gold:#b8860b; --gold-lt:#faecc8;
+  --bg:#faf5ec; --surface:#fffdf7; --surface1:#fffdf7; --surface2:#faf3e4; --surface3:#f2e8d4;
+  --border:#e3d6bd; --border2:#d0bd99;
+  --txt:#291c0c; --txt2:#5a452c; --txt3:#85704f; --txt4:#ab9676;
+  --shadow-sm:0 1px 4px rgba(84,48,10,.08);
+  --shadow:0 2px 10px rgba(84,48,10,.10);
+  --shadow-md:0 4px 20px rgba(84,48,10,.13);
+  --shadow-lg:0 8px 32px rgba(84,48,10,.20);
+}
+
+/* ═══════════════════════════════════════════════════
    RESET & BASE
 ═══════════════════════════════════════════════════ */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
