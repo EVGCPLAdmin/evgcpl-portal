@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.53.0';
-const PORTAL_BUILD    = 536;
-const PORTAL_BUILD_AT = '2026-06-12T19:10:46Z';
+const PORTAL_VERSION  = '3.53.1';
+const PORTAL_BUILD    = 537;
+const PORTAL_BUILD_AT = '2026-06-12T19:25:21Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4373,7 +4373,7 @@ function _poRegBuild() {
       <input id="poRegSearch" type="text" oninput="_poRegSetSearch(this.value)" placeholder="Search PO / vendor / site…" style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
       <select onchange="_poRegSetStatus(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 9px;background:var(--surface2)"><option value="">All statuses</option>${statuses.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>
       <span id="poRegCount" style="font-size:.72rem;color:var(--txt3)"></span></div>
-    <div class="card"><table class="data-table"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th></tr></thead><tbody id="poRegTbody"></tbody></table></div>`;
+    <div class="card"><table class="data-table" data-evg-resize="skip"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th></tr></thead><tbody id="poRegTbody"></tbody></table></div>`;
   _poRegFill();
   try { applyTableFeatures(); } catch (e) {}
 }
@@ -4552,7 +4552,7 @@ function _siRegBuild() {
   c.innerHTML = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
       <input id="siRegSearch" type="text" oninput="_siRegSetSearch(this.value)" placeholder="Search GRN / PO / vendor / part / invoice…" style="flex:1;min-width:240px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
       <span id="siRegCount" style="font-size:.72rem;color:var(--txt3)"></span></div>
-    <div class="card"><table class="data-table"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th></tr></thead><tbody id="siRegTbody"></tbody></table></div>`;
+    <div class="card"><table class="data-table" data-evg-resize="skip"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th></tr></thead><tbody id="siRegTbody"></tbody></table></div>`;
   _siRegFill();
   try { applyTableFeatures(); } catch (e) {}
 }
