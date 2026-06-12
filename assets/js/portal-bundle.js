@@ -3848,12 +3848,41 @@ function _plParties(type, companyFilter) {
 
 // Context-free ledger renderer: KPIs + running-balance table.
 // opts.onRowClick = name of a global fn called with the row uuid.
+// partyLedgerRender is a thin wrapper around _plLedgerBuild so the embedded
+// Financial-Year filter can re-filter in place without the caller re-rendering.
+let _plLedgerSeq = 0;
+const _plLedgerCache = {};
+const _plLedgerFY = {};
 function partyLedgerRender(txRows, opts) {
-  opts = opts || {};
+  if (!txRows || !txRows.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions found.</div>';
+  const lid = ++_plLedgerSeq;
+  _plLedgerCache[lid] = { rows: txRows.slice(), opts: opts || {} };
+  _plLedgerFY[lid] = '';
+  return `<div id="pl-ledger-${lid}">${_plLedgerBuild(lid)}</div>`;
+}
+window._plSetLedgerFY = function(lid, fy) {
+  _plLedgerFY[lid] = fy;
+  const el = document.getElementById('pl-ledger-' + lid);
+  if (el) el.innerHTML = _plLedgerBuild(lid);
+};
+function _plLedgerBuild(lid) {
   const esc = _mdpEsc;
+  const cache = _plLedgerCache[lid] || { rows: [], opts: {} };
+  const opts = cache.opts;
+  const fy = _plLedgerFY[lid] || '';
+  // Financial-year filter (Apr–Mar). Options come from this ledger's own rows.
+  const fySet = Array.from(new Set(cache.rows.map(r => _vplpFYof(r.date)).filter(Boolean))).sort().reverse();
+  const fyOpts = `<option value="">All financial years</option>` +
+    fySet.map(sy => `<option value="${sy}"${sy === fy ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
+  const fyBar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+    <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">FINANCIAL YEAR</label>
+    <select onchange="_plSetLedgerFY(${lid},this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2)">${fyOpts}</select>
+    <span style="font-size:.7rem;color:var(--txt3)">${fy ? _vplpFYLabel(fy) + ' · Apr–Mar' : 'All transactions'}</span>
+  </div>`;
+  const src = fy ? cache.rows.filter(r => _vplpFYof(r.date) === fy) : cache.rows;
+  if (!src.length) return fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   // Compute the running balance chronologically (oldest → newest)…
-  const rows = [...txRows].sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
-  if (!rows.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions found.</div>';
+  const rows = src.slice().sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
   // Double-entry over the party's account:
   //   Debit  = amount paid out (request reaches a completed/paid status)
   //   Credit = billed / owed amount — a PAID request is Debit ONLY, it must
@@ -3899,7 +3928,7 @@ function partyLedgerRender(txRows, opts) {
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.7rem">${esc(r.utr) || '—'}</td>
     </tr>`;
   }).join('');
-  return kpi + `
+  return fyBar + kpi + `
     <div class="card"><div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:.78rem">
         <thead><tr style="background:var(--g9);color:#fff;text-align:left">
