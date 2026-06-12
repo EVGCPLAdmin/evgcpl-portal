@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.35.0';
-const PORTAL_BUILD    = 503;
-const PORTAL_BUILD_AT = '2026-06-12T06:11:11Z';
+const PORTAL_VERSION  = '3.36.0';
+const PORTAL_BUILD    = 504;
+const PORTAL_BUILD_AT = '2026-06-12T06:14:24Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2264,9 +2264,8 @@ function renderEmployeeDashboard() {
 
   // Format date
   function fmtDate(v) {
-    const d = parseGvizDate ? parseGvizDate(v) : new Date(v);
-    if (!d || isNaN(d.getTime()) || d.getTime() === 0) return '—';
-    return d.toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'});
+    if (!v || (v instanceof Date && (isNaN(v.getTime()) || v.getTime() === 0))) return '—';
+    return (typeof evgFmtDate === 'function') ? evgFmtDate(v) : String(v);
   }
 
   // ── Render shell immediately, load dept data async ────────────
@@ -6887,7 +6886,7 @@ function _accPrintVoucher() {
   if (clone.firstElementChild) clone.firstElementChild.remove();
   clone.querySelectorAll('#acc-detail-actions, button').forEach(el => el.remove());
   const body = clone.innerHTML;
-  const now = new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const now = evgFmtDateTime(new Date());
 
   const w = window.open('', '_blank', 'width=900,height=1000');
   if (!w) { alert('Allow pop-ups for this site to print the voucher.'); return; }
@@ -9742,7 +9741,7 @@ function _cfgRenderConfig() {
     </div>
 
     <div style="font-size:.72rem;color:var(--txt3);margin-top:.7rem;text-align:right">
-      Last saved: ${cfg.savedAt ? new Date(cfg.savedAt).toLocaleString('en-IN') : 'Never'}
+      Last saved: ${cfg.savedAt ? evgFmtDateTime(cfg.savedAt) : 'Never'}
     </div>
   `;
 
@@ -10284,11 +10283,25 @@ function parsePODate(v) {
   const d = new Date(v);
   return isNaN(d) ? null : d;
 }
-function fmtDate(v) {
+// ── Unified date formats (EVG) ───────────────────────────────────
+//  Long date  → 01Jan2026          (evgFmtDate)
+//  Date-time  → 01-Jan-2026 18:45  (evgFmtDateTime)
+//  One definition; change here → changes everywhere fmtDate/evgFmt* is used.
+const _EVG_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function evgParseDate(v) { return parsePODate(v); }
+function evgFmtDate(v) {
   const d = parsePODate(v);
-  if (!d) return '—';
-  return d.toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+  if (!d || isNaN(d.getTime())) return '—';
+  return String(d.getDate()).padStart(2, '0') + _EVG_MON[d.getMonth()] + d.getFullYear();
 }
+function evgFmtDateTime(v) {
+  const d = parsePODate(v);
+  if (!d || isNaN(d.getTime())) return '—';
+  const p = n => String(n).padStart(2, '0');
+  return p(d.getDate()) + '-' + _EVG_MON[d.getMonth()] + '-' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+window.evgFmtDate = evgFmtDate; window.evgFmtDateTime = evgFmtDateTime;
+function fmtDate(v) { return evgFmtDate(v); }
 function fmtAmt(n) {
   if (!n) return '—';
   if (n >= 10000000) return '₹' + (n/10000000).toFixed(1) + 'Cr';
@@ -10913,7 +10926,7 @@ window.policyRenderFiles = function() {
     return {pdf:'📕',doc:'📘',docx:'📘',ppt:'📙',pptx:'📙',xls:'📗',xlsx:'📗',txt:'📄'}[ext] || '📄';
   };
   const fmtSize = b => b > 1048576 ? (b/1048576).toFixed(1)+'MB' : Math.round(b/1024)+'KB';
-  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  const fmtDate = d => d ? evgFmtDate(d) : '—';
 
   listEl.innerHTML = `<table class="emp-table" style="min-width:560px">
     <thead><tr><th>Document</th><th>Size</th><th>Uploaded</th><th>Action</th></tr></thead>
