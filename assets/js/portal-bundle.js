@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.42.2';
-const PORTAL_BUILD    = 512;
-const PORTAL_BUILD_AT = '2026-06-12T07:35:30Z';
+const PORTAL_VERSION  = '3.42.3';
+const PORTAL_BUILD    = 513;
+const PORTAL_BUILD_AT = '2026-06-12T08:03:01Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -14143,7 +14143,7 @@ window.pstDownloadCSV = function(tab) {
       'PO No': l.poNo, 'PO Date': (l.date || '').split(' ')[0], 'Age (days)': l.age ?? '', 'Aging': l.ageBucket,
       'Vendor': l.vendor, 'Vendor ID': l.vendorId || '', 'Vendor Type': l.vendorType || '',
       'Vendor City': l.vendorCity || '', 'Vendor State': l.vendorState || '',
-      'Site': l.site, 'PO Status': l.poStatus || '', 'MR No': l.mrNo || '', 'HSN Code': l.hsn || '',
+      'Site': l.site, 'PO Status': l.poStatus || '', 'Payment Terms': l.paymentTerms || '', 'MR No': l.mrNo || '', 'HSN Code': l.hsn || '',
       'Part No': l.partNo, 'Part Description': l.partDesc, 'UOM': l.unit || '',
       'PO Qty': l.qty, 'Invoice Qty': l.invoiced, 'GRN Qty': l.received,
       'Pending Qty': l.pendingQty > 0 ? l.pendingQty : 0, 'Rate': l.rate || '',
@@ -14513,6 +14513,7 @@ function _openPOCompute(q) {
       status: (r['PO Approval Status'] || '').trim(),
       lock:   (r['Lock'] || '').trim(),
       amount: _opNum(r['Net Amount']),
+      terms:  (r['Payment Terms'] || r['Payment Term'] || r['Terms of Payment'] || r['Payment Terms (Days)'] || '').toString().trim(),
     };
   });
 
@@ -14527,7 +14528,8 @@ function _openPOCompute(q) {
   _openPOPayments.forEach(r => {
     const k = _opPO(_opGet(r, PC, ['PO No (Key)', 'Order No', 'PO No', 'PO Number', 'WO / PO No']));
     if (!k) return;
-    const e = payByPO[k] = payByPO[k] || { paid: 0, req: 0, utrs: [], reqIds: [], n: 0 };
+    const e = payByPO[k] = payByPO[k] || { paid: 0, req: 0, utrs: [], reqIds: [], n: 0, terms: '' };
+    if (!e.terms) e.terms = _opGet(r, PC, ['Payment Terms', 'Payment Term', 'Terms of Payment']);
     const paid = _opNum(_opGet(r, PC, ['Paid Value', 'Paid Amount', 'Amount Paid']));
     e.paid += paid;
     e.req  += _opNum(_opGet(r, PC, ['Amount']));
@@ -14629,9 +14631,9 @@ function _openPOCompute(q) {
     const venName = e.vendorDetails || hdr.vendor || '';
     const venId   = e.vendorId || '';
     const ven = _openPOVendorById(venId) || _openPOVendor(venName);
-    const pm = payByPO[k] || { paid: 0, req: 0, utrs: [], reqIds: [], n: 0 };
+    const pm = payByPO[k] || { paid: 0, req: 0, utrs: [], reqIds: [], n: 0, terms: '' };
     out.push({ po: k, poNo: hdr.poNo, vendor: venName, site: hdr.site || e.site, date: hdr.date || e.poDate,
-      status: hdr.status, amount: hdr.amount,
+      status: hdr.status, amount: hdr.amount, paymentTerms: hdr.terms || pm.terms || '',
       vendorId: venId || ven.id || '', vendorType: ven.type || '', vendorCity: ven.city || '', vendorState: ven.state || '',
       lines, totOrd, totInv, totRecv, totPendQty, totPendAmt, openLines, age, pctRecv, pendPctPO,
       paidTotal: pm.paid, payReqAmt: pm.req, payCount: pm.n,
@@ -14684,6 +14686,7 @@ const OPENPO_FIELDS = [
   { key:'age',         label:'Age (days)',       align:'right', def:false, fmt:l=>l.age==null?'—':`<span style="font-weight:700;color:${l.age>30?'#c62828':l.age>14?'#e65100':'var(--txt2)'}">${l.age}d</span>` },
   { key:'ageBucket',   label:'Aging',            align:'left',  def:true,  fmt:l=>{ const b=l.ageBucket; const col=l.age>30?'#c62828':l.age>14?'#e65100':l.age>7?'#8a6d00':'#2e7d32'; return `<span class="vpi-status-pill" style="background:${col}1a;color:${col}">${b}</span>`; } },
   { key:'poStatus',    label:'PO Status',        align:'left',  def:false, fmt:l=>_opEsc(l.poStatus)||'—' },
+  { key:'paymentTerms',label:'Payment Terms',    align:'left',  def:true,  fmt:l=>_opEsc(l.paymentTerms)||'—' },
   { key:'mrNo',        label:'MR No',            align:'left',  def:false, fmt:l=>_opEsc(l.mrNo)||'—' },
   { key:'partNo',      label:'Part No',          align:'left',  def:true,  fmt:l=>_opEsc(l.partNo)||'—' },
   { key:'partDesc',    label:'Part Description', align:'left',  def:true,  fmt:l=>_opEsc(l.partDesc)||'—' },
@@ -14752,7 +14755,7 @@ function _openPOFlatRow(p, l) {
   const o = {
     poNo: p.poNo, vendor: p.vendor, vendorId: p.vendorId, vendorType: p.vendorType,
     vendorCity: p.vendorCity, vendorState: p.vendorState, site: p.site, date: p.date,
-    age: p.age, ageBucket: _opAgeBucket(p.age), poStatus: p.status,
+    age: p.age, ageBucket: _opAgeBucket(p.age), poStatus: p.status, paymentTerms: p.paymentTerms,
     mrNo: l.mrNo, hsn: l.hsn, lineAmt: l.lineAmt, partNo: l.partNo, partDesc: l.partDesc,
     unit: l.unit, rate: l.rate, qty: l.qty, invoiced: l.invoiced, received: l.received,
     pendingQty: l.pendingQty, pendingAmt: l.pendingAmt, pendingPct: l.pendingPct, status: l.status,
@@ -14817,8 +14820,8 @@ window.openPOColSetDefault = async function(btn) {
 };
 
 // Per-column default widths (px) and which columns wrap their text.
-const _OPENPO_W = { poNo:130, vendor:180, vendorId:90, vendorType:120, vendorCity:110, vendorState:110, site:130, poDate:100, age:75, ageBucket:115, poStatus:120, mrNo:110, partNo:130, partDesc:340, hsn:95, unit:70, rate:95, lineAmt:110, qty:90, invoiced:100, received:95, pendingQty:105, pendingAmt:120, pendingPct:90, status:95, paidTotal:120, unpaidAmt:130, payReqAmt:130, payCount:120, utrList:210, reqIdList:170 };
-const _OPENPO_WRAP = new Set(['partDesc', 'vendor', 'vendorType', 'utrList', 'reqIdList']);
+const _OPENPO_W = { poNo:130, vendor:180, vendorId:90, vendorType:120, vendorCity:110, vendorState:110, site:130, poDate:100, age:75, ageBucket:115, poStatus:120, paymentTerms:150, mrNo:110, partNo:130, partDesc:340, hsn:95, unit:70, rate:95, lineAmt:110, qty:90, invoiced:100, received:95, pendingQty:105, pendingAmt:120, pendingPct:90, status:95, paidTotal:120, unpaidAmt:130, payReqAmt:130, payCount:120, utrList:210, reqIdList:170 };
+const _OPENPO_WRAP = new Set(['partDesc', 'vendor', 'vendorType', 'utrList', 'reqIdList', 'paymentTerms']);
 function _openPOColWGet() { try { const w = JSON.parse(localStorage.getItem('openpo_colw') || '{}'); return (w && typeof w === 'object') ? w : {}; } catch (e) { return {}; } }
 function _openPOColWSet(w) { try { localStorage.setItem('openpo_colw', JSON.stringify(w)); } catch (e) {} }
 
@@ -14901,6 +14904,7 @@ const OPENPO_FILTERS = [
   { key:'vendorCity', label:'Vendor City',    type:'select', src:'vendorCity',  def:false },
   { key:'vendorState',label:'Vendor State',   type:'select', src:'vendorState', def:false },
   { key:'poStatus',   label:'PO Status',      type:'select', src:'poStatus',    def:false },
+  { key:'paymentTerms',label:'Payment Terms', type:'select', src:'paymentTerms',def:false },
   { key:'aging',      label:'Aging',          type:'select', src:'ageBucket',   def:true, opts:_OPENPO_AGING },
   { key:'uom',        label:'UOM',            type:'select', src:'unit',        def:false },
   { key:'partNo',     label:'Part No',        type:'select', src:'partNo',      def:false },
