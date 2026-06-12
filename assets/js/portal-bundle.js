@@ -709,13 +709,51 @@ function updateTableBadge(table) {
   badge.textContent = count + ' record' + (count !== 1 ? 's' : '');
 }
 
+// ════════════════════════════════════════════════════════════════
+//  EVG DESIGN SYSTEM — one base definition per component type, applied
+//  everywhere, customizable per-instance, with an opt-out toggle.
+//
+//  • Change a default here → every instance updates (unless overridden).
+//  • Per-instance override: pass an overrides object to the helper, or set
+//    data-attributes on the element.
+//  • Opt a single instance out entirely: data-evg-defaults="off" on the
+//    element (or any ancestor) → the design system leaves it untouched.
+//
+//  This is the style+behavior layer. Existing bespoke render sites keep
+//  working; they migrate onto these definitions opportunistically.
+// ════════════════════════════════════════════════════════════════
+window.EVG = {
+  table: {
+    wrap: true,            // wrap cell text
+    resize: true,          // drag-to-resize columns (persisted per table)
+    columnManager: true,   // ⚙ Columns: drag reorder + show/hide + set-default
+    gutter: 25,            // px left/right fit-to-screen gutter (desktop)
+    scrollbar: 16,         // px scrollbar thickness
+  },
+  card: {                  // KPI / stat cards
+    radius: 14, pad: '1.1rem 1.2rem', accent: 'var(--g7)', minWidth: 145,
+  },
+  form: {
+    labelPos: 'top', gap: '.7rem', inputRadius: 7,
+  },
+  dashboard: {
+    gridMin: 220, gap: '.85rem', sectionGap: '1.2rem',
+  },
+  // Merge per-instance overrides over a base definition.
+  get(type, overrides) { return Object.assign({}, this[type] || {}, overrides || {}); },
+};
+// True when an element (or an ancestor) opts out of the design system.
+function _evgOptedOut(el) { return !!(el && el.closest && el.closest('[data-evg-defaults="off"]')); }
+
 function applyTableFeatures() {
   _tblEngineEnsureStyles();
   const selector = '#mainContent .emp-table, #mainContent .vpi-tbl, #mainContent .data-table, #mainContent .sites-table';
   document.querySelectorAll(selector).forEach(t => {
+    if (_evgOptedOut(t)) return;                 // data-evg-defaults="off" escape hatch
     makeTableSortable(t);
     wrapTableScroll(t);
-    try { _tblMakeResizable(t); } catch (e) {}
+    if (EVG.table.columnManager) { try { _tblColInit(t); } catch (e) {} }
+    if (EVG.table.resize)        { try { _tblMakeResizable(t); } catch (e) {} }
   });
 }
 
@@ -728,25 +766,60 @@ function applyTableFeatures() {
 // ════════════════════════════════════════════════════════════════
 function _tblEngineEnsureStyles() {
   if (document.getElementById('evg-tbl-engine')) return;
+  const T = EVG.table, C = EVG.card, D = EVG.dashboard;
+  const sb = T.scrollbar, g = T.gutter;
   const s = document.createElement('style');
   s.id = 'evg-tbl-engine';
   s.textContent = `
+    /* ── EVG.table ── */
     #mainContent .tbl-wrap { overflow:auto; }
-    #mainContent .tbl-wrap::-webkit-scrollbar { height:16px; width:16px; }
+    #mainContent .tbl-wrap::-webkit-scrollbar { height:${sb}px; width:${sb}px; }
     #mainContent .tbl-wrap::-webkit-scrollbar-track { background:#eef3f0; border-radius:8px; }
     #mainContent .tbl-wrap::-webkit-scrollbar-thumb { background:#1a6038; border-radius:8px; border:3px solid #eef3f0; }
     #mainContent .tbl-wrap::-webkit-scrollbar-thumb:hover { background:#14502f; }
     #mainContent .tbl-wrap { scrollbar-width:auto; scrollbar-color:#1a6038 #eef3f0; }
     #mainContent .tbl-wrap table th, #mainContent .tbl-wrap table td {
-      white-space:normal; overflow-wrap:break-word; word-break:break-word; vertical-align:top;
+      ${T.wrap ? 'white-space:normal; overflow-wrap:break-word; word-break:break-word;' : ''} vertical-align:top;
     }
     #mainContent .tbl-wrap table.evg-fixed { table-layout:fixed; }
     #mainContent .tbl-wrap table th { position:relative; }
     .evg-rs { position:absolute; top:0; right:0; width:8px; height:100%; cursor:col-resize; user-select:none; z-index:6; }
     .evg-rs:hover { background:rgba(26,96,56,.25); }
-    @media(min-width:1025px){ #mainContent .tbl-outer { margin-inline: calc(25px - 2.2rem); } }
+    @media(min-width:1025px){ #mainContent .tbl-outer { margin-inline: calc(${g}px - 2.2rem); } }
+    /* ── EVG.card (KPI) ── */
+    .evg-kpi { background:var(--surface,#fff); border:1px solid var(--border,#e0ece4); border-radius:${C.radius}px;
+      padding:${C.pad}; display:flex; flex-direction:column; gap:.2rem; position:relative; overflow:hidden; }
+    .evg-kpi::before { content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:${C.accent}; }
+    .evg-kpi[data-click] { cursor:pointer; transition:box-shadow .15s, transform .15s; }
+    .evg-kpi[data-click]:hover { box-shadow:0 8px 22px rgba(0,0,0,.1); transform:translateY(-1px); }
+    .evg-kpi .evg-kpi-val { font-size:1.7rem; font-weight:700; color:var(--g9,#0d3320); line-height:1.1; }
+    .evg-kpi .evg-kpi-lbl { font-size:.8rem; color:var(--txt3,#6b7c74); font-weight:500; }
+    .evg-kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(${C.minWidth}px,1fr)); gap:.85rem; }
+    /* ── EVG.dashboard ── */
+    .evg-dash-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(${D.gridMin}px,1fr)); gap:${D.gap}; }
+    .evg-dash-section { margin-bottom:${D.sectionGap}; }
+    /* ── EVG.form ── */
+    .evg-form label { display:block; font-size:.78rem; font-weight:600; color:var(--txt2,#3a4a42); margin-bottom:.3rem; }
+    .evg-form .evg-field { margin-bottom:${EVG.form.gap}; }
+    .evg-form input, .evg-form select, .evg-form textarea {
+      width:100%; padding:7px 10px; border:1px solid var(--border,#cce3d4); border-radius:${EVG.form.inputRadius}px;
+      font-family:inherit; font-size:.84rem; background:var(--surface2,#f6faf7); color:var(--txt,#1a2b22); }
   `;
   document.head.appendChild(s);
+}
+
+// EVG.card helper — render a standard KPI card from a definition. Future
+// render sites use this instead of bespoke markup so cards stay consistent.
+// def: { icon, value, label, accent?, onclick? }
+function evgKpiCard(def) {
+  const d = EVG.get('card', def);
+  const click = def && def.onclick ? ` data-click="1" onclick="${def.onclick}"` : '';
+  const accent = def && def.accent ? ` style="--g7:${def.accent}"` : '';
+  return `<div class="evg-kpi"${click}${accent}>
+    ${def && def.icon ? `<div style="font-size:1.1rem">${def.icon}</div>` : ''}
+    <div class="evg-kpi-val">${def ? (def.value != null ? def.value : '') : ''}</div>
+    <div class="evg-kpi-lbl">${def ? (def.label || '') : ''}</div>
+  </div>`;
 }
 
 function _tblWidthsAll() { try { return JSON.parse(localStorage.getItem('evg_tbl_widths') || '{}'); } catch (e) { return {}; } }
@@ -763,7 +836,7 @@ function _tblMakeResizable(table) {
   const ths = Array.from(table.querySelectorAll('thead th'));
   if (ths.length < 2) return;
   const widths = ths.map(th => Math.round(th.getBoundingClientRect().width));
-  if (widths.some(w => !w)) return;   // not laid out yet — a later pass will catch it
+  if (widths.every(w => !w)) return;   // table not laid out yet — a later pass will catch it
   table.dataset.evgResize = '1';
 
   const sig = _tblSig(table);
@@ -797,6 +870,169 @@ function _tblMakeResizable(table) {
     th.appendChild(grip);
   });
 }
+
+// ── Universal column manager: drag-and-drop reorder + show/hide + Set-as-default ──
+// Works on simple 1:1 list tables (header count == every row's cell count, no
+// colspan). Order/visibility persist per table: personal localStorage →
+// system default (PortalConfig 'tbl_cols') → natural order.
+function _tblColEligible(table) {
+  if (table.classList.contains('openpo-tbl')) return false;   // has its own chooser
+  const ths = table.querySelectorAll('thead th');
+  if (ths.length < 2) return false;
+  for (const th of ths) if (th.colSpan > 1 || th.rowSpan > 1) return false;
+  const rows = table.querySelectorAll('tbody tr');
+  if (!rows.length) return false;
+  for (const tr of rows) {
+    if (tr.children.length !== ths.length) return false;
+    for (const c of tr.children) if (c.colSpan > 1) return false;
+  }
+  return true;
+}
+function _tblColKeys(ths) {
+  const seen = {};
+  return ths.map(th => {
+    let k = (th.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 24) || 'col';
+    if (seen[k] != null) { seen[k]++; k = k + '#' + seen[k]; } else seen[k] = 0;
+    return k;
+  });
+}
+function _tblColsPersonalAll() { try { return JSON.parse(localStorage.getItem('evg_tbl_cols') || '{}'); } catch (e) { return {}; } }
+function _tblColsPersonalSet(sig, cfg) { const a = _tblColsPersonalAll(); a[sig] = cfg; try { localStorage.setItem('evg_tbl_cols', JSON.stringify(a)); } catch (e) {} }
+function _tblColsResolve(sig, keys) {
+  const personal = _tblColsPersonalAll()[sig];
+  const sys = (typeof pcReadJSON === 'function' ? (pcReadJSON('tbl_cols', {}) || {}) : {})[sig];
+  const base = personal || sys || null;
+  let order = (base && Array.isArray(base.order)) ? base.order.filter(k => keys.includes(k)) : [];
+  keys.forEach(k => { if (!order.includes(k)) order.push(k); });   // append new columns
+  const hidden = (base && Array.isArray(base.hidden)) ? base.hidden.filter(k => keys.includes(k)) : [];
+  return { order, hidden };
+}
+function _tblColApply(table, sig) {
+  const ths = Array.from(table.querySelectorAll('thead th'));
+  const keys = _tblColKeys(ths);
+  const cfg = _tblColsResolve(sig, keys);
+  const idxOf = {}; keys.forEach((k, i) => idxOf[k] = i);
+  const orderIdx = cfg.order.map(k => idxOf[k]).filter(i => i != null);
+  const hidden = new Set(cfg.hidden.map(k => idxOf[k]));
+  const reorder = (row) => {
+    const cells = Array.from(row.children);
+    orderIdx.forEach(i => row.appendChild(cells[i]));      // re-append in desired order
+    cells.forEach((c, i) => { c.style.display = hidden.has(i) ? 'none' : ''; });
+  };
+  const htr = table.querySelector('thead tr'); if (htr) reorder(htr);
+  table.querySelectorAll('tbody tr').forEach(reorder);
+}
+function _tblColInit(table) {
+  if (table.dataset.evgCols) { return; }
+  if (!_tblColEligible(table)) { table.dataset.evgCols = 'skip'; return; }
+  table.dataset.evgCols = '1';
+  const sig = _tblSig(table);
+  table.dataset.evgSig = sig;
+  _tblColApply(table, sig);
+  const outer = table.closest('.tbl-outer');
+  const left = outer && outer.querySelector('.tbl-toolbar-left');
+  if (left && !left.querySelector('.evg-cols-btn')) {
+    const b = document.createElement('button');
+    b.className = 'tbl-csv-btn evg-cols-btn';
+    b.innerHTML = '&#9881; Columns';
+    b.title = 'Reorder / show-hide columns (drag to arrange)';
+    b.onclick = () => tblColPanel(sig);
+    left.appendChild(b);
+  }
+}
+function _tblColTablesFor(sig) {
+  return Array.from(document.querySelectorAll('#mainContent table[data-evg-sig="' + (window.CSS && CSS.escape ? CSS.escape(sig) : sig) + '"]'));
+}
+// Re-apply config to every visible table sharing this signature.
+function _tblColReapply(sig) {
+  Array.from(document.querySelectorAll('#mainContent table[data-evg-cols="1"]')).forEach(t => {
+    if (t.dataset.evgSig === sig) _tblColApply(t, sig);
+  });
+}
+window.tblColPanel = function(sig) {
+  const t = Array.from(document.querySelectorAll('#mainContent table[data-evg-cols="1"]')).find(x => x.dataset.evgSig === sig);
+  if (!t) return;
+  const ths = Array.from(t.querySelectorAll('thead th'));
+  const keys = _tblColKeys(ths);
+  const labelByKey = {}; ths.forEach((th, i) => labelByKey[keys[i]] = (th.textContent || '').trim().replace(/\s+/g, ' ') || keys[i]);
+  const cfg = _tblColsResolve(sig, keys);
+  const hidden = new Set(cfg.hidden);
+  const isAdmin = (typeof _accIsAdmin === 'function' && _accIsAdmin()) || (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin());
+  document.getElementById('evgColModal')?.remove();
+  const rows = cfg.order.map(k => `
+    <li draggable="true" data-k="${k}" class="evg-col-row"
+        style="display:flex;align-items:center;gap:.6rem;padding:.5rem .6rem;border:1px solid var(--border);border-radius:8px;margin-bottom:.4rem;background:var(--surface);cursor:grab">
+      <span style="color:var(--txt3);font-size:1rem">&#8942;&#8942;</span>
+      <label style="display:flex;align-items:center;gap:.5rem;flex:1;cursor:pointer">
+        <input type="checkbox" ${hidden.has(k) ? '' : 'checked'} data-k="${k}" style="width:15px;height:15px;accent-color:var(--g7)">
+        <span style="font-size:.84rem;color:var(--g9);font-weight:600">${labelByKey[k] || k}</span>
+      </label>
+    </li>`).join('');
+  const modal = document.createElement('div');
+  modal.id = 'evgColModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border-radius:14px;max-width:420px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.4)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.2rem;border-bottom:1px solid var(--border)">
+        <h3 style="font-size:.95rem;font-weight:700;color:var(--g9)">&#9881; Arrange Columns</h3>
+        <button onclick="document.getElementById('evgColModal').remove()" style="border:none;background:none;font-size:1.3rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
+      </div>
+      <div style="padding:.5rem 1rem;font-size:.72rem;color:var(--txt3)">Drag to reorder &middot; tick to show / hide</div>
+      <ul id="evgColList" style="list-style:none;margin:0;padding:.4rem 1rem 1rem;overflow:auto">${rows}</ul>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end;padding:.9rem 1.2rem;border-top:1px solid var(--border)">
+        <button onclick="tblColReset('${sig}')" class="btn btn-secondary btn-sm">&#8635; Reset</button>
+        ${isAdmin ? `<button onclick="tblColSetSystemDefault('${sig}',this)" class="btn btn-secondary btn-sm" title="Make this the org-wide default for everyone">&#9733; Set system default</button>` : ''}
+        <button onclick="tblColApplyFromPanel('${sig}')" class="btn btn-primary btn-sm">&#10003; Apply &amp; Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  // HTML5 drag-and-drop reordering
+  const list = modal.querySelector('#evgColList');
+  let dragEl = null;
+  list.querySelectorAll('.evg-col-row').forEach(li => {
+    li.addEventListener('dragstart', () => { dragEl = li; li.style.opacity = '.4'; });
+    li.addEventListener('dragend', () => { dragEl = null; li.style.opacity = '1'; });
+    li.addEventListener('dragover', e => {
+      e.preventDefault();
+      const after = (e.clientY - li.getBoundingClientRect().top) > li.offsetHeight / 2;
+      if (dragEl && dragEl !== li) list.insertBefore(dragEl, after ? li.nextSibling : li);
+    });
+  });
+};
+function _tblColReadPanel(sig) {
+  const list = document.getElementById('evgColList');
+  const order = [], hidden = [];
+  list.querySelectorAll('.evg-col-row').forEach(li => {
+    const k = li.dataset.k; order.push(k);
+    if (!li.querySelector('input[type=checkbox]').checked) hidden.push(k);
+  });
+  return { order, hidden };
+}
+window.tblColApplyFromPanel = function(sig) {
+  const cfg = _tblColReadPanel(sig);
+  _tblColsPersonalSet(sig, cfg);
+  _tblColReapply(sig);
+  document.getElementById('evgColModal')?.remove();
+};
+window.tblColReset = function(sig) {
+  const a = _tblColsPersonalAll(); delete a[sig]; try { localStorage.setItem('evg_tbl_cols', JSON.stringify(a)); } catch (e) {}
+  _tblColReapply(sig);
+  document.getElementById('evgColModal')?.remove();
+};
+window.tblColSetSystemDefault = async function(sig, btn) {
+  const cfg = _tblColReadPanel(sig);
+  _tblColsPersonalSet(sig, cfg);
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  const all = (typeof pcReadJSON === 'function' ? (pcReadJSON('tbl_cols', {}) || {}) : {});
+  all[sig] = cfg;
+  let res = { ok: false };
+  try { res = await pcWriteJSON('tbl_cols', all); } catch (e) { res = { ok: false, message: e.message }; }
+  _tblColReapply(sig);
+  if (btn) { btn.disabled = false; btn.innerHTML = res.ok ? '&#10003; Saved org-wide' : '&#9733; Set system default'; }
+  if (!res.ok) alert('Saved for you, but could not write the org-wide default: ' + (res.message || 'no PortalConfig backend URL set'));
+  else setTimeout(() => document.getElementById('evgColModal')?.remove(), 700);
+};
 
 const applyTableSort = applyTableFeatures;
 
