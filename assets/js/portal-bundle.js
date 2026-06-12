@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.42.0';
-const PORTAL_BUILD    = 510;
-const PORTAL_BUILD_AT = '2026-06-12T07:17:55Z';
+const PORTAL_VERSION  = '3.42.2';
+const PORTAL_BUILD    = 512;
+const PORTAL_BUILD_AT = '2026-06-12T07:35:30Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -815,6 +815,64 @@ function _evgDesignCardHtml() {
     </div>
   </div>`;
 }
+// Config card: org-wide defaults for the Open PO Report (columns, filters, table
+// layout). The live arrangement is set from the report (⚙ Columns / 🔎 Filters →
+// ★ Set as default); this panel writes the current defaults to the PortalConfig
+// sheet so every user inherits them.
+function _openPODefaultsCardHtml() {
+  const isAdmin = (typeof _accIsAdmin === 'function' && _accIsAdmin()) || (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin());
+  const tcfg = _openPOTblCfgGet();
+  const sysCols = (typeof pcReadJSON === 'function') ? pcReadJSON('openpo_cols_default', null)   : null;
+  const sysFilt = (typeof pcReadJSON === 'function') ? pcReadJSON('openpo_filters_default', null) : null;
+  const sysTbl  = (typeof pcReadJSON === 'function') ? pcReadJSON('openpo_tblcfg_default', null)  : null;
+  const lblFor = (arr, reg) => (Array.isArray(arr) && arr.length ? arr : reg.filter(f => f.def).map(f => f.key))
+    .map(k => { const f = reg.find(x => x.key === k) || (typeof _openPORawField === 'function' && _openPORawField(k)); return f ? f.label : k; });
+  const chip = s => `<span style="display:inline-block;padding:.15rem .5rem;margin:.15rem;border-radius:12px;background:var(--surface2);font-size:.72rem;color:var(--txt2)">${s}</span>`;
+  const tag  = on => on ? '<span style="font-size:.68rem;color:var(--g7)">(org default set)</span>' : '<span style="font-size:.68rem;color:var(--txt3)">(compiled default)</span>';
+  const num  = (k, label, unit) => `<label style="display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:var(--txt3)">${label}${unit ? ' (' + unit + ')' : ''}
+    <input type="number" value="${tcfg[k]}" onchange="openPOTblSet('${k}', this.value)" style="width:90px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.82rem;background:var(--surface2)"></label>`;
+  return `<div class="card card-pad" style="margin-bottom:1.2rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem;margin-bottom:.8rem">
+      <div>
+        <h3 style="font-size:.95rem;font-weight:700;color:var(--g9)">&#128275; Open PO Report — defaults</h3>
+        <div style="font-size:.76rem;color:var(--txt3);margin-top:.2rem">Org-wide default columns, filters &amp; table layout. Set the live arrangement from the report (&#9881; Columns / &#128269; Filters &rarr; &#9733; Set as default); this panel saves the current defaults to the PortalConfig sheet.</div>
+      </div>
+      ${isAdmin ? '<button onclick="openPOSaveAllDefaults(this)" class="btn btn-secondary btn-sm" title="Write columns, filters &amp; table settings to PortalConfig (org-wide)">&#9733; Save defaults org-wide</button>' : '<span style="font-size:.72rem;color:var(--txt3)">Admins can save org-wide defaults</span>'}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:.8rem">
+      <div style="border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem;flex:1;min-width:240px">
+        <div style="font-size:.82rem;font-weight:700;color:var(--g9);margin-bottom:.5rem">&#128202; Table settings ${tag(sysTbl)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:.6rem 1.1rem;align-items:flex-end">
+          ${num('widthPct', 'Table width', '%')}${num('rows', 'Rows before scroll')}
+          <label style="display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--txt2);cursor:pointer"><input type="checkbox" ${tcfg.wrapAll ? 'checked' : ''} onchange="openPOTblSet('wrapAll', this.checked)" style="width:15px;height:15px;accent-color:var(--g7)">Wrap all columns</label>
+        </div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem;flex:1;min-width:240px">
+        <div style="font-size:.82rem;font-weight:700;color:var(--g9);margin-bottom:.5rem">&#128203; Default columns ${tag(sysCols)}</div>
+        <div>${lblFor(sysCols, OPENPO_FIELDS).map(chip).join('')}</div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem;flex:1;min-width:240px">
+        <div style="font-size:.82rem;font-weight:700;color:var(--g9);margin-bottom:.5rem">&#128269; Default filters ${tag(sysFilt)}</div>
+        <div>${lblFor(sysFilt, OPENPO_FILTERS).map(chip).join('')}</div>
+      </div>
+    </div>
+  </div>`;
+}
+window.openPOSaveAllDefaults = async function(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  const pick = (lsKey, reg) => { try { const s = JSON.parse(localStorage.getItem(lsKey) || 'null'); if (Array.isArray(s) && s.length) return s; } catch (e) {} return reg.filter(f => f.def).map(f => f.key); };
+  const cols = pick('openpo_cols', OPENPO_FIELDS);
+  const filt = pick('openpo_filters', OPENPO_FILTERS);
+  const tbl  = _openPOTblCfgGet();
+  let ok = true, msg = '';
+  for (const [k, v] of [['openpo_cols_default', cols], ['openpo_filters_default', filt], ['openpo_tblcfg_default', tbl]]) {
+    try { const r = await pcWriteJSON(k, v); if (!r || !r.ok) { ok = false; msg = (r && r.message) || msg; } }
+    catch (e) { ok = false; msg = e.message; }
+  }
+  if (btn) { btn.disabled = false; btn.innerHTML = ok ? '&#10003; Saved org-wide' : '&#9733; Save defaults org-wide'; }
+  if (!ok) alert('Could not save all Open PO defaults: ' + (msg || 'no PortalConfig backend URL set'));
+  else if (typeof _cfgRenderConfig === 'function' && window._cfgActiveTab === 'config') setTimeout(_cfgRenderConfig, 700);
+};
 // True when an element (or an ancestor) opts out of the design system.
 function _evgOptedOut(el) { return !!(el && el.closest && el.closest('[data-evg-defaults="off"]')); }
 
@@ -9762,6 +9820,9 @@ function _cfgRenderConfig() {
     <!-- Design System — default definitions for Table/Card/Dashboard/Form -->
     ${_evgDesignCardHtml()}
 
+    <!-- Open PO Report — org-wide default columns / filters / table layout -->
+    ${_openPODefaultsCardHtml()}
+
     <!-- Scheduled Reports -->
     <div class="card card-pad" style="margin-top:1.2rem" id="schedReportCard">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
@@ -14371,6 +14432,29 @@ const _opPick = (x, keys) => { for (const k of keys) { if (x[k] != null && Strin
 const _opColMap = rows => { const m = {}; if (rows && rows[0]) Object.keys(rows[0]).forEach(k => { const n = _opNorm(k); if (!(n in m)) m[n] = k; }); return m; };
 const _opGet = (r, colMap, candidates) => { for (const c of candidates) { const a = colMap[_opNorm(c)]; if (a != null && r[a] != null && String(r[a]).trim() !== '') return String(r[a]).trim(); } return ''; };
 
+// Merge the StockIN rows that share one PO-line join key into a single record
+// for raw-column display: numeric columns (qty/amount-like) are SUMMED across
+// the matched GRNs, text columns take the first non-empty value.
+const _opNumericStr = s => s !== '' && /^[-+]?[₹\s]*[0-9][0-9,]*(\.[0-9]+)?[\s]*$/.test(String(s).trim());
+function _opMergeStockRows(rows) {
+  if (!rows || !rows.length) return null;
+  if (rows.length === 1) return rows[0];
+  const out = {};
+  const keys = new Set(); rows.forEach(r => Object.keys(r).forEach(k => keys.add(k)));
+  keys.forEach(k => {
+    let sum = 0, hasNum = false, allNumeric = true, first = '';
+    for (const r of rows) {
+      const sv = (r[k] == null ? '' : String(r[k])).trim();
+      if (sv === '') continue;
+      if (first === '') first = sv;
+      if (_opNumericStr(sv)) { sum += parseFloat(sv.replace(/[^0-9.\-]/g, '')) || 0; hasNum = true; }
+      else allNumeric = false;
+    }
+    out[k] = (hasNum && allNumeric) ? sum : first;
+  });
+  return out;
+}
+
 let _openPODiag = { poHeaders: 0, stockRows: 0, stockWithKey: 0, itemRows: 0, matchedLines: 0 };
 
 // Reload BOTH source files fresh: v2_Purchase (PO_Actual + PO_Items_Actual) and
@@ -14461,8 +14545,8 @@ function _openPOCompute(q) {
     if (!pk) return;
     stockWithKey++;
     const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
-    const e = siAgg[key] = siAgg[key] || { grn: 0, inv: 0, n: 0, row: null };
-    if (!e.row) e.row = r;                          // representative raw StockIN row (for raw-column display)
+    const e = siAgg[key] = siAgg[key] || { grn: 0, inv: 0, n: 0, rows: [] };
+    e.rows.push(r);                                 // all matched StockIN rows (merged for raw-column display)
     e.grn += _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
     e.inv += _opNum(_opGet(r, SC, ['Invoice Qty', 'Inv Qty', 'Invoice Quantity']));
     e.n++;
@@ -14480,7 +14564,7 @@ function _openPOCompute(q) {
     if (!cs && !qty) return;
 
     const joinKey = _opNorm(cs) + '||' + _opNorm(part);
-    const m = siAgg[joinKey] || { grn: 0, inv: 0, n: 0 };
+    const m = siAgg[joinKey] || { grn: 0, inv: 0, n: 0, rows: [] };
     if (m.n) matchedLines++;
     const received = m.grn, invoiced = m.inv;
     const rate     = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
@@ -14508,7 +14592,7 @@ function _openPOCompute(q) {
       unit: _opGet(x, IC, ['UOM', 'Unit', 'Units']), qty, rate, invoiced, received,
       pendingQty, pendingAmt, pendingPct,
       status: isOpen ? 'Open' : 'Fulfilled', isOpen,
-      _item: x, _stock: m.row || null,             // raw source rows → dynamic raw columns
+      _item: x, _stock: _opMergeStockRows(m.rows),  // raw source rows → dynamic raw columns (StockIN numerics summed)
     });
   });
 
@@ -14615,12 +14699,12 @@ const OPENPO_FIELDS = [
   { key:'pendingPct',  label:'Pending %',        align:'right', def:true,  fmt:l=>Math.round(l.pendingPct)+'%' },
   { key:'status',      label:'Status',           align:'left',  def:false, fmt:l=>l.status },
   // Payment Requests joined by PO (Order No) → amount paid + UTR / Request IDs.
-  { key:'paidTotal',   label:'Amount Paid',      align:'right', def:false, fmt:l=>l.paidTotal?`<span style="color:#2e7d32;font-weight:700">${_opFmtV(l.paidTotal)}</span>`:'—' },
-  { key:'unpaidAmt',   label:'Unpaid (PO−Paid)', align:'right', def:false, fmt:l=>l.unpaidAmt?`<span style="color:#c62828;font-weight:600">${_opFmtV(l.unpaidAmt)}</span>`:'—' },
+  { key:'paidTotal',   label:'Amount Paid',      align:'right', def:true,  fmt:l=>l.paidTotal?`<span style="color:#2e7d32;font-weight:700">${_opFmtV(l.paidTotal)}</span>`:'—' },
+  { key:'unpaidAmt',   label:'Unpaid (PO−Paid)', align:'right', def:true,  fmt:l=>l.unpaidAmt?`<span style="color:#c62828;font-weight:600">${_opFmtV(l.unpaidAmt)}</span>`:'—' },
   { key:'payReqAmt',   label:'Payment Req Amt',  align:'right', def:false, fmt:l=>l.payReqAmt?_opFmtV(l.payReqAmt):'—' },
   { key:'payCount',    label:'Payment Requests', align:'right', def:false, fmt:l=>l.payCount||'—' },
-  { key:'utrList',     label:'UTR Details',      align:'left',  def:false, fmt:l=>_opEsc(l.utrList)||'—' },
-  { key:'reqIdList',   label:'Request IDs',      align:'left',  def:false, fmt:l=>_opEsc(l.reqIdList)||'—' },
+  { key:'utrList',     label:'UTR Details',      align:'left',  def:true,  fmt:l=>_opEsc(l.utrList)||'—' },
+  { key:'reqIdList',   label:'Request IDs',      align:'left',  def:true,  fmt:l=>_opEsc(l.reqIdList)||'—' },
 ];
 // ── Dynamic raw-column engine ──────────────────────────────────────
 // Beyond the curated fields above, EVERY raw header in PO_Items_Actual
@@ -15016,7 +15100,7 @@ function pstRenderOpenPO(c, q) {
       .openpo-scroll::-webkit-scrollbar-thumb{background:#7fae93;border-radius:8px;border:3px solid #e6efe9}
       .openpo-scroll::-webkit-scrollbar-thumb:hover{background:#5f9678}
       .openpo-tbl th{overflow:hidden;text-overflow:ellipsis;position:relative}
-      .openpo-tbl thead th{position:sticky;top:0;z-index:3;background:#eef5f0}
+      .openpo-tbl thead th{position:sticky;top:0;z-index:3;background:var(--g9);color:#fff}
       .openpo-tbl td{padding:5px 8px}
       .openpo-tbl .op-rs{position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;user-select:none}
       .openpo-tbl .op-rs:hover{background:#7fae93}`;
