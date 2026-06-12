@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.38.0';
-const PORTAL_BUILD    = 506;
-const PORTAL_BUILD_AT = '2026-06-12T06:26:01Z';
+const PORTAL_VERSION  = '3.39.0';
+const PORTAL_BUILD    = 507;
+const PORTAL_BUILD_AT = '2026-06-12T06:30:55Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -14499,9 +14499,13 @@ const OPENPO_FIELDS = [
   { key:'status',      label:'Status',           align:'left',  def:false, fmt:l=>l.status },
 ];
 const _opField = k => OPENPO_FIELDS.find(f => f.key === k);
+// Resolution: personal localStorage → system default (PortalConfig
+// 'openpo_cols_default') → compiled default columns.
 function _openPOColsGet() {
   try { const s = JSON.parse(localStorage.getItem('openpo_cols') || 'null');
     if (Array.isArray(s) && s.length) { const v = s.filter(k => _opField(k)); if (v.length) return v; } } catch (e) {}
+  try { const sys = (typeof pcReadJSON === 'function') ? pcReadJSON('openpo_cols_default', null) : null;
+    if (Array.isArray(sys) && sys.length) { const v = sys.filter(k => _opField(k)); if (v.length) return v; } } catch (e) {}
   return OPENPO_FIELDS.filter(f => f.def).map(f => f.key);
 }
 function _openPOColsSet(arr) { try { localStorage.setItem('openpo_cols', JSON.stringify(arr)); } catch (e) {} }
@@ -14511,6 +14515,30 @@ window.openPOColAdd    = (k) => { const c = _openPOColsGet(); if (!c.includes(k)
 window.openPOColRemove = (k) => { const c = _openPOColsGet().filter(x => x !== k); _openPOColsSet(c.length ? c : ['poNo']); _openPORerender(); };
 window.openPOColMove   = (k, dir) => { const c = _openPOColsGet(); const i = c.indexOf(k), j = i + dir; if (i < 0 || j < 0 || j >= c.length) return; [c[i], c[j]] = [c[j], c[i]]; _openPOColsSet(c); _openPORerender(); };
 window.openPOColReset  = () => { _openPOColsSet(OPENPO_FIELDS.filter(f => f.def).map(f => f.key)); try { localStorage.removeItem('openpo_colw'); } catch (e) {} window._openPOPanel = false; _openPORerender(); };
+// Drag-and-drop reorder (inline handlers, survives the panel re-render).
+window._openPODragK = null;
+window.openPODragStart = (e, k) => { window._openPODragK = k; try { e.dataTransfer.effectAllowed = 'move'; } catch (_) {} };
+window.openPODrop = (e, k) => {
+  if (e && e.preventDefault) e.preventDefault();
+  const from = window._openPODragK; window._openPODragK = null;
+  if (!from || from === k) return;
+  const c = _openPOColsGet(); const fi = c.indexOf(from); let ti = c.indexOf(k);
+  if (fi < 0 || ti < 0) return;
+  c.splice(fi, 1); ti = c.indexOf(k); c.splice(ti, 0, from);
+  _openPOColsSet(c); _openPORerender();
+};
+// ★ Set as default — personal is already saved; admins also write org-wide.
+window.openPOColSetDefault = async function(btn) {
+  const cols = _openPOColsGet();
+  _openPOColsSet(cols);
+  const isAdmin = (typeof _accIsAdmin === 'function' && _accIsAdmin()) || (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin());
+  if (!isAdmin) { if (btn) { btn.textContent = '✓ Saved as your default'; } return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  let res = { ok: false };
+  try { res = await pcWriteJSON('openpo_cols_default', cols); } catch (e) { res = { ok: false, message: e.message }; }
+  if (btn) { btn.disabled = false; btn.innerHTML = res.ok ? '✓ Saved org-wide' : '★ Set as default'; }
+  if (!res.ok) alert('Saved for you, but could not set the org-wide default: ' + (res.message || 'no PortalConfig backend URL set'));
+};
 
 // Per-column default widths (px) and which columns wrap their text.
 const _OPENPO_W = { poNo:130, vendor:180, vendorId:90, vendorType:120, vendorCity:110, vendorState:110, site:130, poDate:100, age:75, ageBucket:115, poStatus:120, mrNo:110, partNo:130, partDesc:340, hsn:95, unit:70, rate:95, lineAmt:110, qty:90, invoiced:100, received:95, pendingQty:105, pendingAmt:120, pendingPct:90, status:95 };
@@ -14550,101 +14578,166 @@ function _opAgeBucket(age) {
   return '90+ days';
 }
 
-// ── Open PO filter engine ──
+// ── Open PO filter engine — field-driven & user-customizable ──
+//  OPENPO_FILTERS lists every filterable field. Users choose which to show
+//  (⚙ Choose filters), drag to arrange, and ★ Set as default (personal
+//  localStorage 'openpo_filters'; admins org-wide via PortalConfig
+//  'openpo_filters_default'). Add more any time from the chooser.
+const _OPENPO_AGING = ['0–7 days','8–15 days','16–30 days','31–60 days','61–90 days','90+ days'];
+const OPENPO_FILTERS = [
+  { key:'q',          label:'Search',         type:'text',      def:true },
+  { key:'site',       label:'Site',           type:'select', src:'site',        def:true },
+  { key:'vendor',     label:'Vendor',         type:'select', src:'vendor',      def:true },
+  { key:'vendorType', label:'Vendor Type',    type:'select', src:'vendorType',  def:true },
+  { key:'vendorCity', label:'Vendor City',    type:'select', src:'vendorCity',  def:false },
+  { key:'vendorState',label:'Vendor State',   type:'select', src:'vendorState', def:false },
+  { key:'poStatus',   label:'PO Status',      type:'select', src:'poStatus',    def:false },
+  { key:'aging',      label:'Aging',          type:'select', src:'ageBucket',   def:true, opts:_OPENPO_AGING },
+  { key:'uom',        label:'UOM',            type:'select', src:'unit',        def:false },
+  { key:'partNo',     label:'Part No',        type:'select', src:'partNo',      def:false },
+  { key:'hsn',        label:'HSN',            type:'select', src:'hsn',         def:false },
+  { key:'mrNo',       label:'MR No',          type:'select', src:'mrNo',        def:false },
+  { key:'minPct',     label:'Pending % ≥',    type:'min',    cmp:'pendingPct',  def:true },
+  { key:'minQty',     label:'Pending Qty ≥',  type:'min',    cmp:'pendingQty',  def:false },
+  { key:'minAmt',     label:'Pending Amt ≥',  type:'min',    cmp:'pendingAmt',  def:true },
+  { key:'minRate',    label:'Rate ≥',         type:'min',    cmp:'rate',        def:false },
+  { key:'dateRange',  label:'PO Date',        type:'daterange',                 def:false },
+];
 function _openPOFiltersGet() { return (window._openPOFilters = window._openPOFilters || {}); }
 function _openPOActiveFilterCount() { const f = _openPOFiltersGet(); return Object.keys(f).filter(k => String(f[k] ?? '').trim() !== '').length; }
-window.openPOFilterSet   = (k, v) => { _openPOFiltersGet()[k] = v; _openPORerender(); };
-window.openPOFilterClear = () => { window._openPOFilters = {}; _openPORerender(); };
-window.openPOFilterPanel = () => { window._openPOFiltPanel = !window._openPOFiltPanel; _openPORerender(); };
+// Which filter FIELDS are shown: personal → system default → compiled default.
+function _openPOFilterFieldsGet() {
+  const ok = a => Array.isArray(a) && a.length ? a.filter(k => OPENPO_FILTERS.find(x => x.key === k)) : null;
+  try { const v = ok(JSON.parse(localStorage.getItem('openpo_filters') || 'null')); if (v && v.length) return v; } catch (e) {}
+  try { const sys = (typeof pcReadJSON === 'function') ? pcReadJSON('openpo_filters_default', null) : null; const v = ok(sys); if (v && v.length) return v; } catch (e) {}
+  return OPENPO_FILTERS.filter(d => d.def).map(d => d.key);
+}
+function _openPOFilterFieldsSet(arr) { try { localStorage.setItem('openpo_filters', JSON.stringify(arr)); } catch (e) {} }
+window.openPOFilterSet     = (k, v) => { _openPOFiltersGet()[k] = v; _openPORerender(); };
+window.openPOFilterClear   = () => { window._openPOFilters = {}; _openPORerender(); };
+window.openPOFilterPanel   = () => { window._openPOFiltPanel = !window._openPOFiltPanel; _openPORerender(); };
+window.openPOFilterChooser = () => { window._openPOFiltChooser = !window._openPOFiltChooser; _openPORerender(); };
+window.openPOFilterField   = (k, on) => {
+  let a = _openPOFilterFieldsGet().slice();
+  if (on) { if (!a.includes(k)) a.push(k); }
+  else { a = a.filter(x => x !== k); if (window._openPOFilters) { delete window._openPOFilters[k]; if (k === 'dateRange') { delete window._openPOFilters.dateFrom; delete window._openPOFilters.dateTo; } } }
+  _openPOFilterFieldsSet(a); _openPORerender();
+};
+window._openPOFiltDragK = null;
+window.openPOFiltDragStart = (e, k) => { window._openPOFiltDragK = k; try { e.dataTransfer.effectAllowed = 'move'; } catch (_) {} };
+window.openPOFiltDrop = (e, k) => {
+  if (e && e.preventDefault) e.preventDefault();
+  const from = window._openPOFiltDragK; window._openPOFiltDragK = null;
+  if (!from || from === k) return;
+  const a = _openPOFilterFieldsGet().slice(); const fi = a.indexOf(from); if (fi < 0) return;
+  a.splice(fi, 1); const ti = a.indexOf(k); a.splice(ti < 0 ? a.length : ti, 0, from);
+  _openPOFilterFieldsSet(a); _openPORerender();
+};
+window.openPOFilterSetDefault = async function(btn) {
+  const a = _openPOFilterFieldsGet(); _openPOFilterFieldsSet(a);
+  const isAdmin = (typeof _accIsAdmin === 'function' && _accIsAdmin()) || (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin());
+  if (!isAdmin) { if (btn) btn.textContent = '✓ Saved as your default'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  let res = { ok: false };
+  try { res = await pcWriteJSON('openpo_filters_default', a); } catch (e) { res = { ok: false, message: e.message }; }
+  if (btn) { btn.disabled = false; btn.innerHTML = res.ok ? '✓ Saved org-wide' : '★ Set as default'; }
+  if (!res.ok) alert('Saved for you, but could not set the org-wide default: ' + (res.message || 'no PortalConfig backend URL set'));
+};
 
 function _openPOApplyFilters(flat) {
   const f = _openPOFiltersGet();
-  const q = (f.q || '').toLowerCase().trim();
-  const minPct = f.minPct !== '' && f.minPct != null ? parseFloat(f.minPct) : null;
-  const minAmt = f.minAmt !== '' && f.minAmt != null ? parseFloat(f.minAmt) : null;
-  const minQty = f.minQty !== '' && f.minQty != null ? parseFloat(f.minQty) : null;
-  const dFrom  = f.dateFrom ? new Date(f.dateFrom + 'T00:00:00') : null;
-  const dTo    = f.dateTo   ? new Date(f.dateTo + 'T23:59:59') : null;
+  const active = _openPOFilterFieldsGet();
+  const dFrom = f.dateFrom ? new Date(f.dateFrom + 'T00:00:00') : null;
+  const dTo   = f.dateTo   ? new Date(f.dateTo + 'T23:59:59') : null;
   return flat.filter(l => {
-    if (q && !(`${l.poNo} ${l.vendor} ${l.vendorId} ${l.partNo} ${l.partDesc} ${l.mrNo} ${l.hsn} ${l.site}`.toLowerCase().includes(q))) return false;
-    if (f.vendor && l.vendor !== f.vendor) return false;
-    if (f.vendorType && l.vendorType !== f.vendorType) return false;
-    if (f.site && l.site !== f.site) return false;
-    if (f.poStatus && l.poStatus !== f.poStatus) return false;
-    if (f.aging && l.ageBucket !== f.aging) return false;
-    if (f.uom && l.unit !== f.uom) return false;
-    if (minPct != null && !(l.pendingPct >= minPct)) return false;
-    if (minAmt != null && !(l.pendingAmt >= minAmt)) return false;
-    if (minQty != null && !(l.pendingQty >= minQty)) return false;
-    if (dFrom || dTo) {
-      const d = (typeof parsePODate === 'function') ? parsePODate(l.date) : null;
-      if (!d) return false;
-      if (dFrom && d < dFrom) return false;
-      if (dTo && d > dTo) return false;
+    for (const key of active) {
+      const def = OPENPO_FILTERS.find(x => x.key === key); if (!def) continue;
+      if (def.type === 'text') {
+        const q = (f[key] || '').toLowerCase().trim();
+        if (q && !(`${l.poNo} ${l.vendor} ${l.vendorId} ${l.partNo} ${l.partDesc} ${l.mrNo} ${l.hsn} ${l.site}`.toLowerCase().includes(q))) return false;
+      } else if (def.type === 'select') {
+        const v = f[key]; if (v && String(l[def.src] ?? '') !== String(v)) return false;
+      } else if (def.type === 'min') {
+        const v = (f[key] !== '' && f[key] != null) ? parseFloat(f[key]) : null;
+        if (v != null && !isNaN(v) && !(parseFloat(l[def.cmp] || 0) >= v)) return false;
+      } else if (def.type === 'daterange') {
+        if (dFrom || dTo) { const d = (typeof parsePODate === 'function') ? parsePODate(l.date) : null; if (!d) return false; if (dFrom && d < dFrom) return false; if (dTo && d > dTo) return false; }
+      }
     }
     return true;
   });
 }
 
+function _openPOFilterChooserHtml() {
+  const active = _openPOFilterFieldsGet();
+  const rows = OPENPO_FILTERS.map(def => {
+    const on = active.includes(def.key);
+    return `<div ${on ? `draggable="true" ondragstart="openPOFiltDragStart(event,'${def.key}')" ondragover="event.preventDefault()" ondrop="openPOFiltDrop(event,'${def.key}')"` : ''}
+      style="display:flex;align-items:center;gap:.45rem;padding:.3rem .5rem;border:1px solid #e0ece4;border-radius:6px;background:#fff;margin-bottom:.3rem;${on ? 'cursor:grab' : ''}">
+      ${on ? '<span style="color:#9bb3a6">⋮⋮</span>' : '<span style="width:13px;display:inline-block"></span>'}
+      <label style="flex:1;display:flex;align-items:center;gap:.4rem;font-size:.78rem;cursor:pointer">
+        <input type="checkbox" ${on ? 'checked' : ''} onchange="openPOFilterField('${def.key}',this.checked)" style="accent-color:var(--g7)">${def.label}</label>
+    </div>`;
+  }).join('');
+  return `<div style="border:1px dashed #cce3d4;border-radius:8px;padding:.7rem;margin-bottom:.7rem;background:#fff">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.45rem">
+      <b style="font-size:.76rem">Choose &amp; arrange filters — drag ⋮⋮ to order</b>
+      <button onclick="openPOFilterSetDefault(this)" class="csv-btn" title="Make this filter set your default (admins: org-wide)">★ Set as default</button>
+    </div>
+    ${rows}
+  </div>`;
+}
+
 function _openPOFilterBarHtml(allFlat) {
   const f = _openPOFiltersGet();
+  const active = _openPOFilterFieldsGet();
   const uniq = key => [...new Set(allFlat.map(r => r[key]).filter(v => v != null && String(v).trim() !== ''))].sort();
-  const sel = (k, label, opts) => `
-    <label style="display:flex;flex-direction:column;gap:.15rem;font-size:.66rem;color:var(--txt3);text-transform:uppercase">${label}
-      <select onchange="openPOFilterSet('${k}', this.value)" style="padding:.34rem .5rem;border:1.5px solid #cce3d4;border-radius:7px;font-size:.78rem;font-family:inherit;background:#fff;outline:none;min-width:120px">
-        <option value="">All</option>
-        ${opts.map(o => `<option value="${_opEsc(o)}" ${f[k] === o ? 'selected' : ''}>${_opEsc(o)}</option>`).join('')}
-      </select></label>`;
-  const num = (k, label, ph) => `
-    <label style="display:flex;flex-direction:column;gap:.15rem;font-size:.66rem;color:var(--txt3);text-transform:uppercase">${label}
-      <input type="number" value="${f[k] ?? ''}" placeholder="${ph}" oninput="openPOFilterSet('${k}', this.value)" style="width:100px;padding:.34rem .5rem;border:1.5px solid #cce3d4;border-radius:7px;font-size:.78rem;font-family:inherit;outline:none"></label>`;
-  const dat = (k, label) => `
-    <label style="display:flex;flex-direction:column;gap:.15rem;font-size:.66rem;color:var(--txt3);text-transform:uppercase">${label}
-      <input type="date" value="${f[k] ?? ''}" onchange="openPOFilterSet('${k}', this.value)" style="padding:.3rem .5rem;border:1.5px solid #cce3d4;border-radius:7px;font-size:.76rem;font-family:inherit;outline:none"></label>`;
-  const AGING = ['0–7 days','8–15 days','16–30 days','31–60 days','61–90 days','90+ days'];
+  const fieldHtml = (def) => {
+    if (def.type === 'text') return `<label class="opf-l">${def.label}<input type="text" value="${_opEsc(f[def.key] || '')}" placeholder="PO / vendor / part / MR / HSN" oninput="openPOFilterSet('${def.key}', this.value)" class="opf-i" style="min-width:200px"></label>`;
+    if (def.type === 'select') { const opts = def.opts || uniq(def.src); return `<label class="opf-l">${def.label}<select onchange="openPOFilterSet('${def.key}', this.value)" class="opf-i" style="min-width:120px"><option value="">All</option>${opts.map(o => `<option value="${_opEsc(o)}" ${f[def.key] === o ? 'selected' : ''}>${_opEsc(o)}</option>`).join('')}</select></label>`; }
+    if (def.type === 'min') return `<label class="opf-l">${def.label}<input type="number" value="${f[def.key] ?? ''}" oninput="openPOFilterSet('${def.key}', this.value)" class="opf-i" style="width:100px"></label>`;
+    if (def.type === 'daterange') return `<label class="opf-l">${def.label} from<input type="date" value="${f.dateFrom ?? ''}" onchange="openPOFilterSet('dateFrom', this.value)" class="opf-i"></label><label class="opf-l">${def.label} to<input type="date" value="${f.dateTo ?? ''}" onchange="openPOFilterSet('dateTo', this.value)" class="opf-i"></label>`;
+    return '';
+  };
+  const inputs = active.map(k => { const def = OPENPO_FILTERS.find(x => x.key === k); return def ? fieldHtml(def) : ''; }).join('');
   return `<div style="border:1px solid #cce3d4;border-radius:10px;padding:.8rem;margin-bottom:.8rem;background:#f6faf7">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem">
+    <style>.opf-l{display:flex;flex-direction:column;gap:.15rem;font-size:.66rem;color:var(--txt3);text-transform:uppercase}.opf-i{padding:.34rem .5rem;border:1.5px solid #cce3d4;border-radius:7px;font-size:.78rem;font-family:inherit;background:#fff;outline:none}</style>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem;flex-wrap:wrap;gap:.4rem">
       <b style="font-size:.82rem">Filters</b>
-      <div><button onclick="openPOFilterClear()" class="csv-btn">↺ Clear all</button>
-      <button onclick="openPOFilterPanel()" class="csv-btn">✓ Done</button></div>
+      <div style="display:flex;gap:.3rem;flex-wrap:wrap">
+        <button onclick="openPOFilterChooser()" class="csv-btn">⚙ Choose filters</button>
+        <button onclick="openPOFilterClear()" class="csv-btn">↺ Clear all</button>
+        <button onclick="openPOFilterPanel()" class="csv-btn">✓ Done</button>
+      </div>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:flex-end">
-      <label style="display:flex;flex-direction:column;gap:.15rem;font-size:.66rem;color:var(--txt3);text-transform:uppercase">Search
-        <input type="text" value="${_opEsc(f.q || '')}" placeholder="PO / vendor / part / MR / HSN" oninput="openPOFilterSet('q', this.value)" style="min-width:200px;padding:.34rem .5rem;border:1.5px solid #cce3d4;border-radius:7px;font-size:.78rem;font-family:inherit;outline:none"></label>
-      ${sel('vendor', 'Vendor', uniq('vendor'))}
-      ${sel('vendorType', 'Vendor Type', uniq('vendorType'))}
-      ${sel('site', 'Site', uniq('site'))}
-      ${sel('poStatus', 'PO Status', uniq('poStatus'))}
-      ${sel('uom', 'UOM', uniq('unit'))}
-      ${sel('aging', 'Aging', AGING)}
-      ${num('minPct', 'Pending % ≥', '%')}
-      ${num('minQty', 'Pending Qty ≥', 'qty')}
-      ${num('minAmt', 'Pending Amt ≥', '₹')}
-      ${dat('dateFrom', 'PO Date from')}
-      ${dat('dateTo', 'PO Date to')}
-    </div>
+    ${window._openPOFiltChooser ? _openPOFilterChooserHtml() : ''}
+    <div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:flex-end">${inputs}</div>
   </div>`;
 }
 
 function _openPOColPanelHtml() {
   const cols = _openPOColsGet();
-  const shown = cols.map((k, i) => { const f = _opField(k); if (!f) return '';
-    return `<div style="display:flex;align-items:center;gap:.4rem;padding:.25rem .4rem;border:1px solid #e0ece4;border-radius:6px;background:#fff;margin-bottom:.3rem">
+  const shown = cols.map((k) => { const f = _opField(k); if (!f) return '';
+    return `<div draggable="true" data-k="${k}"
+      ondragstart="openPODragStart(event,'${k}')" ondragover="event.preventDefault()" ondrop="openPODrop(event,'${k}')"
+      style="display:flex;align-items:center;gap:.45rem;padding:.35rem .5rem;border:1px solid #e0ece4;border-radius:6px;background:#fff;margin-bottom:.3rem;cursor:grab">
+      <span style="color:#9bb3a6;font-size:.95rem">⋮⋮</span>
       <span style="flex:1;font-size:.78rem">${f.label}</span>
-      <button onclick="openPOColMove('${k}',-1)" ${i===0?'disabled':''} style="border:none;background:none;cursor:pointer;font-size:.85rem;${i===0?'opacity:.3':''}">↑</button>
-      <button onclick="openPOColMove('${k}',1)" ${i===cols.length-1?'disabled':''} style="border:none;background:none;cursor:pointer;font-size:.85rem;${i===cols.length-1?'opacity:.3':''}">↓</button>
       <button onclick="openPOColRemove('${k}')" title="Remove" style="border:none;background:none;cursor:pointer;color:#c62828;font-weight:700">✕</button>
     </div>`; }).join('');
   const available = OPENPO_FIELDS.filter(f => !cols.includes(f.key)).map(f =>
     `<button onclick="openPOColAdd('${f.key}')" class="csv-btn" style="margin:0 .3rem .3rem 0">+ ${f.label}</button>`).join('') || '<span style="font-size:.76rem;color:var(--txt3)">All fields are shown.</span>';
   return `<div style="border:1px solid #cce3d4;border-radius:10px;padding:.8rem;margin-bottom:.8rem;background:#f6faf7">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:.4rem">
       <b style="font-size:.82rem">Arrange columns</b>
-      <div><button onclick="openPOColReset()" class="csv-btn">↺ Reset</button>
-      <button onclick="openPOColPanel()" class="csv-btn">✓ Done</button></div>
+      <div style="display:flex;gap:.3rem;flex-wrap:wrap">
+        <button onclick="openPOColSetDefault(this)" class="csv-btn" title="Make this column layout your default (admins: org-wide)">★ Set as default</button>
+        <button onclick="openPOColReset()" class="csv-btn">↺ Reset</button>
+        <button onclick="openPOColPanel()" class="csv-btn">✓ Done</button>
+      </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
-      <div><div style="font-size:.7rem;text-transform:uppercase;color:var(--txt3);margin-bottom:.35rem">Shown (drag order with ↑↓)</div>${shown}</div>
+      <div><div style="font-size:.7rem;text-transform:uppercase;color:var(--txt3);margin-bottom:.35rem">Shown — drag ⋮⋮ to reorder</div>${shown}</div>
       <div><div style="font-size:.7rem;text-transform:uppercase;color:var(--txt3);margin-bottom:.35rem">Add a field</div>${available}</div>
     </div>
   </div>`;
