@@ -17694,6 +17694,9 @@ function startClock() {
 //  CLOSE SIDEBAR ON OUTSIDE CLICK
 // ══════════════════════════════════════════════════
 document.addEventListener('click', (e) => {
+  // A drill-down tap re-renders the sidebar and detaches its own target; that
+  // would look like an "outside" click here, so ignore removed targets.
+  if (e.target && e.target.isConnected === false) return;
   if (STATE.sidebarOpen &&
     !document.getElementById('sidebar').contains(e.target) &&
     !document.getElementById('hamburger').contains(e.target)) {
