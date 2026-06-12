@@ -7860,6 +7860,7 @@ const MODULE_REGISTRY = [
 
   // ── Reports ───────────────────────────────────────────────────
   { route:'reports',           label:'Reports',                section:'Reports',          defStatus:'live', defRoles:['md','hr','purchase','accounts','dept_head'] },
+  { route:'data-hub',          label:'Data Hub',               section:'Reports',          defStatus:'live', defRoles:['md','hr','purchase','accounts','dept_head'] },
 
   // ── Quick Access ──────────────────────────────────────────────
   { route:'rewards',           label:'Rewards & Wall',         section:'Quick Access',     defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
