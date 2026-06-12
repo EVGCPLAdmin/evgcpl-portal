@@ -724,9 +724,11 @@ function updateTableBadge(table) {
 // ════════════════════════════════════════════════════════════════
 window.EVG = {
   table: {
-    wrap: true,            // wrap cell text
+    wrap: true,            // wrap cell text in every column
     resize: true,          // drag-to-resize columns (persisted per table)
     columnManager: true,   // ⚙ Columns: drag reorder + show/hide + set-default
+    widthPct: 100,         // table block width as % of the content area
+    rows: 0,               // rows before vertical scroll (0 = show all)
     gutter: 25,            // px left/right fit-to-screen gutter (desktop)
     scrollbar: 16,         // px scrollbar thickness
   },
@@ -808,7 +810,7 @@ function _evgDesignCardHtml() {
       </div>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:.8rem">
-      ${group('&#128202; Table', tog('table', 'wrap', 'Wrap cell text') + tog('table', 'resize', 'Resizable columns') + tog('table', 'columnManager', 'Column manager') + num('table', 'gutter', 'Side gutter', 'px') + num('table', 'scrollbar', 'Scrollbar', 'px'))}
+      ${group('&#128202; Table', tog('table', 'wrap', 'Wrap text for all columns') + tog('table', 'resize', 'Resizeable column') + tog('table', 'columnManager', 'Column manager') + num('table', 'widthPct', 'Table width', '%') + num('table', 'rows', 'Rows before scroll'))}
       ${group('&#127183; KPI Card', num('card', 'radius', 'Corner radius', 'px') + num('card', 'minWidth', 'Min width', 'px') + txt('card', 'accent', 'Accent colour'))}
       ${group('&#128208; Dashboard', num('dashboard', 'gridMin', 'Grid min', 'px') + txt('dashboard', 'gap', 'Card gap') + txt('dashboard', 'sectionGap', 'Section gap'))}
       ${group('&#128221; Form', num('form', 'inputRadius', 'Input radius', 'px') + txt('form', 'gap', 'Field gap') + txt('form', 'labelPos', 'Label position'))}
@@ -899,11 +901,15 @@ function _tblEngineEnsureStyles() {
   if (document.getElementById('evg-tbl-engine')) return;
   const T = EVG.table, C = EVG.card, D = EVG.dashboard;
   const sb = T.scrollbar, g = T.gutter;
+  const wpct = Math.min(100, Math.max(20, parseInt(T.widthPct, 10) || 100));
+  const rcap = Math.max(0, parseInt(T.rows, 10) || 0);
+  const rowH = T.wrap ? 40 : 32;
   const s = document.createElement('style');
   s.id = 'evg-tbl-engine';
   s.textContent = `
     /* ── EVG.table ── */
-    #mainContent .tbl-wrap { overflow:auto; }
+    #mainContent .tbl-wrap { overflow:auto; ${rcap > 0 ? `max-height:${Math.round(46 + rcap * rowH)}px;` : ''} }
+    ${wpct < 100 ? `#mainContent .tbl-outer { max-width:${wpct}%; }` : ''}
     #mainContent .tbl-wrap::-webkit-scrollbar { height:${sb}px; width:${sb}px; }
     #mainContent .tbl-wrap::-webkit-scrollbar-track { background:#eef3f0; border-radius:8px; }
     #mainContent .tbl-wrap::-webkit-scrollbar-thumb { background:#1a6038; border-radius:8px; border:3px solid #eef3f0; }
@@ -913,7 +919,8 @@ function _tblEngineEnsureStyles() {
       ${T.wrap ? 'white-space:normal; overflow-wrap:break-word; word-break:break-word;' : ''} vertical-align:top;
     }
     #mainContent .tbl-wrap table.evg-fixed { table-layout:fixed; }
-    #mainContent .tbl-wrap table th { position:relative; }
+    /* Sticky header so it stays visible when the body scrolls (row cap) */
+    #mainContent .tbl-wrap table th { position:sticky; top:0; z-index:5; }
     .evg-rs { position:absolute; top:0; right:0; width:8px; height:100%; cursor:col-resize; user-select:none; z-index:6; }
     .evg-rs:hover { background:rgba(26,96,56,.25); }
     @media(min-width:1025px){ #mainContent .tbl-outer { margin-inline: calc(${g}px - 2.2rem); } }
@@ -8418,6 +8425,11 @@ const MODULE_REGISTRY = [
   { route:'scm-vendor',        label:'Purchase · Top Vendors',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'mrs',               label:'MRS',                    section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores',            label:'Stores',                 section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'stores-stockin',    label:'Stores · Stock IN',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'stores-siraw',      label:'Stores · StockIN Table', section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'stores-grn',        label:'Stores · GRN Register',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'stores-openpo',     label:'Stores · Open POs',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'stores-levels',     label:'Stores · Stock Levels',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'vendor',            label:'Vendor Portal',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts','dept_head'] },
   { route:'subcontractor',     label:'Subcontractor Portal',   section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
   { route:'tendering',         label:'Tendering',              section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
@@ -15290,7 +15302,7 @@ function pstRenderOpenPO(c, q) {
   ${window._openPOFiltPanel ? _openPOFilterBarHtml(allFlat) : ''}
   ${window._openPOPanel ? _openPOColPanelHtml() : ''}
   <div style="font-size:.7rem;color:var(--txt3);margin-bottom:.3rem">↔ Drag a column's right edge to resize · table width, rows-before-scroll &amp; text-wrap are in ⚙ Columns → Default table settings</div>
-  <div class="openpo-scroll" style="overflow:auto;border-radius:10px;border:1px solid #e0ece4;width:${tcfg.widthPct}%;max-width:100%${maxH ? `;max-height:${maxH}px` : ''}">
+  <div class="openpo-scroll" data-evg-defaults="off" style="overflow:auto;border-radius:10px;border:1px solid #e0ece4;width:${tcfg.widthPct}%;max-width:100%${maxH ? `;max-height:${maxH}px` : ''}">
     <table class="vpi-tbl openpo-tbl" style="table-layout:fixed;width:${totalW}px">
       ${colgroup}
       <thead><tr>${thead}</tr></thead>
