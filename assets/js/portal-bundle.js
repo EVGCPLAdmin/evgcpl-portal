@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.53.2';
-const PORTAL_BUILD    = 538;
-const PORTAL_BUILD_AT = '2026-06-12T19:31:29Z';
+const PORTAL_VERSION  = '3.54.0';
+const PORTAL_BUILD    = 539;
+const PORTAL_BUILD_AT = '2026-06-12T19:48:30Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4342,6 +4342,18 @@ function _regKV(pairs) {
     pairs.map(([l, v]) => `<div style="background:var(--surface1);border:1px solid var(--border);border-radius:8px;padding:.5rem .7rem"><div style="font-size:.62rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">${_mdpEsc(l)}</div><div style="font-size:.82rem;font-weight:600;color:var(--txt);word-break:break-word">${(v == null || v === '') ? '—' : _mdpEsc(String(v))}</div></div>`).join('') +
     `</div>`;
 }
+// Compact themed table for detail modals. `rowsHtml` is a pre-built run of <tr>…
+// (cells already styled). Numeric-looking headers are right-aligned.
+function _regTbl(headers, rowsHtml) {
+  const esc = _mdpEsc;
+  const th = headers.map(h => {
+    const right = /qty|rate|amt|amount|total|value|tax|%|paid|net|price/i.test(h);
+    return `<th style="padding:6px 8px;text-align:${right ? 'right' : 'left'};font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#fff;background:var(--g9);white-space:nowrap;position:sticky;top:0;z-index:1">${esc(h)}</th>`;
+  }).join('');
+  return `<div style="overflow:auto;border:1px solid var(--border);border-radius:9px;margin-bottom:1.1rem">
+    <table style="width:100%;border-collapse:collapse;font-size:.78rem">
+      <thead><tr>${th}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+}
 const _regINR = n => '₹' + Math.round(n).toLocaleString('en-IN');
 // Drive helpers — extract a file id and build an embeddable /preview url.
 function _regDriveId(u) { if (!u) return ''; u = String(u); let m = u.match(/\/d\/([-\w]{20,})/) || u.match(/[?&]id=([-\w]{20,})/) || u.match(/([-\w]{25,})/); return m ? m[1] : ''; }
@@ -4439,6 +4451,7 @@ function _poRegRows() {
 // items, totals, terms, quote attachments). Quotes are referenced by the
 // PO_Actual UUID. No print/letterhead: AppSheet owns the printable PO.
 window._poOpenDetail = function(poNo) {
+ try {
   const esc = _mdpEsc, inr = _regINR, num = _opNum;
   const HC = _opColMap(_openPOHeaders), IC = _opColMap(_openPOItems), SC = _opColMap(_openPOStock);
   const K = _opPO(poNo);
@@ -4447,6 +4460,18 @@ window._poOpenDetail = function(poNo) {
   const items = _openPOItems.filter(x => _opPO(_opGet(x, IC, ['PO No', 'Order No'])) === K);
   const siAgg = {};
   _openPOStock.forEach(r => { const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey'])); if (!pk) return; const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description'])); siAgg[key] = (siAgg[key] || 0) + _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty'])); });
+
+  // Goods received (GRN) — every StockIN receipt booked against this PO, with
+  // its GRN No (StockIN ColAA) and invoice number so the receipt is unambiguous.
+  const grnMap = _siGRNMapBuild();
+  const grnRows = _openPOStock
+    .filter(r => _opPO(_opGet(r, SC, ['PO No', 'PO No (Key)'])) === K)
+    .map(r => {
+      const g = c => _opGet(r, SC, c);
+      return { grn: _siGRNResolve(r, SC, grnMap), date: _mdpFmtDate(g(['Received On (At)', 'Received On'])),
+        inv: g(['Invoice No / ST No', 'Invoice No']), part: g(['Part Details', 'Part Description']),
+        qty: g(['GRN Qty', 'GRN Quantity', 'Received Qty']) };
+    });
 
   // Summary
   const sumPairs = [
@@ -4512,9 +4537,23 @@ window._poOpenDetail = function(poNo) {
     .map((c, i) => ({ url: G([c]), label: i === 0 ? 'Quote / Attachment' : 'Attachment ' + (i + 1) })).filter(o => o.url);
   const H = t => `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">${t}</h4>`;
 
+  const grnSection = grnRows.length ? (H('&#128230; Goods Received (GRN) &mdash; ' + grnRows.length) + _regTbl(
+    ['GRN No', 'Received On', 'Invoice No', 'Part', 'GRN Qty'],
+    grnRows.map(x => {
+      const td = 'padding:5px 8px';
+      return `<tr>
+        <td style="${td};font-weight:600;color:var(--g7);white-space:nowrap">${esc(x.grn) || '<span style="color:var(--txt3);font-style:italic">Pending</span>'}</td>
+        <td style="${td};white-space:nowrap">${x.date || '—'}</td>
+        <td style="${td}">${esc(x.inv) || '—'}</td>
+        <td style="${td}">${esc(x.part) || '—'}</td>
+        <td style="${td};text-align:right">${esc(String(x.qty)) || '—'}</td></tr>`;
+    }).join('')
+  )) : '';
+
   const body = _regKV(sumPairs)
     + H('Line Items (' + items.length + ')')
     + (items.length ? _regTbl(['MR ID', 'Description', 'HSN', 'UOM', 'Qty', 'Unit Rate', 'Tax %', 'Tax Amt', 'Total'], itemRows) : '<div style="color:var(--txt3);font-size:.8rem;margin-bottom:1rem">No line items.</div>')
+    + grnSection
     + totals
     + (inWords ? `<div style="font-size:.8rem;color:var(--txt2);margin:-.4rem 0 1rem"><b>In words:</b> ${esc(inWords)}</div>` : '')
     + (termPairs.length ? H('Terms') + _regKV(termPairs) : '')
@@ -4523,6 +4562,11 @@ window._poOpenDetail = function(poNo) {
 
   _regOpenModal('Purchase Order · ' + esc(poNo), body);
   _poLoadAttachments(G(['UUID']), directUrls);
+ } catch (e) {
+  console.error('PO detail render failed', e);
+  _regOpenModal('Purchase Order · ' + _mdpEsc(String(poNo || '')),
+    '<div style="color:var(--danger);padding:1rem;font-size:.85rem">Could not render this PO &mdash; ' + _mdpEsc(String((e && e.message) || e)) + '</div>');
+ }
 };
 // Quote attachments are referenced by the PO_Actual UUID → search Drive by UUID.
 window._poLoadAttachments = async function(uuid, directUrls) {
@@ -4579,6 +4623,15 @@ function _siGRNMapBuild() {
   (_regGRNRows || []).forEach(g => { const u = String(g['UUID'] || g['CheckSum'] || '').trim(); if (u) m[u] = (g['GRN No (Goods Receipt)'] || g['GRN No'] || '').toString().trim(); });
   return m;
 }
+// GRN No lives directly on the StockIN row (ColAA). Read it straight from the
+// row first; fall back to the GRN_No-sheet join (keyed by CheckSum/UUID/SI ID)
+// only when the direct column is blank.
+function _siGRNResolve(r, SC, grnMap) {
+  const direct = String(_opGet(r, SC, ['GRN No (Goods Receipt)', 'GRN No', 'GRN Number', 'GRN No.', 'GRN']) || '').trim();
+  if (direct) return direct;
+  const map = grnMap || _siGRNMapBuild();
+  return map[String(_opGet(r, SC, ['CheckSum', 'UUID', 'SI ID'])).trim()] || '';
+}
 function _siRegRows() {
   const SC = _opColMap(_openPOStock), HC = _opColMap(_openPOHeaders);
   const grnMap = _siGRNMapBuild();
@@ -4586,7 +4639,7 @@ function _siRegRows() {
   _openPOHeaders.forEach(r => { const k = _opPO(_opGet(r, HC, ['PO No'])); if (k && !hdrByPO[k]) hdrByPO[k] = { vendor: _opGet(r, HC, ['Vendor Name']), site: _opGet(r, HC, ['Site Name']) }; });
   return _openPOStock.map((r, idx) => {
     const k = _opPO(_opGet(r, SC, ['PO No', 'PO No (Key)']));
-    const grn = grnMap[String(_opGet(r, SC, ['CheckSum', 'UUID', 'SI ID'])).trim()] || '';
+    const grn = _siGRNResolve(r, SC, grnMap);
     return {
       idx, grn, received: _opGet(r, SC, ['Received On (At)']), siId: _opGet(r, SC, ['SI ID']),
       poNo: _opGet(r, SC, ['PO No', 'PO No (Key)']),
@@ -4602,7 +4655,7 @@ window._siOpenDetail = function(idx) {
   const r = _openPOStock[+idx]; if (!r) return;
   const esc = _mdpEsc;
   const SC = _opColMap(_openPOStock), HC = _opColMap(_openPOHeaders);
-  const grn = _siGRNMapBuild()[String(_opGet(r, SC, ['CheckSum', 'UUID', 'SI ID'])).trim()] || '';
+  const grn = _siGRNResolve(r, SC);
   const k = _opPO(_opGet(r, SC, ['PO No', 'PO No (Key)']));
   const hdr = _openPOHeaders.find(h => _opPO(_opGet(h, HC, ['PO No'])) === k);
   const top = [['GRN No', grn || 'Pending'], ['PO No', _opGet(r, SC, ['PO No', 'PO No (Key)'])], ['Received On', _mdpFmtDate(_opGet(r, SC, ['Received On (At)']))], ['SI ID', _opGet(r, SC, ['SI ID'])]];
