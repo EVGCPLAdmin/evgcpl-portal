@@ -4482,6 +4482,32 @@ function _poRegRows() {
   rows.sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date));
   return rows;
 }
+// PO_Items carry the readable item text in "Material Description" (formatted
+// "PartNo | Description"); the "Part Details" column is just a CheckSum that
+// StockIN also stores. Map that CheckSum → Material Description so the part can
+// be shown readable wherever only the code is on hand (StockIN, GRN section).
+function _opMatMap() {
+  const IC = _opColMap(_openPOItems);
+  const m = {};
+  (_openPOItems || []).forEach(x => {
+    const key = _opNorm(_opGet(x, IC, ['Part Details', 'Part Description']));
+    if (!key || m[key]) return;
+    const md = _opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name', 'Material']);
+    if (md) m[key] = md;
+  });
+  return m;
+}
+// Split "PartNo | Description" → { partNo, partDesc, text }. `raw` may be the
+// readable Material Description already, or a CheckSum-part resolved via matMap.
+function _opPartReadable(raw, matMap) {
+  let s = String(raw == null ? '' : raw).trim();
+  const mapped = matMap && matMap[_opNorm(s)];
+  if (mapped) s = String(mapped).trim();
+  const pipe = s.indexOf('|');
+  const partNo = pipe >= 0 ? s.slice(0, pipe).trim() : '';
+  const partDesc = pipe >= 0 ? s.slice(pipe + 1).trim() : s;
+  return { partNo, partDesc, text: partNo ? partNo + ' · ' + partDesc : partDesc };
+}
 // PO detail — portal-native layout inspired by the PO format (summary, line
 // items, totals, terms, quote attachments). Quotes are referenced by the
 // PO_Actual UUID. No print/letterhead: AppSheet owns the printable PO.
@@ -4498,13 +4524,13 @@ window._poOpenDetail = function(poNo) {
 
   // Goods received (GRN) — every StockIN receipt booked against this PO, with
   // its GRN No (StockIN ColAA) and invoice number so the receipt is unambiguous.
-  const grnMap = _siGRNMapBuild();
+  const grnMap = _siGRNMapBuild(), matMap = _opMatMap();
   const grnRows = _openPOStock
     .filter(r => _opPO(_opGet(r, SC, ['PO No', 'PO No (Key)'])) === K)
     .map(r => {
       const g = c => _opGet(r, SC, c);
       return { grn: _siGRNResolve(r, SC, grnMap), date: _mdpFmtDate(g(['Received On (At)', 'Received On'])),
-        inv: g(['Invoice No / ST No', 'Invoice No']), part: g(['Part Details', 'Part Description']),
+        inv: g(['Invoice No / ST No', 'Invoice No']), part: _opPartReadable(g(['Part Details', 'Part Description']), matMap).text,
         qty: g(['GRN Qty', 'GRN Quantity', 'Received Qty']) };
     });
 
@@ -4521,7 +4547,9 @@ window._poOpenDetail = function(poNo) {
   const itemRows = items.map(x => {
     const g = c => _opGet(x, IC, c);
     const mr = g(['MR ID', 'MR No', 'MRS', 'MR']);
-    const desc = g(['Part Details', 'Description', 'Item Description', 'Part Description', 'Material', 'Particulars', 'Item']);
+    const partKey = g(['Part Details', 'Part Description']);   // CheckSum-based receipt-join key (matches StockIN)
+    const pr = _opPartReadable(g(['Material Description', 'Material Desc', 'Material Name', 'Material']) || g(['Description', 'Item Description', 'Particulars', 'Item']) || partKey);
+    const descHtml = (pr.partNo ? `<span style="font-family:monospace;font-size:.72rem;color:var(--g7)">${esc(pr.partNo)}</span> &middot; ` : '') + (esc(pr.partDesc) || '—');
     const hsn = g(['HSN Code', 'HSNCode', 'HSN']);
     const uom = g(['UOM', 'Unit', 'Units']);
     const qty = num(g(['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
@@ -4529,11 +4557,11 @@ window._poOpenDetail = function(poNo) {
     const taxp = g(['Tax (%)', 'Tax %', 'Tax Percentage', 'GST %', 'Tax Percent']);
     const taxa = num(g(['Tax. Amount', 'Tax Amount', 'Tax Amt', 'Total Tax']));
     const tot = num(g(['Total Amount', 'Amount', 'Line Total'])) || qty * rate;
-    const recv = siAgg[_opNorm(g(['CheckSum', 'Check Sum'])) + '||' + _opNorm(desc)] || 0;
+    const recv = siAgg[_opNorm(g(['CheckSum', 'Check Sum'])) + '||' + _opNorm(partKey)] || 0;
     const td = 'padding:5px 8px';
     return `<tr>
       <td style="${td};font-size:.72rem;white-space:nowrap">${esc(mr) || '—'}</td>
-      <td style="${td}">${esc(desc) || '—'}${recv ? `<span style="color:#b45309;font-size:.68rem"> &middot; recv ${recv}</span>` : ''}</td>
+      <td style="${td}">${descHtml}${recv ? `<span style="color:#b45309;font-size:.68rem"> &middot; recv ${recv}</span>` : ''}</td>
       <td style="${td}">${esc(hsn) || '—'}</td>
       <td style="${td}">${esc(uom) || '—'}</td>
       <td style="${td};text-align:right">${qty || '—'}</td>
@@ -4669,7 +4697,7 @@ function _siGRNResolve(r, SC, grnMap) {
 }
 function _siRegRows() {
   const SC = _opColMap(_openPOStock), HC = _opColMap(_openPOHeaders);
-  const grnMap = _siGRNMapBuild();
+  const grnMap = _siGRNMapBuild(), matMap = _opMatMap();
   const hdrByPO = {};
   _openPOHeaders.forEach(r => { const k = _opPO(_opGet(r, HC, ['PO No'])); if (k && !hdrByPO[k]) hdrByPO[k] = { vendor: _opGet(r, HC, ['Vendor Name']), site: _opGet(r, HC, ['Site Name']) }; });
   return _openPOStock.map((r, idx) => {
@@ -4681,7 +4709,7 @@ function _siRegRows() {
       vendor: _opGet(r, SC, ['Vendor Name']) || (hdrByPO[k] && hdrByPO[k].vendor) || '',
       site: _opGet(r, SC, ['Site Name']) || (hdrByPO[k] && hdrByPO[k].site) || '',
       inv: _opGet(r, SC, ['Invoice No / ST No', 'Invoice No']),
-      part: _opGet(r, SC, ['Part Details', 'Part Description']),
+      part: _opPartReadable(_opGet(r, SC, ['Part Details', 'Part Description']), matMap).text,
       grnQty: _opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']),
     };
   });
