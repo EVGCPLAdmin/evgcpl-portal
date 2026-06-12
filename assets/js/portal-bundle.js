@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.33.1';
-const PORTAL_BUILD    = 500;
-const PORTAL_BUILD_AT = '2026-06-12T04:28:22Z';
+const PORTAL_VERSION  = '3.33.2';
+const PORTAL_BUILD    = 501;
+const PORTAL_BUILD_AT = '2026-06-12T04:33:08Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -8935,6 +8935,7 @@ function userCan(route, action) {
 
 // ── Tab bar + dispatcher ──────────────────────────────────────────────
 const CFG_TABS = [
+  { id:'config',  icon:'&#9881;',   label:'Portal Config' },
   { id:'access',  icon:'&#128101;', label:'Access &amp; Pages' },
   { id:'sheets',  icon:'&#128279;', label:'Sheet Linking' },
 ];
@@ -8958,11 +8959,13 @@ function renderDevModePage(tab) {
     el.innerHTML = `<div class="module-placeholder"><div style="font-size:2rem;margin-bottom:.6rem">&#128274;</div><p>Configuration is restricted to Administrators.</p></div>`;
     return;
   }
-  window._cfgActiveTab = tab || window._cfgActiveTab || 'access';
+  window._cfgActiveTab = tab || window._cfgActiveTab || 'config';
   const t = window._cfgActiveTab;
+  if (t === 'access') return _cfgRenderAccess();
   if (t === 'sheets') return _cfgRenderSheets();
-  // 'modules' (the old Modules & Roles tab) is merged into Access & Pages.
-  return _cfgRenderAccess();
+  // 'modules' (the old Modules & Roles tab) → Portal Config; its role matrix
+  // is retired and its Live/Dev/Off status lives in Access & Pages.
+  return _cfgRenderConfig();
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -9307,9 +9310,127 @@ function _cfgRenderAccess() {
   };
 }
 
-// _cfgRenderModules() (the old "Modules & Roles" tab) was retired — its
-// Live/Dev/Off page-status control is now merged into the Access & Pages
-// tab (uaSetModuleStatus), and per-route access lives in Access Groups.
+// Portal Config tab — Dev Mode · Apps Script Endpoints · Scheduled Reports.
+// This is the old "Modules & Roles" / Configuration landing with ONLY the
+// Module Registry & Role Access matrix removed (its Live/Dev/Off status is now
+// in the Access & Pages tab; per-route access lives in Access Groups).
+function _cfgRenderConfig() {
+  const el = document.getElementById('mainContent');
+  const cfg = loadPortalConfig();
+  const devOn = STATE.isDevMode;
+
+  el.innerHTML = `
+    ${_cfgTabBar('config')}
+    <div class="page-header">
+      <div class="page-header-row">
+        <div>
+          <h1>&#9881; Configuration</h1>
+          <p>Dev Mode &middot; Apps Script Endpoints &middot; Scheduled Reports &middot; Admin only</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dev Mode master toggle -->
+    <div class="card card-pad" style="margin-bottom:1.2rem;border-left:4px solid ${devOn ? '#f0a500' : 'var(--border)'}">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+        <div>
+          <div style="font-size:1rem;font-weight:700;color:var(--g9)">
+            Dev Mode &nbsp;
+            <span style="font-size:.78rem;padding:3px 10px;border-radius:10px;background:${devOn ? 'rgba(240,165,0,.2)' : 'var(--surface2)'};color:${devOn ? '#f0a500' : 'var(--txt3)'};font-weight:700">${devOn ? 'ON' : 'OFF'}</span>
+          </div>
+          <div style="font-size:.8rem;color:var(--txt3);margin-top:.2rem">When ON, pages marked <em>Dev</em> (in Access &amp; Pages) are visible for this session only.</div>
+        </div>
+        <button onclick="toggleDevMode();renderDevModePage()" class="btn btn-sm"
+          style="background:${devOn ? '#f0a500' : 'var(--g7)'};color:${devOn ? '#0d3320' : '#fff'};border:none;padding:.55rem 1.4rem;font-weight:700">
+          ${devOn ? '&#10005; Turn OFF' : '&#9881; Turn ON'}
+        </button>
+      </div>
+    </div>
+
+    <!-- Apps Script Endpoints — Tier 1: localStorage override -->
+    ${renderExecEndpointsCard()}
+
+    <!-- Apps Script Endpoints — Tier 2: Sheet-stored (PortalConfig tab) -->
+    ${renderSheetConfigCard()}
+
+    <!-- Scheduled Reports -->
+    <div class="card card-pad" style="margin-top:1.2rem" id="schedReportCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+        <h3 style="font-size:.9rem;font-weight:700;color:var(--g9)">&#128228; Scheduled Email Reports</h3>
+        <span id="schedSaveStatus" style="font-size:.72rem;color:var(--g7);display:none">&#10003; Saved</span>
+      </div>
+
+      <!-- Recipients -->
+      <div style="margin-bottom:1rem">
+        <label style="font-size:.78rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.4rem">&#128101; Recipients</label>
+        <div style="display:flex;gap:.5rem;margin-bottom:.4rem;flex-wrap:wrap">
+          <input id="schedRecipInput" type="email" placeholder="email@example.com"
+            style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();schedAddRecip()}">
+          <button onclick="schedAddRecip()" class="btn btn-secondary btn-sm">+ Add</button>
+          <button onclick="schedPickFromEmployees()" class="btn btn-secondary btn-sm">&#128100; Pick from Team</button>
+        </div>
+        <div id="schedRecipList" style="display:flex;flex-wrap:wrap;gap:.35rem;min-height:28px;padding:4px 0">
+          <span style="font-size:.72rem;color:var(--txt3)">No recipients added yet</span>
+        </div>
+      </div>
+
+      <!-- Trigger time -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.7rem;margin-bottom:1rem">
+        <div>
+          <label style="font-size:.78rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">&#128197; Day of Week</label>
+          <select id="schedDay" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
+            <option value="daily">Every Day</option>
+            <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
+            <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:.78rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">&#128336; Time (IST)</label>
+          <select id="schedTime" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
+            ${['06:00','07:00','08:00','09:00','10:00','18:00','20:00'].map(t =>
+              `<option value="${t}" ${t==='08:00'?'selected':''}>${t} IST</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:.78rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">&#128203; Report Type</label>
+          <select id="schedType" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
+            <option value="daily">Daily Digest</option>
+            <option value="safety">Safety Incidents Only</option>
+            <option value="po">PO Approvals Only</option>
+            <option value="full">Full Summary (All Modules)</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:.78rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">&#9989; Status</label>
+          <select id="schedActive" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
+            <option value="active">Active</option>
+            <option value="paused">Paused</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Subject prefix -->
+      <div style="margin-bottom:1rem">
+        <label style="font-size:.78rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">&#128231; Email Subject Prefix</label>
+        <input id="schedSubject" type="text" value="EVGCPL Daily Digest"
+          style="width:100%;max-width:400px;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
+      </div>
+
+      <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
+        <button onclick="schedSave()" class="btn" style="background:var(--g7);color:#fff;font-size:.8rem">&#128190; Save Config</button>
+        <button onclick="schedTestSend()" class="btn btn-secondary btn-sm">&#9992;&#65039; Send Test Now</button>
+        <span style="font-size:.72rem;color:var(--txt3)">Trigger must be installed in Apps Script Editor &rarr; Triggers &rarr; <code>scheduledDailyReport</code> &rarr; Time-driven</span>
+      </div>
+    </div>
+
+    <div style="font-size:.72rem;color:var(--txt3);margin-top:.7rem;text-align:right">
+      Last saved: ${cfg.savedAt ? new Date(cfg.savedAt).toLocaleString('en-IN') : 'Never'}
+    </div>
+  `;
+
+  setTimeout(schedRestoreUI, 50); // restore sched config after DOM renders
+}
 
 
 
