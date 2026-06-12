@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.42.5';
-const PORTAL_BUILD    = 515;
-const PORTAL_BUILD_AT = '2026-06-12T08:10:06Z';
+const PORTAL_VERSION  = '3.43.0';
+const PORTAL_BUILD    = 516;
+const PORTAL_BUILD_AT = '2026-06-12T08:56:27Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2010,6 +2010,10 @@ function applyRoleNavRestrictions(role) {
   const devBadge = document.getElementById('devModeSidebarBadge');
   if (devBadge) { devBadge.textContent = STATE.isDevMode ? 'ON' : 'OFF'; devBadge.style.background = STATE.isDevMode ? 'rgba(240,165,0,.35)' : 'rgba(240,165,0,.15)'; }
 
+  // Rebuild the mobile sidebar as a progressive drill-down (replaces the legacy
+  // flat list). Runs for every role, including external, before the returns below.
+  try { _navRenderSidebar(); } catch (e) {}
+
   // ── TOP NAV (desktop) ─────────────────────────────────────────
   const topNav = document.getElementById('topNav');
   if (!topNav) return;
@@ -2124,6 +2128,87 @@ function _navChildParentMap() {
 }
 function _navParentOf(route) { return _navChildParentMap()[route] || null; }
 
+// ── Mobile sidebar: progressive drill-down (L1 sections → L2 items → L3 sub-pages) ──
+// Built at runtime from MODULE_REGISTRY (sections → routes) + NAV_SUBMENUS (level-3),
+// filtered by the current role's route set. Replaces the legacy flat hand-coded
+// sidebar on mobile; the desktop menu remains the top nav.
+const _navEsc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;' }[c]));
+window._navDrill = window._navDrill || { view: 'root', section: null, parent: null };
+function _navBuildModel() {
+  const role = STATE.role;
+  if (role === 'vendor' || role === 'sc') {
+    return { external: true, items: [
+      { route:'my-portal',    label:'My Portal' },
+      { route:'my-orders',    label:'My Orders' },
+      { route:'my-invoices',  label:'My Invoices' },
+      { route:'my-documents', label:'My Documents' },
+    ] };
+  }
+  let restricted = false;
+  if (typeof _accessIsSuperAdmin !== 'function' || !_accessIsSuperAdmin()) {
+    try { restricted = !!_accessRouteSetForCurrentUser(); } catch (e) {}
+  }
+  const isMd = role === 'md' && !restricted;
+  const allowed = getRouteSet(role) || new Set();
+  const vis = item => item.defStatus === 'dev' ? (STATE.isDevMode && isMd) : allowed.has(item.route);
+  const childSet = new Set();
+  for (const p in NAV_SUBMENUS) (NAV_SUBMENUS[p].children || []).forEach(c => { if (c.route !== p) childSet.add(c.route); });
+  const sections = [], byName = {};
+  MODULE_REGISTRY.forEach(item => {
+    if (childSet.has(item.route)) return;                 // shown under its parent (L3)
+    const sub = NAV_SUBMENUS[item.route];
+    let children = [];
+    if (sub) children = (sub.children || []).filter(c => allowed.has(c.route)).map(c => ({ route:c.route, label:c.label, badge:c.badge }));
+    if (!(vis(item) || children.length)) return;
+    let sec = byName[item.section];
+    if (!sec) { sec = byName[item.section] = { name:item.section, items:[] }; sections.push(sec); }
+    sec.items.push({ route:item.route, label:item.label, dev:item.defStatus === 'dev', hasChildren: children.length > 0, children });
+  });
+  return { external:false, sections };
+}
+function _navRenderSidebar() {
+  const sb = document.getElementById('sidebar'); if (!sb) return;
+  sb.dataset.drill = '1';
+  const model = _navBuildModel();
+  const ver = (typeof PORTAL_VERSION !== 'undefined') ? PORTAL_VERSION : '';
+  const footer = `<div class="sidebar-footer"><strong>EVGCPL Intranet${ver ? ' v' + ver : ''}</strong>© 2026 Evergreen Enterprises<br/>Namakkal, Tamil Nadu</div>`;
+  const subBadge = b => b ? `<span class="ni-live">${_navEsc(b.text)}</span>` : '';
+  if (model.external) {
+    sb.innerHTML = `<div class="sidebar-section">${model.items.map(i =>
+      `<div class="nav-item" onclick="navGo('${i.route}')">${_navEsc(i.label)}</div>`).join('')}</div>${footer}`;
+    return;
+  }
+  const d = window._navDrill;
+  let body = '';
+  if (d.view === 'section') {
+    const sec = model.sections.find(s => s.name === d.section);
+    if (!sec) { window._navDrill = { view:'root' }; return _navRenderSidebar(); }
+    body = `<div class="nav-drill-head" onclick="navDrillBack()"><span class="nav-chev">‹</span> ${_navEsc(sec.name)}</div>
+      <div class="sidebar-section">${sec.items.map(it => it.hasChildren
+        ? `<div class="nav-item nav-drill-row" onclick="navDrillParent('${it.route}')">${_navEsc(it.label)}<span class="nav-chev">›</span></div>`
+        : `<div class="nav-item" onclick="navGo('${it.route}')">${_navEsc(it.label)}${it.dev ? '<span class="ni-dev">Dev</span>' : ''}</div>`).join('')}</div>`;
+  } else if (d.view === 'parent') {
+    let parent = null;
+    model.sections.forEach(s => s.items.forEach(it => { if (it.route === d.parent) parent = it; }));
+    if (!parent) { window._navDrill = { view:'root' }; return _navRenderSidebar(); }
+    body = `<div class="nav-drill-head" onclick="navDrillBack()"><span class="nav-chev">‹</span> ${_navEsc(parent.label)}</div>
+      <div class="sidebar-section">${parent.children.map(ch =>
+        `<div class="nav-item" onclick="navGo('${ch.route}')">${_navEsc(ch.label)}${subBadge(ch.badge)}</div>`).join('')}</div>`;
+  } else {
+    body = `<div class="sidebar-section">${model.sections.map(sec => {
+      const single = sec.items.length === 1 && !sec.items[0].hasChildren;
+      const oc = single ? `navGo('${sec.items[0].route}')` : `navDrillSection('${btoa(sec.name)}')`;
+      return `<div class="nav-item nav-drill-row" onclick="${oc}">${_navEsc(sec.name)}${single ? '' : '<span class="nav-chev">›</span>'}</div>`;
+    }).join('')}</div>`;
+  }
+  sb.innerHTML = body + footer;
+}
+window.navDrillSection = b => { try { window._navDrill = { view:'section', section: atob(b) }; } catch (e) {} _navRenderSidebar(); };
+window.navDrillParent  = route => { window._navDrill = { view:'parent', parent: route, section: window._navDrill.section }; _navRenderSidebar(); };
+window.navDrillBack    = () => { const d = window._navDrill; window._navDrill = d.view === 'parent' ? { view:'section', section:d.section } : { view:'root' }; _navRenderSidebar(); };
+window.navGo           = route => { window._navDrill = { view:'root' }; navigate(route); };
+
+
 // Inject nav entries added in newer builds when the page's static HTML
 // predates them. Page HTML is cached by the browser/CDN independently of
 // this bundle, so a stale page would otherwise hide new menu items even
@@ -2149,7 +2234,7 @@ function _navEnsureInjected() {
   //    phones see; the top nav is hidden below 1025px). New top-nav
   //    items must be mirrored here or they're invisible on mobile.
   const sidebar = document.getElementById('sidebar');
-  if (sidebar && !sidebar.querySelector('.nav-item[onclick*="data-hub"]')) {
+  if (sidebar && sidebar.dataset.drill !== '1' && !sidebar.querySelector('.nav-item[onclick*="data-hub"]')) {
     const item = document.createElement('div');
     item.className = 'nav-item';
     item.setAttribute('data-status', 'live');
@@ -8368,6 +8453,7 @@ const MODULE_REGISTRY = [
 
   // ── Admin ─────────────────────────────────────────────────────
   { route:'dev-mode',          label:'Configuration',          section:'Admin',            defStatus:'live', defRoles:['md'] },
+  { route:'settings',          label:'Settings',               section:'Admin',            defStatus:'live', defRoles:['md'] },
 ];
 
 
@@ -17237,6 +17323,8 @@ function finRow(label, value, type) {
 // ══════════════════════════════════════════════════
 function toggleSidebar() {
   STATE.sidebarOpen = !STATE.sidebarOpen;
+  // Always (re)open the mobile menu at the top level of the drill-down.
+  if (STATE.sidebarOpen) { window._navDrill = { view: 'root' }; try { _navRenderSidebar(); } catch (e) {} }
   document.getElementById('sidebar').classList.toggle('mobile-open', STATE.sidebarOpen);
   document.getElementById('hamburger').classList.toggle('open', STATE.sidebarOpen);
 }
