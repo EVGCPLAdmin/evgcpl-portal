@@ -3384,9 +3384,23 @@ function _mdpAmt(v, c) {
 }
 function _mdpDateVal(d) {
   if (!d) return 0;
+  // gviz serialises sheet dates as "Date(2026,4,28)" (month 0-indexed).
+  const g = String(d).match(/^Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)/);
+  if (g) return new Date(+g[1], +g[2], +g[3], +(g[4] || 0), +(g[5] || 0), +(g[6] || 0)).getTime();
   const s = String(d).trim().replace(/(\d)([A-Za-z])/, '$1 $2').replace(/([A-Za-z])(\d)/, '$1 $2').replace(/-/g, ' ');
   const t = Date.parse(s);
   return isNaN(t) ? 0 : t;
+}
+// Unified long-date display for ledgers → "01Jan2026". Tolerant of gviz
+// "Date(...)", "28 May 2026", "10June2026", DD/MM/YYYY, JS dates. Falls back to
+// the raw (escaped) value if genuinely unparseable.
+const _MDP_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function _mdpFmtDate(v) {
+  if (!v) return '—';
+  const t = _mdpDateVal(v);
+  if (!t) return _mdpEsc(String(v));
+  const d = new Date(t);
+  return String(d.getDate()).padStart(2, '0') + _MDP_MON[d.getMonth()] + d.getFullYear();
 }
 
 // Full parse so a row opened from here is detail-view compatible.
@@ -3874,7 +3888,7 @@ function partyLedgerRender(txRows, opts) {
     const click = opts.onRowClick ? ` style="cursor:pointer" onclick="${opts.onRowClick}('${r.uuid}')"` : '';
     const dim = rejected ? 'color:var(--txt3)' : '';
     return `<tr${click}>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);white-space:nowrap;${dim}">${esc(r.date)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);white-space:nowrap;${dim}">${_mdpFmtDate(r.date)}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:monospace;font-size:.72rem;${dim}">${esc(r.requestId || r.uuid)}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(r.orderNo) || esc(r.billNo) || '—'}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;color:#b45309;font-weight:600">${credit ? _mdpAmt(credit, r.currency) : '—'}</td>
@@ -4165,7 +4179,7 @@ function _vplpLedger(v) {
       ? `<span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span>`
       : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
     return `<tr${click}>
-      <td style="padding:6px 9px;white-space:nowrap">${esc(e.date) || '—'}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(e.date)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(e.ref)}</td>
       <td style="padding:6px 9px">${e.type}</td>
       <td style="padding:6px 9px;text-align:right;color:#b45309;font-weight:600">${e.credit ? inr(e.credit) : '—'}</td>
