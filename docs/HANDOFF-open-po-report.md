@@ -83,7 +83,7 @@ module, route `stores-openpo`). All code lives in `assets/js/portal-bundle.js`.
 ---
 
 ## 3. Decisions made this session
-1. Amount paid = sum of **Paid Value** column. ✅
+1. Amount paid = sum of **Amount** across PaymentRequest rows whose status is **Payment Completed** (matched by PO No). ✅
 2. Payment columns (Amount Paid, Unpaid, UTR, Request IDs) **on by default**. ✅
 3. Raw StockIN numeric columns **summed** across matched GRN rows. ✅
 4. Config "update with defaults" = a Config card that writes the org-wide PortalConfig keys. ✅
@@ -95,9 +95,9 @@ module, route `stores-openpo`). All code lives in `assets/js/portal-bundle.js`.
    confirm the PaymentRequest PO-key header. Current candidates tried (in order):
    `PO No (Key)`, `Order No`, `PO No`, `PO Number`, `WO / PO No`. Add the real one to the
    `_opGet(r, PC, [...])` list in `_openPOCompute` if needed.
-2. **"Amount Paid" semantics** — if `Paid Value` is sparsely filled on the sheet, the totals
-   will look low. The fallback option (sum `Amount` where status = Paid) was discussed and
-   can be switched on quickly.
+2. **"Amount Paid" semantics** — sums `Amount` for rows whose status matches
+   `/payment\s*complet/i` (i.e. "Payment Completed"). Status is read from `Status` →
+   `Accounts Status` → `Payment Status`. If your completed label differs, widen that regex.
 3. **Org-wide defaults** — the new default column set now includes payment columns, but
    `openpo_cols_default` in PortalConfig may still hold an older list. From the report do
    ⚙ Columns → ★ Set as default (admin), or use Config → Save defaults org-wide, to refresh it.
