@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.42.3';
-const PORTAL_BUILD    = 513;
-const PORTAL_BUILD_AT = '2026-06-12T08:03:01Z';
+const PORTAL_VERSION  = '3.42.4';
+const PORTAL_BUILD    = 514;
+const PORTAL_BUILD_AT = '2026-06-12T08:07:35Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -14530,9 +14530,11 @@ function _openPOCompute(q) {
     if (!k) return;
     const e = payByPO[k] = payByPO[k] || { paid: 0, req: 0, utrs: [], reqIds: [], n: 0, terms: '' };
     if (!e.terms) e.terms = _opGet(r, PC, ['Payment Terms', 'Payment Term', 'Terms of Payment']);
-    const paid = _opNum(_opGet(r, PC, ['Paid Value', 'Paid Amount', 'Amount Paid']));
-    e.paid += paid;
-    e.req  += _opNum(_opGet(r, PC, ['Amount']));
+    const amt     = _opNum(_opGet(r, PC, ['Amount']));
+    const pstatus = _opGet(r, PC, ['Status', 'Accounts Status', 'Payment Status']);
+    // Amount Paid = sum of Amount across rows whose status is "Payment Completed".
+    if (/payment\s*complet/i.test(pstatus)) e.paid += amt;
+    e.req += amt;
     e.n++;
     const utr = _opGet(r, PC, ['UTR Details', 'UTR']);            if (utr && e.utrs.indexOf(utr)   < 0) e.utrs.push(utr);
     const rid = _opGet(r, PC, ['Request ID', 'PR No', 'PR ID']);  if (rid && e.reqIds.indexOf(rid) < 0) e.reqIds.push(rid);
