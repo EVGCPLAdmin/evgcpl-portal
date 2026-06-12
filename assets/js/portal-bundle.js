@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.54.0';
-const PORTAL_BUILD    = 539;
-const PORTAL_BUILD_AT = '2026-06-12T19:48:30Z';
+const PORTAL_VERSION  = '3.55.0';
+const PORTAL_BUILD    = 540;
+const PORTAL_BUILD_AT = '2026-06-12T19:55:56Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1180,14 +1180,18 @@ window.tblStylePanel  = function(sig) {
   const triVal = k => (k in o) ? (o[k] ? 'on' : 'off') : '';
   const selStyle = 'padding:.34rem .5rem;border:1px solid var(--border);border-radius:7px;font-size:.82rem;font-family:inherit;background:var(--surface2);color:var(--txt)';
   const lblStyle = 'display:flex;align-items:center;justify-content:space-between;gap:1rem;font-size:.84rem;color:var(--g9);font-weight:600;margin-bottom:.7rem';
+  // Handlers are bound via JS after insertion (below) — NOT interpolated into
+  // inline onclick/onchange. A header signature can contain a single quote (e.g.
+  // the ledger's "Add'l (b)"), which would terminate an inline JS string early
+  // and silently break Done / Reset / the toggles. Closure capture avoids that.
   const tri = (k, label) => `<label style="${lblStyle}">${label}
-    <select onchange="tblStyleSet('${sig}','${k}',this.value)" style="${selStyle};min-width:150px">
+    <select class="evg-style-tri" data-k="${k}" style="${selStyle};min-width:150px">
       <option value="" ${triVal(k) === '' ? 'selected' : ''}>System default</option>
       <option value="on" ${triVal(k) === 'on' ? 'selected' : ''}>On</option>
       <option value="off" ${triVal(k) === 'off' ? 'selected' : ''}>Off</option>
     </select></label>`;
   const num = (k, label, ph) => `<label style="${lblStyle}">${label}
-    <input type="number" value="${(k in o) ? o[k] : ''}" placeholder="${ph}" oninput="tblStyleSetNum('${sig}','${k}',this.value)" style="${selStyle};width:150px"></label>`;
+    <input type="number" class="evg-style-num" data-k="${k}" value="${(k in o) ? o[k] : ''}" placeholder="${ph}" style="${selStyle};width:150px"></label>`;
   const modal = document.createElement('div');
   modal.id = 'evgStyleModal';
   modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
@@ -1196,7 +1200,7 @@ window.tblStylePanel  = function(sig) {
     <div style="background:var(--surface);border-radius:14px;max-width:430px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.4)">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.2rem;border-bottom:1px solid var(--border)">
         <h3 style="font-size:.95rem;font-weight:700;color:var(--g9)">&#127912; Table style</h3>
-        <button onclick="document.getElementById('evgStyleModal').remove()" style="border:none;background:none;font-size:1.3rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
+        <button class="evg-style-x" style="border:none;background:none;font-size:1.3rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
       </div>
       <div style="padding:.5rem 1.2rem;font-size:.72rem;color:var(--txt3)">Applies to <b>this table only</b> &mdash; overrides the system Design-System default. Leave on <i>System default</i> to inherit.</div>
       <div style="padding:.7rem 1.2rem 1rem;overflow:auto">
@@ -1207,11 +1211,18 @@ window.tblStylePanel  = function(sig) {
         ${num('rows', 'Rows before scroll', 'system · 0 = all')}
       </div>
       <div style="display:flex;gap:.5rem;justify-content:flex-end;padding:.9rem 1.2rem;border-top:1px solid var(--border)">
-        <button onclick="tblStyleReset('${sig}')" class="btn btn-secondary btn-sm">&#8635; Reset to system</button>
-        <button onclick="_tblStyleReapply('${sig}');document.getElementById('evgStyleModal').remove()" class="btn btn-primary btn-sm">&#10003; Done</button>
+        <button class="btn btn-secondary btn-sm evg-style-reset">&#8635; Reset to system</button>
+        <button class="btn btn-primary btn-sm evg-style-done">&#10003; Done</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
+  // Bind via closure (sig captured, never interpolated) so any header signature
+  // — including ones with quotes — works.
+  modal.querySelectorAll('.evg-style-tri').forEach(sel => sel.addEventListener('change', () => tblStyleSet(sig, sel.dataset.k, sel.value)));
+  modal.querySelectorAll('.evg-style-num').forEach(inp => inp.addEventListener('input', () => tblStyleSetNum(sig, inp.dataset.k, inp.value)));
+  modal.querySelector('.evg-style-x')?.addEventListener('click', () => modal.remove());
+  modal.querySelector('.evg-style-reset')?.addEventListener('click', () => tblStyleReset(sig));
+  modal.querySelector('.evg-style-done')?.addEventListener('click', () => { _tblStyleReapply(sig); modal.remove(); });
 };
 function _tblColTablesFor(sig) {
   return Array.from(document.querySelectorAll('#mainContent table[data-evg-sig="' + (window.CSS && CSS.escape ? CSS.escape(sig) : sig) + '"]'));
@@ -4126,15 +4137,16 @@ function _vplpCompute() {
   const SC = _opColMap(_openPOStock), IC = _opColMap(_openPOItems), HC = _opColMap(_openPOHeaders);
   const grnMap = {};
   (_vplpGRNRows || []).forEach(r => { const u = String(r['UUID'] || r['CheckSum'] || '').trim(); if (u) grnMap[u] = (r['GRN No (Goods Receipt)'] || r['GRN No'] || '').toString().trim(); });
-  // StockIN received qty + GRN Nos by (PO No (Key) || part) — the PO_Items join.
+  // StockIN receipts by (PO No (Key) || part) — the PO_Items join. Each receipt
+  // carries its GRN No (StockIN ColAA direct, else the GRN_No-sheet join), its
+  // invoice number, and its row index so the ledger can link to the detail.
   const siAgg = {};
-  _openPOStock.forEach(r => {
+  _openPOStock.forEach((r, idx) => {
     const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey'])); if (!pk) return;
     const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
-    const e = siAgg[key] = siAgg[key] || { qty: 0, grns: [] };
+    const e = siAgg[key] = siAgg[key] || { qty: 0, rcpts: [] };
     e.qty += _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
-    const grn = grnMap[String(_opGet(r, SC, ['CheckSum', 'UUID', 'SI ID'])).trim()];
-    if (grn && e.grns.indexOf(grn) < 0) e.grns.push(grn);
+    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx });
   });
   // PO header: approval, vendor, date, Tax(b), Additional Charges(b). Keyed by
   // the normalised PO key (folds EGVE/EVGE spelling variants).
@@ -4151,19 +4163,19 @@ function _vplpCompute() {
   });
   // Received material (received qty × rate) + Tax(a) apportioned to the received
   // fraction of each line, per PO.
-  const poRecv = {}, poTaxA = {}, poGRN = {};
+  const poRecv = {}, poTaxA = {}, poRcpt = {};
   _openPOItems.forEach(x => {
     const k = _opPOKey(_opGet(x, IC, ['PO No', 'Order No'])); if (!k) return;
     const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
     const cs = _opGet(x, IC, ['CheckSum', 'Check Sum']);
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
-    const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)] || { qty: 0, grns: [] };
+    const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)] || { qty: 0, rcpts: [] };
     if (m.qty <= 0) return;
     poRecv[k] = (poRecv[k] || 0) + m.qty * rate;
     const oq = _opNum(_opGet(x, IC, ['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
     const lineTax = _opNum(_opGet(x, IC, ['Tax Amt', 'Tax Amount', 'Total Tax']));
     poTaxA[k] = (poTaxA[k] || 0) + lineTax * (oq > 0 ? Math.min(m.qty / oq, 1) : 1);
-    const g = poGRN[k] = poGRN[k] || []; m.grns.forEach(n => { if (g.indexOf(n) < 0) g.push(n); });
+    const g = poRcpt[k] = poRcpt[k] || []; m.rcpts.forEach(rc => { if (!g.some(z => z.idx === rc.idx)) g.push(rc); });
   });
   // Vendors keyed by Vendor ID; unresolved payment codes kept in an Unmapped bucket.
   const vendors = {};
@@ -4183,7 +4195,27 @@ function _vplpCompute() {
     getV(vid, r.paidTo || r.vendor, r.acNumber).payCount++;
   });
   const list = Object.values(vendors).sort((a, b) => (a.unmapped - b.unmapped) || (a.name || '').localeCompare(b.name || ''));
-  return { vendors: list, poInfo, poRecv, poTaxA, poGRN };
+  return { vendors: list, poInfo, poRecv, poTaxA, poRcpt };
+}
+// GRN + invoice sub-line for a credit (material-received) row. Each receipt's
+// GRN No links to its StockIN detail; invoice numbers are shown after.
+function _vplpRcptHtml(rcpts, esc) {
+  if (!rcpts || !rcpts.length) return '';
+  const named = [], seen = {}; let pend = null, pendN = 0;
+  rcpts.forEach(rc => {
+    if (rc.no) { if (!seen[rc.no]) { seen[rc.no] = 1; named.push(rc); } }
+    else { pendN++; if (!pend) pend = rc; }
+  });
+  const link = (label, idx) => `<a onclick="event.stopPropagation();_siOpenDetail(${idx})" title="Open StockIN receipt" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(label)}</a>`;
+  const cap = 6;
+  const parts = named.slice(0, cap).map(rc => link(rc.no, rc.idx));
+  const extra = named.length > cap ? named.length - cap : 0;
+  if (pend) parts.push(link('Pending' + (pendN > 1 ? ` (${pendN})` : ''), pend.idx));
+  const invs = Array.from(new Set(rcpts.map(r => r.inv).filter(Boolean)));
+  const invTxt = invs.length ? ` &middot; <span style="color:var(--txt3)">Inv:</span> ${invs.slice(0, 5).map(esc).join(', ')}${invs.length > 5 ? ` +${invs.length - 5}` : ''}` : '';
+  const more = extra ? ` <span style="color:var(--txt3)">+${extra}</span>` : '';
+  if (!parts.length && !invs.length) return '';
+  return `<div style="font-size:.68rem;margin-top:2px;line-height:1.5"><span style="color:var(--txt3)">GRN:</span> ${parts.join(', ') || '—'}${more}${invTxt}</div>`;
 }
 function _vplpRenderBody() {
   const c = document.getElementById('vplp-body'); if (!c) return;
@@ -4221,9 +4253,7 @@ function _vplpLedger(v) {
     const mat = d.poRecv[k] || 0, taxA = d.poTaxA[k] || 0, taxB = i.taxB || 0, addl = i.addl || 0;
     const credit = mat + addl + taxA + taxB;
     if (credit <= 0) return;
-    const grns = d.poGRN[k] || [];
-    const grnTxt = grns.length ? ' · GRN ' + esc(grns.slice(0, 4).join(', ')) + (grns.length > 4 ? ` +${grns.length - 4}` : '') : '';
-    all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received' + grnTxt, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+    all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: d.poRcpt[k] || [], kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
   });
   // Debit (payment) — this vendor's completed payments (vendor-level; orderNo not required).
   (_mdpRows || []).forEach(r => {
@@ -4271,7 +4301,7 @@ function _vplpLedger(v) {
     return `<tr${click}>
       <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(e.date)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(e.ref)}</td>
-      <td style="padding:6px 9px">${e.type}</td>
+      <td style="padding:6px 9px">${e.type}${e.kind === 'cr' ? _vplpRcptHtml(e.rcpts, esc) : ''}</td>
       <td style="padding:6px 9px;text-align:right;color:#b45309">${m(e.mat)}</td>
       <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(e.addl)}</td>
       <td style="padding:6px 9px;text-align:right;color:#2563eb">${m(e.taxA)}</td>
