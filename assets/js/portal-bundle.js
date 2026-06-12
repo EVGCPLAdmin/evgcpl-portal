@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.51.0';
-const PORTAL_BUILD    = 533;
-const PORTAL_BUILD_AT = '2026-06-12T18:11:44Z';
+const PORTAL_VERSION  = '3.52.0';
+const PORTAL_BUILD    = 534;
+const PORTAL_BUILD_AT = '2026-06-12T18:33:34Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4273,8 +4273,9 @@ function _vplpLedger(v) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  PO & STOCKIN REGISTERS — consolidated data UIs with click-to-detail modals
-//  (mirrors the Accounts voucher pattern). Reuse the Open PO caches
+//  PO & STOCKIN REGISTERS — consolidated data UIs with click-to-detail views.
+//  PO opens as a printable PO document (inspired by the AppSheet PO PDF) with
+//  its attachments; StockIN opens a receipt detail. Reuse the Open PO caches
 //  (_openPOHeaders / _openPOItems / _openPOStock / _openPOPayments) + GRN_No.
 // ═══════════════════════════════════════════════════════════════════════
 let _regGRNRows = null;
@@ -4289,16 +4290,18 @@ async function _regEnsure(force) {
 function _regCloseModal() { const o = document.getElementById('regModalOverlay'); if (o) o.remove(); document.removeEventListener('keydown', _regEsc); }
 function _regEsc(e) { if (e.key === 'Escape') _regCloseModal(); }
 window._regCloseModal = _regCloseModal;
-function _regOpenModal(title, bodyHtml) {
+function _regOpenModal(title, bodyHtml, headerExtra) {
   _regCloseModal();
   const ov = document.createElement('div');
   ov.id = 'regModalOverlay';
   ov.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
   ov.addEventListener('click', e => { if (e.target === ov) _regCloseModal(); });
-  ov.innerHTML = `<div style="background:var(--surface);border-radius:14px;max-width:900px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.4)">
+  ov.innerHTML = `<div style="background:var(--surface);border-radius:14px;max-width:920px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.4)">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.2rem;border-bottom:1px solid var(--border);flex-shrink:0">
       <h3 style="font-size:.95rem;font-weight:700;color:var(--g9);margin:0">${title}</h3>
-      <button onclick="_regCloseModal()" style="border:none;background:none;font-size:1.4rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
+      <div style="display:flex;align-items:center;gap:.5rem">${headerExtra || ''}
+        <button onclick="_regCloseModal()" style="border:none;background:none;font-size:1.4rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
+      </div>
     </div>
     <div style="padding:1rem 1.2rem;overflow:auto">${bodyHtml}</div>
   </div>`;
@@ -4310,21 +4313,68 @@ function _regKV(pairs) {
     pairs.map(([l, v]) => `<div style="background:var(--surface1);border:1px solid var(--border);border-radius:8px;padding:.5rem .7rem"><div style="font-size:.62rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">${_mdpEsc(l)}</div><div style="font-size:.82rem;font-weight:600;color:var(--txt);word-break:break-word">${(v == null || v === '') ? '—' : _mdpEsc(String(v))}</div></div>`).join('') +
     `</div>`;
 }
-function _regTbl(headers, bodyHtml) {
-  return `<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:1.1rem"><table style="width:100%;border-collapse:collapse;font-size:.76rem"><thead><tr style="background:var(--g9);color:#fff;text-align:left">${headers.map(h => `<th style="padding:6px 8px">${h}</th>`).join('')}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
-}
 const _regINR = n => '₹' + Math.round(n).toLocaleString('en-IN');
+// Drive helpers — extract a file id and build an embeddable /preview url.
+function _regDriveId(u) { if (!u) return ''; u = String(u); let m = u.match(/\/d\/([-\w]{20,})/) || u.match(/[?&]id=([-\w]{20,})/) || u.match(/([-\w]{25,})/); return m ? m[1] : ''; }
+function _regDrivePreview(u) { const id = _regDriveId(u); return id ? ('https://drive.google.com/file/d/' + id + '/preview') : ''; }
+function _regFileIcon(mime, name) { const n = (name || '').toLowerCase(); mime = mime || ''; if (/pdf/.test(mime) || n.endsWith('.pdf')) return '&#128196;'; if (/image/.test(mime) || /\.(png|jpe?g|gif|webp|bmp)$/.test(n)) return '&#128247;'; if (/sheet|excel|csv/.test(mime) || /\.(xlsx?|csv)$/.test(n)) return '&#128202;'; if (/word|document/.test(mime) || /\.(docx?)$/.test(n)) return '&#128221;'; return '&#128206;'; }
+function _regFmtSize(b) { b = +b || 0; if (!b) return ''; if (b < 1024) return b + ' B'; if (b < 1048576) return (b / 1024).toFixed(0) + ' KB'; return (b / 1048576).toFixed(1) + ' MB'; }
+function _regAttCard(url, name, matchedOn, mime, size) {
+  const esc = _mdpEsc, sz = size ? _regFmtSize(size) : '';
+  return `<a href="${esc(url)}" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:.6rem;padding:.5rem .7rem;border:1px solid var(--border);border-radius:9px;background:var(--surface1);text-decoration:none;color:var(--txt);margin-bottom:.4rem">
+    <span style="font-size:1.1rem">${_regFileIcon(mime, name)}</span>
+    <span style="flex:1;min-width:0;font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name || 'Attachment')}</span>
+    ${matchedOn ? `<span style="font-size:.62rem;color:var(--txt3);background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1px 6px;white-space:nowrap">${esc(matchedOn)}</span>` : ''}
+    ${sz ? `<span style="font-size:.68rem;color:var(--txt3);white-space:nowrap">${sz}</span>` : ''}
+    <span style="font-size:.72rem;color:var(--g7);font-weight:700;white-space:nowrap">Open &#8599;</span></a>`;
+}
+window._regPrintEl = function(id) {
+  const el = document.getElementById(id); if (!el) return;
+  const w = window.open('', '_blank', 'width=900,height=1000'); if (!w) return;
+  w.document.write('<html><head><title>Purchase Order</title><meta charset="utf-8"><style>body{font-family:Arial,Helvetica,sans-serif;color:#1f2d26;padding:24px;font-size:12px}table{border-collapse:collapse;width:100%}h1,h2,h3{margin:.3em 0}</style></head><body>' + el.innerHTML + '</body></html>');
+  w.document.close(); w.focus(); setTimeout(() => { try { w.print(); } catch (e) {} }, 350);
+};
 
 // ── PO Register (route 'po-register') ────────────────────────────────────
 let _poRegAll = [], _poRegSearch = '', _poRegStatus = '';
 function renderPORegister() {
   const el = document.getElementById('mainContent');
-  el.innerHTML = `<div class="page-header"><div class="page-header-row"><div><h1>&#128196; Purchase Orders</h1><p>Consolidated PO register &middot; click a PO for full details</p></div><button class="btn btn-secondary btn-sm" onclick="_poRegReload(this)">&#8635; Refresh</button></div></div><div id="po-reg-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading PO data&hellip;</div></div>`;
-  _regEnsure().then(() => { _poRegAll = _poRegRows(); _poRegRender(); }).catch(() => { const b = document.getElementById('po-reg-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load PO data.</div>'; });
+  el.innerHTML = `<div class="page-header"><div class="page-header-row"><div><h1>&#128196; Purchase Orders</h1><p>Consolidated PO register &middot; click a PO for the full document &amp; attachments</p></div><button class="btn btn-secondary btn-sm" onclick="_poRegReload(this)">&#8635; Refresh</button></div></div><div id="po-reg-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading PO data&hellip;</div></div>`;
+  _regEnsure().then(() => { _poRegAll = _poRegRows(); _poRegBuild(); }).catch(() => { const b = document.getElementById('po-reg-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load PO data.</div>'; });
 }
-window._poRegReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _poRegAll = _poRegRows(); _poRegRender(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
-window._poRegSetSearch = function(v) { _poRegSearch = v; _poRegRender(); };
-window._poRegSetStatus = function(v) { _poRegStatus = v; _poRegRender(); };
+function _poRegBuild() {
+  const c = document.getElementById('po-reg-body'); if (!c) return;
+  const esc = _mdpEsc;
+  const statuses = Array.from(new Set(_poRegAll.map(r => r.status).filter(Boolean))).sort();
+  c.innerHTML = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+      <input id="poRegSearch" type="text" oninput="_poRegSetSearch(this.value)" placeholder="Search PO / vendor / site…" style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+      <select onchange="_poRegSetStatus(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 9px;background:var(--surface2)"><option value="">All statuses</option>${statuses.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>
+      <span id="poRegCount" style="font-size:.72rem;color:var(--txt3)"></span></div>
+    <div class="card"><table class="data-table"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th></tr></thead><tbody id="poRegTbody"></tbody></table></div>`;
+  _poRegFill();
+  try { applyTableFeatures(); } catch (e) {}
+}
+function _poRegFill() {
+  const tb = document.getElementById('poRegTbody'); if (!tb) return;
+  const esc = _mdpEsc;
+  const q = _poRegSearch.trim().toLowerCase();
+  let rows = _poRegAll;
+  if (_poRegStatus) rows = rows.filter(r => r.status === _poRegStatus);
+  if (q) rows = rows.filter(r => (r.poNo + ' ' + r.vendor + ' ' + r.site).toLowerCase().includes(q));
+  const cnt = document.getElementById('poRegCount'); if (cnt) cnt.textContent = rows.length + ' PO(s)';
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--txt3);padding:1.5rem">No POs match.</td></tr>'; return; }
+  tb.innerHTML = rows.map(r => `<tr style="cursor:pointer" data-po="${esc(r.poNo)}" onclick="_poOpenDetail(this.dataset.po)">
+    <td style="font-family:monospace;font-size:.74rem">${esc(r.poNo)}</td>
+    <td style="white-space:nowrap">${_mdpFmtDate(r.date)}</td>
+    <td>${esc(r.vendor) || '—'}</td><td>${esc(r.site) || '—'}</td><td>${esc(r.status) || '—'}</td>
+    <td style="text-align:right">${r.net ? _regINR(r.net) : '—'}</td>
+    <td style="text-align:right;color:#b45309">${r.recvVal ? _regINR(r.recvVal) : '—'}</td>
+    <td style="text-align:right;color:#16a34a">${r.paid ? _regINR(r.paid) : '—'}</td></tr>`).join('');
+  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+}
+window._poRegReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _poRegAll = _poRegRows(); _poRegBuild(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._poRegSetSearch = function(v) { _poRegSearch = v; _poRegFill(); };
+window._poRegSetStatus = function(v) { _poRegStatus = v; _poRegFill(); };
 function _poRegRows() {
   const HC = _opColMap(_openPOHeaders), IC = _opColMap(_openPOItems), SC = _opColMap(_openPOStock), PC = _opColMap(_openPOPayments);
   const siAgg = {};
@@ -4362,68 +4412,144 @@ function _poRegRows() {
   rows.sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date));
   return rows;
 }
-function _poRegRender() {
-  const c = document.getElementById('po-reg-body'); if (!c) return;
-  const esc = _mdpEsc;
-  const statuses = Array.from(new Set(_poRegAll.map(r => r.status).filter(Boolean))).sort();
-  const q = _poRegSearch.trim().toLowerCase();
-  let rows = _poRegAll;
-  if (_poRegStatus) rows = rows.filter(r => r.status === _poRegStatus);
-  if (q) rows = rows.filter(r => (r.poNo + ' ' + r.vendor + ' ' + r.site).toLowerCase().includes(q));
-  const bar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
-    <input type="text" value="${esc(_poRegSearch)}" oninput="_poRegSetSearch(this.value)" placeholder="Search PO / vendor / site…" style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
-    <select onchange="_poRegSetStatus(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 9px;background:var(--surface2)"><option value="">All statuses</option>${statuses.map(s => `<option value="${esc(s)}"${s === _poRegStatus ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select>
-    <span style="font-size:.72rem;color:var(--txt3)">${rows.length} PO(s)</span></div>`;
-  if (!rows.length) { c.innerHTML = bar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No POs match.</div>'; return; }
-  const body = rows.map(r => `<tr style="cursor:pointer" data-po="${esc(r.poNo)}" onclick="_poOpenDetail(this.dataset.po)">
-    <td style="padding:6px 9px;font-family:monospace;font-size:.74rem">${esc(r.poNo)}</td>
-    <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(r.date)}</td>
-    <td style="padding:6px 9px">${esc(r.vendor) || '—'}</td>
-    <td style="padding:6px 9px">${esc(r.site) || '—'}</td>
-    <td style="padding:6px 9px">${esc(r.status) || '—'}</td>
-    <td style="padding:6px 9px;text-align:right">${r.net ? _regINR(r.net) : '—'}</td>
-    <td style="padding:6px 9px;text-align:right;color:#b45309">${r.recvVal ? _regINR(r.recvVal) : '—'}</td>
-    <td style="padding:6px 9px;text-align:right;color:#16a34a">${r.paid ? _regINR(r.paid) : '—'}</td></tr>`).join('');
-  c.innerHTML = bar + `<div class="card"><div style="overflow-x:auto"><table class="data-table" style="width:100%;border-collapse:collapse;font-size:.78rem"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
-  try { applyTableFeatures(); } catch (e) {}
-}
+// Printable PO document (inspired by the AppSheet PO PDF) + attachments.
 window._poOpenDetail = function(poNo) {
-  const esc = _mdpEsc;
-  const HC = _opColMap(_openPOHeaders), IC = _opColMap(_openPOItems), SC = _opColMap(_openPOStock), PC = _opColMap(_openPOPayments);
+  const esc = _mdpEsc, inr = _regINR, num = _opNum;
+  const HC = _opColMap(_openPOHeaders), IC = _opColMap(_openPOItems), SC = _opColMap(_openPOStock);
   const K = _opPO(poNo);
   const hdr = _openPOHeaders.find(r => _opPO(_opGet(r, HC, ['PO No'])) === K) || {};
+  const G = cands => _opGet(hdr, HC, cands);
+  const items = _openPOItems.filter(x => _opPO(_opGet(x, IC, ['PO No', 'Order No'])) === K);
   const siAgg = {};
   _openPOStock.forEach(r => { const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey'])); if (!pk) return; const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description'])); siAgg[key] = (siAgg[key] || 0) + _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty'])); });
-  const items = _openPOItems.filter(x => _opPO(_opGet(x, IC, ['PO No', 'Order No'])) === K);
-  const pays = _openPOPayments.filter(r => _opPO(_opGet(r, PC, ['Order No', 'PO No (Key)', 'PO No', 'PO Number'])) === K);
-  const fields = [
-    ['PO No', _opGet(hdr, HC, ['PO No'])], ['PO Date', _mdpFmtDate(_opGet(hdr, HC, ['PO Date']))],
-    ['Vendor', _opGet(hdr, HC, ['Vendor Name'])], ['Site', _opGet(hdr, HC, ['Site Name'])],
-    ['Status', _opGet(hdr, HC, ['PO Approval Status'])], ['Lock', _opGet(hdr, HC, ['Lock'])],
-    ['Payment Terms', _opGet(hdr, HC, ['Payment Terms', 'Payment Term', 'Terms of Payment', 'Payment Terms (Days)'])],
-    ['Net Amount', _regINR(_opNum(_opGet(hdr, HC, ['Net Amount'])))],
-    ['Tax (b)', _regINR(_opNum(_opGet(hdr, HC, ['Tax (b)', 'Tax(b)', 'Tax B'])))],
-    ['Sub Total (b)', _regINR(_opNum(_opGet(hdr, HC, ['Sub Total (b)', 'Sub Total(b)', 'SubTotal (b)', 'Sub Total B'])))],
-  ];
+
+  const BD = '1px solid #e6efe9';
   const itemRows = items.map(x => {
-    const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
-    const cs = _opGet(x, IC, ['CheckSum', 'Check Sum']);
-    const qty = _opNum(_opGet(x, IC, ['PO Qty', 'Qty', 'Quantity', 'Order Qty']));
-    const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
-    const recv = siAgg[_opNorm(cs) + '||' + _opNorm(part)] || 0;
-    const tax = _opNum(_opGet(x, IC, ['Tax Amt', 'Tax Amount', 'Total Tax']));
-    const matDesc = _opGet(x, IC, ['Material Description', 'Material Desc']) || part;
-    return `<tr><td style="padding:5px 8px">${esc(matDesc) || '—'}</td><td style="padding:5px 8px;text-align:right">${qty || '—'}</td><td style="padding:5px 8px;text-align:right">${rate ? _regINR(rate) : '—'}</td><td style="padding:5px 8px;text-align:right">${qty * rate ? _regINR(qty * rate) : '—'}</td><td style="padding:5px 8px;text-align:right;color:#2563eb">${tax ? _regINR(tax) : '—'}</td><td style="padding:5px 8px;text-align:right;color:#b45309">${recv || '—'}</td></tr>`;
+    const g = c => _opGet(x, IC, c);
+    const mr = g(['MR ID', 'MR No', 'MRS', 'MR']);
+    const desc = g(['Part Details', 'Description', 'Item Description', 'Part Description', 'Material', 'Particulars', 'Item']);
+    const hsn = g(['HSN Code', 'HSNCode', 'HSN']);
+    const uom = g(['UOM', 'Unit', 'Units']);
+    const qty = num(g(['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
+    const rate = num(g(['Unit Rate', 'Rate', 'Unit Price', 'Price', 'Basic Rate']));
+    const taxp = g(['Tax (%)', 'Tax %', 'Tax Percentage', 'GST %', 'Tax Percent']);
+    const taxa = num(g(['Tax. Amount', 'Tax Amount', 'Tax Amt', 'Total Tax']));
+    const tot = num(g(['Total Amount', 'Amount', 'Line Total'])) || qty * rate;
+    const recv = siAgg[_opNorm(g(['CheckSum', 'Check Sum'])) + '||' + _opNorm(desc)] || 0;
+    return `<tr>
+      <td style="padding:5px 7px;border-top:${BD};font-size:.72rem;white-space:nowrap">${esc(mr) || '—'}</td>
+      <td style="padding:5px 7px;border-top:${BD}">${esc(desc) || '—'}${recv ? `<span style="color:#b45309;font-size:.68rem"> &middot; recv ${recv}</span>` : ''}</td>
+      <td style="padding:5px 7px;border-top:${BD}">${esc(hsn) || '—'}</td>
+      <td style="padding:5px 7px;border-top:${BD}">${esc(uom) || '—'}</td>
+      <td style="padding:5px 7px;border-top:${BD};text-align:right">${qty || '—'}</td>
+      <td style="padding:5px 7px;border-top:${BD};text-align:right">${rate ? inr(rate) : '—'}</td>
+      <td style="padding:5px 7px;border-top:${BD};text-align:right">${esc(taxp) || '—'}</td>
+      <td style="padding:5px 7px;border-top:${BD};text-align:right">${taxa ? inr(taxa) : '—'}</td>
+      <td style="padding:5px 7px;border-top:${BD};text-align:right;font-weight:600">${tot ? inr(tot) : '—'}</td></tr>`;
   }).join('');
-  const payRows = pays.map(r => {
-    const amt = _opNum(_opGet(r, PC, ['Amount']));
-    return `<tr><td style="padding:5px 8px;font-family:monospace;font-size:.72rem">${esc(_opGet(r, PC, ['Request ID', 'PR No', 'PR ID'])) || '—'}</td><td style="padding:5px 8px;white-space:nowrap">${_mdpFmtDate(_opGet(r, PC, ['Date Of Request', 'Date of Request', 'Date']))}</td><td style="padding:5px 8px;text-align:right">${amt ? _regINR(amt) : '—'}</td><td style="padding:5px 8px">${esc(_opGet(r, PC, ['Status', 'Accounts Status', 'Payment Status'])) || '—'}</td><td style="padding:5px 8px;font-size:.7rem">${esc(_opGet(r, PC, ['UTR Details', 'UTR'])) || '—'}</td></tr>`;
-  }).join('');
-  const body = _regKV(fields)
-    + `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">Line Items (${items.length})</h4>`
-    + (items.length ? _regTbl(['Item', 'Qty', 'Rate', 'Amount', 'Tax Amt', 'Received Qty'], itemRows) : '<div style="color:var(--txt3);font-size:.8rem;margin-bottom:1rem">No line items.</div>')
-    + (pays.length ? `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">Payments (${pays.length})</h4>` + _regTbl(['PR No', 'Date', 'Amount', 'Status', 'UTR'], payRows) : '');
-  _regOpenModal('Purchase Order · ' + esc(poNo), body);
+
+  const subA = num(G(['Sub Total (a)', 'Sub Total(a)', 'Sub Total A'])) || items.reduce((s, x) => s + (num(_opGet(x, IC, ['Total Amount', 'Amount', 'Line Total'])) || num(_opGet(x, IC, ['Qty', 'Quantity'])) * num(_opGet(x, IC, ['Unit Rate', 'Rate']))), 0);
+  const grand = num(G(['Grand Total', 'Net Amount', 'Total Amount']));
+  const totRow = (label, val, strong) => (val || strong) ? `<tr><td style="padding:2px 10px 2px 0;color:#5b6b63;${strong ? 'font-weight:700;color:#16341f;border-top:1px solid #cfe0d6;padding-top:5px' : ''}">${label}</td><td style="padding:2px 0;text-align:right;${strong ? 'font-weight:700;color:#16341f;border-top:1px solid #cfe0d6;padding-top:5px' : ''}">${val ? inr(val) : '—'}</td></tr>` : '';
+  const optRow = (label, cands) => { const v = num(G(cands)); return v ? totRow(label, v) : ''; };
+  const totals = `<table style="font-size:.78rem"><tbody>
+    ${totRow('Sub Total (a)', subA)}
+    ${optRow('Freight Charge', ['Freight Charge', 'Freight'])}
+    ${optRow('Packing &amp; Forwarding', ['Packing & Forwarding', 'Packing and Forwarding', 'P&F'])}
+    ${optRow('Installation Cost', ['Installation Cost', 'Installation'])}
+    ${optRow('Other Charges', ['Other Charges', 'Others Charges'])}
+    ${optRow('Sub Total (b)', ['Sub Total (b)', 'Sub Total(b)', 'Sub Total B'])}
+    ${optRow('Round off (±)', ['Round off', 'Round Off', 'Roundoff'])}
+    ${totRow('Grand Total', grand || subA, true)}
+  </tbody></table>`;
+
+  const terms = [['Quality', ['Quality']], ['Rejection', ['Rejection']], ['Payment', ['Payment', 'Payment Terms', 'Terms of Payment']], ['Transportation', ['Transportation', 'Transport']], ['Delivery', ['Delivery', 'Delivery Terms']], ['Warranty', ['Warranty']], ['Others', ['Others', 'Other Terms']]]
+    .map(([l, c]) => { const v = G(c); return v ? `<div style="margin-bottom:.18rem"><b style="color:#2c3b33">${l}:</b> ${esc(v)}</div>` : ''; }).join('');
+  const note = G(['Note', 'Notes']);
+  const inWords = G(['Rupees (In Words)', 'Amount In Words', 'In Words', 'Rupees In Words', 'Amount in Words']);
+  const purpose = G(['Purpose of Purchase', 'Purpose']);
+  const quoteUrl = G(['Quote(Attachment)', 'Quote (Attachment)', 'Quote Attachment', 'Quote']);
+
+  const addrBlock = (label, val) => val ? `<div style="margin-bottom:.5rem"><div style="font-size:.62rem;font-weight:700;color:#7a8a82;text-transform:uppercase;letter-spacing:.04em">${label}</div><div style="white-space:pre-line">${esc(val)}</div></div>` : '';
+  const metaRow = (l, v) => v ? `<tr><td style="padding:2px 10px 2px 0;color:#7a8a82;font-weight:600">${l}</td><td style="padding:2px 0;font-weight:600;color:#1f2d26">${esc(v)}</td></tr>` : '';
+
+  const doc = `<div id="poPaper" style="background:#fff;color:#1f2d26;border:1px solid #d8e4dc;border-radius:10px;padding:1.2rem 1.4rem;font-size:.78rem;line-height:1.5">
+    <div style="text-align:center;border-bottom:2px solid #16341f;padding-bottom:.5rem;margin-bottom:.8rem">
+      <div style="font-size:1.1rem;font-weight:800;color:#16341f;letter-spacing:.02em">EVERGREEN ENTERPRISES</div>
+      <div style="font-size:.68rem;color:#5b6b63">No.10, Sankari Bye Pass Road, Pallipalayam, Namakkal Dist, Tamil Nadu - 638006</div>
+      <div style="font-size:.95rem;font-weight:700;color:#1f2d26;margin-top:.35rem;letter-spacing:.18em">PURCHASE ORDER</div>
+    </div>
+    <div style="display:flex;gap:1.2rem;flex-wrap:wrap;margin-bottom:.7rem">
+      <div style="flex:1;min-width:240px">
+        <div style="font-size:.62rem;font-weight:700;color:#7a8a82;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">Vendor Details</div>
+        <div style="font-weight:700;color:#16341f">${esc(G(['Vendor Name'])) || '—'}</div>
+        <div style="white-space:pre-line">${esc(G(['Vendor Address', 'Vendor Address 1', 'Address', 'Vendor Addr']))}</div>
+        ${G(['Vendor GST', 'GST', 'GSTIN', 'Vendor GSTIN', 'GST No']) ? `<div>GST : ${esc(G(['Vendor GST', 'GST', 'GSTIN', 'Vendor GSTIN', 'GST No']))}</div>` : ''}
+        ${G(['Vendor Phone', 'Phone', 'Vendor Mobile', 'Mobile']) ? `<div>Phone : ${esc(G(['Vendor Phone', 'Phone', 'Vendor Mobile', 'Mobile']))}</div>` : ''}
+        ${G(['Vendor Email', 'Email']) ? `<div>Email : ${esc(G(['Vendor Email', 'Email']))}</div>` : ''}
+      </div>
+      <div style="min-width:240px">
+        <table style="font-size:.78rem"><tbody>
+          ${metaRow('PO No', G(['PO No']))}
+          ${metaRow('Order Date', _mdpFmtDate(G(['PO Date', 'Order Date'])))}
+          ${metaRow('Quote Ref', G(['Quote Ref', 'Quote Reference', 'Quotation Ref', 'Quote Ref No']))}
+          ${metaRow('Quote Date', _mdpFmtDate(G(['Quote Date', 'Quotation Date'])))}
+          ${metaRow('Status', G(['PO Approval Status']))}
+          ${metaRow('Site', G(['Site Name']))}
+        </tbody></table>
+      </div>
+    </div>
+    <div style="display:flex;gap:1.2rem;flex-wrap:wrap;border-top:1px dashed #d8e4dc;padding-top:.5rem;margin-bottom:.7rem">
+      <div style="flex:1;min-width:240px">${addrBlock('Billing Address', G(['Billing Address', 'Bill To', 'Billing Addr']))}</div>
+      <div style="flex:1;min-width:240px">${addrBlock('Delivery Address', G(['Delivery Address', 'Ship To', 'Delivery Addr', 'Site Address']))}</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:.74rem;margin-bottom:.7rem">
+      <thead><tr style="background:#16341f;color:#fff;text-align:left">
+        <th style="padding:6px 7px">MR ID</th><th style="padding:6px 7px">Description</th><th style="padding:6px 7px">HSN</th><th style="padding:6px 7px">UOM</th>
+        <th style="padding:6px 7px;text-align:right">Qty</th><th style="padding:6px 7px;text-align:right">Unit Rate</th><th style="padding:6px 7px;text-align:right">Tax %</th><th style="padding:6px 7px;text-align:right">Tax Amt</th><th style="padding:6px 7px;text-align:right">Total</th>
+      </tr></thead><tbody>${itemRows || '<tr><td colspan="9" style="padding:8px;text-align:center;color:#7a8a82">No line items.</td></tr>'}</tbody>
+    </table>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:.6rem"><div style="min-width:260px">${totals}</div></div>
+    ${inWords ? `<div style="font-size:.76rem;margin-bottom:.3rem"><b>Rupees (In Words) :</b> ${esc(inWords)}</div>` : ''}
+    ${purpose ? `<div style="font-size:.76rem;margin-bottom:.6rem"><b>Purpose of Purchase :</b> ${esc(purpose)}</div>` : ''}
+    ${terms ? `<div style="border-top:1px dashed #d8e4dc;padding-top:.5rem;margin-bottom:.6rem"><div style="font-weight:700;color:#16341f;margin-bottom:.25rem">Terms &amp; Conditions</div><div style="font-size:.74rem;color:#3a4a42">${terms}</div></div>` : ''}
+    ${note ? `<div style="font-size:.72rem;color:#5b6b63;font-style:italic;margin-bottom:.6rem">Note : ${esc(note)}</div>` : ''}
+    <div style="display:flex;gap:1.2rem;flex-wrap:wrap;border-top:1px dashed #d8e4dc;padding-top:.5rem">
+      <div style="flex:1;min-width:240px">
+        ${(G(['Vendor Acc Name', 'Vendor Account Name', 'Account Name', 'Acc Name']) || G(['ACNO', 'Vendor A/C No', 'Account No', 'A/C No', 'Acc No', 'Account Number']) || G(['IFSC', 'IFSC Code']) || G(['Branch'])) ? `<div style="font-size:.62rem;font-weight:700;color:#7a8a82;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">Vendor Bank Details</div>
+        ${G(['Vendor Acc Name', 'Vendor Account Name', 'Account Name', 'Acc Name']) ? `<div>Acc Name : ${esc(G(['Vendor Acc Name', 'Vendor Account Name', 'Account Name', 'Acc Name']))}</div>` : ''}
+        ${G(['ACNO', 'Vendor A/C No', 'Account No', 'A/C No', 'Acc No', 'Account Number']) ? `<div>A/C No : ${esc(G(['ACNO', 'Vendor A/C No', 'Account No', 'A/C No', 'Acc No', 'Account Number']))}</div>` : ''}
+        ${G(['IFSC', 'IFSC Code']) ? `<div>IFSC : ${esc(G(['IFSC', 'IFSC Code']))}</div>` : ''}
+        ${G(['Branch']) ? `<div>Branch : ${esc(G(['Branch']))}</div>` : ''}` : ''}
+      </div>
+      <div style="min-width:240px;text-align:right;align-self:flex-end">
+        ${G(['Prepared By']) ? `<div>Prepared By : <b>${esc(G(['Prepared By']))}</b></div>` : ''}
+        ${G(['Approved By']) ? `<div>Approved By : <b>${esc(G(['Approved By']))}</b></div>` : ''}
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:1rem">
+    <div style="font-size:.8rem;font-weight:700;color:var(--g9);margin-bottom:.5rem">&#128206; Attachments</div>
+    <div id="poAttBox"><div style="color:var(--txt3);font-size:.78rem;padding:.5rem">&#9203; Loading attachments&hellip;</div></div>
+  </div>`;
+
+  const printBtn = `<button onclick="_regPrintEl('poPaper')" class="btn btn-secondary btn-sm" title="Print / save the PO as PDF">&#128424; Print</button>`;
+  _regOpenModal('Purchase Order · ' + esc(poNo), doc, printBtn);
+  _poLoadAttachments(poNo, quoteUrl);
+};
+window._poLoadAttachments = async function(poNo, quoteUrl) {
+  const box = document.getElementById('poAttBox'); if (!box) return;
+  const esc = _mdpEsc;
+  const cards = [];
+  if (quoteUrl) cards.push(_regAttCard(quoteUrl, 'Quote / PO Attachment', 'PO sheet'));
+  let files = [];
+  try { const resp = await _accPostAwait({ action: 'listPRAttachments', link: '', orderNo: poNo }); if (resp && resp.success !== false) files = resp.files || []; } catch (e) {}
+  if (!document.getElementById('poAttBox')) return;            // modal closed / switched
+  files.forEach(f => cards.push(_regAttCard(f.url, f.name, f.matchedOn || 'Drive', f.mimeType, f.size)));
+  if (!cards.length) { box.innerHTML = '<div style="color:var(--txt3);font-size:.78rem;padding:.5rem">No attachments found for this PO.</div>'; return; }
+  const firstUrl = quoteUrl || (files[0] && files[0].url) || '';
+  const pv = _regDrivePreview(firstUrl);
+  box.innerHTML = cards.join('') + (pv ? `<iframe src="${esc(pv)}" style="width:100%;height:520px;border:1px solid var(--border);border-radius:9px;margin-top:.6rem;background:#fff"></iframe>` : '');
 };
 
 // ── StockIN Register (route 'stockin-register') ──────────────────────────
@@ -4431,10 +4557,35 @@ let _siRegAll = [], _siRegSearch = '';
 function renderStockINRegister() {
   const el = document.getElementById('mainContent');
   el.innerHTML = `<div class="page-header"><div class="page-header-row"><div><h1>&#128230; StockIN Register</h1><p>Goods received entries &middot; click a row for full details</p></div><button class="btn btn-secondary btn-sm" onclick="_siRegReload(this)">&#8635; Refresh</button></div></div><div id="si-reg-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading StockIN data&hellip;</div></div>`;
-  _regEnsure().then(() => { _siRegAll = _siRegRows(); _siRegRender(); }).catch(() => { const b = document.getElementById('si-reg-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load StockIN data.</div>'; });
+  _regEnsure().then(() => { _siRegAll = _siRegRows(); _siRegBuild(); }).catch(() => { const b = document.getElementById('si-reg-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load StockIN data.</div>'; });
 }
-window._siRegReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _siRegAll = _siRegRows(); _siRegRender(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
-window._siRegSetSearch = function(v) { _siRegSearch = v; _siRegRender(); };
+function _siRegBuild() {
+  const c = document.getElementById('si-reg-body'); if (!c) return;
+  c.innerHTML = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+      <input id="siRegSearch" type="text" oninput="_siRegSetSearch(this.value)" placeholder="Search GRN / PO / vendor / part / invoice…" style="flex:1;min-width:240px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+      <span id="siRegCount" style="font-size:.72rem;color:var(--txt3)"></span></div>
+    <div class="card"><table class="data-table"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th></tr></thead><tbody id="siRegTbody"></tbody></table></div>`;
+  _siRegFill();
+  try { applyTableFeatures(); } catch (e) {}
+}
+function _siRegFill() {
+  const tb = document.getElementById('siRegTbody'); if (!tb) return;
+  const esc = _mdpEsc;
+  const q = _siRegSearch.trim().toLowerCase();
+  let rows = _siRegAll;
+  if (q) rows = rows.filter(r => (r.grn + ' ' + r.poNo + ' ' + r.vendor + ' ' + r.part + ' ' + r.inv).toLowerCase().includes(q));
+  const cnt = document.getElementById('siRegCount'); if (cnt) cnt.textContent = rows.length + ' receipt(s)';
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--txt3);padding:1.5rem">No StockIN records match.</td></tr>'; return; }
+  tb.innerHTML = rows.map(r => `<tr style="cursor:pointer" data-idx="${r.idx}" onclick="_siOpenDetail(this.dataset.idx)">
+    <td style="font-weight:600;color:var(--g7)">${esc(r.grn) || '<span style="color:var(--txt3);font-style:italic">Pending</span>'}</td>
+    <td style="white-space:nowrap">${_mdpFmtDate(r.received)}</td>
+    <td style="font-family:monospace;font-size:.74rem">${esc(r.poNo) || '—'}</td>
+    <td>${esc(r.vendor) || '—'}</td><td>${esc(r.site) || '—'}</td><td>${esc(r.inv) || '—'}</td><td>${esc(r.part) || '—'}</td>
+    <td style="text-align:right">${esc(r.grnQty) || '—'}</td></tr>`).join('');
+  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+}
+window._siRegReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _siRegAll = _siRegRows(); _siRegBuild(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._siRegSetSearch = function(v) { _siRegSearch = v; _siRegFill(); };
 function _siGRNMapBuild() {
   const m = {};
   (_regGRNRows || []).forEach(g => { const u = String(g['UUID'] || g['CheckSum'] || '').trim(); if (u) m[u] = (g['GRN No (Goods Receipt)'] || g['GRN No'] || '').toString().trim(); });
@@ -4458,28 +4609,6 @@ function _siRegRows() {
       grnQty: _opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']),
     };
   });
-}
-function _siRegRender() {
-  const c = document.getElementById('si-reg-body'); if (!c) return;
-  const esc = _mdpEsc;
-  const q = _siRegSearch.trim().toLowerCase();
-  let rows = _siRegAll;
-  if (q) rows = rows.filter(r => (r.grn + ' ' + r.poNo + ' ' + r.vendor + ' ' + r.part + ' ' + r.inv).toLowerCase().includes(q));
-  const bar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
-    <input type="text" value="${esc(_siRegSearch)}" oninput="_siRegSetSearch(this.value)" placeholder="Search GRN / PO / vendor / part / invoice…" style="flex:1;min-width:240px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
-    <span style="font-size:.72rem;color:var(--txt3)">${rows.length} receipt(s)</span></div>`;
-  if (!rows.length) { c.innerHTML = bar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No StockIN records match.</div>'; return; }
-  const body = rows.map(r => `<tr style="cursor:pointer" data-idx="${r.idx}" onclick="_siOpenDetail(this.dataset.idx)">
-    <td style="padding:6px 9px;font-weight:600;color:var(--g7)">${esc(r.grn) || '<span style="color:var(--txt3);font-style:italic">Pending</span>'}</td>
-    <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(r.received)}</td>
-    <td style="padding:6px 9px;font-family:monospace;font-size:.74rem">${esc(r.poNo) || '—'}</td>
-    <td style="padding:6px 9px">${esc(r.vendor) || '—'}</td>
-    <td style="padding:6px 9px">${esc(r.site) || '—'}</td>
-    <td style="padding:6px 9px">${esc(r.inv) || '—'}</td>
-    <td style="padding:6px 9px">${esc(r.part) || '—'}</td>
-    <td style="padding:6px 9px;text-align:right">${esc(r.grnQty) || '—'}</td></tr>`).join('');
-  c.innerHTML = bar + `<div class="card"><div style="overflow-x:auto"><table class="data-table" style="width:100%;border-collapse:collapse;font-size:.78rem"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
-  try { applyTableFeatures(); } catch (e) {}
 }
 window._siOpenDetail = function(idx) {
   const r = _openPOStock[+idx]; if (!r) return;
