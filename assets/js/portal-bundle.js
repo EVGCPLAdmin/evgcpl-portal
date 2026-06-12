@@ -14242,23 +14242,16 @@ window.pstDownloadCSV = function(tab) {
     const pos = _openPOCompute(q);
     const all = [];
     pos.forEach(p => p.lines.filter(l => l.isOpen).forEach(l => all.push(_openPOFlatRow(p, l))));
-    const rawSel = _openPOColsGet().map(_opField).filter(f => f && f.raw);  // raw cols the user has added
-    const flat = _openPOApplyFilters(all).map(l => { const o = {
-      'PO No': l.poNo, 'PO Date': (l.date || '').split(' ')[0], 'Age (days)': l.age ?? '', 'Aging': l.ageBucket,
-      'Vendor': l.vendor, 'Vendor ID': l.vendorId || '', 'Vendor Type': l.vendorType || '',
-      'Vendor City': l.vendorCity || '', 'Vendor State': l.vendorState || '',
-      'Site': l.site, 'PO Status': l.poStatus || '', 'Payment Terms': l.paymentTerms || '', 'MR No': l.mrNo || '', 'HSN Code': l.hsn || '',
-      'Part No': l.partNo, 'Part Description': l.partDesc, 'UOM': l.unit || '',
-      'PO Qty': l.qty, 'Invoice Qty': l.invoiced, 'GRN Qty': l.received,
-      'Pending Qty': l.pendingQty > 0 ? l.pendingQty : 0, 'Rate': l.rate || '',
-      'Pending Amount': l.pendingQty > 0 && l.rate ? Math.round(l.pendingAmt) : '',
-      'Pending %': l.pendingQty > 0 ? Math.round(l.pendingPct) : '',
-      'Line Status': l.status,
-      'Amount Paid': l.paidTotal ? Math.round(l.paidTotal) : '',
-      'Unpaid (PO-Paid)': l.unpaidAmt ? Math.round(l.unpaidAmt) : '',
-      'Payment Requests': l.payCount || '',
-      'UTR Details': l.utrList || '', 'Request IDs': l.reqIdList || '',
-    }; rawSel.forEach(f => { o[f.label] = l[f.key] != null ? l[f.key] : ''; }); return o; });
+    // Export exactly the columns the user has shown, in their arranged order.
+    const cols = _openPOColsGet().map(_opField).filter(Boolean);
+    const flat = _openPOApplyFilters(all).map(l => {
+      const o = {};
+      cols.forEach(f => {
+        const v = (f.key === 'poDate') ? (l.date || '').split(' ')[0] : l[f.key];
+        o[f.label] = (v == null ? '' : v);
+      });
+      return o;
+    });
     downloadCSV(flat, `OpenPO_${new Date().toISOString().slice(0,10)}.csv`);
   } else if (tab === 'levels') {
     const rows = (site ? _pstLevels.filter(r => r['Site Name'] === site) : _pstLevels)
