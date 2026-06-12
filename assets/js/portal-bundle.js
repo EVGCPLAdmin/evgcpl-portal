@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.49.2';
-const PORTAL_BUILD    = 530;
-const PORTAL_BUILD_AT = '2026-06-12T16:52:17Z';
+const PORTAL_VERSION  = '3.49.3';
+const PORTAL_BUILD    = 531;
+const PORTAL_BUILD_AT = '2026-06-12T17:13:04Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4052,6 +4052,7 @@ function _scLedRenderBody() {
 // The vendor picker lists ONLY vendors that have at least one PO payment
 // (PaymentRequest row with Payment To = Vendor and a non-empty Order No).
 let _vplpVendor = '';
+let _vplpFY = '';
 let _vplpData = null;
 function renderVendorLedgerPO() {
   const el = document.getElementById('mainContent');
@@ -4069,7 +4070,8 @@ function renderVendorLedgerPO() {
   });
 }
 window._vplpReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _vplpEnsure(true).then(() => _vplpRenderBody()).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
-window._vplpSetVendor = function(v) { _vplpVendor = v; _vplpRenderBody(); };
+window._vplpSetVendor = function(v) { _vplpVendor = v; _vplpFY = ''; _vplpRenderBody(); };
+window._vplpSetFY     = function(v) { _vplpFY = v; _vplpRenderBody(); };
 
 let _vplpGRNRows = null;
 async function _vplpEnsure(force) {
@@ -4158,26 +4160,40 @@ function _vplpRenderBody() {
   </div>`;
   c.innerHTML = selector + head + _vplpLedger(v);
 }
+// Indian FY runs Apr→Mar; the FY "start year" identifies it (2026 → FY 2026-27).
+function _vplpFYof(v) { const t = _mdpDateVal(v); if (!t) return ''; const d = new Date(t); return String(d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1); }
+function _vplpFYLabel(sy) { return 'FY ' + sy + '-' + String((+sy + 1) % 100).padStart(2, '0'); }
 function _vplpLedger(v) {
   const esc = _mdpEsc, d = _vplpData;
   const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
-  const entries = [];
+  const all = [];
   // Credit (material received) + Tax (a) + Additional Charges — one row per PO.
   Object.keys(v.orderNos).forEach(k => {
     const recv = d.poRecv[k] || 0, tax = d.poTax[k] || 0, addl = d.poAddl[k] || 0;
     if (recv <= 0 && tax <= 0 && addl <= 0) return;
     const grns = d.poGRN[k] || [];
     const grnTxt = grns.length ? ' · GRN ' + esc(grns.slice(0, 4).join(', ')) + (grns.length > 4 ? ` +${grns.length - 4}` : '') : '';
-    entries.push({ date: d.poDate[k] || '', ref: k, type: 'Material received' + grnTxt, credit: recv, tax: tax, addl: addl, debit: 0, status: null, utr: '', uuid: '' });
+    all.push({ date: d.poDate[k] || '', ref: k, type: 'Material received' + grnTxt, credit: recv, tax: tax, addl: addl, debit: 0, status: null, utr: '', uuid: '' });
   });
   // Debit (payments) — this vendor's PO payments that reached a paid status.
   (_mdpRows || []).forEach(r => {
     if (_plPartyKey(r) !== v.key) return;
     if (!(r.orderNo || '').trim()) return;
     if (!(r.status && r.status.cat === 'completed')) return;
-    entries.push({ date: r.date, ref: r.requestId || r.uuid, type: 'Payment · ' + esc(r.orderNo || ''), credit: 0, tax: 0, addl: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
+    all.push({ date: r.date, ref: r.requestId || r.uuid, type: 'Payment · ' + esc(r.orderNo || ''), credit: 0, tax: 0, addl: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
   });
-  if (!entries.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No PO material receipts or payments found for this vendor.</div>';
+  if (!all.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No PO material receipts or payments found for this vendor.</div>';
+  // Financial-year filter.
+  const fySet = Array.from(new Set(all.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
+  const fyOpts = `<option value="">All financial years</option>` +
+    fySet.map(sy => `<option value="${sy}"${sy === _vplpFY ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
+  const fyBar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+    <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">FINANCIAL YEAR</label>
+    <select onchange="_vplpSetFY(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2)">${fyOpts}</select>
+    <span style="font-size:.7rem;color:var(--txt3)">${_vplpFY ? _vplpFYLabel(_vplpFY) + ' · Apr–Mar' : 'All transactions'}</span>
+  </div>`;
+  const entries = _vplpFY ? all.filter(e => _vplpFYof(e.date) === _vplpFY) : all;
+  if (!entries.length) return fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   entries.sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
   let running = 0;
   entries.forEach(e => { running += e.credit - e.debit; e.balance = running; });
@@ -4185,12 +4201,15 @@ function _vplpLedger(v) {
   const totTax    = entries.reduce((s, e) => s + e.tax, 0);
   const totAddl   = entries.reduce((s, e) => s + e.addl, 0);
   const totDebit  = entries.reduce((s, e) => s + e.debit, 0);
-  const kpi = `<div class="kpi-grid" style="margin-bottom:1rem">
-    <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">📦</div></div><div class="kpi-value" style="font-size:1.15rem">${inr(totCredit)}</div><div class="kpi-label">Material Received (Credit)</div></div>
-    <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:#dbeafe;color:#2563eb">🧾</div></div><div class="kpi-value" style="font-size:1.15rem">${inr(totTax)}</div><div class="kpi-label">Total Tax (a+b)</div></div>
-    <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:#ede9fe;color:#7c3aed">➕</div></div><div class="kpi-value" style="font-size:1.15rem">${inr(totAddl)}</div><div class="kpi-label">Additional Charges</div></div>
-    <div class="kpi-card" style="border-left:4px solid #16a34a"><div class="kpi-top"><div class="kpi-icon green">✅</div></div><div class="kpi-value" style="font-size:1.15rem">${inr(totDebit)}</div><div class="kpi-label">Paid (Debit)</div></div>
-    <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⚖</div></div><div class="kpi-value" style="font-size:1.15rem">${inr(totCredit - totDebit)}</div><div class="kpi-label">Outstanding</div></div>
+  // Compact KPI cards — order: Outstanding · Tax · Additional · Paid · Received.
+  const card = (icon, iconStyle, val, label, cardStyle) =>
+    `<div class="kpi-card" style="padding:.55rem .75rem;${cardStyle || ''}"><div class="kpi-top"><div class="kpi-icon" style="width:26px;height:26px;font-size:.85rem;${iconStyle}">${icon}</div></div><div class="kpi-value" style="font-size:.98rem">${val}</div><div class="kpi-label" style="font-size:.64rem">${label}</div></div>`;
+  const kpi = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.55rem;margin-bottom:1rem">
+    ${card('⚖', 'background:#ffedd5;color:#c2410c', inr(totCredit - totDebit), 'Outstanding', 'border-left:4px solid #ea580c')}
+    ${card('🧾', 'background:#dbeafe;color:#2563eb', inr(totTax), 'Total Tax (a+b)')}
+    ${card('➕', 'background:#ede9fe;color:#7c3aed', inr(totAddl), 'Additional Charges')}
+    ${card('✅', 'background:#dcfce7;color:#16a34a', inr(totDebit), 'Paid (Debit)', 'border-left:4px solid #16a34a')}
+    ${card('📦', 'background:#dcfce7;color:#15803d', inr(totCredit), 'Material Received (Credit)')}
   </div>`;
   const body = entries.slice().reverse().map(e => {
     const s = e.status;
@@ -4211,7 +4230,7 @@ function _vplpLedger(v) {
       <td style="padding:6px 9px;font-size:.7rem">${esc(e.utr) || '—'}</td>
     </tr>`;
   }).join('');
-  return kpi + `<div class="card"><div style="overflow-x:auto">
+  return fyBar + kpi + `<div class="card"><div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
