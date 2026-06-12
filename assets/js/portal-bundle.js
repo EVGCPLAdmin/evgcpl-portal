@@ -968,13 +968,14 @@ function _tblEngineEnsureStyles() {
     #mainContent .tbl-wrap table th { position:sticky; top:0; z-index:5; }
     ${T.zebra ? '#mainContent .tbl-wrap table tbody tr:nth-child(even) td { background:rgba(26,96,56,.05); }' : ''}
     ${T.rowBorders ? '' : '#mainContent .tbl-wrap table td { border-bottom:none; }'}
-    /* Per-table style overrides (set via the 🎨 Style button; beat the global rules) */
-    #mainContent .tbl-wrap table.evg-zebra-on tbody tr:nth-child(even) td { background:rgba(26,96,56,.05); }
-    #mainContent .tbl-wrap table.evg-zebra-off tbody tr:nth-child(even) td { background:transparent; }
-    #mainContent .tbl-wrap table.evg-borders-on td { border-bottom:1px solid var(--border,#e0ece4); }
-    #mainContent .tbl-wrap table.evg-borders-off td { border-bottom:none; }
-    #mainContent .tbl-wrap table.evg-wrap-on th, #mainContent .tbl-wrap table.evg-wrap-on td { white-space:normal; overflow-wrap:break-word; word-break:break-word; }
-    #mainContent .tbl-wrap table.evg-nowrap th, #mainContent .tbl-wrap table.evg-nowrap td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    /* Per-table style overrides (set via the 🎨 Style button; beat the global
+       rules AND any per-cell inline styles, e.g. the ledger's inline borders). */
+    #mainContent .tbl-wrap table.evg-zebra-on tbody tr:nth-child(even) td { background:rgba(26,96,56,.05) !important; }
+    #mainContent .tbl-wrap table.evg-zebra-off tbody tr:nth-child(even) td { background:transparent !important; }
+    #mainContent .tbl-wrap table.evg-borders-on td { border-bottom:1px solid var(--border,#e0ece4) !important; }
+    #mainContent .tbl-wrap table.evg-borders-off td { border-bottom:none !important; }
+    #mainContent .tbl-wrap table.evg-wrap-on th, #mainContent .tbl-wrap table.evg-wrap-on td { white-space:normal !important; overflow-wrap:break-word; word-break:break-word; }
+    #mainContent .tbl-wrap table.evg-nowrap th, #mainContent .tbl-wrap table.evg-nowrap td { white-space:nowrap !important; overflow:hidden; text-overflow:ellipsis; }
     .evg-rs { position:absolute; top:0; right:0; width:8px; height:100%; cursor:col-resize; user-select:none; z-index:6; }
     .evg-rs:hover { background:rgba(26,96,56,.25); }
     @media(min-width:1025px){ #mainContent .tbl-outer { margin-inline: calc(${g}px - 2.2rem); } }
@@ -1207,7 +1208,7 @@ window.tblStylePanel  = function(sig) {
       </div>
       <div style="display:flex;gap:.5rem;justify-content:flex-end;padding:.9rem 1.2rem;border-top:1px solid var(--border)">
         <button onclick="tblStyleReset('${sig}')" class="btn btn-secondary btn-sm">&#8635; Reset to system</button>
-        <button onclick="document.getElementById('evgStyleModal').remove()" class="btn btn-primary btn-sm">&#10003; Done</button>
+        <button onclick="_tblStyleReapply('${sig}');document.getElementById('evgStyleModal').remove()" class="btn btn-primary btn-sm">&#10003; Done</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
