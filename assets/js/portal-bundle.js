@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.44.3';
-const PORTAL_BUILD    = 520;
-const PORTAL_BUILD_AT = '2026-06-12T13:14:31Z';
+const PORTAL_VERSION  = '3.44.4';
+const PORTAL_BUILD    = 521;
+const PORTAL_BUILD_AT = '2026-06-12T13:19:33Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -630,10 +630,17 @@ function makeTableSortable(table) {
 
 function exportTableCSV(table, filename) {
   if (!table) return;
+  // Honour the column manager: export visible columns only, in the on-screen
+  // (DOM) order — which _tblColApply has already reordered/hidden. So the CSV
+  // always matches the arranged column order and show/hide state.
+  const hidden = el => !!(el && el.style && el.style.display === 'none');
   const rows = [];
-  const ths = table.querySelectorAll('thead th');
+  const ths = Array.from(table.querySelectorAll('thead th'));
+  const visIdx = [];
   const headers = [];
-  ths.forEach(th => {
+  ths.forEach((th, i) => {
+    if (hidden(th)) return;
+    visIdx.push(i);
     // Strip sort arrows from header text
     const clone = th.cloneNode(true);
     clone.querySelectorAll('.sort-arrow').forEach(a => a.remove());
@@ -641,8 +648,8 @@ function exportTableCSV(table, filename) {
   });
   rows.push(headers.join(','));
   table.querySelectorAll('tbody tr').forEach(tr => {
-    const cells = [];
-    tr.querySelectorAll('td').forEach(td => cells.push('"' + td.textContent.trim().replace(/"/g,'""') + '"'));
+    const tds = Array.from(tr.children);
+    const cells = visIdx.map(i => '"' + ((tds[i] && tds[i].textContent) || '').trim().replace(/"/g, '""') + '"');
     if (cells.length) rows.push(cells.join(','));
   });
   const csv = rows.join('\n');
