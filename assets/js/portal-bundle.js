@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.48.1';
-const PORTAL_BUILD    = 527;
-const PORTAL_BUILD_AT = '2026-06-12T15:15:11Z';
+const PORTAL_VERSION  = '3.49.0';
+const PORTAL_BUILD    = 528;
+const PORTAL_BUILD_AT = '2026-06-12T16:03:15Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2029,11 +2029,11 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','md-payments','ledgers','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','subcontractor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','md-command','md-payments','ledgers','vendor-ledger-po','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','subcontractor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
   hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','subcontractor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
-  accounts:  new Set(['dashboard','my-profile','accounts','ledgers','subcontractor','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  accounts:  new Set(['dashboard','my-profile','accounts','ledgers','vendor-ledger-po','subcontractor','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   employee:  new Set(['dashboard','my-profile','my-documents','accounts','policies','rewards','apps','wall','planning-overview','execution','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   dept_head: null,   // built dynamically from DEPT_HEAD_ROUTES below
   vendor:    new Set(['my-portal','my-orders','my-invoices','my-documents']),
@@ -2467,6 +2467,7 @@ function renderPage(page) {
     'md-command':     renderMDCommand,
     'md-payments':    renderMDPayments,
     'ledgers':        renderLedgers,
+    'vendor-ledger-po': renderVendorLedgerPO,
     'onboarding':     renderOnboardingPortal,
     'recruitment':    renderRecruitmentModule,
     'hr-dashboard':   renderHRDashboard,
@@ -4023,6 +4024,168 @@ function _scLedRenderBody() {
     <div><div style="font-weight:700;font-size:1rem">${esc(name)}</div><div style="font-size:.74rem;color:var(--txt3)">Sub Contractor${acc ? ` &middot; A/C ${esc(acc)}` : ''}</div></div>
     <span style="font-size:.72rem;color:var(--txt3)">${tx.length} transactions</span></div>`;
   c.innerHTML = selector + head + partyLedgerRender(tx, { onRowClick: '_accOpenPRDetail' });
+}
+
+// ── Vendor Ledger (PO Payments) (route 'vendor-ledger-po') ───────────────
+// A vendor account statement scoped to PO purchases:
+//   • CREDIT  = received material cost — StockIN received qty × PO rate
+//               (received material is what we owe the vendor), per PO.
+//   • TAX     = the PO's `Tax Amt` (PO_Items_Actual), summed per PO, shown in
+//               its own column.
+//   • DEBIT   = PO payments made to the vendor (PaymentRequest, paid rows with
+//               an Order No).
+//   • Running Balance = Σ(Credit − Debit) = net outstanding payable.
+// The vendor picker lists ONLY vendors that have at least one PO payment
+// (PaymentRequest row with Payment To = Vendor and a non-empty Order No).
+let _vplpVendor = '';
+let _vplpData = null;
+function renderVendorLedgerPO() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-row">
+        <div><h1>&#129534; Vendor Ledger (PO Payments)</h1><p>Credit = received material cost (StockIN) &middot; Tax from PO &middot; Debit = PO payments</p></div>
+        <button class="btn btn-secondary btn-sm" onclick="_vplpReload(this)">&#8635; Refresh</button>
+      </div>
+    </div>
+    <div id="vplp-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading PO, StockIN &amp; payment data&hellip;</div></div>`;
+  _vplpEnsure().then(() => _vplpRenderBody()).catch(() => {
+    const b = document.getElementById('vplp-body');
+    if (b) b.innerHTML = '<div class="card card-pad" style="text-align:center;color:var(--danger);padding:2.5rem">&#9888; Could not load the PO / StockIN / payment data.</div>';
+  });
+}
+window._vplpReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _vplpEnsure(true).then(() => _vplpRenderBody()).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._vplpSetVendor = function(v) { _vplpVendor = v; _vplpRenderBody(); };
+
+async function _vplpEnsure(force) {
+  await Promise.all([_mdpLoad(force), _openPOEnsure(force)]);
+  _vplpData = _vplpCompute();
+}
+// Per-PO received-material value + tax, and the PO-payment vendor list.
+function _vplpCompute() {
+  const SC = _opColMap(_openPOStock), IC = _opColMap(_openPOItems);
+  // StockIN received qty by (PO No (Key) || Part Details) — the PO_Items join.
+  const siAgg = {};
+  _openPOStock.forEach(r => {
+    const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey']));
+    if (!pk) return;
+    const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
+    siAgg[key] = (siAgg[key] || 0) + _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
+  });
+  const poRecv = {}, poTax = {}, poDate = {}, poVendor = {};
+  _openPOItems.forEach(x => {
+    const k = _opPO(_opGet(x, IC, ['PO No', 'Order No'])); if (!k) return;
+    const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
+    const cs   = _opGet(x, IC, ['CheckSum', 'Check Sum']);
+    const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
+    const recvQty = siAgg[_opNorm(cs) + '||' + _opNorm(part)] || 0;
+    poRecv[k] = (poRecv[k] || 0) + recvQty * rate;
+    // Tax (a) — item-level tax from PO_Items_Actual.
+    poTax[k]  = (poTax[k]  || 0) + _opNum(_opGet(x, IC, ['Tax Amt', 'Tax Amount', 'Total Tax']));
+    if (!poDate[k])   poDate[k]   = _opGet(x, IC, ['PO Date']);
+    if (!poVendor[k]) poVendor[k] = _opGet(x, IC, ['Vendor Details', 'Vendor Name']);
+  });
+  // PO header (PO_Actual): Tax (b) folds into Total Tax; Sub Total (b) is the
+  // Additional Charges. (Total Tax = Tax (a) from items + Tax (b) from header.)
+  const HC = _opColMap(_openPOHeaders);
+  const poAddl = {};
+  _openPOHeaders.forEach(r => {
+    const k = _opPO(_opGet(r, HC, ['PO No'])); if (!k) return;
+    poTax[k]  = (poTax[k]  || 0) + _opNum(_opGet(r, HC, ['Tax (b)', 'Tax(b)', 'Tax B']));
+    poAddl[k] = (poAddl[k] || 0) + _opNum(_opGet(r, HC, ['Sub Total (b)', 'Sub Total(b)', 'SubTotal (b)', 'Sub Total B']));
+  });
+  // Vendor list from PO payments (Payment To = Vendor + Order No present).
+  const vmap = {};
+  (_mdpRows || []).forEach(r => {
+    if (r.payTo !== 'Vendor') return;
+    const ord = (r.orderNo || '').trim(); if (!ord) return;
+    const v = vmap[_plPartyKey(r)] = vmap[_plPartyKey(r)] || { key: _plPartyKey(r), name: r.paidTo || r.vendor, acc: r.acNumber, orderNos: {}, payCount: 0 };
+    v.orderNos[_opPO(ord)] = true;
+    v.payCount++;
+  });
+  const vendors = Object.values(vmap).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  return { vendors, poRecv, poTax, poAddl, poDate, poVendor };
+}
+function _vplpRenderBody() {
+  const c = document.getElementById('vplp-body'); if (!c) return;
+  const d = _vplpData; if (!d) return;
+  const esc = _mdpEsc;
+  const opts = `<option value="">Select vendor&hellip;</option>` + d.vendors.map(v =>
+    `<option value="${esc(v.key)}"${v.key === _vplpVendor ? ' selected' : ''}>${esc(v.name)}${v.acc ? ` &middot; A/C ${esc(v.acc)}` : ''} (${Object.keys(v.orderNos).length} PO)</option>`).join('');
+  const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
+    <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:280px">
+      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR (with PO payments)</label>
+      <select onchange="_vplpSetVendor(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${opts}</select>
+    </div>
+    <div style="font-size:.72rem;color:var(--txt3)">${d.vendors.length} vendor(s) with PO payments</div></div></div>`;
+  if (!_vplpVendor) { c.innerHTML = selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their PO-payments ledger.</div>`; return; }
+  const v = d.vendors.find(x => x.key === _vplpVendor);
+  if (!v) { c.innerHTML = selector; return; }
+  const head = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem">
+    <div><div style="font-weight:700;font-size:1rem">${esc(v.name)}</div><div style="font-size:.74rem;color:var(--txt3)">Vendor${v.acc ? ` &middot; A/C ${esc(v.acc)}` : ''} &middot; ${Object.keys(v.orderNos).length} PO(s) with payments</div></div>
+  </div>`;
+  c.innerHTML = selector + head + _vplpLedger(v);
+}
+function _vplpLedger(v) {
+  const esc = _mdpEsc, d = _vplpData;
+  const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
+  const entries = [];
+  // Credit (material received) + Tax (a) + Additional Charges — one row per PO.
+  Object.keys(v.orderNos).forEach(k => {
+    const recv = d.poRecv[k] || 0, tax = d.poTax[k] || 0, addl = d.poAddl[k] || 0;
+    if (recv <= 0 && tax <= 0 && addl <= 0) return;
+    entries.push({ date: d.poDate[k] || '', ref: k, type: 'Material received', credit: recv, tax: tax, addl: addl, debit: 0, status: null, utr: '', uuid: '' });
+  });
+  // Debit (payments) — this vendor's PO payments that reached a paid status.
+  (_mdpRows || []).forEach(r => {
+    if (_plPartyKey(r) !== v.key) return;
+    if (!(r.orderNo || '').trim()) return;
+    if (!(r.status && r.status.cat === 'completed')) return;
+    entries.push({ date: r.date, ref: r.requestId || r.uuid, type: 'Payment · ' + esc(r.orderNo || ''), credit: 0, tax: 0, addl: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
+  });
+  if (!entries.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No PO material receipts or payments found for this vendor.</div>';
+  entries.sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
+  let running = 0;
+  entries.forEach(e => { running += e.credit - e.debit; e.balance = running; });
+  const totCredit = entries.reduce((s, e) => s + e.credit, 0);
+  const totTax    = entries.reduce((s, e) => s + e.tax, 0);
+  const totAddl   = entries.reduce((s, e) => s + e.addl, 0);
+  const totDebit  = entries.reduce((s, e) => s + e.debit, 0);
+  const kpi = `<div class="kpi-grid" style="margin-bottom:1rem">
+    <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon green">📦</div></div><div class="kpi-value" style="font-size:1.15rem">${inr(totCredit)}</div><div class="kpi-label">Material Received (Credit)</div></div>
+    <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:#dbeafe;color:#2563eb">🧾</div></div><div class="kpi-value" style="font-size:1.15rem">${inr(totTax)}</div><div class="kpi-label">Total Tax (a+b)</div></div>
+    <div class="kpi-card"><div class="kpi-top"><div class="kpi-icon" style="background:#ede9fe;color:#7c3aed">➕</div></div><div class="kpi-value" style="font-size:1.15rem">${inr(totAddl)}</div><div class="kpi-label">Additional Charges</div></div>
+    <div class="kpi-card" style="border-left:4px solid #16a34a"><div class="kpi-top"><div class="kpi-icon green">✅</div></div><div class="kpi-value" style="font-size:1.15rem">${inr(totDebit)}</div><div class="kpi-label">Paid (Debit)</div></div>
+    <div class="kpi-card warn"><div class="kpi-top"><div class="kpi-icon orange">⚖</div></div><div class="kpi-value" style="font-size:1.15rem">${inr(totCredit - totDebit)}</div><div class="kpi-label">Outstanding</div></div>
+  </div>`;
+  const body = entries.slice().reverse().map(e => {
+    const s = e.status;
+    const click = e.uuid ? ` style="cursor:pointer" onclick="_accOpenPRDetail('${e.uuid}')"` : '';
+    const statusCell = s
+      ? `<span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span>`
+      : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
+    return `<tr${click}>
+      <td style="padding:6px 9px;white-space:nowrap">${esc(e.date) || '—'}</td>
+      <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(e.ref)}</td>
+      <td style="padding:6px 9px">${e.type}</td>
+      <td style="padding:6px 9px;text-align:right;color:#b45309;font-weight:600">${e.credit ? inr(e.credit) : '—'}</td>
+      <td style="padding:6px 9px;text-align:right;color:#2563eb;font-weight:600">${e.tax ? inr(e.tax) : '—'}</td>
+      <td style="padding:6px 9px;text-align:right;color:#7c3aed;font-weight:600">${e.addl ? inr(e.addl) : '—'}</td>
+      <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${e.debit ? inr(e.debit) : '—'}</td>
+      <td style="padding:6px 9px;text-align:right;font-weight:700;color:var(--g8)">${inr(e.balance)}</td>
+      <td style="padding:6px 9px">${statusCell}</td>
+      <td style="padding:6px 9px;font-size:.7rem">${esc(e.utr) || '—'}</td>
+    </tr>`;
+  }).join('');
+  return kpi + `<div class="card"><div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:.78rem">
+      <thead><tr style="background:var(--g9);color:#fff;text-align:left">
+        <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
+        <th style="padding:8px 9px;text-align:right">Credit (Material)</th><th style="padding:8px 9px;text-align:right">Total Tax</th>
+        <th style="padding:8px 9px;text-align:right">Additional Charges</th>
+        <th style="padding:8px 9px;text-align:right">Debit (Paid)</th><th style="padding:8px 9px;text-align:right">Running Balance</th>
+        <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">UTR</th>
+      </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 
 function renderMDCommand() {
@@ -8669,6 +8832,7 @@ const MODULE_REGISTRY = [
   // ── Accounts ──────────────────────────────────────────────────
   { route:'md-payments',       label:'Payments & Approvals',   section:'Accounts',         defStatus:'live', defRoles:['md'] },
   { route:'ledgers',           label:'Ledgers',                section:'Accounts',         defStatus:'live', defRoles:['md','accounts'] },
+  { route:'vendor-ledger-po',  label:'Vendor Ledger (PO)',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts'] },
   { route:'accounts',          label:'Accounts & Payments',    section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-dashboard',label:'Accounts Dashboard',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-worklist', label:'Accounts Worklist',      section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
@@ -9632,6 +9796,7 @@ const MODULE_ACTIONS = {
   'accounts-dashboard': ['view','export'],
   'md-payments':        ['view','approve','reject'],
   'ledgers':            ['view','export'],
+  'vendor-ledger-po':   ['view','export'],
   'safety':             ['view','create','close'],
   'reports':            ['view','export','schedule'],
   'mrs':                ['view','create','edit'],

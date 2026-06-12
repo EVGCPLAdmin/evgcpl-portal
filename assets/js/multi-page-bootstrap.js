@@ -214,6 +214,7 @@
     // Accounts
     'accounts':          'accounts.html',
     'ledgers':           'accounts.html',
+    'vendor-ledger-po':  'accounts.html',
 
     // Reports
     'reports':           'reports.html',
