@@ -4620,6 +4620,36 @@ function _regRawCell(v) {
   if (!s.trim()) return '—';
   return (_siLooksDate(s) && _mdpDateVal(s)) ? _mdpFmtDate(s) : _mdpEsc(s);
 }
+// Reusable: after a 1:1 list table is rendered, append EVERY source field that
+// isn't already a displayed column as a HIDDEN column, so ⚙ Columns lists the
+// full underlying field set (pick / arrange / show any). `srcRows` must be in
+// the same order as the tbody data rows; `curatedLabels` are the visible
+// headers. Idempotent. Call BEFORE applyTableFeatures (or it re-inits the mgr).
+function _evgExposeFields(table, srcRows, curatedLabels) {
+  try {
+    if (!table || !Array.isArray(srcRows) || !srcRows.length) return;
+    const headTr = table.querySelector('thead tr'); if (!headTr) return;
+    Array.from(headTr.querySelectorAll('th[data-evg-extra]')).forEach(th => th.remove());
+    const curN = {}; curatedLabels.forEach(l => curN[String(l == null ? '' : l).trim().toLowerCase()] = 1);
+    const extra = [], seen = {};
+    srcRows.forEach(r => { if (r && typeof r === 'object') Object.keys(r).forEach(k => {
+      const kk = String(k).trim(); if (!kk || seen[k] || k[0] === '_') return;   // skip blanks + internal _enrichments
+      seen[k] = 1; if (!curN[kk.toLowerCase()]) extra.push(k);
+    }); });
+    if (!extra.length) { table.dataset.evgExposed = '1'; return; }
+    extra.forEach(k => { const th = document.createElement('th'); th.setAttribute('data-evg-extra', '1'); th.style.whiteSpace = 'nowrap'; th.textContent = k; headTr.appendChild(th); });
+    const curatedCount = curatedLabels.length;
+    Array.from(table.querySelectorAll('tbody tr')).forEach((tr, i) => {
+      Array.from(tr.querySelectorAll('td[data-evg-extra]')).forEach(td => td.remove());
+      if (tr.children.length !== curatedCount + extra.length && tr.children.length !== curatedCount) return;
+      const src = srcRows[i] || {};
+      extra.forEach(k => { const td = document.createElement('td'); td.setAttribute('data-evg-extra', '1'); td.style.fontSize = '.74rem'; td.style.whiteSpace = 'nowrap'; td.innerHTML = _regRawCell(src[k]); tr.appendChild(td); });
+    });
+    table.dataset.evgDefaultHidden = _regHdrKeys(curatedLabels.concat(extra)).slice(curatedCount).join('|');
+    table.dataset.evgExposed = '1';
+    table.dataset.evgCols = ''; table.dataset.evgSig = '';   // re-init the column manager with the fuller header
+  } catch (e) {}
+}
 // Drive helpers — extract a file id and build an embeddable /preview url.
 function _regDriveId(u) { if (!u) return ''; u = String(u); let m = u.match(/\/d\/([-\w]{20,})/) || u.match(/[?&]id=([-\w]{20,})/) || u.match(/([-\w]{25,})/); return m ? m[1] : ''; }
 function _regDrivePreview(u) { const id = _regDriveId(u); return id ? ('https://drive.google.com/file/d/' + id + '/preview') : ''; }
@@ -15637,7 +15667,10 @@ function pstRenderStockIN(c, q) {
   </table></div>`;
 
   const _t_pstStockIN = (typeof c !== "undefined" ? c : el)?.querySelector(".emp-table, .vpi-tbl");
-  if (_t_pstStockIN) { makeTableSortable(_t_pstStockIN); wrapTableScroll(_t_pstStockIN); }
+  if (_t_pstStockIN) {
+    _evgExposeFields(_t_pstStockIN, rows, ['GRN No', 'SI ID', 'Site', 'Type', 'PO No', 'Vendor', 'Invoice / ST No', 'Part Description', 'MR No', 'MR Qty', 'Inv Qty', 'GRN Qty', 'Received On', 'Received By']);
+    makeTableSortable(_t_pstStockIN); wrapTableScroll(_t_pstStockIN);
+  }
 }
 
 /* ── STOCK IN — TABULAR VIEW ───────────────────────────
@@ -15699,6 +15732,10 @@ function pstRenderStockINRaw(c) {
     'MR Qty', 'Invoice Qty', 'GRN Qty', 'Received On (At)'];
   let showCols = _siRawCols.filter(k => preferred.some(p => _opNorm(p) === _opNorm(k)));
   if (!showCols.length) showCols = _siRawCols.slice(0, 16);
+  // Expose EVERY StockIN field as a column; hide the non-preferred ones by
+  // default so ⚙ Columns lists the full field set (pick/arrange/show any).
+  const _allKeys = _regHdrKeys(_siRawCols);
+  const _defHidden = _mdpEsc(_siRawCols.map((k, i) => showCols.some(s => _opNorm(s) === _opNorm(k)) ? '' : _allKeys[i]).filter(Boolean).join('|'));
 
   const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, ch => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
   const sel = (id, label, opts, cur, which) => `
@@ -15722,9 +15759,9 @@ function pstRenderStockINRaw(c) {
     ? `<div style="background:#fdecea;color:#c62828;border-radius:8px;padding:1rem;font-size:.85rem">
          ⚠️ StockIN returned 0 rows from the canonical sheet. Verify the tab is named exactly <b>StockIN</b> and the sheet is shared “Anyone with the link → Viewer”.</div>`
     : `<div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
-       <table class="vpi-tbl">
-         <thead><tr>${showCols.map(k => `<th style="white-space:nowrap">${esc(k)}</th>`).join('')}</tr></thead>
-         <tbody>${rows.slice(0, 500).map(r => `<tr>${showCols.map(k =>
+       <table class="vpi-tbl" data-evg-default-hidden="${_defHidden}">
+         <thead><tr>${_siRawCols.map(k => `<th style="white-space:nowrap">${esc(k)}</th>`).join('')}</tr></thead>
+         <tbody>${rows.slice(0, 500).map(r => `<tr>${_siRawCols.map(k =>
            `<td style="font-size:.77rem;white-space:nowrap">${esc(r[k]) || '—'}</td>`).join('')}</tr>`).join('')}</tbody>
        </table></div>
        ${rows.length > 500 ? `<div style="font-size:.74rem;color:var(--txt3);padding:.5rem">Showing first 500 of ${rows.length} matching rows — refine filters or use CSV for the full set.</div>` : ''}`}`;
