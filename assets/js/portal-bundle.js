@@ -13265,18 +13265,10 @@ function renderProcurementStores() {
     ⚠️ <b>v2_Stores sheet is org-restricted.</b> Ask your admin to set <i>v2_Stores</i> to "Anyone with the link → Viewer" for data to load.
   </div>
 
-  <!-- KPI ROW -->
-  <div id="pst-kpi-row" class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:.85rem;margin-bottom:1.1rem"></div>
-
-  <!-- SITE FILTER + TABS -->
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem;margin-bottom:.75rem">
-    <div style="display:flex;gap:.4rem;border-bottom:2px solid #e0ece4;flex:1">
-      <button class="vpi-tab-btn active" id="pst-tab-stockin"  onclick="pstSwitchTab('stockin')">📥 Stock IN</button>
-      <button class="vpi-tab-btn"        id="pst-tab-siraw"    onclick="pstSwitchTab('siraw')">📋 StockIN Table</button>
-      <button class="vpi-tab-btn"        id="pst-tab-grn"      onclick="pstSwitchTab('grn')">📦 GRN Register</button>
-      <button class="vpi-tab-btn"        id="pst-tab-openpo"   onclick="pstSwitchTab('openpo')">🔓 Open POs</button>
-      <button class="vpi-tab-btn"        id="pst-tab-levels"   onclick="pstSwitchTab('levels')">📊 Stock Levels</button>
-    </div>
+  <!-- Cards and in-page sub-page tabs removed — navigation is via the
+       Procurement → Stores ▸ flyout (level-3). Only the active sub-page's
+       own controls (site filter + search) remain here. -->
+  <div style="display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:.6rem;margin-bottom:.75rem">
     <div style="display:flex;gap:.5rem;align-items:center">
       <select id="pst-site-select" onchange="pstSetSite(this.value)"
         style="padding:.38rem .65rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.82rem;font-family:inherit;outline:none;background:#fff">
@@ -13509,7 +13501,8 @@ function pstUpdateKPIs() {
   const lvlRows    = _pstSiteFilter ? _pstLevels.filter(r => r['Site Name'] === _pstSiteFilter) : _pstLevels;
   const totalStock = lvlRows.reduce((s, r) => s + parseFloat(r['Site Stock'] || r['StockIN'] || 0), 0);
 
-  document.getElementById('pst-kpi-row').innerHTML = `
+  const _kr = document.getElementById('pst-kpi-row');
+  if (_kr) _kr.innerHTML = `
     ${pstKpi('📥','Stock IN Lines', totalSI, '', 'stockin', AS.stockInOut(),'Stock IN / Stock Out')}
     ${pstKpi('📦','GRN Nos', totalGRNs, 'green', 'grn', AS.goodsReceived(),'Goods Received')}
     ${pstKpi('⏳','Pending GRN', pendingGRN, pendingGRN > 0 ? 'gold' : '', 'stockin', AS.pendingStockIn(),'Pending Stock IN')}
@@ -13822,7 +13815,7 @@ function _openPOCompute(q) {
   const out = [];
   Object.keys(byPO).forEach(k => {
     const hdr = hdrByPO[k] || { poNo: k, vendor: '', site: '', date: '', status: '', lock: '', amount: 0 };
-    if ((hdr.status || '').toUpperCase().includes('REJECT')) return;   // not "sent"
+    if ((hdr.status || '').trim().toUpperCase() !== 'APPROVED') return;  // only PO Status = Approved
     const poSite = hdr.site || (byPO[k] && byPO[k].site) || '';
     if (_pstSiteFilter && poSite && poSite !== _pstSiteFilter) return;
 
