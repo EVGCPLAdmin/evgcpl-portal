@@ -906,6 +906,7 @@ function applyTableFeatures() {
     makeTableSortable(t);
     wrapTableScroll(t);
     if (EVG.table.columnManager) { try { _tblColInit(t); } catch (e) {} }
+    try { _tblStyleInit(t); } catch (e) {}            // 🎨 Style button + per-table overrides
     if (EVG.table.resize)        { try { _tblMakeResizable(t); } catch (e) {} }
   });
 }
@@ -967,6 +968,13 @@ function _tblEngineEnsureStyles() {
     #mainContent .tbl-wrap table th { position:sticky; top:0; z-index:5; }
     ${T.zebra ? '#mainContent .tbl-wrap table tbody tr:nth-child(even) td { background:rgba(26,96,56,.05); }' : ''}
     ${T.rowBorders ? '' : '#mainContent .tbl-wrap table td { border-bottom:none; }'}
+    /* Per-table style overrides (set via the 🎨 Style button; beat the global rules) */
+    #mainContent .tbl-wrap table.evg-zebra-on tbody tr:nth-child(even) td { background:rgba(26,96,56,.05); }
+    #mainContent .tbl-wrap table.evg-zebra-off tbody tr:nth-child(even) td { background:transparent; }
+    #mainContent .tbl-wrap table.evg-borders-on td { border-bottom:1px solid var(--border,#e0ece4); }
+    #mainContent .tbl-wrap table.evg-borders-off td { border-bottom:none; }
+    #mainContent .tbl-wrap table.evg-wrap-on th, #mainContent .tbl-wrap table.evg-wrap-on td { white-space:normal; overflow-wrap:break-word; word-break:break-word; }
+    #mainContent .tbl-wrap table.evg-nowrap th, #mainContent .tbl-wrap table.evg-nowrap td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .evg-rs { position:absolute; top:0; right:0; width:8px; height:100%; cursor:col-resize; user-select:none; z-index:6; }
     .evg-rs:hover { background:rgba(26,96,56,.25); }
     @media(min-width:1025px){ #mainContent .tbl-outer { margin-inline: calc(${g}px - 2.2rem); } }
@@ -1123,6 +1131,87 @@ function _tblColInit(table) {
     left.appendChild(b);
   }
 }
+// ── Per-table style override (zebra / borders / wrap / width% / rows) ─────
+// Stored by table signature in localStorage 'evg_tbl_style'; only the keys the
+// user changes are stored — everything else inherits the system Design-System
+// default. Lets one table differ without touching the global default.
+function _tblStyleAll() { try { return JSON.parse(localStorage.getItem('evg_tbl_style') || '{}'); } catch (e) { return {}; } }
+function _tblStyleGet(sig) { const v = _tblStyleAll()[sig]; return (v && typeof v === 'object') ? v : {}; }
+function _tblStyleSet(sig, cfg) { const a = _tblStyleAll(); if (cfg && Object.keys(cfg).length) a[sig] = cfg; else delete a[sig]; try { localStorage.setItem('evg_tbl_style', JSON.stringify(a)); } catch (e) {} }
+function _tblStyleApply(table, sig) {
+  const o = _tblStyleGet(sig);
+  const tri = (onCls, offCls, key) => { table.classList.remove(onCls, offCls); if (o[key] === true) table.classList.add(onCls); else if (o[key] === false) table.classList.add(offCls); };
+  tri('evg-zebra-on', 'evg-zebra-off', 'zebra');
+  tri('evg-borders-on', 'evg-borders-off', 'rowBorders');
+  tri('evg-wrap-on', 'evg-nowrap', 'wrap');
+  const outer = table.closest('.tbl-outer');
+  const wrap  = table.closest('.tbl-wrap');
+  if (outer) outer.style.maxWidth = ('widthPct' in o) ? (Math.min(100, Math.max(20, o.widthPct || 100)) + '%') : '';
+  if (wrap)  wrap.style.maxHeight = ('rows' in o) ? (o.rows > 0 ? Math.round(46 + o.rows * (EVG.table.wrap ? 40 : 32)) + 'px' : 'none') : '';
+}
+function _tblStyleInit(table) {
+  const outer = table.closest('.tbl-outer');
+  const left = outer && outer.querySelector('.tbl-toolbar-left');
+  if (!left) return;                                   // needs the toolbar (wrapped)
+  const sig = table.dataset.evgSig || _tblSig(table);
+  table.dataset.evgSig = sig;
+  _tblStyleApply(table, sig);
+  if (table.dataset.evgStyle) return;
+  table.dataset.evgStyle = '1';
+  if (!left.querySelector('.evg-style-btn')) {
+    const b = document.createElement('button');
+    b.className = 'tbl-csv-btn evg-style-btn';
+    b.innerHTML = '&#127912; Style';
+    b.title = 'Table style — zebra, borders, wrap, width, rows (this table only; overrides the system default)';
+    b.onclick = () => tblStylePanel(sig);
+    left.appendChild(b);
+  }
+}
+function _tblStyleReapply(sig) {
+  document.querySelectorAll('#mainContent table[data-evg-style="1"]').forEach(t => { if (t.dataset.evgSig === sig) _tblStyleApply(t, sig); });
+}
+window.tblStyleSet    = function(sig, key, val) { const o = _tblStyleGet(sig); if (val === '') delete o[key]; else o[key] = (val === 'on'); _tblStyleSet(sig, o); _tblStyleReapply(sig); };
+window.tblStyleSetNum = function(sig, key, val) { const o = _tblStyleGet(sig); if (val === '' || val == null) delete o[key]; else o[key] = Math.max(0, parseInt(val, 10) || 0); _tblStyleSet(sig, o); _tblStyleReapply(sig); };
+window.tblStyleReset  = function(sig) { _tblStyleSet(sig, {}); _tblStyleReapply(sig); document.getElementById('evgStyleModal')?.remove(); };
+window.tblStylePanel  = function(sig) {
+  document.getElementById('evgStyleModal')?.remove();
+  const o = _tblStyleGet(sig);
+  const triVal = k => (k in o) ? (o[k] ? 'on' : 'off') : '';
+  const selStyle = 'padding:.34rem .5rem;border:1px solid var(--border);border-radius:7px;font-size:.82rem;font-family:inherit;background:var(--surface2);color:var(--txt)';
+  const lblStyle = 'display:flex;align-items:center;justify-content:space-between;gap:1rem;font-size:.84rem;color:var(--g9);font-weight:600;margin-bottom:.7rem';
+  const tri = (k, label) => `<label style="${lblStyle}">${label}
+    <select onchange="tblStyleSet('${sig}','${k}',this.value)" style="${selStyle};min-width:150px">
+      <option value="" ${triVal(k) === '' ? 'selected' : ''}>System default</option>
+      <option value="on" ${triVal(k) === 'on' ? 'selected' : ''}>On</option>
+      <option value="off" ${triVal(k) === 'off' ? 'selected' : ''}>Off</option>
+    </select></label>`;
+  const num = (k, label, ph) => `<label style="${lblStyle}">${label}
+    <input type="number" value="${(k in o) ? o[k] : ''}" placeholder="${ph}" oninput="tblStyleSetNum('${sig}','${k}',this.value)" style="${selStyle};width:150px"></label>`;
+  const modal = document.createElement('div');
+  modal.id = 'evgStyleModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  modal.innerHTML = `
+    <div style="background:var(--surface);border-radius:14px;max-width:430px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.4)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.2rem;border-bottom:1px solid var(--border)">
+        <h3 style="font-size:.95rem;font-weight:700;color:var(--g9)">&#127912; Table style</h3>
+        <button onclick="document.getElementById('evgStyleModal').remove()" style="border:none;background:none;font-size:1.3rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
+      </div>
+      <div style="padding:.5rem 1.2rem;font-size:.72rem;color:var(--txt3)">Applies to <b>this table only</b> &mdash; overrides the system Design-System default. Leave on <i>System default</i> to inherit.</div>
+      <div style="padding:.7rem 1.2rem 1rem;overflow:auto">
+        ${tri('zebra', 'Row striping (zebra)')}
+        ${tri('rowBorders', 'Row borders')}
+        ${tri('wrap', 'Wrap text')}
+        ${num('widthPct', 'Table width (%)', 'system')}
+        ${num('rows', 'Rows before scroll', 'system · 0 = all')}
+      </div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;padding:.9rem 1.2rem;border-top:1px solid var(--border)">
+        <button onclick="tblStyleReset('${sig}')" class="btn btn-secondary btn-sm">&#8635; Reset to system</button>
+        <button onclick="document.getElementById('evgStyleModal').remove()" class="btn btn-primary btn-sm">&#10003; Done</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+};
 function _tblColTablesFor(sig) {
   return Array.from(document.querySelectorAll('#mainContent table[data-evg-sig="' + (window.CSS && CSS.escape ? CSS.escape(sig) : sig) + '"]'));
 }
