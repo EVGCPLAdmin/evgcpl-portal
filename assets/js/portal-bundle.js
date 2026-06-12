@@ -4090,7 +4090,7 @@ function renderVendorLedgerPO() {
   el.innerHTML = `
     <div class="page-header">
       <div class="page-header-row">
-        <div><h1>&#129534; Vendor Ledger (PO Payments)</h1><p>Credit = received material cost (StockIN) &middot; Tax from PO &middot; Debit = PO payments</p></div>
+        <div><h1>&#129534; Vendor Ledger (PO)</h1><p>Tally-style Dr/Cr &middot; Credit = received goods (material + tax + charges) &middot; Debit = completed vendor payments</p></div>
         <button class="btn btn-secondary btn-sm" onclick="_vplpReload(this)">&#8635; Refresh</button>
       </div>
     </div>
@@ -4115,79 +4115,94 @@ async function _vplpEnsure(force) {
   }
   _vplpData = _vplpCompute();
 }
-// Per-PO received-material value + tax + GRN Nos, and the PO-payment vendor list.
+function _vplpVendorToken(s) {
+  const m = String(s == null ? '' : s).toUpperCase().match(/[A-Z]{1,4}\d+/);
+  return m ? m[0] : '';
+}
+// Per-PO received value (line level) + Tax(a)/(b) + Additional Charges. Vendor
+// resolved by Vendor ID (PO) / code token (payment); unresolved kept Unmapped.
+// Approved POs only; credit recognised on receipt (StockIN GRN Qty).
 function _vplpCompute() {
-  const SC = _opColMap(_openPOStock), IC = _opColMap(_openPOItems);
-  // GRN No lookup: GRN_No tab keyed by UUID → GRN No (Goods Receipt).
+  const SC = _opColMap(_openPOStock), IC = _opColMap(_openPOItems), HC = _opColMap(_openPOHeaders);
   const grnMap = {};
-  (_vplpGRNRows || []).forEach(r => {
-    const u = String(r['UUID'] || r['CheckSum'] || '').trim();
-    if (u) grnMap[u] = (r['GRN No (Goods Receipt)'] || r['GRN No'] || '').toString().trim();
-  });
-  // StockIN received qty + GRN Nos by (PO No (Key) || Part Details) — PO_Items join.
+  (_vplpGRNRows || []).forEach(r => { const u = String(r['UUID'] || r['CheckSum'] || '').trim(); if (u) grnMap[u] = (r['GRN No (Goods Receipt)'] || r['GRN No'] || '').toString().trim(); });
+  // StockIN received qty + GRN Nos by (PO No (Key) || part) — the PO_Items join.
   const siAgg = {};
   _openPOStock.forEach(r => {
-    const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey']));
-    if (!pk) return;
+    const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey'])); if (!pk) return;
     const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
     const e = siAgg[key] = siAgg[key] || { qty: 0, grns: [] };
     e.qty += _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
     const grn = grnMap[String(_opGet(r, SC, ['CheckSum', 'UUID', 'SI ID'])).trim()];
     if (grn && e.grns.indexOf(grn) < 0) e.grns.push(grn);
   });
-  const poRecv = {}, poTax = {}, poDate = {}, poVendor = {}, poGRN = {};
+  // PO header: approval, vendor, date, Tax(b), Additional Charges(b). Keyed by
+  // the normalised PO key (folds EGVE/EVGE spelling variants).
+  const poInfo = {}, vendorById = {};
+  _openPOHeaders.forEach(r => {
+    const k = _opPOKey(_opGet(r, HC, ['PO No'])); if (!k) return;
+    const vid = _opGet(r, HC, ['Vendor ID']).toUpperCase();
+    poInfo[k] = {
+      poNo: _opGet(r, HC, ['PO No']), vendorId: vid, vendorName: _opGet(r, HC, ['Vendor Name']),
+      date: _opGet(r, HC, ['PO Date']), approved: /approv/i.test(_opGet(r, HC, ['PO Approval Status'])),
+      taxB: _opNum(_opGet(r, HC, ['Tax (b)', 'Tax(b)', 'Tax B'])), addl: _opNum(_opGet(r, HC, ['Sub Total (b)', 'Sub Total(b)', 'Sub Total B'])),
+    };
+    if (vid && !vendorById[vid]) vendorById[vid] = poInfo[k].vendorName;
+  });
+  // Received material (received qty × rate) + Tax(a) apportioned to the received
+  // fraction of each line, per PO.
+  const poRecv = {}, poTaxA = {}, poGRN = {};
   _openPOItems.forEach(x => {
-    const k = _opPO(_opGet(x, IC, ['PO No', 'Order No'])); if (!k) return;
+    const k = _opPOKey(_opGet(x, IC, ['PO No', 'Order No'])); if (!k) return;
     const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
-    const cs   = _opGet(x, IC, ['CheckSum', 'Check Sum']);
+    const cs = _opGet(x, IC, ['CheckSum', 'Check Sum']);
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
     const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)] || { qty: 0, grns: [] };
+    if (m.qty <= 0) return;
     poRecv[k] = (poRecv[k] || 0) + m.qty * rate;
-    // Tax (a) — item-level tax from PO_Items_Actual.
-    poTax[k]  = (poTax[k]  || 0) + _opNum(_opGet(x, IC, ['Tax Amt', 'Tax Amount', 'Total Tax']));
-    const g = poGRN[k] = poGRN[k] || [];
-    m.grns.forEach(n => { if (g.indexOf(n) < 0) g.push(n); });
-    if (!poDate[k])   poDate[k]   = _opGet(x, IC, ['PO Date']);
-    if (!poVendor[k]) poVendor[k] = _opGet(x, IC, ['Vendor Details', 'Vendor Name']);
+    const oq = _opNum(_opGet(x, IC, ['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
+    const lineTax = _opNum(_opGet(x, IC, ['Tax Amt', 'Tax Amount', 'Total Tax']));
+    poTaxA[k] = (poTaxA[k] || 0) + lineTax * (oq > 0 ? Math.min(m.qty / oq, 1) : 1);
+    const g = poGRN[k] = poGRN[k] || []; m.grns.forEach(n => { if (g.indexOf(n) < 0) g.push(n); });
   });
-  // PO header (PO_Actual): Tax (b) folds into Total Tax; Sub Total (b) is the
-  // Additional Charges. (Total Tax = Tax (a) from items + Tax (b) from header.)
-  const HC = _opColMap(_openPOHeaders);
-  const poAddl = {};
-  _openPOHeaders.forEach(r => {
-    const k = _opPO(_opGet(r, HC, ['PO No'])); if (!k) return;
-    poTax[k]  = (poTax[k]  || 0) + _opNum(_opGet(r, HC, ['Tax (b)', 'Tax(b)', 'Tax B']));
-    poAddl[k] = (poAddl[k] || 0) + _opNum(_opGet(r, HC, ['Sub Total (b)', 'Sub Total(b)', 'SubTotal (b)', 'Sub Total B']));
-  });
-  // Vendor list from PO payments (Payment To = Vendor + Order No present).
-  const vmap = {};
+  // Vendors keyed by Vendor ID; unresolved payment codes kept in an Unmapped bucket.
+  const vendors = {};
+  const getV = (vid, name, acc) => {
+    const key = vid ? vid : ('UNMAP:' + _opNorm(name || '?'));
+    let v = vendors[key];
+    if (!v) v = vendors[key] = { key, vid: vid || '', name: (vid && vendorById[vid]) || name || '(Unmapped)', acc: acc || '', poKeys: {}, payCount: 0, unmapped: !vid };
+    if (acc && !v.acc) v.acc = acc;
+    if (vid && vendorById[vid]) v.name = vendorById[vid];
+    return v;
+  };
+  Object.keys(poInfo).forEach(k => { const i = poInfo[k]; if (i.approved && (poRecv[k] || 0) > 0) getV(i.vendorId, i.vendorName).poKeys[k] = true; });
   (_mdpRows || []).forEach(r => {
     if (r.payTo !== 'Vendor') return;
-    const ord = (r.orderNo || '').trim(); if (!ord) return;
-    const v = vmap[_plPartyKey(r)] = vmap[_plPartyKey(r)] || { key: _plPartyKey(r), name: r.paidTo || r.vendor, acc: r.acNumber, orderNos: {}, payCount: 0 };
-    v.orderNos[_opPO(ord)] = true;
-    v.payCount++;
+    if (!(r.status && r.status.cat === 'completed')) return;
+    const vid = _vplpVendorToken(r.vendor) || _vplpVendorToken(r.paidTo);
+    getV(vid, r.paidTo || r.vendor, r.acNumber).payCount++;
   });
-  const vendors = Object.values(vmap).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  return { vendors, poRecv, poTax, poAddl, poDate, poVendor, poGRN };
+  const list = Object.values(vendors).sort((a, b) => (a.unmapped - b.unmapped) || (a.name || '').localeCompare(b.name || ''));
+  return { vendors: list, poInfo, poRecv, poTaxA, poGRN };
 }
 function _vplpRenderBody() {
   const c = document.getElementById('vplp-body'); if (!c) return;
   const d = _vplpData; if (!d) return;
   const esc = _mdpEsc;
   const opts = `<option value="">Select vendor&hellip;</option>` + d.vendors.map(v =>
-    `<option value="${esc(v.key)}"${v.key === _vplpVendor ? ' selected' : ''}>${esc(v.name)}${v.acc ? ` &middot; A/C ${esc(v.acc)}` : ''} (${Object.keys(v.orderNos).length} PO)</option>`).join('');
+    `<option value="${esc(v.key)}"${v.key === _vplpVendor ? ' selected' : ''}>${esc(v.name)}${v.vid ? ` [${esc(v.vid)}]` : ''}${v.unmapped ? ' · Unmapped' : ''} (${Object.keys(v.poKeys).length} PO &middot; ${v.payCount} pay)</option>`).join('');
   const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
     <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:280px">
-      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR (with PO payments)</label>
+      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR</label>
       <select onchange="_vplpSetVendor(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${opts}</select>
     </div>
-    <div style="font-size:.72rem;color:var(--txt3)">${d.vendors.length} vendor(s) with PO payments</div></div></div>`;
-  if (!_vplpVendor) { c.innerHTML = selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their PO-payments ledger.</div>`; return; }
+    <div style="font-size:.72rem;color:var(--txt3)">${d.vendors.length} vendor(s)</div></div></div>`;
+  if (!_vplpVendor) { c.innerHTML = selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger.</div>`; return; }
   const v = d.vendors.find(x => x.key === _vplpVendor);
   if (!v) { c.innerHTML = selector; return; }
   const head = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem">
-    <div><div style="font-weight:700;font-size:1rem">${esc(v.name)}</div><div style="font-size:.74rem;color:var(--txt3)">Vendor${v.acc ? ` &middot; A/C ${esc(v.acc)}` : ''} &middot; ${Object.keys(v.orderNos).length} PO(s) with payments</div></div>
+    <div><div style="font-weight:700;font-size:1rem">${esc(v.name)}${v.vid ? ` <span style="font-size:.72rem;color:var(--txt3)">[${esc(v.vid)}]</span>` : ''}</div>
+    <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) received &middot; ${v.payCount} payment(s)</div></div>
   </div>`;
   c.innerHTML = selector + head + _vplpLedger(v);
 }
@@ -4197,27 +4212,32 @@ function _vplpFYLabel(sy) { return 'FY ' + sy + '-' + String((+sy + 1) % 100).pa
 function _vplpLedger(v) {
   const esc = _mdpEsc, d = _vplpData;
   const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
+  const drcr = n => inr(Math.abs(n)) + (n >= 0 ? ' Cr' : ' Dr');
   const all = [];
-  // Credit (material received) + Tax (a) + Additional Charges — one row per PO.
-  Object.keys(v.orderNos).forEach(k => {
-    const recv = d.poRecv[k] || 0, tax = d.poTax[k] || 0, addl = d.poAddl[k] || 0;
-    if (recv <= 0 && tax <= 0 && addl <= 0) return;
+  // Credit (goods received) — approved POs of this vendor with receipts. Credit =
+  // Material(a) + Additional(b) + Tax(a) + Tax(b).
+  Object.keys(v.poKeys).forEach(k => {
+    const i = d.poInfo[k] || {};
+    const mat = d.poRecv[k] || 0, taxA = d.poTaxA[k] || 0, taxB = i.taxB || 0, addl = i.addl || 0;
+    const credit = mat + addl + taxA + taxB;
+    if (credit <= 0) return;
     const grns = d.poGRN[k] || [];
     const grnTxt = grns.length ? ' · GRN ' + esc(grns.slice(0, 4).join(', ')) + (grns.length > 4 ? ` +${grns.length - 4}` : '') : '';
-    all.push({ date: d.poDate[k] || '', ref: k, type: 'Material received' + grnTxt, credit: recv, tax: tax, addl: addl, debit: 0, status: null, utr: '', uuid: '' });
+    all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received' + grnTxt, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
   });
-  // Debit (payments) — this vendor's PO payments that reached a paid status.
+  // Debit (payment) — this vendor's completed payments (vendor-level; orderNo not required).
   (_mdpRows || []).forEach(r => {
-    if (_plPartyKey(r) !== v.key) return;
-    if (!(r.orderNo || '').trim()) return;
+    if (r.payTo !== 'Vendor') return;
     if (!(r.status && r.status.cat === 'completed')) return;
-    all.push({ date: r.date, ref: r.requestId || r.uuid, type: 'Payment · ' + esc(r.orderNo || ''), credit: 0, tax: 0, addl: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
+    const vid = _vplpVendorToken(r.vendor) || _vplpVendorToken(r.paidTo);
+    const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
+    if (key !== v.key) return;
+    all.push({ date: r.date, ref: r.requestId || r.uuid, type: 'Payment' + (r.orderNo ? ' · ' + esc(r.orderNo) : ''), kind: 'dr', mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
   });
-  if (!all.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No PO material receipts or payments found for this vendor.</div>';
+  if (!all.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No approved-PO receipts or completed payments for this vendor.</div>';
   // Financial-year filter.
   const fySet = Array.from(new Set(all.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
-  const fyOpts = `<option value="">All financial years</option>` +
-    fySet.map(sy => `<option value="${sy}"${sy === _vplpFY ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
+  const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _vplpFY ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
   const fyBar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
     <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">FINANCIAL YEAR</label>
     <select onchange="_vplpSetFY(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2)">${fyOpts}</select>
@@ -4225,23 +4245,23 @@ function _vplpLedger(v) {
   </div>`;
   const entries = _vplpFY ? all.filter(e => _vplpFYof(e.date) === _vplpFY) : all;
   if (!entries.length) return fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
-  entries.sort((a, b) => _mdpDateVal(a.date) - _mdpDateVal(b.date));
+  // Chronological; same-day credits (receipt) before debits (payment).
+  entries.sort((a, b) => (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
   let running = 0;
   entries.forEach(e => { running += e.credit - e.debit; e.balance = running; });
-  const totCredit = entries.reduce((s, e) => s + e.credit, 0);
-  const totTax    = entries.reduce((s, e) => s + e.tax, 0);
-  const totAddl   = entries.reduce((s, e) => s + e.addl, 0);
-  const totDebit  = entries.reduce((s, e) => s + e.debit, 0);
-  // Compact KPI cards — order: Outstanding · Tax · Additional · Paid · Received.
+  const sum = key => entries.reduce((s, e) => s + e[key], 0);
+  const totMat = sum('mat'), totAddl = sum('addl'), totTaxA = sum('taxA'), totTaxB = sum('taxB'), totCredit = sum('credit'), totDebit = sum('debit');
+  const bal = totCredit - totDebit;
   const card = (icon, iconStyle, val, label, cardStyle) =>
     `<div class="kpi-card" style="padding:.55rem .75rem;${cardStyle || ''}"><div class="kpi-top"><div class="kpi-icon" style="width:26px;height:26px;font-size:.85rem;${iconStyle}">${icon}</div></div><div class="kpi-value" style="font-size:.98rem">${val}</div><div class="kpi-label" style="font-size:.64rem">${label}</div></div>`;
   const kpi = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.55rem;margin-bottom:1rem">
-    ${card('⚖', 'background:#ffedd5;color:#c2410c', inr(totCredit - totDebit), 'Outstanding', 'border-left:4px solid #ea580c')}
-    ${card('🧾', 'background:#dbeafe;color:#2563eb', inr(totTax), 'Total Tax (a+b)')}
+    ${card('⚖', `background:${bal >= 0 ? '#ffedd5;color:#c2410c' : '#dbeafe;color:#1d4ed8'}`, drcr(bal), bal >= 0 ? 'Outstanding (payable)' : 'Advance (Dr)', `border-left:4px solid ${bal >= 0 ? '#ea580c' : '#1d4ed8'}`)}
+    ${card('📦', 'background:#dcfce7;color:#15803d', inr(totMat), 'Material Received')}
+    ${card('🧾', 'background:#dbeafe;color:#2563eb', inr(totTaxA + totTaxB), 'Tax (a+b)')}
     ${card('➕', 'background:#ede9fe;color:#7c3aed', inr(totAddl), 'Additional Charges')}
-    ${card('✅', 'background:#dcfce7;color:#16a34a', inr(totDebit), 'Paid (Debit)', 'border-left:4px solid #16a34a')}
-    ${card('📦', 'background:#dcfce7;color:#15803d', inr(totCredit), 'Material Received (Credit)')}
+    ${card('✅', 'background:#dcfce7;color:#16a34a', inr(totDebit), 'Paid (Debit)')}
   </div>`;
+  const m = x => x ? inr(x) : '—';
   const body = entries.slice().reverse().map(e => {
     const s = e.status;
     const click = e.uuid ? ` style="cursor:pointer" onclick="_accOpenPRDetail('${e.uuid}')"` : '';
@@ -4252,26 +4272,35 @@ function _vplpLedger(v) {
       <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(e.date)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(e.ref)}</td>
       <td style="padding:6px 9px">${e.type}</td>
-      <td style="padding:6px 9px;text-align:right;color:#b45309;font-weight:600">${e.credit ? inr(e.credit) : '—'}</td>
-      <td style="padding:6px 9px;text-align:right;color:#2563eb;font-weight:600">${e.tax ? inr(e.tax) : '—'}</td>
-      <td style="padding:6px 9px;text-align:right;color:#7c3aed;font-weight:600">${e.addl ? inr(e.addl) : '—'}</td>
-      <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${e.debit ? inr(e.debit) : '—'}</td>
-      <td style="padding:6px 9px;text-align:right;font-weight:700;color:var(--g8)">${inr(e.balance)}</td>
+      <td style="padding:6px 9px;text-align:right;color:#b45309">${m(e.mat)}</td>
+      <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(e.addl)}</td>
+      <td style="padding:6px 9px;text-align:right;color:#2563eb">${m(e.taxA)}</td>
+      <td style="padding:6px 9px;text-align:right;color:#0891b2">${m(e.taxB)}</td>
+      <td style="padding:6px 9px;text-align:right;color:#15803d;font-weight:600">${m(e.credit)}</td>
+      <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${m(e.debit)}</td>
+      <td style="padding:6px 9px;text-align:right;font-weight:700;color:var(--g8)">${drcr(e.balance)}</td>
       <td style="padding:6px 9px">${statusCell}</td>
-      <td style="padding:6px 9px;font-size:.7rem">${esc(e.utr) || '—'}</td>
     </tr>`;
   }).join('');
+  const tfoot = `<tr style="background:var(--surface2);font-weight:700">
+    <td style="padding:7px 9px" colspan="3">Totals</td>
+    <td style="padding:7px 9px;text-align:right;color:#b45309">${m(totMat)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(totAddl)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#2563eb">${m(totTaxA)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#0891b2">${m(totTaxB)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
+    <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td></tr>`;
   return fyBar + kpi + `<div class="card"><div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
-        <th style="padding:8px 9px;text-align:right">Credit (Material)</th><th style="padding:8px 9px;text-align:right">Total Tax</th>
-        <th style="padding:8px 9px;text-align:right">Additional Charges</th>
-        <th style="padding:8px 9px;text-align:right">Debit (Paid)</th><th style="padding:8px 9px;text-align:right">Running Balance</th>
-        <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">UTR</th>
-      </tr></thead><tbody>${body}</tbody></table></div></div>`;
+        <th style="padding:8px 9px;text-align:right">Material (a)</th><th style="padding:8px 9px;text-align:right">Add'l (b)</th>
+        <th style="padding:8px 9px;text-align:right">Tax (a)</th><th style="padding:8px 9px;text-align:right">Tax (b)</th>
+        <th style="padding:8px 9px;text-align:right">Credit</th><th style="padding:8px 9px;text-align:right">Debit</th>
+        <th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th><th style="padding:8px 9px">Status</th>
+      </tr></thead><tbody>${body}</tbody><tfoot>${tfoot}</tfoot></table></div></div>`;
 }
-
 // ═══════════════════════════════════════════════════════════════════════
 //  PO & STOCKIN REGISTERS — consolidated data UIs with click-to-detail views.
 //  PO opens as a printable PO document (inspired by the AppSheet PO PDF) with
@@ -15339,6 +15368,9 @@ let _openPOPayments = [];   // raw PaymentRequest rows, joined to POs by Order N
 
 const _opNorm = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const _opPO   = s => String(s == null ? '' : s).trim().toUpperCase();
+// Normalised PO key for joins: uppercase, strip separators, sort each letter run
+// so spelling variants (EGVE/EVGE) fold to one key. Keep raw PO No for display.
+const _opPOKey = s => String(s == null ? '' : s).toUpperCase().replace(/[^A-Z0-9]+/g, '').replace(/[A-Z]+/g, m => m.split('').sort().join(''));
 const _opNum  = v => { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
 const _opPick = (x, keys) => { for (const k of keys) { if (x[k] != null && String(x[k]).trim() !== '') return String(x[k]).trim(); } return ''; };
 
