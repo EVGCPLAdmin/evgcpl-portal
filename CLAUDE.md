@@ -84,12 +84,32 @@ step 4 overwrites them all consistently.
 - End commit messages / PR bodies with the session URL footer.
 
 ## Architecture gotchas
-- **Top navigation is hand-coded static HTML duplicated across every page file**
-  (`accounts.html`, `dashboard.html`, `scm.html`, `site-ops.html`, etc.) — it is
-  **not** generated from `MODULE_REGISTRY`. `MODULE_REGISTRY` (`section:` field)
-  drives role/permission visibility and the Dev-Mode module list only. To change
-  what the menu actually shows, edit the `.tnav-group` / `.tnav-item` blocks in
-  **all** the page HTML files (keep them in sync), then `node build-portal.js`.
+- **⚠️ EVERY new page/route MUST be registered in `MODULE_REGISTRY`.**
+  `applyPortalConfig()` rebuilds `ROLE_ROUTES` *entirely* from `MODULE_REGISTRY`
+  on every load, so any navigable route that is **not** in the registry is
+  silently stripped from the route set and `applyRoleNavRestrictions()` then
+  **hides its nav button** (this is the bug that kept Data Hub invisible for
+  builds). When you add a page you must, together:
+  1. add a `{ route, label, section, defStatus, defRoles }` entry to
+     `MODULE_REGISTRY`,
+  2. add the route → render fn to the `pages` map in `renderPage()`,
+  3. add the route → page file to `ROUTE_TO_PAGE` in `multi-page-bootstrap.js`,
+  4. add the nav entry (top nav **and** mobile `#sidebar` — they're separate).
+  A load-time `_routeRegistryAudit()` console-warns for any nav route missing
+  from the registry, and `applyPortalConfig()` unions `window._RENDER_ROUTES`
+  into md's set as a backstop — but registering the module is the real fix.
+  Level-3 sub-pages (`NAV_SUBMENUS` children) render inside their parent page
+  and are intentionally NOT registered.
+- **Both navs are hand-coded and duplicated per page file** — the desktop top
+  nav (`.tnav-group`/`.tnav-item` in `<nav id="topNav">`) AND the mobile
+  `<nav class="sidebar">` (`.sidebar-section`/`.nav-item`). The build only syncs
+  the top nav from `partials/topnav.html`; the sidebar is per-file. New menu
+  items added at runtime go through `_navEnsureInjected()` (which injects into
+  **both**). `MODULE_REGISTRY` does not generate either nav.
+- **Access control = one tab.** "Access & Pages" (`_cfgRenderAccess`) holds both
+  the per-page Live/Dev/Off status (`uaSetModuleStatus`) and the Access-Groups
+  route/action grants. The old "Modules & Roles" tab (`_cfgRenderModules`) was
+  retired as a duplicate — don't reintroduce a separate role matrix.
 - Accounts data: `_accReloadRows()` → `window._accAllRows` via `_accMapRow`.
   Stage model: `ACC_VIEWS`, `_accStageOf`, `_accViewById`, `_accCanAdvance`,
   `_accAdvance`. Voucher: `_accOpenPRDetail`. Reuse these rather than re-fetching.
