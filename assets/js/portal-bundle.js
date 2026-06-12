@@ -2028,11 +2028,11 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','md-payments','ledgers','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','md-command','md-payments','ledgers','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','subcontractor','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
   hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
-  purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
-  accounts:  new Set(['dashboard','my-profile','accounts','ledgers','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','subcontractor','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  accounts:  new Set(['dashboard','my-profile','accounts','ledgers','subcontractor','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   employee:  new Set(['dashboard','my-profile','my-documents','accounts','policies','rewards','apps','wall','planning-overview','execution','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   dept_head: null,   // built dynamically from DEPT_HEAD_ROUTES below
   vendor:    new Set(['my-portal','my-orders','my-invoices','my-documents']),
@@ -2493,7 +2493,7 @@ function renderPage(page) {
     'stores-levels':  () => { window._pstPendingTab = 'levels';  renderProcurementStores(); },
     'purchase':       renderPurchaseDashboard,
     'vendor':         renderVendorPortalInternal,
-    'subcontractor':  () => renderPlaceholder('🤝','Subcontractor Portal (Internal)','SC management for procurement team','Coming in Phase 8'),
+    'subcontractor':  renderSubcontractorPortal,
     'tendering':      () => renderPlaceholder('📜','Tendering','Client bid management, BOQ uploads & tender register','Coming in Phase 4'),
     'accounts':       renderAccountsModule,
     'accounts-v2':        () => renderAccountsWorkspace(),
@@ -3981,6 +3981,46 @@ function _ledRenderBody() {
     <div><div style="font-weight:700;font-size:1rem">${esc(name)}</div><div style="font-size:.74rem;color:var(--txt3)">${esc(type)}${acc ? ` &middot; A/C ${esc(acc)}` : ''}</div></div>
     <span style="font-size:.72rem;color:var(--txt3)">${tx.length} transactions</span>
   </div>`;
+  c.innerHTML = selector + head + partyLedgerRender(tx, { onRowClick: '_accOpenPRDetail' });
+}
+
+// ── Subcontractor Portal (route 'subcontractor') — SC party ledger ───────
+let _scLedParty = '';
+function renderSubcontractorPortal() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-row">
+        <div><h1>&#129309; Subcontractor Portal</h1><p>Sub Contractor statements &middot; running balance &middot; Billed / Paid / Outstanding</p></div>
+        <button class="btn btn-secondary btn-sm" onclick="_scLedReload(this)">&#8635; Refresh</button>
+      </div>
+    </div>
+    <div id="sc-ledger-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading payment data&hellip;</div></div>`;
+  _mdpLoad().then(() => _scLedRenderBody()).catch(() => {
+    const b = document.getElementById('sc-ledger-body');
+    if (b) b.innerHTML = '<div class="card card-pad" style="text-align:center;color:var(--danger);padding:2.5rem">&#9888; Could not load the PaymentRequest data.</div>';
+  });
+}
+window._scLedReload   = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _mdpLoad(true).then(() => _scLedRenderBody()).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._scLedSetParty = function(v) { _scLedParty = v; _scLedRenderBody(); };
+function _scLedRenderBody() {
+  const c = document.getElementById('sc-ledger-body'); if (!c) return;
+  const esc = _mdpEsc;
+  const parties = _plParties('Sub Contractor');
+  const partyOpts = `<option value="">Select Sub Contractor&hellip;</option>` +
+    parties.map(p => `<option value="${esc(p.key)}"${p.key === _scLedParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` &middot; A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
+  const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
+    <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
+      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">SUB CONTRACTOR</label>
+      <select onchange="_scLedSetParty(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${partyOpts}</select>
+    </div>
+    <div style="font-size:.72rem;color:var(--txt3)">${parties.length} sub contractor(s)</div></div></div>`;
+  if (!_scLedParty) { c.innerHTML = selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a sub contractor to view their ledger.</div>`; return; }
+  const parts = _scLedParty.split('|'); const name = parts[1], acc = parts[2];
+  const tx = (_mdpRows || []).filter(r => _plPartyKey(r) === _scLedParty);
+  const head = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem">
+    <div><div style="font-weight:700;font-size:1rem">${esc(name)}</div><div style="font-size:.74rem;color:var(--txt3)">Sub Contractor${acc ? ` &middot; A/C ${esc(acc)}` : ''}</div></div>
+    <span style="font-size:.72rem;color:var(--txt3)">${tx.length} transactions</span></div>`;
   c.innerHTML = selector + head + partyLedgerRender(tx, { onRowClick: '_accOpenPRDetail' });
 }
 
@@ -8622,7 +8662,7 @@ const MODULE_REGISTRY = [
   { route:'stores-openpo',     label:'Stores · Open POs',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-levels',     label:'Stores · Stock Levels',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'vendor',            label:'Vendor Portal',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts','dept_head'] },
-  { route:'subcontractor',     label:'Subcontractor Portal',   section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
+  { route:'subcontractor',     label:'Subcontractor Portal',   section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
   { route:'tendering',         label:'Tendering',              section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
 
   // ── Accounts ──────────────────────────────────────────────────
@@ -11814,6 +11854,7 @@ function renderMyProfile() {
           <button class="mp-tab" data-tab="timeoff"    onclick="_mpShowTab('timeoff')">Time Off</button>
           <button class="mp-tab" data-tab="documents"  onclick="_mpShowTab('documents')">Documents</button>
           <button class="mp-tab" data-tab="team"       onclick="_mpShowTab('team')">Team</button>
+          <button class="mp-tab" data-tab="ledger"     onclick="_mpShowTab('ledger')">Statement</button>
         </div>
 
         <!-- Summary ───────────────────────────────────────── -->
@@ -11931,19 +11972,43 @@ function renderMyProfile() {
             </div>
           </div>
         </section>
+
+        <!-- Statement (ledger) — lazy-loaded on first open ──────── -->
+        <section class="mp-pane" data-pane="ledger">
+          <div id="mp-ledger-body">
+            <div style="display:flex;align-items:center;gap:.6rem;padding:1rem;color:var(--txt3);font-size:.82rem">
+              <div style="width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite;flex-shrink:0"></div>
+              Loading your statement…
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   `;
 
-  // Stash the resolved emp record for the lazy Team loader
+  // Stash the resolved emp record for the lazy Team / Statement loaders
   window._mpEmp = emp;
   window._mpDocsLoaded = false;
   window._mpTeamLoaded = false;
+  window._mpLedgerLoaded = false;
   // Restore last-opened tab (defaults to Summary)
   let savedTab = 'summary';
   try { savedTab = localStorage.getItem('evg_profile_tab') || 'summary'; } catch (e) {}
-  if (!['summary','job','comp','timeoff','documents','team'].includes(savedTab)) savedTab = 'summary';
+  if (!['summary','job','comp','timeoff','documents','team','ledger'].includes(savedTab)) savedTab = 'summary';
   _mpShowTab(savedTab);
+}
+// Statement pane — the logged-in employee's own party ledger (payments routed to
+// them in the PaymentRequest sheet: reimbursements / claims / advances).
+function _mpLoadLedger() {
+  const c = document.getElementById('mp-ledger-body'); if (!c) return;
+  const name = (window._mpEmp && window._mpEmp.name) || '';
+  if (!name) { c.innerHTML = '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No employee record matched to your login.</div>'; return; }
+  _mdpLoad().then(() => {
+    const nrm = s => String(s || '').trim().toLowerCase();
+    const tx = (_mdpRows || []).filter(r => r.payTo === 'Employee' && nrm(r.paidTo || r.vendor) === nrm(name));
+    if (!tx.length) { c.innerHTML = `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No payment transactions found for <b>${_mdpEsc(name)}</b>.</div>`; return; }
+    c.innerHTML = partyLedgerRender(tx, { onRowClick: '_accOpenPRDetail' });
+  }).catch(() => { c.innerHTML = '<div class="card card-pad" style="text-align:center;color:var(--danger);padding:2rem">Could not load your statement.</div>'; });
 }
 
 // Team pane — lazy-loaded on first open
@@ -17643,6 +17708,10 @@ function _mpShowTab(id) {
   if (id === 'team' && !window._mpTeamLoaded) {
     window._mpTeamLoaded = true;
     try { _loadProfileTeam(); } catch (e) {}
+  }
+  if (id === 'ledger' && !window._mpLedgerLoaded) {
+    window._mpLedgerLoaded = true;
+    try { _mpLoadLedger(); } catch (e) {}
   }
 }
 
