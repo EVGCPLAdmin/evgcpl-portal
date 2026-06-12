@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.39.0';
-const PORTAL_BUILD    = 507;
-const PORTAL_BUILD_AT = '2026-06-12T06:30:55Z';
+const PORTAL_VERSION  = '3.40.0';
+const PORTAL_BUILD    = 508;
+const PORTAL_BUILD_AT = '2026-06-12T06:34:03Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -122,7 +122,7 @@ async function loadSheetConfig() {
 }
 
 // ── Load at startup (non-blocking) ───────────────────────────
-loadSheetConfig();
+loadSheetConfig().then(() => { try { if (typeof _evgApplySaved === 'function') { _evgApplySaved(); _evgRefreshStyles(); } } catch (e) {} }).catch(() => {});
 
 // Auto-detect a newer deployed build. GitHub Pages caches the page HTML shells
 // aggressively, so a returning user can keep loading an old bundle after a deploy.
@@ -742,6 +742,79 @@ window.EVG = {
   // Merge per-instance overrides over a base definition.
   get(type, overrides) { return Object.assign({}, this[type] || {}, overrides || {}); },
 };
+// Compiled defaults — kept so "Reset" can restore them.
+const _EVG_DEFAULTS = JSON.parse(JSON.stringify({ table: EVG.table, card: EVG.card, form: EVG.form, dashboard: EVG.dashboard }));
+// Load saved design-system overrides (personal localStorage → org-wide
+// PortalConfig 'evg_design') and merge them onto the compiled defaults.
+function _evgApplySaved() {
+  let saved = null;
+  try { const ls = localStorage.getItem('pc_evg_design'); if (ls) saved = JSON.parse(ls); } catch (e) {}
+  if (!saved && typeof pcReadJSON === 'function') { try { saved = pcReadJSON('evg_design', null); } catch (e) {} }
+  if (saved && typeof saved === 'object') {
+    ['table', 'card', 'form', 'dashboard'].forEach(t => { if (saved[t]) Object.assign(EVG[t], saved[t]); });
+  }
+}
+function _evgCurrent() { return { table: { ...EVG.table }, card: { ...EVG.card }, form: { ...EVG.form }, dashboard: { ...EVG.dashboard } }; }
+// Re-generate the injected component CSS from the (possibly changed) EVG values.
+function _evgRefreshStyles() { const s = document.getElementById('evg-tbl-engine'); if (s) s.remove(); _tblEngineEnsureStyles(); }
+try { _evgApplySaved(); } catch (e) {}
+// Edit one design-system value (live preview + persist to your localStorage).
+window.evgSetSetting = function(type, key, value, kind) {
+  if (kind === 'num') value = parseFloat(value); if (kind === 'num' && isNaN(value)) value = 0;
+  if (value === 'true') value = true; else if (value === 'false') value = false;
+  if (!EVG[type]) return; EVG[type][key] = value;
+  try { localStorage.setItem('pc_evg_design', JSON.stringify(_evgCurrent())); } catch (e) {}
+  _evgRefreshStyles();
+  if (typeof renderDevModePage === 'function' && window._cfgActiveTab === 'config') renderDevModePage('config');
+};
+window.evgResetDesign = function() {
+  ['table', 'card', 'form', 'dashboard'].forEach(t => Object.assign(EVG[t], JSON.parse(JSON.stringify(_EVG_DEFAULTS[t]))));
+  try { localStorage.removeItem('pc_evg_design'); } catch (e) {}
+  _evgRefreshStyles();
+  if (typeof renderDevModePage === 'function') renderDevModePage('config');
+};
+window.evgSaveSystemDefault = async function(btn) {
+  const cur = _evgCurrent();
+  try { localStorage.setItem('pc_evg_design', JSON.stringify(cur)); } catch (e) {}
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  let res = { ok: false };
+  try { res = await pcWriteJSON('evg_design', cur); } catch (e) { res = { ok: false, message: e.message }; }
+  if (btn) { btn.disabled = false; btn.innerHTML = res.ok ? '✓ Saved org-wide' : '★ Set as org-wide default'; }
+  if (!res.ok) alert('Saved for you, but could not set the org-wide default: ' + (res.message || 'no PortalConfig backend URL set'));
+};
+// Settings card for the Portal Config page — the live default definitions
+// for Table / KPI Card / Dashboard / Form. Editing previews instantly and
+// saves to your localStorage; admins can push an org-wide default.
+function _evgDesignCardHtml() {
+  const isAdmin = (typeof _accIsAdmin === 'function' && _accIsAdmin()) || (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin());
+  const tog = (t, k, label) => `<label style="display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--txt2);cursor:pointer;padding:.2rem 0">
+    <input type="checkbox" ${EVG[t][k] ? 'checked' : ''} onchange="evgSetSetting('${t}','${k}',this.checked)" style="width:15px;height:15px;accent-color:var(--g7)">${label}</label>`;
+  const num = (t, k, label, unit) => `<label style="display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:var(--txt3)">${label}${unit ? ' (' + unit + ')' : ''}
+    <input type="number" value="${EVG[t][k]}" onchange="evgSetSetting('${t}','${k}',this.value,'num')" style="width:90px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.82rem;background:var(--surface2)"></label>`;
+  const txt = (t, k, label) => `<label style="display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:var(--txt3)">${label}
+    <input type="text" value="${String(EVG[t][k])}" onchange="evgSetSetting('${t}','${k}',this.value)" style="width:120px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.82rem;background:var(--surface2)"></label>`;
+  const group = (title, body) => `<div style="border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem;flex:1;min-width:220px">
+    <div style="font-size:.82rem;font-weight:700;color:var(--g9);margin-bottom:.5rem">${title}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:.6rem 1.1rem;align-items:flex-end">${body}</div></div>`;
+  return `<div class="card card-pad" style="margin-bottom:1.2rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem;margin-bottom:.8rem">
+      <div>
+        <h3 style="font-size:.95rem;font-weight:700;color:var(--g9)">&#127912; Design System — default definitions</h3>
+        <div style="font-size:.76rem;color:var(--txt3);margin-top:.2rem">Base look &amp; behaviour applied to every Table, KPI Card, Dashboard &amp; Form. Edits preview live. Any instance can opt out with <code>data-evg-defaults="off"</code>.</div>
+      </div>
+      <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+        ${isAdmin ? '<button onclick="evgSaveSystemDefault(this)" class="btn btn-secondary btn-sm" title="Apply these defaults org-wide">&#9733; Set as org-wide default</button>' : ''}
+        <button onclick="evgResetDesign()" class="btn btn-secondary btn-sm">&#8635; Reset</button>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:.8rem">
+      ${group('&#128202; Table', tog('table', 'wrap', 'Wrap cell text') + tog('table', 'resize', 'Resizable columns') + tog('table', 'columnManager', 'Column manager') + num('table', 'gutter', 'Side gutter', 'px') + num('table', 'scrollbar', 'Scrollbar', 'px'))}
+      ${group('&#127183; KPI Card', num('card', 'radius', 'Corner radius', 'px') + num('card', 'minWidth', 'Min width', 'px') + txt('card', 'accent', 'Accent colour'))}
+      ${group('&#128208; Dashboard', num('dashboard', 'gridMin', 'Grid min', 'px') + txt('dashboard', 'gap', 'Card gap') + txt('dashboard', 'sectionGap', 'Section gap'))}
+      ${group('&#128221; Form', num('form', 'inputRadius', 'Input radius', 'px') + txt('form', 'gap', 'Field gap') + txt('form', 'labelPos', 'Label position'))}
+    </div>
+  </div>`;
+}
 // True when an element (or an ancestor) opts out of the design system.
 function _evgOptedOut(el) { return !!(el && el.closest && el.closest('[data-evg-defaults="off"]')); }
 
@@ -9685,6 +9758,9 @@ function _cfgRenderConfig() {
 
     <!-- Apps Script Endpoints — Tier 2: Sheet-stored (PortalConfig tab) -->
     ${renderSheetConfigCard()}
+
+    <!-- Design System — default definitions for Table/Card/Dashboard/Form -->
+    ${_evgDesignCardHtml()}
 
     <!-- Scheduled Reports -->
     <div class="card card-pad" style="margin-top:1.2rem" id="schedReportCard">
