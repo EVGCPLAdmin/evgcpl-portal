@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.44.0';
-const PORTAL_BUILD    = 517;
-const PORTAL_BUILD_AT = '2026-06-12T09:16:15Z';
+const PORTAL_VERSION  = '3.44.1';
+const PORTAL_BUILD    = 518;
+const PORTAL_BUILD_AT = '2026-06-12T09:24:26Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -729,11 +729,15 @@ window.EVG = {
     columnManager: true,   // ⚙ Columns: drag reorder + show/hide + set-default
     widthPct: 100,         // table block width as % of the content area
     rows: 0,               // rows before vertical scroll (0 = show all)
+    zebra: false,          // alternating row striping
+    rowBorders: true,      // horizontal row separator lines
     gutter: 25,            // px left/right fit-to-screen gutter (desktop)
     scrollbar: 16,         // px scrollbar thickness
   },
   card: {                  // KPI / stat cards
     radius: 14, pad: '1.1rem 1.2rem', accent: 'var(--g7)', minWidth: 145,
+    hoverShadow: true,     // lift + shadow on hover (clickable cards)
+    valueSize: 1.7,        // KPI value font size (rem)
   },
   form: {
     labelPos: 'top', gap: '.7rem', inputRadius: 7,
@@ -810,8 +814,8 @@ function _evgDesignCardHtml() {
       </div>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:.8rem">
-      ${group('&#128202; Table', tog('table', 'wrap', 'Wrap text for all columns') + tog('table', 'resize', 'Resizeable column') + tog('table', 'columnManager', 'Column manager') + num('table', 'widthPct', 'Table width', '%') + num('table', 'rows', 'Rows before scroll'))}
-      ${group('&#127183; KPI Card', num('card', 'radius', 'Corner radius', 'px') + num('card', 'minWidth', 'Min width', 'px') + txt('card', 'accent', 'Accent colour'))}
+      ${group('&#128202; Table', tog('table', 'wrap', 'Wrap text for all columns') + tog('table', 'resize', 'Resizeable column') + tog('table', 'columnManager', 'Column manager') + tog('table', 'zebra', 'Row striping (zebra)') + tog('table', 'rowBorders', 'Row borders') + num('table', 'widthPct', 'Table width', '%') + num('table', 'rows', 'Rows before scroll'))}
+      ${group('&#127183; KPI Card', num('card', 'radius', 'Corner radius', 'px') + num('card', 'minWidth', 'Min width', 'px') + num('card', 'valueSize', 'Value size', 'rem') + tog('card', 'hoverShadow', 'Hover shadow') + txt('card', 'accent', 'Accent colour'))}
       ${group('&#128208; Dashboard', num('dashboard', 'gridMin', 'Grid min', 'px') + txt('dashboard', 'gap', 'Card gap') + txt('dashboard', 'sectionGap', 'Section gap'))}
       ${group('&#128221; Form', num('form', 'inputRadius', 'Input radius', 'px') + txt('form', 'gap', 'Field gap') + txt('form', 'labelPos', 'Label position'))}
     </div>
@@ -921,6 +925,8 @@ function _tblEngineEnsureStyles() {
     #mainContent .tbl-wrap table.evg-fixed { table-layout:fixed; }
     /* Sticky header so it stays visible when the body scrolls (row cap) */
     #mainContent .tbl-wrap table th { position:sticky; top:0; z-index:5; }
+    ${T.zebra ? '#mainContent .tbl-wrap table tbody tr:nth-child(even) td { background:rgba(26,96,56,.05); }' : ''}
+    ${T.rowBorders ? '' : '#mainContent .tbl-wrap table td { border-bottom:none; }'}
     .evg-rs { position:absolute; top:0; right:0; width:8px; height:100%; cursor:col-resize; user-select:none; z-index:6; }
     .evg-rs:hover { background:rgba(26,96,56,.25); }
     @media(min-width:1025px){ #mainContent .tbl-outer { margin-inline: calc(${g}px - 2.2rem); } }
@@ -929,8 +935,8 @@ function _tblEngineEnsureStyles() {
       padding:${C.pad}; display:flex; flex-direction:column; gap:.2rem; position:relative; overflow:hidden; }
     .evg-kpi::before { content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:${C.accent}; }
     .evg-kpi[data-click] { cursor:pointer; transition:box-shadow .15s, transform .15s; }
-    .evg-kpi[data-click]:hover { box-shadow:0 8px 22px rgba(0,0,0,.1); transform:translateY(-1px); }
-    .evg-kpi .evg-kpi-val { font-size:1.7rem; font-weight:700; color:var(--g9,#0d3320); line-height:1.1; }
+    ${C.hoverShadow ? '.evg-kpi[data-click]:hover { box-shadow:0 8px 22px rgba(0,0,0,.1); transform:translateY(-1px); }' : ''}
+    .evg-kpi .evg-kpi-val { font-size:${C.valueSize}rem; font-weight:700; color:var(--g9,#0d3320); line-height:1.1; }
     .evg-kpi .evg-kpi-lbl { font-size:.8rem; color:var(--txt3,#6b7c74); font-weight:500; }
     .evg-kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(${C.minWidth}px,1fr)); gap:.85rem; }
     /* ── EVG.dashboard ── */
