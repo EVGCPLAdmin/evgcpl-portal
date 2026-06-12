@@ -1964,6 +1964,15 @@ function _routeRegistryAudit() {
 //       multi-page-bootstrap.js if it lives on a different .html page)
 // ════════════════════════════════════════════════════════════════
 const NAV_SUBMENUS = {
+  scm: {
+    children: [
+      { route:'scm',          label:'Overview',         status:'live' },
+      { route:'scm-pending',  label:'Pending Approval', status:'live' },
+      { route:'scm-register', label:'PO Register',      status:'live' },
+      { route:'scm-site',     label:'Spend by Site',    status:'live' },
+      { route:'scm-vendor',   label:'Top Vendors',      status:'live' },
+    ],
+  },
   stores: {
     children: [
       { route:'stores',         label:'Overview',      status:'live' },
@@ -2114,6 +2123,10 @@ function renderPage(page) {
     'store':          renderStoreModule,
     'scm':            renderSCMDashboard,
     'mrs':            renderMRSDashboard,
+    'scm-pending':    () => renderSCMSubPage('pending'),
+    'scm-register':   () => renderSCMSubPage('register'),
+    'scm-site':       () => renderSCMSubPage('site'),
+    'scm-vendor':     () => renderSCMSubPage('vendor'),
     'stores':         renderStoresOverview,
     'stores-stockin': () => { window._pstPendingTab = 'stockin'; renderProcurementStores(); },
     'stores-siraw':   () => { window._pstPendingTab = 'siraw';   renderProcurementStores(); },
@@ -8183,6 +8196,10 @@ const MODULE_REGISTRY = [
 
   // ── Procurement ───────────────────────────────────────────────
   { route:'scm',               label:'Purchase Dashboard',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'scm-pending',       label:'Purchase · Pending Approval', section:'Procurement',  defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'scm-register',      label:'Purchase · PO Register',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'scm-site',          label:'Purchase · Spend by Site',section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'scm-vendor',        label:'Purchase · Top Vendors',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'mrs',               label:'MRS',                    section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores',            label:'Stores',                 section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'vendor',            label:'Vendor Portal',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts','dept_head'] },
@@ -9895,12 +9912,60 @@ function initNotifications() {
   };
 })();
 
+// ── Purchase LEVEL-3 sub-pages (#3): each dashboard table on its own page ──
+// Reuses the dashboard's data load + table renderers (which target element
+// IDs and no-op when absent); loadPOData is now null-safe for partial pages.
+function renderSCMSubPage(section) {
+  const el = document.getElementById('mainContent');
+  const meta = {
+    pending:  { icon:'⏳', title:'Pending Approval',       container:'scm-pending-table' },
+    site:     { icon:'🏗️', title:'Spend by Site',          container:'scm-site-table' },
+    vendor:   { icon:'🏢', title:'Top Vendors by Spend',    container:'scm-vendor-table' },
+    register: { icon:'📋', title:'PO Register',             container:'scm-all-table', register:true },
+  }[section] || { icon:'📦', title:'Purchase', container:'scm-pending-table' };
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">${meta.icon} Purchase — ${meta.title}</div>
+        <div class="page-sub"><span onclick="navigate('scm')" style="cursor:pointer;color:var(--g7);font-weight:600">← Purchase Overview</span></div>
+      </div>
+    </div>
+    ${meta.register ? `
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem">
+        <input id="scm-all-search" type="text" placeholder="Search PO No, Vendor, Site…" oninput="window.scmRenderAllTable && window.scmRenderAllTable()"
+          style="flex:1;min-width:200px;padding:.4rem .7rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.84rem;font-family:inherit">
+        <select id="scm-all-fy" onchange="window.scmRenderAllTable && window.scmRenderAllTable()"
+          style="padding:.4rem .7rem;border:1.5px solid #cce3d4;border-radius:8px;font-size:.84rem;font-family:inherit;background:#fff"><option value="">All FY</option></select>
+        <button onclick="window.scmDownloadCSV && window.scmDownloadCSV()" class="csv-btn">⬇ CSV</button>
+      </div>` : ''}
+    <div class="card"><div class="card-body" style="padding:0;overflow-x:auto">
+      <div id="${meta.container}"><div style="padding:2.5rem;text-align:center;color:var(--txt3)">⏳ Loading…</div></div>
+    </div></div>`;
+  loadPOData();
+  if (meta.register) {
+    const tryRender = (n = 0) => {
+      if (typeof _scmAllRows !== 'undefined' && _scmAllRows && _scmAllRows.length != null && typeof scmRenderAllTable === 'function') {
+        const fySet = [...new Set(_scmAllRows.map(r => getFYKey(r.jsDate)).filter(Boolean))].sort().reverse();
+        const sel = document.getElementById('scm-all-fy');
+        if (sel) sel.innerHTML = '<option value="">All FY</option>' + fySet.map(fy => `<option value="${fy}">${fy}</option>`).join('');
+        scmRenderAllTable();
+      } else if (n < 50) setTimeout(() => tryRender(n + 1), 100);
+    };
+    tryRender();
+  }
+}
+
 function renderSCMDashboard() {
   const el = document.getElementById('mainContent');
   el.innerHTML = `
     <div class="page-header" style="margin-bottom:1rem">
       <h1>📦 Purchase Dashboard</h1>
       <p>Live PO tracker · Approvals · Spend analytics</p>
+    </div>
+    <!-- Level-3 sub-pages -->
+    <div class="evg-dash-grid" style="margin-bottom:1.4rem">
+      ${[['scm-pending','⏳','Pending Approval'],['scm-register','📋','PO Register'],['scm-site','🏗️','Spend by Site'],['scm-vendor','🏢','Top Vendors'],['stores-openpo','🔓','Open POs']]
+        .map(([r,i,l]) => `<div class="evg-kpi" data-click="1" onclick="navigate('${r}')"><div style="font-size:1.3rem">${i}</div><div class="evg-kpi-lbl" style="font-weight:700;color:var(--g9);font-size:.9rem">${l}</div><div class="evg-kpi-lbl">Open as its own page →</div></div>`).join('')}
     </div>
 
     <!-- KPI Row -->
@@ -10068,7 +10133,8 @@ function loadPOData() {
   const _po = (typeof getLink === 'function') ? getLink('PO') : { id: PO_SHEET_ID, tab: PO_TAB };
   fetchSheet(_po.tab || PO_TAB, 'SELECT A,E,F,G,J,R,S,AF,AG,AP,AQ', _po.id || PO_SHEET_ID).then(rawRows => {
     if (!rawRows || rawRows.length === 0) {
-      document.getElementById('scm-pending-table').innerHTML =
+      const _pt = document.getElementById('scm-pending-table');
+      if (_pt) _pt.innerHTML =
         `<div style="padding:2rem;text-align:center;color:#c62828">
           ⚠️ Could not load PO data. Open v2_Purchase → Share → set to
           <strong>"Anyone on the internet"</strong> → Viewer.
@@ -10111,11 +10177,13 @@ function loadPOData() {
     const approved = rows.filter(r => r.status.toUpperCase().includes('APPROVED')).length;
     const rejected = rows.filter(r => r.status.toUpperCase().includes('REJECT')).length;
 
-    document.getElementById('scm-kpi-total').textContent    = total;
-    document.getElementById('scm-kpi-pending').textContent  = pending;
-    document.getElementById('scm-kpi-approved').textContent = approved;
-    document.getElementById('scm-kpi-rejected').textContent = rejected;
-    document.getElementById('scm-pending-badge').innerHTML  = `<strong>${pending}</strong> awaiting`;
+    const _setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+    const _setHtml = (id, v) => { const e = document.getElementById(id); if (e) e.innerHTML = v; };
+    _setTxt('scm-kpi-total', total);
+    _setTxt('scm-kpi-pending', pending);
+    _setTxt('scm-kpi-approved', approved);
+    _setTxt('scm-kpi-rejected', rejected);
+    _setHtml('scm-pending-badge', `<strong>${pending}</strong> awaiting`);
 
     // Aged pending badge
     _scmPendingPOs = rows.filter(r => r.status.toUpperCase() !== 'REJECTED' && r.lock === 'Released for Approval');
@@ -10180,7 +10248,8 @@ function loadPOData() {
     if (allFySel) allFySel.innerHTML = '<option value="">All FY</option>' +
       fySet2.map(fy => `<option value="${fy}">${fy}</option>`).join('');
   }).catch(err => {
-    document.getElementById('scm-pending-table').innerHTML =
+    const _pt = document.getElementById('scm-pending-table');
+    if (_pt) _pt.innerHTML =
       `<div style="padding:2rem;text-align:center;color:#c62828">Error: ${err.message}</div>`;
   });
 }
