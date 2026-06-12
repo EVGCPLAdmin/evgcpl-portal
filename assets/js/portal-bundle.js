@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.44.4';
-const PORTAL_BUILD    = 521;
-const PORTAL_BUILD_AT = '2026-06-12T13:19:33Z';
+const PORTAL_VERSION  = '3.45.0';
+const PORTAL_BUILD    = 522;
+const PORTAL_BUILD_AT = '2026-06-12T13:30:58Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -891,14 +891,47 @@ function _evgOptedOut(el) { return !!(el && el.closest && el.closest('[data-evg-
 
 function applyTableFeatures() {
   _tblEngineEnsureStyles();
-  const selector = '#mainContent .emp-table, #mainContent .vpi-tbl, #mainContent .data-table, #mainContent .sites-table';
-  document.querySelectorAll(selector).forEach(t => {
+  _tblObserveMainContent();
+  const mc = document.getElementById('mainContent');
+  if (!mc) return;
+  // Standard data-table classes, PLUS any un-classed real data table (proper
+  // thead with ≥2 header cells and a tbody row) so the toolbar / ⚙ Columns /
+  // resize are available by default on every data table.
+  const set = new Set(mc.querySelectorAll('.emp-table, .vpi-tbl, .data-table, .sites-table'));
+  mc.querySelectorAll('table').forEach(t => {
+    if (t.tHead && t.querySelectorAll('thead th').length >= 2 && t.querySelector('tbody tr')) set.add(t);
+  });
+  set.forEach(t => {
     if (_evgOptedOut(t)) return;                 // data-evg-defaults="off" escape hatch
     makeTableSortable(t);
     wrapTableScroll(t);
     if (EVG.table.columnManager) { try { _tblColInit(t); } catch (e) {} }
     if (EVG.table.resize)        { try { _tblMakeResizable(t); } catch (e) {} }
   });
+}
+// Watch #mainContent so tables that render later (async data, filter/tab
+// re-renders) get the engine too — the feature is then consistently default,
+// not just on the post-navigate pass. Debounced; only reacts to new tables.
+let _tblFeatObserved = false, _tblFeatTimer = null;
+function _tblObserveMainContent() {
+  if (_tblFeatObserved) return;
+  const mc = document.getElementById('mainContent');
+  if (!mc || typeof MutationObserver === 'undefined') return;
+  _tblFeatObserved = true;
+  const obs = new MutationObserver(muts => {
+    let relevant = false;
+    for (const m of muts) {
+      for (const n of m.addedNodes) {
+        if (n.nodeType === 1 && (n.tagName === 'TABLE' || n.tagName === 'TBODY' || n.tagName === 'TR' ||
+            (n.querySelector && n.querySelector('table')))) { relevant = true; break; }
+      }
+      if (relevant) break;
+    }
+    if (!relevant) return;
+    clearTimeout(_tblFeatTimer);
+    _tblFeatTimer = setTimeout(() => { try { applyTableFeatures(); document.querySelectorAll('[data-wrapped]').forEach(t => updateTableBadge(t)); } catch (e) {} }, 200);
+  });
+  obs.observe(mc, { childList: true, subtree: true });
 }
 
 // ════════════════════════════════════════════════════════════════
