@@ -815,6 +815,64 @@ function _evgDesignCardHtml() {
     </div>
   </div>`;
 }
+// Config card: org-wide defaults for the Open PO Report (columns, filters, table
+// layout). The live arrangement is set from the report (⚙ Columns / 🔎 Filters →
+// ★ Set as default); this panel writes the current defaults to the PortalConfig
+// sheet so every user inherits them.
+function _openPODefaultsCardHtml() {
+  const isAdmin = (typeof _accIsAdmin === 'function' && _accIsAdmin()) || (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin());
+  const tcfg = _openPOTblCfgGet();
+  const sysCols = (typeof pcReadJSON === 'function') ? pcReadJSON('openpo_cols_default', null)   : null;
+  const sysFilt = (typeof pcReadJSON === 'function') ? pcReadJSON('openpo_filters_default', null) : null;
+  const sysTbl  = (typeof pcReadJSON === 'function') ? pcReadJSON('openpo_tblcfg_default', null)  : null;
+  const lblFor = (arr, reg) => (Array.isArray(arr) && arr.length ? arr : reg.filter(f => f.def).map(f => f.key))
+    .map(k => { const f = reg.find(x => x.key === k) || (typeof _openPORawField === 'function' && _openPORawField(k)); return f ? f.label : k; });
+  const chip = s => `<span style="display:inline-block;padding:.15rem .5rem;margin:.15rem;border-radius:12px;background:var(--surface2);font-size:.72rem;color:var(--txt2)">${s}</span>`;
+  const tag  = on => on ? '<span style="font-size:.68rem;color:var(--g7)">(org default set)</span>' : '<span style="font-size:.68rem;color:var(--txt3)">(compiled default)</span>';
+  const num  = (k, label, unit) => `<label style="display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:var(--txt3)">${label}${unit ? ' (' + unit + ')' : ''}
+    <input type="number" value="${tcfg[k]}" onchange="openPOTblSet('${k}', this.value)" style="width:90px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.82rem;background:var(--surface2)"></label>`;
+  return `<div class="card card-pad" style="margin-bottom:1.2rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem;margin-bottom:.8rem">
+      <div>
+        <h3 style="font-size:.95rem;font-weight:700;color:var(--g9)">&#128275; Open PO Report — defaults</h3>
+        <div style="font-size:.76rem;color:var(--txt3);margin-top:.2rem">Org-wide default columns, filters &amp; table layout. Set the live arrangement from the report (&#9881; Columns / &#128269; Filters &rarr; &#9733; Set as default); this panel saves the current defaults to the PortalConfig sheet.</div>
+      </div>
+      ${isAdmin ? '<button onclick="openPOSaveAllDefaults(this)" class="btn btn-secondary btn-sm" title="Write columns, filters &amp; table settings to PortalConfig (org-wide)">&#9733; Save defaults org-wide</button>' : '<span style="font-size:.72rem;color:var(--txt3)">Admins can save org-wide defaults</span>'}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:.8rem">
+      <div style="border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem;flex:1;min-width:240px">
+        <div style="font-size:.82rem;font-weight:700;color:var(--g9);margin-bottom:.5rem">&#128202; Table settings ${tag(sysTbl)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:.6rem 1.1rem;align-items:flex-end">
+          ${num('widthPct', 'Table width', '%')}${num('rows', 'Rows before scroll')}
+          <label style="display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--txt2);cursor:pointer"><input type="checkbox" ${tcfg.wrapAll ? 'checked' : ''} onchange="openPOTblSet('wrapAll', this.checked)" style="width:15px;height:15px;accent-color:var(--g7)">Wrap all columns</label>
+        </div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem;flex:1;min-width:240px">
+        <div style="font-size:.82rem;font-weight:700;color:var(--g9);margin-bottom:.5rem">&#128203; Default columns ${tag(sysCols)}</div>
+        <div>${lblFor(sysCols, OPENPO_FIELDS).map(chip).join('')}</div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem;flex:1;min-width:240px">
+        <div style="font-size:.82rem;font-weight:700;color:var(--g9);margin-bottom:.5rem">&#128269; Default filters ${tag(sysFilt)}</div>
+        <div>${lblFor(sysFilt, OPENPO_FILTERS).map(chip).join('')}</div>
+      </div>
+    </div>
+  </div>`;
+}
+window.openPOSaveAllDefaults = async function(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  const pick = (lsKey, reg) => { try { const s = JSON.parse(localStorage.getItem(lsKey) || 'null'); if (Array.isArray(s) && s.length) return s; } catch (e) {} return reg.filter(f => f.def).map(f => f.key); };
+  const cols = pick('openpo_cols', OPENPO_FIELDS);
+  const filt = pick('openpo_filters', OPENPO_FILTERS);
+  const tbl  = _openPOTblCfgGet();
+  let ok = true, msg = '';
+  for (const [k, v] of [['openpo_cols_default', cols], ['openpo_filters_default', filt], ['openpo_tblcfg_default', tbl]]) {
+    try { const r = await pcWriteJSON(k, v); if (!r || !r.ok) { ok = false; msg = (r && r.message) || msg; } }
+    catch (e) { ok = false; msg = e.message; }
+  }
+  if (btn) { btn.disabled = false; btn.innerHTML = ok ? '&#10003; Saved org-wide' : '&#9733; Save defaults org-wide'; }
+  if (!ok) alert('Could not save all Open PO defaults: ' + (msg || 'no PortalConfig backend URL set'));
+  else if (typeof _cfgRenderConfig === 'function' && window._cfgActiveTab === 'config') setTimeout(_cfgRenderConfig, 700);
+};
 // True when an element (or an ancestor) opts out of the design system.
 function _evgOptedOut(el) { return !!(el && el.closest && el.closest('[data-evg-defaults="off"]')); }
 
@@ -9762,6 +9820,9 @@ function _cfgRenderConfig() {
     <!-- Design System — default definitions for Table/Card/Dashboard/Form -->
     ${_evgDesignCardHtml()}
 
+    <!-- Open PO Report — org-wide default columns / filters / table layout -->
+    ${_openPODefaultsCardHtml()}
+
     <!-- Scheduled Reports -->
     <div class="card card-pad" style="margin-top:1.2rem" id="schedReportCard">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
@@ -15016,7 +15077,7 @@ function pstRenderOpenPO(c, q) {
       .openpo-scroll::-webkit-scrollbar-thumb{background:#7fae93;border-radius:8px;border:3px solid #e6efe9}
       .openpo-scroll::-webkit-scrollbar-thumb:hover{background:#5f9678}
       .openpo-tbl th{overflow:hidden;text-overflow:ellipsis;position:relative}
-      .openpo-tbl thead th{position:sticky;top:0;z-index:3;background:#eef5f0}
+      .openpo-tbl thead th{position:sticky;top:0;z-index:3;background:var(--g9);color:#fff}
       .openpo-tbl td{padding:5px 8px}
       .openpo-tbl .op-rs{position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;user-select:none}
       .openpo-tbl .op-rs:hover{background:#7fae93}`;
