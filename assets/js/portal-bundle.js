@@ -1063,13 +1063,11 @@ function _tblColEligible(table) {
   if (table.classList.contains('openpo-tbl')) return false;   // has its own chooser
   const ths = table.querySelectorAll('thead th');
   if (ths.length < 2) return false;
-  for (const th of ths) if (th.colSpan > 1 || th.rowSpan > 1) return false;
-  const rows = table.querySelectorAll('tbody tr');
-  if (!rows.length) return false;
-  for (const tr of rows) {
-    if (tr.children.length !== ths.length) return false;
-    for (const c of tr.children) if (c.colSpan > 1) return false;
-  }
+  for (const th of ths) if (th.colSpan > 1 || th.rowSpan > 1) return false;  // grouped headers can't map 1:1
+  if (!table.querySelector('tbody tr')) return false;
+  // Irregular body rows (subtotal/total rows with colspan, empty-state rows) no
+  // longer disqualify the whole table — _tblColApply simply skips those rows, so
+  // the column selector is available on (almost) every data table.
   return true;
 }
 function _tblColKeys(ths) {
@@ -1100,6 +1098,7 @@ function _tblColApply(table, sig) {
   const hidden = new Set(cfg.hidden.map(k => idxOf[k]));
   const reorder = (row) => {
     const cells = Array.from(row.children);
+    if (cells.length !== ths.length) return;              // skip totals/empty-state/colspan rows
     orderIdx.forEach(i => row.appendChild(cells[i]));      // re-append in desired order
     cells.forEach((c, i) => { c.style.display = hidden.has(i) ? 'none' : ''; });
   };
