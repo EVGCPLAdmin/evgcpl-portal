@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.33.2';
-const PORTAL_BUILD    = 501;
-const PORTAL_BUILD_AT = '2026-06-12T04:33:08Z';
+const PORTAL_VERSION  = '3.34.0';
+const PORTAL_BUILD    = 502;
+const PORTAL_BUILD_AT = '2026-06-12T05:29:19Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -710,10 +710,91 @@ function updateTableBadge(table) {
 }
 
 function applyTableFeatures() {
+  _tblEngineEnsureStyles();
   const selector = '#mainContent .emp-table, #mainContent .vpi-tbl, #mainContent .data-table, #mainContent .sites-table';
   document.querySelectorAll(selector).forEach(t => {
     makeTableSortable(t);
     wrapTableScroll(t);
+    try { _tblMakeResizable(t); } catch (e) {}
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  UNIVERSAL TABLE ENGINE — wrap · drag-resize columns · fit-to-screen
+//  (25px gutters) · bigger scrollbar. Applied to every rendered table
+//  via applyTableFeatures(). Per-table column widths persist in
+//  localStorage keyed by the header signature. Tables that manage their
+//  own <colgroup> (e.g. Open PO) are skipped.
+// ════════════════════════════════════════════════════════════════
+function _tblEngineEnsureStyles() {
+  if (document.getElementById('evg-tbl-engine')) return;
+  const s = document.createElement('style');
+  s.id = 'evg-tbl-engine';
+  s.textContent = `
+    #mainContent .tbl-wrap { overflow:auto; }
+    #mainContent .tbl-wrap::-webkit-scrollbar { height:16px; width:16px; }
+    #mainContent .tbl-wrap::-webkit-scrollbar-track { background:#eef3f0; border-radius:8px; }
+    #mainContent .tbl-wrap::-webkit-scrollbar-thumb { background:#1a6038; border-radius:8px; border:3px solid #eef3f0; }
+    #mainContent .tbl-wrap::-webkit-scrollbar-thumb:hover { background:#14502f; }
+    #mainContent .tbl-wrap { scrollbar-width:auto; scrollbar-color:#1a6038 #eef3f0; }
+    #mainContent .tbl-wrap table th, #mainContent .tbl-wrap table td {
+      white-space:normal; overflow-wrap:break-word; word-break:break-word; vertical-align:top;
+    }
+    #mainContent .tbl-wrap table.evg-fixed { table-layout:fixed; }
+    #mainContent .tbl-wrap table th { position:relative; }
+    .evg-rs { position:absolute; top:0; right:0; width:8px; height:100%; cursor:col-resize; user-select:none; z-index:6; }
+    .evg-rs:hover { background:rgba(26,96,56,.25); }
+    @media(min-width:1025px){ #mainContent .tbl-outer { margin-inline: calc(25px - 2.2rem); } }
+  `;
+  document.head.appendChild(s);
+}
+
+function _tblWidthsAll() { try { return JSON.parse(localStorage.getItem('evg_tbl_widths') || '{}'); } catch (e) { return {}; } }
+function _tblWidthsGet(sig) { return _tblWidthsAll()[sig] || {}; }
+function _tblWidthsSet(sig, w) { const all = _tblWidthsAll(); all[sig] = w; try { localStorage.setItem('evg_tbl_widths', JSON.stringify(all)); } catch (e) {} }
+function _tblSig(table) {
+  const hs = Array.from(table.querySelectorAll('thead th')).map(th => (th.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 18));
+  return 'n' + hs.length + ':' + hs.join('|');
+}
+
+function _tblMakeResizable(table) {
+  if (!table || table.dataset.evgResize) return;
+  if (table.querySelector('colgroup')) { table.dataset.evgResize = 'skip'; return; }  // self-managed (Open PO)
+  const ths = Array.from(table.querySelectorAll('thead th'));
+  if (ths.length < 2) return;
+  const widths = ths.map(th => Math.round(th.getBoundingClientRect().width));
+  if (widths.some(w => !w)) return;   // not laid out yet — a later pass will catch it
+  table.dataset.evgResize = '1';
+
+  const sig = _tblSig(table);
+  const saved = _tblWidthsGet(sig);
+  const cg = document.createElement('colgroup');
+  ths.forEach((th, i) => {
+    const col = document.createElement('col');
+    col.style.width = (saved[i] || Math.max(60, widths[i])) + 'px';
+    cg.appendChild(col);
+  });
+  table.insertBefore(cg, table.firstChild);
+  table.classList.add('evg-fixed');
+  const cols = Array.from(cg.children);
+  const total = () => cols.reduce((s, c) => s + (parseInt(c.style.width) || 110), 0);
+  table.style.width = total() + 'px';
+
+  ths.forEach((th, i) => {
+    const grip = document.createElement('div');
+    grip.className = 'evg-rs';
+    grip.addEventListener('click', e => e.stopPropagation());   // don't trigger sort
+    grip.addEventListener('mousedown', e => {
+      e.preventDefault(); e.stopPropagation();
+      const col = cols[i]; const startX = e.pageX; const startW = parseInt(col.style.width) || col.offsetWidth || 110;
+      const move = ev => { col.style.width = Math.max(50, startW + (ev.pageX - startX)) + 'px'; table.style.width = total() + 'px'; };
+      const up = () => {
+        document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+        const wmap = _tblWidthsGet(sig); wmap[i] = parseInt(col.style.width) || 110; _tblWidthsSet(sig, wmap);
+      };
+      document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+    });
+    th.appendChild(grip);
   });
 }
 
