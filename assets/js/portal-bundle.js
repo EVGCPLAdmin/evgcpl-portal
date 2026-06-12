@@ -919,6 +919,7 @@ function applyTableFeatures() {
     wrapTableScroll(t);
     if (EVG.table.columnManager) { try { _tblColInit(t); } catch (e) {} }
     try { _tblStyleInit(t); } catch (e) {}            // 🎨 Style button + per-table overrides
+    try { _tblFilterInit(t); } catch (e) {}           // ▼ Filter button + filter bar
     if (EVG.table.resize)        { try { _tblMakeResizable(t); } catch (e) {} }
   });
 }
@@ -1110,19 +1111,26 @@ function _tblColKeys(ths) {
 }
 function _tblColsPersonalAll() { try { return JSON.parse(localStorage.getItem('evg_tbl_cols') || '{}'); } catch (e) { return {}; } }
 function _tblColsPersonalSet(sig, cfg) { const a = _tblColsPersonalAll(); a[sig] = cfg; try { localStorage.setItem('evg_tbl_cols', JSON.stringify(a)); } catch (e) {} }
-function _tblColsResolve(sig, keys) {
+function _tblColsResolve(sig, keys, defHidden) {
   const personal = _tblColsPersonalAll()[sig];
   const sys = (typeof pcReadJSON === 'function' ? (pcReadJSON('tbl_cols', {}) || {}) : {})[sig];
   const base = personal || sys || null;
   let order = (base && Array.isArray(base.order)) ? base.order.filter(k => keys.includes(k)) : [];
   keys.forEach(k => { if (!order.includes(k)) order.push(k); });   // append new columns
-  const hidden = (base && Array.isArray(base.hidden)) ? base.hidden.filter(k => keys.includes(k)) : [];
+  // Hidden resolution: personal/system config wins; else the table's compiled
+  // default-hidden set (data-evg-default-hidden="key|key" — lets a render site
+  // expose ALL raw fields as columns while showing only a curated set).
+  const hidden = (base && Array.isArray(base.hidden)) ? base.hidden.filter(k => keys.includes(k))
+    : (Array.isArray(defHidden) ? defHidden.filter(k => keys.includes(k)) : []);
   return { order, hidden };
+}
+function _tblColDefHidden(table) {
+  return table && table.dataset.evgDefaultHidden ? table.dataset.evgDefaultHidden.split('|').filter(Boolean) : null;
 }
 function _tblColApply(table, sig) {
   const ths = Array.from(table.querySelectorAll('thead th'));
   const keys = _tblColKeys(ths);
-  const cfg = _tblColsResolve(sig, keys);
+  const cfg = _tblColsResolve(sig, keys, _tblColDefHidden(table));
   const idxOf = {}; keys.forEach((k, i) => idxOf[k] = i);
   const orderIdx = cfg.order.map(k => idxOf[k]).filter(i => i != null);
   const hidden = new Set(cfg.hidden.map(k => idxOf[k]));
@@ -1254,6 +1262,167 @@ window.tblStylePanel  = function(sig) {
   modal.querySelector('.evg-style-reset')?.addEventListener('click', () => tblStyleReset(sig));
   modal.querySelector('.evg-style-done')?.addEventListener('click', () => { _tblStyleReapply(sig); modal.remove(); });
 };
+// ── Universal table filters ───────────────────────────────────────────────
+// Every engine table gets a ▼ Filter button. The user CHOOSES which fields to
+// filter by (persisted per table signature in localStorage 'evg_tbl_filters');
+// each chosen field renders in a filter bar as a distinct-value dropdown (or a
+// contains-text input when the column has too many distinct values). Filtering
+// hides non-matching rows client-side. Values live per table element (session).
+function _tblFiltersAll() { try { return JSON.parse(localStorage.getItem('evg_tbl_filters') || '{}'); } catch (e) { return {}; } }
+function _tblFiltersGet(sig) { const v = _tblFiltersAll()[sig]; return Array.isArray(v) ? v : []; }
+function _tblFiltersSet(sig, fields) { const a = _tblFiltersAll(); if (fields && fields.length) a[sig] = fields; else delete a[sig]; try { localStorage.setItem('evg_tbl_filters', JSON.stringify(a)); } catch (e) {} }
+function _tblFilterCellText(td) { return (td.textContent || '').trim().replace(/\s+/g, ' '); }
+function _tblFilterApply(table) {
+  const ths = Array.from(table.querySelectorAll('thead th'));
+  const keys = _tblColKeys(ths);
+  const idxOf = {}; keys.forEach((k, i) => idxOf[k] = i);
+  const vals = table._evgFilterVals || {};
+  const active = Object.keys(vals).filter(k => vals[k] && vals[k].v !== '' && idxOf[k] != null);
+  let shown = 0, total = 0;
+  table.querySelectorAll('tbody tr').forEach(tr => {
+    const cells = tr.children;
+    if (cells.length !== ths.length) return;          // totals/empty-state rows untouched
+    total++;
+    let ok = true;
+    for (const k of active) {
+      const f = vals[k]; const td = cells[idxOf[k]]; if (!td) continue;
+      const t = _tblFilterCellText(td);
+      if (f.mode === 'eq' ? t !== f.v : t.toLowerCase().indexOf(String(f.v).toLowerCase()) < 0) { ok = false; break; }
+    }
+    tr.style.display = ok ? '' : 'none';
+    if (ok) shown++;
+  });
+  const cnt = table._evgFilterBar && table._evgFilterBar.querySelector('.evg-flt-count');
+  if (cnt) cnt.textContent = active.length ? (shown + ' / ' + total + ' rows') : '';
+}
+function _tblFilterBarBuild(table) {
+  const sig = table.dataset.evgSig || _tblSig(table);
+  const fields = _tblFiltersGet(sig);
+  const outer = table.closest('.tbl-outer');
+  let bar = table._evgFilterBar;
+  if (!fields.length) { if (bar) { bar.remove(); table._evgFilterBar = null; } table._evgFilterVals = {}; _tblFilterApply(table); return; }
+  const ths = Array.from(table.querySelectorAll('thead th'));
+  const keys = _tblColKeys(ths);
+  const idxOf = {}; keys.forEach((k, i) => idxOf[k] = i);
+  const labelOf = {}; ths.forEach((th, i) => labelOf[keys[i]] = (th.textContent || '').trim().replace(/\s+/g, ' ') || keys[i]);
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'evg-filter-bar';
+    bar.style.cssText = 'display:flex;gap:.5rem .7rem;flex-wrap:wrap;align-items:flex-end;padding:.45rem .2rem .55rem';
+    const wrap = outer && outer.querySelector('.tbl-wrap');
+    if (wrap) outer.insertBefore(bar, wrap); else return;
+    table._evgFilterBar = bar;
+  }
+  const vals = table._evgFilterVals = table._evgFilterVals || {};
+  bar.innerHTML = '';
+  fields.forEach(k => {
+    if (idxOf[k] == null) return;
+    const i = idxOf[k];
+    const distinct = new Set();
+    table.querySelectorAll('tbody tr').forEach(tr => { const c = tr.children; if (c.length === ths.length) { const t = _tblFilterCellText(c[i]); if (t) distinct.add(t.slice(0, 60)); } });
+    const opts = Array.from(distinct).sort((a, b) => a.localeCompare(b));
+    const box = document.createElement('div');
+    box.style.cssText = 'display:flex;flex-direction:column;gap:2px;min-width:130px;max-width:220px';
+    const lab = document.createElement('label');
+    lab.style.cssText = 'font-size:.62rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em';
+    lab.textContent = labelOf[k];
+    box.appendChild(lab);
+    const cur = vals[k] ? vals[k].v : '';
+    let ctl;
+    if (opts.length <= 40) {
+      ctl = document.createElement('select');
+      ctl.innerHTML = '<option value="">All</option>' + opts.map(o => `<option${o === cur ? ' selected' : ''}>${o.replace(/[<>&"]/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;' }[c]))}</option>`).join('');
+      ctl.addEventListener('change', () => { vals[k] = { v: ctl.value, mode: 'eq' }; _tblFilterApply(table); });
+    } else {
+      ctl = document.createElement('input');
+      ctl.type = 'text'; ctl.placeholder = 'contains…'; ctl.value = (vals[k] && vals[k].mode === 'has') ? cur : '';
+      ctl.addEventListener('input', () => { vals[k] = { v: ctl.value, mode: 'has' }; _tblFilterApply(table); });
+    }
+    ctl.style.cssText = 'font-size:.76rem;border:1px solid var(--border);border-radius:6px;padding:4px 7px;background:var(--surface2);color:var(--txt);width:100%';
+    box.appendChild(ctl);
+    bar.appendChild(box);
+  });
+  const right = document.createElement('div');
+  right.style.cssText = 'display:flex;align-items:center;gap:.6rem;margin-left:auto';
+  right.innerHTML = '<span class="evg-flt-count" style="font-size:.68rem;color:var(--txt3)"></span>';
+  const clr = document.createElement('button');
+  clr.className = 'tbl-csv-btn'; clr.textContent = '✕ Clear';
+  clr.addEventListener('click', () => { table._evgFilterVals = {}; _tblFilterBarBuild(table); _tblFilterApply(table); });
+  right.appendChild(clr);
+  bar.appendChild(right);
+  _tblFilterApply(table);
+}
+function _tblFilterInit(table) {
+  if (table.classList.contains('openpo-tbl')) return;     // has its own filter system
+  const ths = table.querySelectorAll('thead th');
+  if (ths.length < 2) return;
+  const outer = table.closest('.tbl-outer');
+  const left = outer && outer.querySelector('.tbl-toolbar-left');
+  if (!left) return;
+  const sig = table.dataset.evgSig || _tblSig(table);
+  table.dataset.evgSig = sig;
+  if (!table.dataset.evgFilter) {
+    table.dataset.evgFilter = '1';
+    if (!left.querySelector('.evg-filter-btn')) {
+      const b = document.createElement('button');
+      b.className = 'tbl-csv-btn evg-filter-btn';
+      b.innerHTML = '&#9660; Filter';
+      b.title = 'Filter rows — choose which fields to filter by';
+      b.onclick = () => tblFilterPanel(sig);
+      left.appendChild(b);
+    }
+    if (_tblFiltersGet(sig).length) _tblFilterBarBuild(table);
+  } else {
+    // async rows arrived/changed — refresh option lists + re-apply active filters
+    const n = String(table.querySelectorAll('tbody tr').length);
+    if (n !== table.dataset.evgFltRows) { table.dataset.evgFltRows = n; if (table._evgFilterBar) { _tblFilterBarBuild(table); } else if (_tblFiltersGet(sig).length) _tblFilterBarBuild(table); }
+  }
+}
+window.tblFilterPanel = function(sig) {
+  const t = Array.from(document.querySelectorAll('#mainContent table[data-evg-filter="1"]')).find(x => x.dataset.evgSig === sig);
+  if (!t) return;
+  const ths = Array.from(t.querySelectorAll('thead th'));
+  const keys = _tblColKeys(ths);
+  const labelOf = {}; ths.forEach((th, i) => labelOf[keys[i]] = (th.textContent || '').trim().replace(/\s+/g, ' ') || keys[i]);
+  const chosen = new Set(_tblFiltersGet(sig));
+  document.getElementById('evgFilterModal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'evgFilterModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  modal.innerHTML = `
+    <div style="background:var(--surface);border-radius:14px;max-width:430px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.4)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.2rem;border-bottom:1px solid var(--border)">
+        <h3 style="font-size:.95rem;font-weight:700;color:var(--g9)">&#9660; Filter fields</h3>
+        <button class="evg-flt-x" style="border:none;background:none;font-size:1.3rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
+      </div>
+      <div style="padding:.5rem 1.2rem;font-size:.72rem;color:var(--txt3)">Tick the fields you want to filter this table by &mdash; each appears above the table as a dropdown (or contains-search for high-variety fields).</div>
+      <div class="evg-flt-list" style="padding:.7rem 1.2rem 1rem;overflow:auto"></div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;padding:.9rem 1.2rem;border-top:1px solid var(--border)">
+        <button class="btn btn-secondary btn-sm evg-flt-clear">&#8635; Clear all</button>
+        <button class="btn btn-primary btn-sm evg-flt-done">&#10003; Done</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  const list = modal.querySelector('.evg-flt-list');
+  keys.forEach(k => {
+    const row = document.createElement('label');
+    row.style.cssText = 'display:flex;align-items:center;gap:.6rem;font-size:.84rem;color:var(--txt);padding:.32rem .2rem;cursor:pointer';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = chosen.has(k);
+    cb.addEventListener('change', () => { if (cb.checked) chosen.add(k); else chosen.delete(k); });
+    row.appendChild(cb);
+    row.appendChild(document.createTextNode(labelOf[k]));
+    list.appendChild(row);
+  });
+  const save = () => {
+    _tblFiltersSet(sig, keys.filter(k => chosen.has(k)));   // keep header order
+    document.querySelectorAll('#mainContent table[data-evg-filter="1"]').forEach(x => { if (x.dataset.evgSig === sig) _tblFilterBarBuild(x); });
+  };
+  modal.querySelector('.evg-flt-x').addEventListener('click', () => modal.remove());
+  modal.querySelector('.evg-flt-clear').addEventListener('click', () => { chosen.clear(); list.querySelectorAll('input').forEach(c => c.checked = false); save(); });
+  modal.querySelector('.evg-flt-done').addEventListener('click', () => { save(); modal.remove(); });
+};
 function _tblColTablesFor(sig) {
   return Array.from(document.querySelectorAll('#mainContent table[data-evg-sig="' + (window.CSS && CSS.escape ? CSS.escape(sig) : sig) + '"]'));
 }
@@ -1269,7 +1438,7 @@ window.tblColPanel = function(sig) {
   const ths = Array.from(t.querySelectorAll('thead th'));
   const keys = _tblColKeys(ths);
   const labelByKey = {}; ths.forEach((th, i) => labelByKey[keys[i]] = (th.textContent || '').trim().replace(/\s+/g, ' ') || keys[i]);
-  const cfg = _tblColsResolve(sig, keys);
+  const cfg = _tblColsResolve(sig, keys, _tblColDefHidden(t));
   const hidden = new Set(cfg.hidden);
   const isAdmin = (typeof _accIsAdmin === 'function' && _accIsAdmin()) || (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin());
   document.getElementById('evgColModal')?.remove();
@@ -4426,6 +4595,31 @@ function _regTbl(headers, rowsHtml) {
       <thead><tr>${th}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
 }
 const _regINR = n => '₹' + Math.round(n).toLocaleString('en-IN');
+// ── Raw-field columns for the registers ───────────────────────────────────
+// The registers render EVERY sheet field as a table column (curated ones
+// visible, the rest hidden by default via data-evg-default-hidden) so the
+// ⚙ Columns manager doubles as an Open-PO-style "choose the fields you want
+// to display" chooser listing all underlying fields.
+function _regRawCols(rows) { const r = rows && rows[0]; return r ? Object.keys(r).filter(c => c && String(c).trim()) : []; }
+// Same key algorithm as _tblColKeys (24-char slice + #n dedupe) so the
+// default-hidden keys match what the column manager computes from the headers.
+function _regHdrKeys(labels) {
+  const seen = {};
+  return labels.map(l => {
+    let k = String(l == null ? '' : l).trim().replace(/\s+/g, ' ').slice(0, 24) || 'col';
+    if (seen[k] != null) { seen[k]++; k = k + '#' + seen[k]; } else seen[k] = 0;
+    return k;
+  });
+}
+function _regDefHiddenAttr(curatedLabels, rawCols) {
+  const keys = _regHdrKeys(curatedLabels.concat(rawCols));
+  return _mdpEsc(keys.slice(curatedLabels.length).join('|'));
+}
+function _regRawCell(v) {
+  const s = String(v == null ? '' : v);
+  if (!s.trim()) return '—';
+  return (_siLooksDate(s) && _mdpDateVal(s)) ? _mdpFmtDate(s) : _mdpEsc(s);
+}
 // Drive helpers — extract a file id and build an embeddable /preview url.
 function _regDriveId(u) { if (!u) return ''; u = String(u); let m = u.match(/\/d\/([-\w]{20,})/) || u.match(/[?&]id=([-\w]{20,})/) || u.match(/([-\w]{25,})/); return m ? m[1] : ''; }
 function _regDrivePreview(u) { const id = _regDriveId(u); return id ? ('https://drive.google.com/file/d/' + id + '/preview') : ''; }
@@ -4456,26 +4650,28 @@ function _poRegBuild() {
       <input id="poRegSearch" type="text" oninput="_poRegSetSearch(this.value)" placeholder="Search PO / vendor / site…" style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
       <select onchange="_poRegSetStatus(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 9px;background:var(--surface2)"><option value="">All statuses</option>${statuses.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>
       <span id="poRegCount" style="font-size:.72rem;color:var(--txt3)"></span></div>
-    <div class="card"><table class="data-table" data-evg-resize="skip"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th></tr></thead><tbody id="poRegTbody"></tbody></table></div>`;
+    <div class="card"><table class="data-table" data-evg-resize="skip" data-evg-default-hidden="${_regDefHiddenAttr(_PO_REG_CURATED, _regRawCols(_openPOHeaders))}"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th>${_regRawCols(_openPOHeaders).map(cc => `<th>${esc(cc)}</th>`).join('')}</tr></thead><tbody id="poRegTbody"></tbody></table></div>`;
   _poRegFill();
   try { applyTableFeatures(); } catch (e) {}
 }
+const _PO_REG_CURATED = ['PO No', 'Date', 'Vendor', 'Site', 'Status', 'Net Amount', 'Received Value', 'Paid'];
 function _poRegFill() {
   const tb = document.getElementById('poRegTbody'); if (!tb) return;
   const esc = _mdpEsc;
+  const rawCols = _regRawCols(_openPOHeaders);
   const q = _poRegSearch.trim().toLowerCase();
   let rows = _poRegAll;
   if (_poRegStatus) rows = rows.filter(r => r.status === _poRegStatus);
   if (q) rows = rows.filter(r => (r.poNo + ' ' + r.vendor + ' ' + r.site).toLowerCase().includes(q));
   const cnt = document.getElementById('poRegCount'); if (cnt) cnt.textContent = rows.length + ' PO(s)';
-  if (!rows.length) { tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--txt3);padding:1.5rem">No POs match.</td></tr>'; return; }
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="${8 + rawCols.length}" style="text-align:center;color:var(--txt3);padding:1.5rem">No POs match.</td></tr>`; return; }
   tb.innerHTML = rows.map(r => `<tr style="cursor:pointer" data-po="${esc(r.poNo)}" onclick="_poOpenDetail(this.dataset.po)">
     <td style="font-family:monospace;font-size:.74rem">${esc(r.poNo)}</td>
     <td style="white-space:nowrap">${_mdpFmtDate(r.date)}</td>
     <td>${esc(r.vendor) || '—'}</td><td>${esc(r.site) || '—'}</td><td>${esc(r.status) || '—'}</td>
     <td style="text-align:right">${r.net ? _regINR(r.net) : '—'}</td>
     <td style="text-align:right;color:#b45309">${r.recvVal ? _regINR(r.recvVal) : '—'}</td>
-    <td style="text-align:right;color:#16a34a">${r.paid ? _regINR(r.paid) : '—'}</td></tr>`).join('');
+    <td style="text-align:right;color:#16a34a">${r.paid ? _regINR(r.paid) : '—'}</td>${rawCols.map(cc => `<td style="font-size:.74rem">${_regRawCell(r.raw && r.raw[cc])}</td>`).join('')}</tr>`).join('');
   const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
 }
 window._poRegReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _poRegAll = _poRegRows(); _poRegBuild(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
@@ -4513,7 +4709,7 @@ function _poRegRows() {
   _openPOHeaders.forEach(r => {
     const k = _opPO(_opGet(r, HC, ['PO No'])); if (!k) return;
     const ia = itemAgg[k] || { lines: 0, recvVal: 0 }, pa = payAgg[k] || { paid: 0, n: 0 };
-    rows.push({ poNo: _opGet(r, HC, ['PO No']), date: _opGet(r, HC, ['PO Date']), vendor: _opGet(r, HC, ['Vendor Name']), site: _opGet(r, HC, ['Site Name']), status: _opGet(r, HC, ['PO Approval Status']), net: _opNum(_opGet(r, HC, ['Net Amount'])), lines: ia.lines, recvVal: ia.recvVal, paid: pa.paid });
+    rows.push({ poNo: _opGet(r, HC, ['PO No']), date: _opGet(r, HC, ['PO Date']), vendor: _opGet(r, HC, ['Vendor Name']), site: _opGet(r, HC, ['Site Name']), status: _opGet(r, HC, ['PO Approval Status']), net: _opNum(_opGet(r, HC, ['Net Amount'])), lines: ia.lines, recvVal: ia.recvVal, paid: pa.paid, raw: r });
   });
   rows.sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date));
   return rows;
@@ -4695,24 +4891,26 @@ function _siRegBuild() {
   c.innerHTML = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
       <input id="siRegSearch" type="text" oninput="_siRegSetSearch(this.value)" placeholder="Search GRN / PO / vendor / part / invoice…" style="flex:1;min-width:240px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
       <span id="siRegCount" style="font-size:.72rem;color:var(--txt3)"></span></div>
-    <div class="card"><table class="data-table" data-evg-resize="skip"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th></tr></thead><tbody id="siRegTbody"></tbody></table></div>`;
+    <div class="card"><table class="data-table" data-evg-resize="skip" data-evg-default-hidden="${_regDefHiddenAttr(_SI_REG_CURATED, _regRawCols(_openPOStock))}"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th>${_regRawCols(_openPOStock).map(cc => `<th>${_mdpEsc(cc)}</th>`).join('')}</tr></thead><tbody id="siRegTbody"></tbody></table></div>`;
   _siRegFill();
   try { applyTableFeatures(); } catch (e) {}
 }
+const _SI_REG_CURATED = ['GRN No', 'Received On', 'PO No', 'Vendor', 'Site', 'Invoice No', 'Part', 'GRN Qty'];
 function _siRegFill() {
   const tb = document.getElementById('siRegTbody'); if (!tb) return;
   const esc = _mdpEsc;
+  const rawCols = _regRawCols(_openPOStock);
   const q = _siRegSearch.trim().toLowerCase();
   let rows = _siRegAll;
   if (q) rows = rows.filter(r => (r.grn + ' ' + r.poNo + ' ' + r.vendor + ' ' + r.part + ' ' + r.inv).toLowerCase().includes(q));
   const cnt = document.getElementById('siRegCount'); if (cnt) cnt.textContent = rows.length + ' receipt(s)';
-  if (!rows.length) { tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--txt3);padding:1.5rem">No StockIN records match.</td></tr>'; return; }
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="${8 + rawCols.length}" style="text-align:center;color:var(--txt3);padding:1.5rem">No StockIN records match.</td></tr>`; return; }
   tb.innerHTML = rows.map(r => `<tr style="cursor:pointer" data-idx="${r.idx}" onclick="_siOpenDetail(this.dataset.idx)">
     <td style="font-weight:600;color:var(--g7)">${esc(r.grn) || '<span style="color:var(--txt3);font-style:italic">Pending</span>'}</td>
     <td style="white-space:nowrap">${_mdpFmtDate(r.received)}</td>
     <td style="font-family:monospace;font-size:.74rem">${esc(r.poNo) || '—'}</td>
     <td>${esc(r.vendor) || '—'}</td><td>${esc(r.site) || '—'}</td><td>${esc(r.inv) || '—'}</td><td>${esc(r.part) || '—'}</td>
-    <td style="text-align:right">${esc(r.grnQty) || '—'}</td></tr>`).join('');
+    <td style="text-align:right">${esc(r.grnQty) || '—'}</td>${rawCols.map(cc => { const rr = _openPOStock[r.idx]; return `<td style="font-size:.74rem">${_regRawCell(rr && rr[cc])}</td>`; }).join('')}</tr>`).join('');
   const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
 }
 window._siRegReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _siRegAll = _siRegRows(); _siRegBuild(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
