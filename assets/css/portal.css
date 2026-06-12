@@ -333,6 +333,17 @@ img{max-width:100%;display:block}
   color:#4caf50;background:rgba(76,175,80,.18);
   padding:2px 6px;border-radius:4px;letter-spacing:.02em;
 }
+/* ── Mobile sidebar drill-down (L1 → L2 → L3) ── */
+.nav-drill-head{
+  display:flex;align-items:center;gap:9px;
+  padding:13px 16px;margin:6px 8px 4px;
+  color:#fff;font-weight:700;font-size:.92rem;cursor:pointer;
+  border-bottom:1px solid rgba(255,255,255,.1);
+}
+.nav-drill-head:hover{color:var(--gold)}
+.nav-drill-head .nav-chev{font-size:1.25rem;line-height:1}
+.nav-drill-row .nav-chev{margin-left:auto;opacity:.45;font-size:1.2rem;line-height:1}
+.nav-drill-row:hover .nav-chev{opacity:.9}
 /* ── DEV MODE ── */
 .acc-cat-btn { transition:opacity .15s; }
 .acc-cat-btn.active-cat { opacity:1; font-weight:700; box-shadow:0 0 0 2px currentColor; }
