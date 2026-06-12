@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.49.1';
-const PORTAL_BUILD    = 529;
-const PORTAL_BUILD_AT = '2026-06-12T16:10:19Z';
+const PORTAL_VERSION  = '3.49.2';
+const PORTAL_BUILD    = 530;
+const PORTAL_BUILD_AT = '2026-06-12T16:52:17Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4071,31 +4071,49 @@ function renderVendorLedgerPO() {
 window._vplpReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _vplpEnsure(true).then(() => _vplpRenderBody()).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
 window._vplpSetVendor = function(v) { _vplpVendor = v; _vplpRenderBody(); };
 
+let _vplpGRNRows = null;
 async function _vplpEnsure(force) {
   await Promise.all([_mdpLoad(force), _openPOEnsure(force)]);
+  if (force || !_vplpGRNRows) {
+    // GRN No lives in the separate GRN_No tab (keyed by UUID); StockIN joins to
+    // it via CheckSum/UUID. rawId bypasses any stale Sheet-Linking override.
+    try { _vplpGRNRows = await fetchSheet('GRN_No', null, STORES_SHEET_ID, { rawId: true }) || []; }
+    catch (e) { _vplpGRNRows = []; }
+  }
   _vplpData = _vplpCompute();
 }
-// Per-PO received-material value + tax, and the PO-payment vendor list.
+// Per-PO received-material value + tax + GRN Nos, and the PO-payment vendor list.
 function _vplpCompute() {
   const SC = _opColMap(_openPOStock), IC = _opColMap(_openPOItems);
-  // StockIN received qty by (PO No (Key) || Part Details) — the PO_Items join.
+  // GRN No lookup: GRN_No tab keyed by UUID → GRN No (Goods Receipt).
+  const grnMap = {};
+  (_vplpGRNRows || []).forEach(r => {
+    const u = String(r['UUID'] || r['CheckSum'] || '').trim();
+    if (u) grnMap[u] = (r['GRN No (Goods Receipt)'] || r['GRN No'] || '').toString().trim();
+  });
+  // StockIN received qty + GRN Nos by (PO No (Key) || Part Details) — PO_Items join.
   const siAgg = {};
   _openPOStock.forEach(r => {
     const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey']));
     if (!pk) return;
     const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
-    siAgg[key] = (siAgg[key] || 0) + _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
+    const e = siAgg[key] = siAgg[key] || { qty: 0, grns: [] };
+    e.qty += _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
+    const grn = grnMap[String(_opGet(r, SC, ['CheckSum', 'UUID', 'SI ID'])).trim()];
+    if (grn && e.grns.indexOf(grn) < 0) e.grns.push(grn);
   });
-  const poRecv = {}, poTax = {}, poDate = {}, poVendor = {};
+  const poRecv = {}, poTax = {}, poDate = {}, poVendor = {}, poGRN = {};
   _openPOItems.forEach(x => {
     const k = _opPO(_opGet(x, IC, ['PO No', 'Order No'])); if (!k) return;
     const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
     const cs   = _opGet(x, IC, ['CheckSum', 'Check Sum']);
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
-    const recvQty = siAgg[_opNorm(cs) + '||' + _opNorm(part)] || 0;
-    poRecv[k] = (poRecv[k] || 0) + recvQty * rate;
+    const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)] || { qty: 0, grns: [] };
+    poRecv[k] = (poRecv[k] || 0) + m.qty * rate;
     // Tax (a) — item-level tax from PO_Items_Actual.
     poTax[k]  = (poTax[k]  || 0) + _opNum(_opGet(x, IC, ['Tax Amt', 'Tax Amount', 'Total Tax']));
+    const g = poGRN[k] = poGRN[k] || [];
+    m.grns.forEach(n => { if (g.indexOf(n) < 0) g.push(n); });
     if (!poDate[k])   poDate[k]   = _opGet(x, IC, ['PO Date']);
     if (!poVendor[k]) poVendor[k] = _opGet(x, IC, ['Vendor Details', 'Vendor Name']);
   });
@@ -4118,7 +4136,7 @@ function _vplpCompute() {
     v.payCount++;
   });
   const vendors = Object.values(vmap).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  return { vendors, poRecv, poTax, poAddl, poDate, poVendor };
+  return { vendors, poRecv, poTax, poAddl, poDate, poVendor, poGRN };
 }
 function _vplpRenderBody() {
   const c = document.getElementById('vplp-body'); if (!c) return;
@@ -4148,7 +4166,9 @@ function _vplpLedger(v) {
   Object.keys(v.orderNos).forEach(k => {
     const recv = d.poRecv[k] || 0, tax = d.poTax[k] || 0, addl = d.poAddl[k] || 0;
     if (recv <= 0 && tax <= 0 && addl <= 0) return;
-    entries.push({ date: d.poDate[k] || '', ref: k, type: 'Material received', credit: recv, tax: tax, addl: addl, debit: 0, status: null, utr: '', uuid: '' });
+    const grns = d.poGRN[k] || [];
+    const grnTxt = grns.length ? ' · GRN ' + esc(grns.slice(0, 4).join(', ')) + (grns.length > 4 ? ` +${grns.length - 4}` : '') : '';
+    entries.push({ date: d.poDate[k] || '', ref: k, type: 'Material received' + grnTxt, credit: recv, tax: tax, addl: addl, debit: 0, status: null, utr: '', uuid: '' });
   });
   // Debit (payments) — this vendor's PO payments that reached a paid status.
   (_mdpRows || []).forEach(r => {
