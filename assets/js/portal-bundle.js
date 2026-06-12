@@ -971,10 +971,10 @@ function _tblEngineEnsureStyles() {
     #mainContent .tbl-wrap { overflow:auto; max-height:${rcap > 0 ? Math.round(46 + rcap * rowH) + 'px' : 'calc(100vh - 140px)'}; }
     ${wpct < 100 ? `#mainContent .tbl-outer { max-width:${wpct}%; }` : ''}
     #mainContent .tbl-wrap::-webkit-scrollbar { height:${sb}px; width:${sb}px; }
-    #mainContent .tbl-wrap::-webkit-scrollbar-track { background:#eef3f0; border-radius:8px; }
-    #mainContent .tbl-wrap::-webkit-scrollbar-thumb { background:#1a6038; border-radius:8px; border:3px solid #eef3f0; }
-    #mainContent .tbl-wrap::-webkit-scrollbar-thumb:hover { background:#14502f; }
-    #mainContent .tbl-wrap { scrollbar-width:auto; scrollbar-color:#1a6038 #eef3f0; }
+    #mainContent .tbl-wrap::-webkit-scrollbar-track { background:var(--surface3,#eef3f0); border-radius:8px; }
+    #mainContent .tbl-wrap::-webkit-scrollbar-thumb { background:var(--g7,#1a6038); border-radius:8px; border:3px solid var(--surface3,#eef3f0); }
+    #mainContent .tbl-wrap::-webkit-scrollbar-thumb:hover { background:var(--g8,#14502f); }
+    #mainContent .tbl-wrap { scrollbar-width:auto; scrollbar-color:var(--g7,#1a6038) var(--surface3,#eef3f0); }
     #mainContent .tbl-wrap table th, #mainContent .tbl-wrap table td {
       ${T.wrap ? 'white-space:normal; overflow-wrap:break-word; word-break:break-word;' : ''} vertical-align:top;
     }
