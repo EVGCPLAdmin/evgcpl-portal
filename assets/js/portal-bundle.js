@@ -953,7 +953,10 @@ function _tblEngineEnsureStyles() {
   s.id = 'evg-tbl-engine';
   s.textContent = `
     /* ── EVG.table ── */
-    #mainContent .tbl-wrap { overflow:auto; ${rcap > 0 ? `max-height:${Math.round(46 + rcap * rowH)}px;` : ''} }
+    /* A capped scroll region (explicit row cap, else viewport-based) so the body
+       scrolls INSIDE the wrap — that's what makes the sticky header actually
+       stick. Without a cap the page scrolls and the header scrolls away. */
+    #mainContent .tbl-wrap { overflow:auto; max-height:${rcap > 0 ? Math.round(46 + rcap * rowH) + 'px' : 'calc(100vh - 140px)'}; }
     ${wpct < 100 ? `#mainContent .tbl-outer { max-width:${wpct}%; }` : ''}
     #mainContent .tbl-wrap::-webkit-scrollbar { height:${sb}px; width:${sb}px; }
     #mainContent .tbl-wrap::-webkit-scrollbar-track { background:#eef3f0; border-radius:8px; }
@@ -964,8 +967,10 @@ function _tblEngineEnsureStyles() {
       ${T.wrap ? 'white-space:normal; overflow-wrap:break-word; word-break:break-word;' : ''} vertical-align:top;
     }
     #mainContent .tbl-wrap table.evg-fixed { table-layout:fixed; }
-    /* Sticky header so it stays visible when the body scrolls (row cap) */
-    #mainContent .tbl-wrap table th { position:sticky; top:0; z-index:5; }
+    /* Sticky header — stays frozen at the top while the body scrolls. Needs an
+       opaque background on the TH itself (custom tables put the green on the
+       <tr>, which scrolls away under a sticky th), so default it to g9. */
+    #mainContent .tbl-wrap table th { position:sticky; top:0; z-index:5; background:var(--g9,#0d3320); }
     ${T.zebra ? '#mainContent .tbl-wrap table tbody tr:nth-child(even) td { background:rgba(26,96,56,.05); }' : ''}
     ${T.rowBorders ? '' : '#mainContent .tbl-wrap table td { border-bottom:none; }'}
     /* Per-table style overrides (set via the 🎨 Style button; beat the global
@@ -4681,6 +4686,14 @@ function _siRegRows() {
     };
   });
 }
+// Heuristic: does this raw cell value look like a date/timestamp? (gviz
+// "Date(…)", ISO, DD/MM/YYYY, a time, or a month name). Guards against
+// reformatting plain numbers (qty/amount) as dates.
+function _siLooksDate(v) {
+  v = String(v);
+  return /^Date\(\d/.test(v) || /\d{4}-\d{1,2}-\d{1,2}/.test(v) || /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(v)
+    || /\d{1,2}:\d{2}/.test(v) || /\d.*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(v);
+}
 window._siOpenDetail = function(idx) {
   const r = _openPOStock[+idx]; if (!r) return;
   const esc = _mdpEsc;
@@ -4688,13 +4701,42 @@ window._siOpenDetail = function(idx) {
   const grn = _siGRNResolve(r, SC);
   const k = _opPO(_opGet(r, SC, ['PO No', 'PO No (Key)']));
   const hdr = _openPOHeaders.find(h => _opPO(_opGet(h, HC, ['PO No'])) === k);
-  const top = [['GRN No', grn || 'Pending'], ['PO No', _opGet(r, SC, ['PO No', 'PO No (Key)'])], ['Received On', _mdpFmtDate(_opGet(r, SC, ['Received On (At)']))], ['SI ID', _opGet(r, SC, ['SI ID'])]];
+  // Invoice attachments are stored in Drive under the StockIN CheckSum reference.
+  const cs = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID']) || '').trim();
+  const top = [['GRN No', grn || 'Pending'], ['PO No', _opGet(r, SC, ['PO No', 'PO No (Key)'])], ['Received On', _mdpFmtDate(_opGet(r, SC, ['Received On (At)']))], ['Invoice No', _opGet(r, SC, ['Invoice No / ST No', 'Invoice No'])], ['SI ID', _opGet(r, SC, ['SI ID'])]];
   if (hdr) { top.push(['Vendor', _opGet(hdr, HC, ['Vendor Name'])]); top.push(['PO Status', _opGet(hdr, HC, ['PO Approval Status'])]); top.push(['Net Amount', _regINR(_opNum(_opGet(hdr, HC, ['Net Amount'])))]); }
-  const allRows = Object.keys(r).filter(kk => String(r[kk]).trim() !== '').map(kk => `<tr><td style="padding:4px 8px;font-weight:600;color:var(--txt2);white-space:nowrap;vertical-align:top">${esc(kk)}</td><td style="padding:4px 8px;word-break:break-word">${esc(String(r[kk]))}</td></tr>`).join('');
+  const directUrls = ['Invoice(Attachment)', 'Invoice (Attachment)', 'Invoice Attachment', 'Invoice Copy', 'Bill(Attachment)', 'Attachment']
+    .map(c => ({ url: _opGet(r, SC, [c]), label: 'Invoice / Attachment' })).filter(o => o.url);
+  const allRows = Object.keys(r).filter(kk => String(r[kk]).trim() !== '').map(kk => {
+    const raw = String(r[kk]);
+    // Unify timestamp/date columns to one display format (12Jun2026); leave
+    // non-date values untouched.
+    const disp = (_siLooksDate(raw) && _mdpDateVal(raw)) ? _mdpFmtDate(raw) : raw;
+    return `<tr><td style="padding:4px 8px;font-weight:600;color:var(--txt2);white-space:nowrap;vertical-align:top">${esc(kk)}</td><td style="padding:4px 8px;word-break:break-word">${esc(disp)}</td></tr>`;
+  }).join('');
   const body = _regKV(top)
-    + `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">All StockIN Fields</h4>`
+    + `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">&#129534; Invoice Attachments</h4>`
+    + `<div id="siAttBox"><div style="color:var(--txt3);font-size:.78rem;padding:.5rem">&#9203; Loading invoice attachments&hellip;</div></div>`
+    + `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.6rem 0 .5rem">All StockIN Fields</h4>`
     + `<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px"><table style="width:100%;border-collapse:collapse;font-size:.75rem"><tbody>${allRows}</tbody></table></div>`;
   _regOpenModal('StockIN · ' + (esc(grn) || esc(_opGet(r, SC, ['SI ID'])) || 'Receipt'), body);
+  _siLoadAttachments(cs, directUrls);
+};
+// Invoice attachments for a StockIN receipt — referenced by CheckSum (Drive
+// search), plus any direct URL columns on the row. Mirrors _poLoadAttachments.
+window._siLoadAttachments = async function(checksum, directUrls) {
+  const box = document.getElementById('siAttBox'); if (!box) return;
+  const esc = _mdpEsc;
+  const cards = [];
+  (directUrls || []).forEach(o => cards.push(_regAttCard(o.url, o.label, 'StockIN sheet')));
+  let files = [];
+  if (checksum) { try { const resp = await _accPostAwait({ action: 'listPRAttachments', link: checksum, orderNo: checksum }); if (resp && resp.success !== false) files = resp.files || []; } catch (e) {} }
+  if (!document.getElementById('siAttBox')) return;            // modal closed / switched
+  files.forEach(f => cards.push(_regAttCard(f.url, f.name, f.matchedOn || 'Drive', f.mimeType, f.size)));
+  if (!cards.length) { box.innerHTML = `<div style="color:var(--txt3);font-size:.78rem;padding:.5rem">No invoice attachments found. <span style="font-size:.7rem">(searched Drive by CheckSum ${esc(checksum || '—')})</span></div>`; return; }
+  const firstUrl = (directUrls && directUrls[0] && directUrls[0].url) || (files[0] && files[0].url) || '';
+  const pv = _regDrivePreview(firstUrl);
+  box.innerHTML = cards.join('') + (pv ? `<iframe src="${esc(pv)}" style="width:100%;height:520px;border:1px solid var(--border);border-radius:9px;margin-top:.6rem;background:#fff"></iframe>` : '');
 };
 
 function renderMDCommand() {
