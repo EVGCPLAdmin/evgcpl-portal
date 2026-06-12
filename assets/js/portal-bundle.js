@@ -970,9 +970,9 @@ function _tblEngineEnsureStyles() {
     ${T.rowBorders ? '' : '#mainContent .tbl-wrap table td { border-bottom:none; }'}
     /* Per-table style overrides (set via the 🎨 Style button; beat the global
        rules AND any per-cell inline styles, e.g. the ledger's inline borders). */
-    #mainContent .tbl-wrap table.evg-zebra-on tbody tr:nth-child(even) td { background:rgba(26,96,56,.05) !important; }
+    #mainContent .tbl-wrap table.evg-zebra-on tbody tr:nth-child(even) td { background:rgba(26,96,56,.13) !important; }
     #mainContent .tbl-wrap table.evg-zebra-off tbody tr:nth-child(even) td { background:transparent !important; }
-    #mainContent .tbl-wrap table.evg-borders-on td { border-bottom:1px solid var(--border,#e0ece4) !important; }
+    #mainContent .tbl-wrap table.evg-borders-on td { border-bottom:1px solid rgba(26,96,56,.32) !important; }
     #mainContent .tbl-wrap table.evg-borders-off td { border-bottom:none !important; }
     #mainContent .tbl-wrap table.evg-wrap-on th, #mainContent .tbl-wrap table.evg-wrap-on td { white-space:normal !important; overflow-wrap:break-word; word-break:break-word; }
     #mainContent .tbl-wrap table.evg-nowrap th, #mainContent .tbl-wrap table.evg-nowrap td { white-space:nowrap !important; overflow:hidden; text-overflow:ellipsis; }
