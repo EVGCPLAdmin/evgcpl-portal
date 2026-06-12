@@ -14432,6 +14432,29 @@ const _opPick = (x, keys) => { for (const k of keys) { if (x[k] != null && Strin
 const _opColMap = rows => { const m = {}; if (rows && rows[0]) Object.keys(rows[0]).forEach(k => { const n = _opNorm(k); if (!(n in m)) m[n] = k; }); return m; };
 const _opGet = (r, colMap, candidates) => { for (const c of candidates) { const a = colMap[_opNorm(c)]; if (a != null && r[a] != null && String(r[a]).trim() !== '') return String(r[a]).trim(); } return ''; };
 
+// Merge the StockIN rows that share one PO-line join key into a single record
+// for raw-column display: numeric columns (qty/amount-like) are SUMMED across
+// the matched GRNs, text columns take the first non-empty value.
+const _opNumericStr = s => s !== '' && /^[-+]?[₹\s]*[0-9][0-9,]*(\.[0-9]+)?[\s]*$/.test(String(s).trim());
+function _opMergeStockRows(rows) {
+  if (!rows || !rows.length) return null;
+  if (rows.length === 1) return rows[0];
+  const out = {};
+  const keys = new Set(); rows.forEach(r => Object.keys(r).forEach(k => keys.add(k)));
+  keys.forEach(k => {
+    let sum = 0, hasNum = false, allNumeric = true, first = '';
+    for (const r of rows) {
+      const sv = (r[k] == null ? '' : String(r[k])).trim();
+      if (sv === '') continue;
+      if (first === '') first = sv;
+      if (_opNumericStr(sv)) { sum += parseFloat(sv.replace(/[^0-9.\-]/g, '')) || 0; hasNum = true; }
+      else allNumeric = false;
+    }
+    out[k] = (hasNum && allNumeric) ? sum : first;
+  });
+  return out;
+}
+
 let _openPODiag = { poHeaders: 0, stockRows: 0, stockWithKey: 0, itemRows: 0, matchedLines: 0 };
 
 // Reload BOTH source files fresh: v2_Purchase (PO_Actual + PO_Items_Actual) and
@@ -14522,8 +14545,8 @@ function _openPOCompute(q) {
     if (!pk) return;
     stockWithKey++;
     const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
-    const e = siAgg[key] = siAgg[key] || { grn: 0, inv: 0, n: 0, row: null };
-    if (!e.row) e.row = r;                          // representative raw StockIN row (for raw-column display)
+    const e = siAgg[key] = siAgg[key] || { grn: 0, inv: 0, n: 0, rows: [] };
+    e.rows.push(r);                                 // all matched StockIN rows (merged for raw-column display)
     e.grn += _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
     e.inv += _opNum(_opGet(r, SC, ['Invoice Qty', 'Inv Qty', 'Invoice Quantity']));
     e.n++;
@@ -14541,7 +14564,7 @@ function _openPOCompute(q) {
     if (!cs && !qty) return;
 
     const joinKey = _opNorm(cs) + '||' + _opNorm(part);
-    const m = siAgg[joinKey] || { grn: 0, inv: 0, n: 0 };
+    const m = siAgg[joinKey] || { grn: 0, inv: 0, n: 0, rows: [] };
     if (m.n) matchedLines++;
     const received = m.grn, invoiced = m.inv;
     const rate     = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
@@ -14569,7 +14592,7 @@ function _openPOCompute(q) {
       unit: _opGet(x, IC, ['UOM', 'Unit', 'Units']), qty, rate, invoiced, received,
       pendingQty, pendingAmt, pendingPct,
       status: isOpen ? 'Open' : 'Fulfilled', isOpen,
-      _item: x, _stock: m.row || null,             // raw source rows → dynamic raw columns
+      _item: x, _stock: _opMergeStockRows(m.rows),  // raw source rows → dynamic raw columns (StockIN numerics summed)
     });
   });
 
@@ -14676,12 +14699,12 @@ const OPENPO_FIELDS = [
   { key:'pendingPct',  label:'Pending %',        align:'right', def:true,  fmt:l=>Math.round(l.pendingPct)+'%' },
   { key:'status',      label:'Status',           align:'left',  def:false, fmt:l=>l.status },
   // Payment Requests joined by PO (Order No) → amount paid + UTR / Request IDs.
-  { key:'paidTotal',   label:'Amount Paid',      align:'right', def:false, fmt:l=>l.paidTotal?`<span style="color:#2e7d32;font-weight:700">${_opFmtV(l.paidTotal)}</span>`:'—' },
-  { key:'unpaidAmt',   label:'Unpaid (PO−Paid)', align:'right', def:false, fmt:l=>l.unpaidAmt?`<span style="color:#c62828;font-weight:600">${_opFmtV(l.unpaidAmt)}</span>`:'—' },
+  { key:'paidTotal',   label:'Amount Paid',      align:'right', def:true,  fmt:l=>l.paidTotal?`<span style="color:#2e7d32;font-weight:700">${_opFmtV(l.paidTotal)}</span>`:'—' },
+  { key:'unpaidAmt',   label:'Unpaid (PO−Paid)', align:'right', def:true,  fmt:l=>l.unpaidAmt?`<span style="color:#c62828;font-weight:600">${_opFmtV(l.unpaidAmt)}</span>`:'—' },
   { key:'payReqAmt',   label:'Payment Req Amt',  align:'right', def:false, fmt:l=>l.payReqAmt?_opFmtV(l.payReqAmt):'—' },
   { key:'payCount',    label:'Payment Requests', align:'right', def:false, fmt:l=>l.payCount||'—' },
-  { key:'utrList',     label:'UTR Details',      align:'left',  def:false, fmt:l=>_opEsc(l.utrList)||'—' },
-  { key:'reqIdList',   label:'Request IDs',      align:'left',  def:false, fmt:l=>_opEsc(l.reqIdList)||'—' },
+  { key:'utrList',     label:'UTR Details',      align:'left',  def:true,  fmt:l=>_opEsc(l.utrList)||'—' },
+  { key:'reqIdList',   label:'Request IDs',      align:'left',  def:true,  fmt:l=>_opEsc(l.reqIdList)||'—' },
 ];
 // ── Dynamic raw-column engine ──────────────────────────────────────
 // Beyond the curated fields above, EVERY raw header in PO_Items_Actual
