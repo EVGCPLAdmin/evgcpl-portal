@@ -8,9 +8,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.57.0';
-const PORTAL_BUILD    = 543;
-const PORTAL_BUILD_AT = '2026-06-12T20:16:06Z';
+const PORTAL_VERSION  = '3.58.0';
+const PORTAL_BUILD    = 544;
+const PORTAL_BUILD_AT = '2026-06-12T20:25:57Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1073,16 +1073,20 @@ function _tblMakeResizable(table) {
 // Works on simple 1:1 list tables (header count == every row's cell count, no
 // colspan). Order/visibility persist per table: personal localStorage →
 // system default (PortalConfig 'tbl_cols') → natural order.
-function _tblColEligible(table) {
+// Structural eligibility — PERMANENT (won't change as data loads). A table that
+// fails this is marked 'skip' once. Row presence is checked separately so async
+// tables (shell rendered first, rows filled later) are DEFERRED, not skipped.
+function _tblColStructuralOK(table) {
   if (table.classList.contains('openpo-tbl')) return false;   // has its own chooser
   const ths = table.querySelectorAll('thead th');
   if (ths.length < 2) return false;
   for (const th of ths) if (th.colSpan > 1 || th.rowSpan > 1) return false;  // grouped headers can't map 1:1
-  if (!table.querySelector('tbody tr')) return false;
   // Irregular body rows (subtotal/total rows with colspan, empty-state rows) no
-  // longer disqualify the whole table — _tblColApply simply skips those rows, so
-  // the column selector is available on (almost) every data table.
+  // longer disqualify the whole table — _tblColApply simply skips those rows.
   return true;
+}
+function _tblColEligible(table) {
+  return _tblColStructuralOK(table) && !!table.querySelector('tbody tr');
 }
 function _tblColKeys(ths) {
   const seen = {};
@@ -1120,12 +1124,21 @@ function _tblColApply(table, sig) {
   table.querySelectorAll('tbody tr').forEach(reorder);
 }
 function _tblColInit(table) {
-  if (table.dataset.evgCols) { return; }
-  if (!_tblColEligible(table)) { table.dataset.evgCols = 'skip'; return; }
+  if (table.dataset.evgCols === '1') {
+    // Already managed — re-apply saved order/visibility when async rows arrive
+    // (the row set grew/changed since the last apply).
+    const n = String(table.querySelectorAll('tbody tr').length);
+    if (n !== table.dataset.evgRowsApplied) { try { _tblColApply(table, table.dataset.evgSig); } catch (e) {} table.dataset.evgRowsApplied = n; }
+    return;
+  }
+  if (table.dataset.evgCols === 'skip') return;
+  if (!_tblColStructuralOK(table)) { table.dataset.evgCols = 'skip'; return; }  // permanent
+  if (!table.querySelector('tbody tr')) return;            // defer: no rows yet → retry next pass
   table.dataset.evgCols = '1';
   const sig = _tblSig(table);
   table.dataset.evgSig = sig;
   _tblColApply(table, sig);
+  table.dataset.evgRowsApplied = String(table.querySelectorAll('tbody tr').length);
   const outer = table.closest('.tbl-outer');
   const left = outer && outer.querySelector('.tbl-toolbar-left');
   if (left && !left.querySelector('.evg-cols-btn')) {
