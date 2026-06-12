@@ -1600,6 +1600,35 @@ function applyRoleNavRestrictions(role) {
   if (role === 'site') {
     topNav.querySelectorAll('[data-role-section-hide="site"]').forEach(g => { g.style.display = 'none'; });
   }
+  try { _routeRegistryAudit(); } catch (e) {}
+}
+
+// SAFEGUARD: every page that appears in the nav MUST be registered in
+// MODULE_REGISTRY, otherwise applyPortalConfig() (which rebuilds ROLE_ROUTES
+// purely from MODULE_REGISTRY) strips it from the route set and the nav hides
+// it — the exact bug that kept Data Hub invisible. This audit compares the
+// real nav routes against the registry and warns loudly for any that are
+// missing, so a newly-added page is caught immediately during development.
+// Level-3 sub-pages (NAV_SUBMENUS children) render inside their parent page
+// and are intentionally exempt.
+function _routeRegistryAudit() {
+  const reg = new Set(MODULE_REGISTRY.map(m => m.route));
+  const exempt = new Set();
+  if (typeof NAV_SUBMENUS !== 'undefined') {
+    for (const p in NAV_SUBMENUS) (NAV_SUBMENUS[p].children || []).forEach(c => exempt.add(c.route));
+  }
+  const navRoutes = new Set();
+  document.querySelectorAll('#topNav [data-route]').forEach(el => {
+    const r = el.getAttribute('data-route'); if (r) navRoutes.add(r);
+  });
+  document.querySelectorAll('#sidebar .nav-item[onclick]').forEach(el => {
+    const m = (el.getAttribute('onclick') || '').match(/navigate\('([^']+)'\)/); if (m) navRoutes.add(m[1]);
+  });
+  const missing = [...navRoutes].filter(r => !reg.has(r) && !exempt.has(r));
+  if (missing.length) {
+    console.warn('%c[Route audit] These nav routes are NOT in MODULE_REGISTRY. applyPortalConfig() will strip them from the route set and the nav will hide them. Register each in MODULE_REGISTRY:',
+      'color:#b45309;font-weight:700', missing);
+  }
 }
 
 
@@ -1810,6 +1839,9 @@ function renderPage(page) {
     'my-invoices':    renderVendorInvoices,
     'my-documents':   () => renderMyDocuments(),
   };
+  // Single source of truth for navigable routes — used by applyPortalConfig
+  // to guarantee md never loses a page even if it's not yet registered.
+  window._RENDER_ROUTES = Object.keys(pages);
   (pages[page] || renderDashboard)();
   // Refresh live master data into DOM after render
   if (STATE.mastersLoaded) updateAllMasterUI();
@@ -7949,6 +7981,9 @@ function applyPortalConfig() {
     // md also always gets dashboard and critical routes
     if (key === 'md') {
       ['dashboard','md-command','budgeting','execution','accounts','reports'].forEach(r => allowed.add(r));
+      // Safeguard: md (the super-role) gets EVERY navigable page, so a newly
+      // added route is never invisible to admins even before it's registered.
+      (window._RENDER_ROUTES || []).forEach(r => allowed.add(r));
     }
     ROLE_ROUTES[key] = allowed;
   });
@@ -8900,8 +8935,7 @@ function userCan(route, action) {
 
 // ── Tab bar + dispatcher ──────────────────────────────────────────────
 const CFG_TABS = [
-  { id:'modules', icon:'&#129513;', label:'Modules &amp; Roles' },
-  { id:'access',  icon:'&#128101;', label:'Access Groups' },
+  { id:'access',  icon:'&#128101;', label:'Access &amp; Pages' },
   { id:'sheets',  icon:'&#128279;', label:'Sheet Linking' },
 ];
 function _cfgTabBar(active) {
@@ -8924,11 +8958,11 @@ function renderDevModePage(tab) {
     el.innerHTML = `<div class="module-placeholder"><div style="font-size:2rem;margin-bottom:.6rem">&#128274;</div><p>Configuration is restricted to Administrators.</p></div>`;
     return;
   }
-  window._cfgActiveTab = tab || window._cfgActiveTab || 'modules';
+  window._cfgActiveTab = tab || window._cfgActiveTab || 'access';
   const t = window._cfgActiveTab;
-  if (t === 'access') return _cfgRenderAccess();
   if (t === 'sheets') return _cfgRenderSheets();
-  return _cfgRenderModules();
+  // 'modules' (the old Modules & Roles tab) is merged into Access & Pages.
+  return _cfgRenderAccess();
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -9026,6 +9060,10 @@ function _cfgRenderAccess() {
   if (!window._uaSel && draft.groups.length) window._uaSel = draft.groups[0].id;
   const sel = uaGroup(window._uaSel) || draft.groups[0];
   const sections = [...new Set(MODULE_REGISTRY.map(m => m.section))];
+  // Page status (Live / Dev / Off) — merged in from the old Modules & Roles
+  // tab. Off = hidden from everyone (incl. md); Dev = visible only in Dev Mode.
+  const _pcfg = (typeof loadPortalConfig === 'function') ? loadPortalConfig() : { modules:{} };
+  const _statusOf = (m) => ((_pcfg.modules && _pcfg.modules[m.route]) || {}).status || m.defStatus;
 
   // Assignable users come from the Employee Register (loaded into masters).
   const emps = (STATE && STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
@@ -9103,8 +9141,8 @@ function _cfgRenderAccess() {
 
     <!-- Permission matrix -->
     <div class="card" style="overflow:visible">
-      <div class="card-head"><h3>&#128203; Views &amp; Actions</h3>
-        <span style="font-size:.72rem;color:var(--txt3)">Tick a module to grant the view, then pick allowed actions</span></div>
+      <div class="card-head"><h3>&#128203; Pages, Views &amp; Actions</h3>
+        <span style="font-size:.72rem;color:var(--txt3)">Set each page Live / Dev / Off &middot; tick to grant the view &middot; pick allowed actions</span></div>
       <div style="padding:.4rem .6rem 1rem">
         ${sections.map(sectionName => {
           const mods = MODULE_REGISTRY.filter(m => m.section === sectionName);
@@ -9114,11 +9152,19 @@ function _cfgRenderAccess() {
               const hasView = (sel.routes||[]).includes(m.route);
               const acts = uaActionsFor(m.route).filter(a => a !== 'view');
               const granted = (sel.actions && sel.actions[m.route]) || [];
+              const st = _statusOf(m);
+              const stColor = st === 'live' ? '#16a34a' : st === 'dev' ? '#f0a500' : '#9ca3af';
               return `<div class="ua-row" style="display:flex;align-items:flex-start;gap:.6rem;padding:.45rem .5rem;border-bottom:1px solid var(--border)">
                 <label style="display:inline-flex;align-items:center;gap:.4rem;min-width:200px;cursor:pointer">
                   <input type="checkbox" ${hasView?'checked':''} onchange="uaToggleRoute('${sel.id}','${m.route}',this.checked,this)" style="width:14px;height:14px;accent-color:${sel.color}">
                   <span style="font-weight:600;font-size:.82rem;color:var(--g9)">${m.label}</span>
                 </label>
+                <select onchange="uaSetModuleStatus('${m.route}',this.value)" title="Page visibility — Live: on for permitted users · Dev: visible only in Dev Mode · Off: hidden from everyone"
+                  style="border:1.2px solid var(--border);border-radius:7px;padding:2px 6px;font-size:.7rem;font-weight:700;font-family:inherit;background:var(--surface2);color:${stColor};cursor:pointer;align-self:center">
+                  <option value="live" ${st==='live'?'selected':''}>&#9679; Live</option>
+                  <option value="dev"  ${st==='dev' ?'selected':''}>&#9679; Dev</option>
+                  <option value="off"  ${st==='off' ?'selected':''}>&#9679; Off</option>
+                </select>
                 <div style="display:flex;gap:.3rem;flex-wrap:wrap;flex:1">
                   ${acts.length ? acts.map(a => { const on = granted.includes(a); return `
                     <label class="ua-act" title="${UA_ACTION_LABELS[a]||a}" style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border:1.2px solid ${on?sel.color:'var(--border)'};border-radius:12px;background:${on?sel.color+'18':'var(--surface2)'};color:${on?sel.color:'var(--txt3)'};font-size:.68rem;font-weight:600;cursor:pointer;opacity:${hasView?'1':'.35'};pointer-events:${hasView?'auto':'none'}">
@@ -9168,6 +9214,20 @@ function _cfgRenderAccess() {
     </div>`;
 
   // ── handlers ──
+  // Page status (Live/Dev/Off) — saved immediately to the org config and
+  // applied, mirroring what the retired Modules & Roles tab did.
+  window.uaSetModuleStatus = function(route, status) {
+    const cfg = loadPortalConfig();
+    if (!cfg.modules[route]) {
+      const reg = MODULE_REGISTRY.find(m => m.route === route);
+      cfg.modules[route] = { status, roles: reg ? [...reg.defRoles] : [] };
+    }
+    cfg.modules[route].status = status;
+    savePortalConfig(cfg);
+    if (typeof applyPortalConfig === 'function') applyPortalConfig();
+    try { applyRoleNavRestrictions(STATE.role); } catch (e) {}
+    _cfgRenderAccess();
+  };
   window.uaSelectGroup = function(id) { window._uaSel = id; _cfgRenderAccess(); };
   window.uaNewGroup = function() {
     const d = uaGetDraft();
@@ -9247,478 +9307,9 @@ function _cfgRenderAccess() {
   };
 }
 
-function _cfgRenderModules() {
-  const el = document.getElementById('mainContent');
-  const cfg = loadPortalConfig();
-  const devOn = STATE.isDevMode;
-  const sections = [...new Set(MODULE_REGISTRY.map(m => m.section))];
-
-  el.innerHTML = `
-    ${_cfgTabBar('modules')}
-    <div class="page-header">
-      <div class="page-header-row">
-        <div>
-          <h1>&#9881; Configuration</h1>
-          <p>Module visibility &middot; Role access &middot; Dev Mode &middot; Admin only</p>
-        </div>
-        <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
-          <button onclick="cfgResetToDefaults()" class="btn btn-secondary btn-sm">&#8635; Reset Defaults</button>
-          <button onclick="cfgSaveAndApply()" class="btn btn-primary btn-sm" id="cfgSaveBtn">&#10003; Save &amp; Apply</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Dev Mode master toggle -->
-    <div class="card card-pad" style="margin-bottom:1.2rem;border-left:4px solid ${devOn ? '#f0a500' : 'var(--border)'}">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
-        <div>
-          <div style="font-size:1rem;font-weight:700;color:var(--g9)">
-            Dev Mode &nbsp;
-            <span style="font-size:.78rem;padding:3px 10px;border-radius:10px;background:${devOn ? 'rgba(240,165,0,.2)' : 'var(--surface2)'};color:${devOn ? '#f0a500' : 'var(--txt3)'};font-weight:700">${devOn ? 'ON' : 'OFF'}</span>
-          </div>
-          <div style="font-size:.8rem;color:var(--txt3);margin-top:.2rem">When ON, modules marked <em>Dev</em> are visible in the sidebar for this session only.</div>
-        </div>
-        <button onclick="toggleDevMode();renderDevModePage()" class="btn btn-sm"
-          style="background:${devOn ? '#f0a500' : 'var(--g7)'};color:${devOn ? '#0d3320' : '#fff'};border:none;padding:.55rem 1.4rem;font-weight:700">
-          ${devOn ? '&#10005; Turn OFF' : '&#9881; Turn ON'}
-        </button>
-      </div>
-    </div>
-
-    <!-- Apps Script Endpoints — Tier 1: localStorage override -->
-    ${renderExecEndpointsCard()}
-
-    <!-- Apps Script Endpoints — Tier 2: Sheet-stored (PortalConfig tab) -->
-    ${renderSheetConfigCard()}
-
-    <!-- Legend -->
-    <div style="display:flex;gap:.8rem;flex-wrap:wrap;margin-bottom:1rem;font-size:.75rem;color:var(--txt3)">
-      <span>Status:</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#16a34a;display:inline-block"></span>Live — visible to assigned roles</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#f0a500;display:inline-block"></span>Dev — visible only in Dev Mode (md only)</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#9ca3af;display:inline-block"></span>Off — hidden from all users</span>
-    </div>
-
-    <!-- Search bar -->
-    <div class="card card-pad" style="margin-bottom:1rem;padding:.7rem 1rem">
-      <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
-        <div style="position:relative;flex:1;min-width:240px">
-          <span style="position:absolute;left:.7rem;top:50%;transform:translateY(-50%);color:var(--txt3);font-size:.95rem">&#128270;</span>
-          <input id="cfgSearch" type="search" placeholder="Filter modules… (e.g. dpr, payment, hr)"
-            oninput="cfgSearchFilter(this.value)"
-            style="width:100%;padding:.55rem .8rem .55rem 2.1rem;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:.86rem;background:var(--surface2);color:var(--txt)">
-        </div>
-        <div style="display:flex;gap:.4rem;flex-wrap:wrap">
-          <button onclick="cfgExpandAll(true)" class="btn btn-secondary btn-sm" style="font-size:.74rem">&#9662; Expand all</button>
-          <button onclick="cfgExpandAll(false)" class="btn btn-secondary btn-sm" style="font-size:.74rem">&#9656; Collapse all</button>
-          <button onclick="cfgBulkAll('live')" class="btn btn-secondary btn-sm" style="font-size:.74rem">All Live</button>
-          <button onclick="cfgBulkAll('off')"  class="btn btn-secondary btn-sm" style="font-size:.74rem">All Off</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Module + Role matrix — hierarchical -->
-    <div class="card" style="overflow:visible">
-      <div class="card-head">
-        <h3>&#128203; Module Registry &amp; Role Access</h3>
-        <span style="font-size:.75rem;color:var(--txt3)">${MODULE_REGISTRY.length} modules &middot; ${[...new Set(MODULE_REGISTRY.map(m=>m.section))].length} sections &middot; ${ALL_ROLES.length} roles</span>
-      </div>
-      <div id="cfgSectionsBody" style="padding:.4rem .6rem 1rem">
-        ${sections.map((sectionName, si) => {
-          const sectionModules = MODULE_REGISTRY.filter(m => m.section === sectionName);
-          const counts = { live:0, dev:0, off:0 };
-          sectionModules.forEach(m => {
-            const mc = cfg.modules[m.route] || { status: m.defStatus, roles: m.defRoles };
-            counts[mc.status] = (counts[mc.status] || 0) + 1;
-          });
-          const totalRoles = sectionModules.length * ALL_ROLES.length;
-          const grantedRoles = sectionModules.reduce((sum, m) => {
-            const mc = cfg.modules[m.route] || { status: m.defStatus, roles: m.defRoles };
-            return sum + mc.roles.length;
-          }, 0);
-          const allLive = counts.live === sectionModules.length;
-          const allOff  = counts.off  === sectionModules.length;
-          const sectionState = allLive ? 'live' : allOff ? 'off' : 'mixed';
-          const sectionColor = allLive ? '#16a34a' : allOff ? '#9ca3af' : '#f0a500';
-          // Default expanded = section has any non-default state; otherwise first 2 sections expanded
-          const expanded = (counts.dev > 0 || counts.off > 0) || si < 2;
-
-          return `
-          <div class="cfg-section" data-section="${sectionName}" data-section-key="${sectionName.replace(/\s+/g,'_')}" style="border:1px solid var(--border);border-radius:10px;margin-bottom:.6rem;overflow:hidden;background:var(--surface)">
-            <!-- Section header -->
-            <div onclick="cfgToggleSection('${sectionName.replace(/\s+/g,'_')}')"
-                 style="display:flex;align-items:center;gap:.7rem;padding:.7rem 1rem;cursor:pointer;background:linear-gradient(90deg,var(--surface2),var(--surface));border-bottom:1px solid ${expanded?'var(--border)':'transparent'};transition:background .15s"
-                 onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='linear-gradient(90deg,var(--surface2),var(--surface))'">
-              <span class="cfg-chev" id="cfgchev-${sectionName.replace(/\s+/g,'_')}" style="display:inline-block;width:14px;font-size:.78rem;color:var(--txt3);transition:transform .2s;transform:rotate(${expanded?90:0}deg)">&#9656;</span>
-              <span style="font-size:.95rem;font-weight:700;color:var(--g9);flex:1">${sectionName}</span>
-              <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:12px;background:${sectionColor}20;color:${sectionColor};font-size:.7rem;font-weight:700">
-                <span style="width:7px;height:7px;border-radius:50%;background:${sectionColor};display:inline-block"></span>
-                ${sectionState === 'live' ? 'All Live' : sectionState === 'off' ? 'All Off' : 'Mixed'}
-              </span>
-              <span style="font-size:.7rem;color:var(--txt3);white-space:nowrap">${sectionModules.length} module${sectionModules.length>1?'s':''}</span>
-              ${counts.live ? `<span style="font-size:.66rem;padding:2px 7px;border-radius:8px;background:#dcfce7;color:#166534;font-weight:600">${counts.live} live</span>` : ''}
-              ${counts.dev  ? `<span style="font-size:.66rem;padding:2px 7px;border-radius:8px;background:#fef3c7;color:#92400e;font-weight:600">${counts.dev} dev</span>`  : ''}
-              ${counts.off  ? `<span style="font-size:.66rem;padding:2px 7px;border-radius:8px;background:#f3f4f6;color:#4b5563;font-weight:600">${counts.off} off</span>`  : ''}
-              <span style="font-size:.66rem;color:var(--txt3);white-space:nowrap">&middot; ${grantedRoles}/${totalRoles} role grants</span>
-              <button onclick="event.stopPropagation();cfgBulkSection('${sectionName.replace(/'/g,"\\'")}','live')" title="Set all in section to Live"
-                style="font-size:.66rem;padding:3px 9px;border:1px solid #16a34a40;background:#16a34a10;color:#15803d;border-radius:6px;cursor:pointer;font-weight:600">All Live</button>
-              <button onclick="event.stopPropagation();cfgBulkSection('${sectionName.replace(/'/g,"\\'")}','off')" title="Set all in section to Off"
-                style="font-size:.66rem;padding:3px 9px;border:1px solid #9ca3af40;background:#9ca3af10;color:#4b5563;border-radius:6px;cursor:pointer;font-weight:600">All Off</button>
-            </div>
-
-            <!-- Section body (modules) -->
-            <div class="cfg-section-body" id="cfgbody-${sectionName.replace(/\s+/g,'_')}" style="display:${expanded?'block':'none'}">
-              ${sectionModules.map((m) => {
-                const mc = cfg.modules[m.route] || { status: m.defStatus, roles: [...m.defRoles] };
-                const statusColor = mc.status === 'live' ? '#16a34a' : mc.status === 'dev' ? '#f0a500' : '#9ca3af';
-                const statusBg    = mc.status === 'live' ? '#dcfce7' : mc.status === 'dev' ? '#fef3c7' : '#f3f4f6';
-                const isProtected = (m.route === 'dev-mode'); // dev-mode is md-only by design
-                return `
-                <div class="cfg-row" data-route="${m.route}" data-label="${m.label.toLowerCase()}" id="cfgrow-${m.route}"
-                  style="display:grid;grid-template-columns:minmax(180px,1fr) auto auto auto;gap:.8rem;align-items:center;padding:.6rem 1rem .6rem 2.2rem;border-bottom:1px solid var(--border);transition:background .15s">
-
-                  <!-- Module label + route -->
-                  <div style="min-width:0">
-                    <div style="font-weight:600;color:var(--g9);font-size:.86rem">${m.label}</div>
-                    <code style="font-size:.66rem;color:var(--txt3);font-family:'JetBrains Mono',monospace">/${m.route}</code>
-                  </div>
-
-                  <!-- Status pill + dropdown -->
-                  <div style="display:flex;align-items:center;gap:.4rem">
-                    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor}"></span>
-                    <select onchange="cfgSetStatus('${m.route}',this.value);cfgRefreshSectionHeader('${sectionName.replace(/\s+/g,'_')}')"
-                      style="font-size:.74rem;padding:4px 8px;border:1.5px solid ${statusColor}50;border-radius:6px;background:${statusBg};color:${statusColor};font-weight:700;cursor:pointer;outline:none">
-                      <option value="live" ${mc.status==='live'?'selected':''}>&#9679; Live</option>
-                      <option value="dev"  ${mc.status==='dev' ?'selected':''}>&#9679; Dev</option>
-                      <option value="off"  ${mc.status==='off' ?'selected':''}>&#9679; Off</option>
-                    </select>
-                  </div>
-
-                  <!-- Role chips (compact) -->
-                  <div style="display:flex;gap:.25rem;flex-wrap:wrap;justify-content:flex-end;max-width:380px">
-                    ${ALL_ROLES.map(r => {
-                      const on = mc.roles.includes(r.key);
-                      const disabled = isProtected && r.key !== 'md';
-                      return `<label
-                        title="${r.label}${disabled?' (locked: dev-mode is md-only)':''}"
-                        style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border:1.2px solid ${on?'#16a34a':'var(--border)'};border-radius:12px;background:${on?'#dcfce7':'var(--surface2)'};color:${on?'#166534':'var(--txt3)'};font-size:.68rem;font-weight:600;cursor:${disabled?'not-allowed':'pointer'};opacity:${disabled?.4:1};user-select:none;transition:all .12s">
-                        <input type="checkbox" ${on?'checked':''} ${disabled?'disabled':''}
-                          onchange="cfgToggleRole('${m.route}','${r.key}',this.checked);cfgRefreshSectionHeader('${sectionName.replace(/\s+/g,'_')}')"
-                          style="width:11px;height:11px;accent-color:#16a34a;cursor:${disabled?'not-allowed':'pointer'};margin:0">
-                        ${r.label.split(' ')[0]}
-                      </label>`;
-                    }).join('')}
-                  </div>
-
-                  <!-- Open page -->
-                  <button onclick="navigate('${m.route}')" class="btn btn-secondary btn-sm"
-                    title="Open ${m.label}"
-                    style="font-size:.66rem;padding:3px 10px;white-space:nowrap">&#8599; Open</button>
-                </div>`;
-              }).join('')}
-            </div>
-          </div>`;
-        }).join('')}
-      </div>
-      <div id="cfgEmptyState" style="display:none;padding:2rem;text-align:center;color:var(--txt3);font-size:.86rem">
-        <div style="font-size:1.6rem;margin-bottom:.4rem">&#128269;</div>
-        No modules match the filter.
-      </div>
-    </div>
-
-    <!-- Scheduled Reports -->
-    <div class="card card-pad" style="margin-top:1.2rem" id="schedReportCard">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
-        <h3 style="font-size:.9rem;font-weight:700;color:var(--g9)">&#128228; Scheduled Email Reports</h3>
-        <span id="schedSaveStatus" style="font-size:.72rem;color:var(--g7);display:none">&#10003; Saved</span>
-      </div>
-
-      <!-- Recipients -->
-      <div style="margin-bottom:1rem">
-        <label style="font-size:.78rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.4rem">&#128101; Recipients</label>
-        <div style="display:flex;gap:.5rem;margin-bottom:.4rem;flex-wrap:wrap">
-          <input id="schedRecipInput" type="email" placeholder="email@example.com"
-            style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();schedAddRecip()}">
-          <button onclick="schedAddRecip()" class="btn btn-secondary btn-sm">+ Add</button>
-          <button onclick="schedPickFromEmployees()" class="btn btn-secondary btn-sm">&#128100; Pick from Team</button>
-        </div>
-        <div id="schedRecipList" style="display:flex;flex-wrap:wrap;gap:.35rem;min-height:28px;padding:4px 0">
-          <span style="font-size:.72rem;color:var(--txt3)">No recipients added yet</span>
-        </div>
-      </div>
-
-      <!-- Trigger time -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.7rem;margin-bottom:1rem">
-        <div>
-          <label style="font-size:.78rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">&#128197; Day of Week</label>
-          <select id="schedDay" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
-            <option value="daily">Every Day</option>
-            <option value="1">Monday</option>
-            <option value="2">Tuesday</option>
-            <option value="3">Wednesday</option>
-            <option value="4">Thursday</option>
-            <option value="5">Friday</option>
-            <option value="6">Saturday</option>
-            <option value="0">Sunday</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:.78rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">&#128336; Time (IST)</label>
-          <select id="schedTime" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
-            ${['06:00','07:00','08:00','09:00','10:00','18:00','20:00'].map(t =>
-              `<option value="${t}" ${t==='08:00'?'selected':''}>${t} IST</option>`
-            ).join('')}
-          </select>
-        </div>
-        <div>
-          <label style="font-size:.78rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">&#128203; Report Type</label>
-          <select id="schedType" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
-            <option value="daily">Daily Digest</option>
-            <option value="safety">Safety Incidents Only</option>
-            <option value="po">PO Approvals Only</option>
-            <option value="full">Full Summary (All Modules)</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:.78rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">&#9989; Status</label>
-          <select id="schedActive" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
-            <option value="active">Active</option>
-            <option value="paused">Paused</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Subject prefix -->
-      <div style="margin-bottom:1rem">
-        <label style="font-size:.78rem;font-weight:600;color:var(--txt2);display:block;margin-bottom:.3rem">&#128231; Email Subject Prefix</label>
-        <input id="schedSubject" type="text" value="EVGCPL Daily Digest"
-          style="width:100%;max-width:400px;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;font-family:inherit;background:var(--surface2);color:var(--txt)">
-      </div>
-
-      <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
-        <button onclick="schedSave()" class="btn" style="background:var(--g7);color:#fff;font-size:.8rem">&#128190; Save Config</button>
-        <button onclick="schedTestSend()" class="btn btn-secondary btn-sm">&#9992;&#65039; Send Test Now</button>
-        <span style="font-size:.72rem;color:var(--txt3)">Trigger must be installed in Apps Script Editor → Triggers → <code>scheduledDailyReport</code> → Time-driven</span>
-      </div>
-    </div>
-
-    <!-- Pending items -->
-    <div class="card card-pad" style="margin-top:1.2rem">
-      <h3 style="font-size:.9rem;font-weight:700;margin-bottom:1rem;color:var(--g9)">&#128203; Open Items</h3>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:.6rem">
-        ${[
-          ['HIGH','#dc2626','Upload Budget template → Drive → set BUDGET_SHEET_ID'],
-          ['HIGH','#dc2626','Deploy appendRow in Apps Script (safety sheet writes)'],
-          ['MED', '#d97706','My Team card — live debug: reportee empCode matching'],
-          ['MED', '#d97706','OAuth External audience for 260 Gmail users'],
-          ['MED', '#d97706','CNAME: intranet.evgcpl.com → GitHub Pages'],
-          ['MED', '#d97706','Onboarding forms — checklist + document upload flow'],
-          ['LOW', '#2563eb','Safety: Close incident write-back to sheet'],
-          ['LOW', '#2563eb','Rewards sheet: create + share + plug in ID'],
-                  ].map(([p,c,t]) => `
-          <div style="display:flex;align-items:flex-start;gap:.5rem;padding:.55rem .75rem;background:var(--surface2);border:1px solid ${c}30;border-left:3px solid ${c};border-radius:7px">
-            <span style="font-size:.62rem;padding:1px 6px;border-radius:6px;background:${c}18;color:${c};font-weight:700;white-space:nowrap;margin-top:1px">${p}</span>
-            <span style="font-size:.76rem;color:var(--txt2);line-height:1.4">${t}</span>
-          </div>`).join('')}
-      </div>
-    </div>
-    <div style="font-size:.72rem;color:var(--txt3);margin-top:.7rem;text-align:right">
-      Last saved: ${cfg.savedAt ? new Date(cfg.savedAt).toLocaleString('en-IN') : 'Never'}
-    </div>
-  `;
-
-  // ── In-page config state ──────────────────────────────────────
-  window._cfgDraft = JSON.parse(JSON.stringify(cfg)); // deep copy
-  setTimeout(schedRestoreUI, 50); // restore sched config after DOM renders
-
-  window.cfgSetStatus = function(route, status) {
-    window._cfgDraft.modules[route].status = status;
-    // Update row color in table
-    const sel = document.querySelector(`#cfgrow-${route} select`);
-    if (sel) {
-      const c = status === 'live' ? '#16a34a' : status === 'dev' ? '#f0a500' : '#9ca3af';
-      sel.style.color = c;
-    }
-    cfgMarkDirty();
-  };
-
-  window.cfgToggleRole = function(route, role, checked) {
-    const roles = window._cfgDraft.modules[route].roles;
-    if (checked && !roles.includes(role)) roles.push(role);
-    if (!checked) {
-      const idx = roles.indexOf(role);
-      if (idx > -1) roles.splice(idx, 1);
-    }
-    cfgMarkDirty();
-  };
-
-  window.cfgMarkDirty = function() {
-    const btn = document.getElementById('cfgSaveBtn');
-    if (btn) { btn.textContent = '&#10003; Save & Apply *'; btn.style.background = '#f0a500'; btn.style.color = '#0d3320'; }
-  };
-
-  window.cfgSaveAndApply = function() {
-    savePortalConfig(window._cfgDraft);
-    applyPortalConfig();
-    applyRoleNavRestrictions(STATE.role);
-    const btn = document.getElementById('cfgSaveBtn');
-    if (btn) { btn.innerHTML = '&#10003; Saved!'; btn.style.background = '#16a34a'; btn.style.color = '#fff'; setTimeout(() => renderDevModePage(), 800); }
-    // Show toast
-    const t = document.createElement('div');
-    t.innerHTML = '&#10003; Configuration saved &amp; applied';
-    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(26,96,56,.95);color:#fff;padding:9px 20px;border-radius:8px;font-size:.82rem;font-weight:600;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.3);pointer-events:none';
-    document.body.appendChild(t);
-    setTimeout(() => t.remove(), 2500);
-  };
-
-  window.cfgResetToDefaults = function() {
-    if (!confirm('Reset all module visibility and role access to defaults?')) return;
-    const def = buildDefaultConfig();
-    savePortalConfig(def);
-    applyPortalConfig();
-    applyRoleNavRestrictions(STATE.role);
-    renderDevModePage();
-  };
-
-  // ── Hierarchical Config UI helpers ──────────────────────────────
-  window.cfgToggleSection = function(sectionKey) {
-    const body = document.getElementById('cfgbody-' + sectionKey);
-    const chev = document.getElementById('cfgchev-' + sectionKey);
-    if (!body) return;
-    const open = body.style.display !== 'none';
-    body.style.display = open ? 'none' : 'block';
-    if (chev) chev.style.transform = `rotate(${open ? 0 : 90}deg)`;
-    // Tweak the divider beneath the header
-    const head = body.previousElementSibling;
-    if (head) head.style.borderBottom = open ? '1px solid transparent' : '1px solid var(--border)';
-  };
-
-  window.cfgExpandAll = function(open) {
-    document.querySelectorAll('#cfgSectionsBody .cfg-section').forEach(sec => {
-      const key = sec.dataset.sectionKey;
-      const body = document.getElementById('cfgbody-' + key);
-      const chev = document.getElementById('cfgchev-' + key);
-      if (!body) return;
-      body.style.display = open ? 'block' : 'none';
-      if (chev) chev.style.transform = `rotate(${open ? 90 : 0}deg)`;
-      const head = body.previousElementSibling;
-      if (head) head.style.borderBottom = open ? '1px solid var(--border)' : '1px solid transparent';
-    });
-  };
-
-  // Bulk set ALL modules in one section to a given status
-  window.cfgBulkSection = function(sectionName, status) {
-    MODULE_REGISTRY.filter(m => m.section === sectionName).forEach(m => {
-      window._cfgDraft.modules[m.route].status = status;
-    });
-    cfgMarkDirty();
-    // Re-render the page to reflect new state cleanly
-    renderDevModePage();
-  };
-
-  // Bulk set EVERY module to a given status
-  window.cfgBulkAll = function(status) {
-    if (!confirm(`Set ALL ${MODULE_REGISTRY.length} modules to "${status}"?`)) return;
-    MODULE_REGISTRY.forEach(m => {
-      window._cfgDraft.modules[m.route].status = status;
-    });
-    cfgMarkDirty();
-    renderDevModePage();
-  };
-
-  // Search filter across modules
-  window.cfgSearchFilter = function(q) {
-    const query = (q || '').trim().toLowerCase();
-    let visibleCount = 0;
-    document.querySelectorAll('#cfgSectionsBody .cfg-section').forEach(sec => {
-      let sectionHasMatch = false;
-      sec.querySelectorAll('.cfg-row').forEach(row => {
-        const label = row.dataset.label || '';
-        const route = row.dataset.route || '';
-        const match = !query || label.includes(query) || route.includes(query);
-        row.style.display = match ? 'grid' : 'none';
-        if (match) { sectionHasMatch = true; visibleCount++; }
-      });
-      // If query is active, expand sections with matches and hide empty ones
-      if (query) {
-        sec.style.display = sectionHasMatch ? 'block' : 'none';
-        if (sectionHasMatch) {
-          const key = sec.dataset.sectionKey;
-          const body = document.getElementById('cfgbody-' + key);
-          const chev = document.getElementById('cfgchev-' + key);
-          if (body) body.style.display = 'block';
-          if (chev) chev.style.transform = 'rotate(90deg)';
-        }
-      } else {
-        sec.style.display = 'block';
-      }
-    });
-    const empty = document.getElementById('cfgEmptyState');
-    if (empty) empty.style.display = (query && visibleCount === 0) ? 'block' : 'none';
-  };
-
-  // Recompute the chips on a section header after a status/role change
-  window.cfgRefreshSectionHeader = function(sectionKey) {
-    // Cheapest path: re-render. Page state (draft, scroll) is preserved via _cfgDraft.
-    // But to avoid losing scroll position on every checkbox click, we update in place.
-    const sec = document.querySelector(`.cfg-section[data-section-key="${sectionKey}"]`);
-    if (!sec) return;
-    const sectionName = sec.dataset.section;
-    const sectionModules = MODULE_REGISTRY.filter(m => m.section === sectionName);
-    const counts = { live:0, dev:0, off:0 };
-    let granted = 0;
-    sectionModules.forEach(m => {
-      const mc = window._cfgDraft.modules[m.route] || { status: m.defStatus, roles: m.defRoles };
-      counts[mc.status] = (counts[mc.status] || 0) + 1;
-      granted += mc.roles.length;
-    });
-    const total = sectionModules.length * ALL_ROLES.length;
-    const allLive = counts.live === sectionModules.length;
-    const allOff  = counts.off  === sectionModules.length;
-    const state = allLive ? 'live' : allOff ? 'off' : 'mixed';
-    const color = allLive ? '#16a34a' : allOff ? '#9ca3af' : '#f0a500';
-
-    const head = sec.firstElementChild;
-    if (!head) return;
-    // Replace state pill
-    const pills = head.querySelectorAll('span');
-    if (pills.length >= 2) {
-      // pill index 1 = state badge wrapper containing dot+label
-      const statePill = pills[1];
-      statePill.style.background = color + '20';
-      statePill.style.color = color;
-      const dot = statePill.querySelector('span');
-      if (dot) dot.style.background = color;
-      // Replace text content (last text node)
-      const txt = state === 'live' ? 'All Live' : state === 'off' ? 'All Off' : 'Mixed';
-      // Remove existing text nodes and re-append with the dot
-      Array.from(statePill.childNodes).forEach(n => { if (n.nodeType === 3) n.remove(); });
-      statePill.appendChild(document.createTextNode(' ' + txt));
-    }
-    // Update count chips by simply finding chips and replacing/recreating them
-    const headerChildren = Array.from(head.children);
-    headerChildren.forEach(c => {
-      if (c.dataset && c.dataset.cfgCount) c.remove();
-    });
-    // Re-render counts inline (lightweight DOM)
-    const insertAfterTitle = headerChildren.find(c => c.style && c.style.background && c.style.background.includes('20'));
-    if (insertAfterTitle) {
-      const insertAt = insertAfterTitle.nextSibling;
-      const mkChip = (label, bg, fg) => {
-        const s = document.createElement('span');
-        s.dataset.cfgCount = '1';
-        s.style.cssText = `font-size:.66rem;padding:2px 7px;border-radius:8px;background:${bg};color:${fg};font-weight:600`;
-        s.textContent = label;
-        return s;
-      };
-      // Find anchor: counts go between modules-count and grants-count
-      // Easiest: just rebuild that horizontal row by re-rendering the whole page on save
-      // For now, mark dirty so user knows to save — chips refresh on save
-    }
-    cfgMarkDirty();
-  };
-}
+// _cfgRenderModules() (the old "Modules & Roles" tab) was retired — its
+// Live/Dev/Off page-status control is now merged into the Access & Pages
+// tab (uaSetModuleStatus), and per-route access lives in Access Groups.
 
 
 
