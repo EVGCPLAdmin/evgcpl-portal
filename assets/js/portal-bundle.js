@@ -2455,7 +2455,6 @@ const NAV_SUBMENUS = {
     children: [
       { route:'scm',          label:'Overview',         status:'live' },
       { route:'scm-pending',  label:'Pending Approval', status:'live' },
-      { route:'scm-register', label:'PO Register',      status:'live' },
       { route:'scm-site',     label:'Spend by Site',    status:'live' },
       { route:'scm-vendor',   label:'Top Vendors',      status:'live' },
     ],
@@ -2463,7 +2462,6 @@ const NAV_SUBMENUS = {
   stores: {
     children: [
       { route:'stores',         label:'Overview',      status:'live' },
-      { route:'stores-stockin', label:'Stock IN',      status:'live' },
       { route:'stores-siraw',   label:'StockIN Table', status:'live' },
       { route:'stores-grn',     label:'GRN Register',  status:'live' },
       { route:'stores-openpo',  label:'Open POs',      status:'live', badge:{ text:'New', cls:'live' } },
@@ -2706,11 +2704,9 @@ function renderPage(page) {
     'scm':            renderSCMDashboard,
     'mrs':            renderMRSDashboard,
     'scm-pending':    () => renderSCMSubPage('pending'),
-    'scm-register':   () => renderSCMSubPage('register'),
     'scm-site':       () => renderSCMSubPage('site'),
     'scm-vendor':     () => renderSCMSubPage('vendor'),
     'stores':         renderStoresOverview,
-    'stores-stockin': () => { window._pstPendingTab = 'stockin'; renderProcurementStores(); },
     'stores-siraw':   () => { window._pstPendingTab = 'siraw';   renderProcurementStores(); },
     'stores-grn':     () => { window._pstPendingTab = 'grn';     renderProcurementStores(); },
     'stores-openpo':  () => { window._pstPendingTab = 'openpo';  renderProcurementStores(); },
@@ -9664,12 +9660,10 @@ const MODULE_REGISTRY = [
   // ── Procurement ───────────────────────────────────────────────
   { route:'scm',               label:'Purchase Dashboard',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'scm-pending',       label:'Purchase · Pending Approval', section:'Procurement',  defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
-  { route:'scm-register',      label:'Purchase · PO Register',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'scm-site',          label:'Purchase · Spend by Site',section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'scm-vendor',        label:'Purchase · Top Vendors',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'mrs',               label:'MRS',                    section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores',            label:'Stores',                 section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
-  { route:'stores-stockin',    label:'Stores · Stock IN',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-siraw',      label:'Stores · StockIN Table', section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-grn',        label:'Stores · GRN Register',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-openpo',     label:'Stores · Open POs',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
@@ -11450,7 +11444,7 @@ function renderSCMDashboard() {
     </div>
     <!-- Level-3 sub-pages -->
     <div class="evg-dash-grid" style="margin-bottom:1.4rem">
-      ${[['scm-pending','⏳','Pending Approval'],['scm-register','📋','PO Register'],['scm-site','🏗️','Spend by Site'],['scm-vendor','🏢','Top Vendors'],['stores-openpo','🔓','Open POs']]
+      ${[['scm-pending','⏳','Pending Approval'],['scm-site','🏗️','Spend by Site'],['scm-vendor','🏢','Top Vendors'],['stores-openpo','🔓','Open POs']]
         .map(([r,i,l]) => `<div class="evg-kpi" data-click="1" onclick="navigate('${r}')"><div style="font-size:1.3rem">${i}</div><div class="evg-kpi-lbl" style="font-weight:700;color:var(--g9);font-size:.9rem">${l}</div><div class="evg-kpi-lbl">Open as its own page →</div></div>`).join('')}
     </div>
 
@@ -15285,7 +15279,7 @@ let _pstStockIN    = [];   // all StockIN rows
 let _pstGRNMap     = {};   // UUID → { grnNo, site, poNo, ... }
 let _pstLevels     = [];   // v3StockLevels rows
 let _pstLoaded     = false;
-let _pstActiveTab  = 'stockin';
+let _pstActiveTab  = 'siraw';
 let _pstSiteFilter = '';
 
 // ── Stores LEVEL-2 OVERVIEW (#4) ──────────────────────────────────
@@ -15294,7 +15288,6 @@ let _pstSiteFilter = '';
 //  detail tables live on their own level-3 sub-pages (#3). This is the
 //  reference pattern for "max level − 1 shows Overview/KPIs/Consolidation".
 const STORES_SUBPAGES = [
-  { route:'stores-stockin', icon:'📥', label:'Stock IN',      desc:'Stock-in / stock-out register' },
   { route:'stores-siraw',   icon:'📋', label:'StockIN Table', desc:'Tabular StockIN with filters' },
   { route:'stores-grn',     icon:'📦', label:'GRN Register',  desc:'Goods received notes' },
   { route:'stores-openpo',  icon:'🔓', label:'Open POs',      desc:'Approved POs with pending qty', accent:'#d97706' },
@@ -15345,7 +15338,7 @@ async function _storesOverviewLoad() {
     } catch (e) {}
     if (!document.getElementById('storesOvKpi')) return;   // navigated away
     kpiEl.innerHTML = [
-      evgKpiCard({ icon: '📥', value: (stockRows || []).length.toLocaleString('en-IN'), label: 'Stock IN Lines', onclick: "navigate('stores-stockin')" }),
+      evgKpiCard({ icon: '📥', value: (stockRows || []).length.toLocaleString('en-IN'), label: 'Stock IN Lines', onclick: "navigate('stores-siraw')" }),
       evgKpiCard({ icon: '🔓', value: openPOs.toLocaleString('en-IN'), label: 'Open POs', accent: '#d97706', onclick: "navigate('stores-openpo')" }),
       evgKpiCard({ icon: '⏳', value: pendAmt ? '₹' + Math.round(pendAmt).toLocaleString('en-IN') : '—', label: 'Pending PO Value', accent: '#c62828', onclick: "navigate('stores-openpo')" }),
       evgKpiCard({ icon: '🏗️', value: sites, label: 'Sites' }),
