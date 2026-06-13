@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.61.0';
-const PORTAL_BUILD    = 547;
-const PORTAL_BUILD_AT = '2026-06-12T21:33:28Z';
+const PORTAL_VERSION  = '3.62.0';
+const PORTAL_BUILD    = 548;
+const PORTAL_BUILD_AT = '2026-06-13T01:11:02Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4631,13 +4631,18 @@ function _evgExposeFields(table, srcRows, curatedLabels) {
     const headTr = table.querySelector('thead tr'); if (!headTr) return;
     Array.from(headTr.querySelectorAll('th[data-evg-extra]')).forEach(th => th.remove());
     const curN = {}; curatedLabels.forEach(l => curN[String(l == null ? '' : l).trim().toLowerCase()] = 1);
-    const extra = [], seen = {};
+    // Humanize a key for the column label: camelCase / snake → Title Case.
+    const human = k => String(k).replace(/[_-]+/g, ' ').replace(/([a-z\d])([A-Z])/g, '$1 $2').replace(/\s+/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase());
+    const extra = [], labels = [], seen = {};
     srcRows.forEach(r => { if (r && typeof r === 'object') Object.keys(r).forEach(k => {
-      const kk = String(k).trim(); if (!kk || seen[k] || k[0] === '_') return;   // skip blanks + internal _enrichments
-      seen[k] = 1; if (!curN[kk.toLowerCase()]) extra.push(k);
+      if (seen[k] || !k || k[0] === '_') return; seen[k] = 1;            // skip internal _enrichments
+      const v = r[k];
+      if (v != null && typeof v === 'object') return;                    // skip nested objects / Date / arrays
+      const lbl = human(k); if (!lbl || curN[lbl.toLowerCase()] || curN[String(k).trim().toLowerCase()]) return;  // already a column
+      extra.push(k); labels.push(lbl);
     }); });
     if (!extra.length) { table.dataset.evgExposed = '1'; return; }
-    extra.forEach(k => { const th = document.createElement('th'); th.setAttribute('data-evg-extra', '1'); th.style.whiteSpace = 'nowrap'; th.textContent = k; headTr.appendChild(th); });
+    labels.forEach(lbl => { const th = document.createElement('th'); th.setAttribute('data-evg-extra', '1'); th.style.whiteSpace = 'nowrap'; th.textContent = lbl; headTr.appendChild(th); });
     const curatedCount = curatedLabels.length;
     Array.from(table.querySelectorAll('tbody tr')).forEach((tr, i) => {
       Array.from(tr.querySelectorAll('td[data-evg-extra]')).forEach(td => td.remove());
@@ -4645,7 +4650,7 @@ function _evgExposeFields(table, srcRows, curatedLabels) {
       const src = srcRows[i] || {};
       extra.forEach(k => { const td = document.createElement('td'); td.setAttribute('data-evg-extra', '1'); td.style.fontSize = '.74rem'; td.style.whiteSpace = 'nowrap'; td.innerHTML = _regRawCell(src[k]); tr.appendChild(td); });
     });
-    table.dataset.evgDefaultHidden = _regHdrKeys(curatedLabels.concat(extra)).slice(curatedCount).join('|');
+    table.dataset.evgDefaultHidden = _regHdrKeys(curatedLabels.concat(labels)).slice(curatedCount).join('|');
     table.dataset.evgExposed = '1';
     table.dataset.evgCols = ''; table.dataset.evgSig = '';   // re-init the column manager with the fuller header
   } catch (e) {}
@@ -5731,6 +5736,7 @@ window.mrsRenderAllTable = function() {
     <thead><tr><th>Request No</th><th>Site</th><th>Requested By</th><th>Part Description</th><th>Type</th><th>Status</th><th>Approver</th><th>Approval Date</th><th>Raised On</th><th>Age</th></tr></thead>
     <tbody>${trs}</tbody>
   </table>`;
+  const _tMrs = el.querySelector('table'); if (_tMrs) _evgExposeFields(_tMrs, rows, ['Request No','Site','Requested By','Part Description','Type','Status','Approver','Approval Date','Raised On','Age']);
 };
 
 // ── MRS SITE TABLE ────────────────────────────────────────
@@ -11818,6 +11824,7 @@ window.scmRenderAllTable = function() {
     </tr></thead>
     <tbody>${trs}</tbody>
   </table>`;
+  const _tAll = el.querySelector('table'); if (_tAll) _evgExposeFields(_tAll, rows, ['PO No / Date','Vendor','Site','Amount','Status','Age','Approver','Actions']);
 };
 
 // ── HELPERS ──────────────────────────────────────────────
@@ -11932,7 +11939,7 @@ function renderPendingTable() {
 
   // Apply sort + pagination
   const _t_pendingTable = el?.querySelector?.(".emp-table, .vpi-tbl") || el?.closest?.(".card")?.querySelector?.(".emp-table, .vpi-tbl");
-  if (_t_pendingTable) { makeTableSortable(_t_pendingTable); wrapTableScroll(_t_pendingTable); }
+  if (_t_pendingTable) { _evgExposeFields(_t_pendingTable, sorted, ['PO No / Date','Vendor','Site','Amount','Age','Approver','Actions']); makeTableSortable(_t_pendingTable); wrapTableScroll(_t_pendingTable); }
 }
 
 // ── SITE TABLE ───────────────────────────────────────────
