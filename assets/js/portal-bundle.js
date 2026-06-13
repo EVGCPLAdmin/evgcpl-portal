@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.63.0';
-const PORTAL_BUILD    = 549;
-const PORTAL_BUILD_AT = '2026-06-13T01:13:55Z';
+const PORTAL_VERSION  = '3.64.0';
+const PORTAL_BUILD    = 550;
+const PORTAL_BUILD_AT = '2026-06-13T01:15:26Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -12705,6 +12705,7 @@ function renderHRDashboard() {
 
   // Store active employees for search
   window._hrEmpData = activeEmps;
+  { const _ht = document.getElementById('empTableBody')?.closest('table'); if (_ht) _evgExposeFields(_ht, activeEmps.slice(0,200), ['Name','EMP Code','Department','Designation','Grade','Site','Type']); }
 }
 
 window.filterEmpTable = function(q) {
@@ -12733,6 +12734,7 @@ window.filterEmpTable = function(q) {
       <td>${e.site || '—'}</td>
       <td><span class="tag" style="background:#e8f5e9;color:#2e7d32;font-size:.7rem">${e.empType || 'Staff'}</span></td>
     </tr>`).join('');
+  const _ht = tbody.closest('table'); if (_ht) _evgExposeFields(_ht, filtered.slice(0,200), ['Name','EMP Code','Department','Designation','Grade','Site','Type']);
 };
 
 // ══════════════════════════════════════════════════
@@ -22068,6 +22070,7 @@ function _rcApplyFiltersAndDraw() {
         <td style="white-space:nowrap">${actions}</td>
       </tr>`;
   }).join('');
+  const _rt = tbody.closest('table'); if (_rt) _evgExposeFields(_rt, rows, ['MRF ID','Position','Dept','Site','Vac.','Type','Required By','Raised By','Status','Actions']);
 }
 
 function _rcMRFActions(m, role) {
