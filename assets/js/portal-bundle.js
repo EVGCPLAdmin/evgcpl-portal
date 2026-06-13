@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.65.0';
-const PORTAL_BUILD    = 551;
-const PORTAL_BUILD_AT = '2026-06-13T01:29:42Z';
+const PORTAL_VERSION  = '3.66.0';
+const PORTAL_BUILD    = 552;
+const PORTAL_BUILD_AT = '2026-06-13T01:32:16Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -16618,10 +16618,12 @@ function pstRenderGRNRegister(c, q) {
       grnNo: key, site: g.site || r['Site Name'] || '', poNo: g.poNo || r['PO No'] || '',
       vendorDet: g.vendorDet || r['Vendor Name'] || '', type: g.type || r['Invoice / Stock Transfer'] || '',
       invNo: g.invNo || r['Invoice No / ST No'] || '', receivedOn: g.receivedOn || r['Received On (At)'] || '',
-      lines: 0, totalGRN: 0
+      lines: 0, totalGRN: 0, items: [], css: []
     };
     byGRN[key].lines++;
     byGRN[key].totalGRN += parseFloat(r['GRN Qty'] || 0);
+    byGRN[key].items.push(r);
+    if (cs && byGRN[key].css.indexOf(cs) < 0) byGRN[key].css.push(cs);
   });
 
   let grnList = Object.values(byGRN).sort((a, b) => new Date(b.receivedOn||0) - new Date(a.receivedOn||0));
@@ -16640,9 +16642,11 @@ function pstRenderGRNRegister(c, q) {
     return;
   }
 
+  window._pstGRNList = grnList;
+  const esc = _mdpEsc;
   c.innerHTML = `
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;gap:.5rem;flex-wrap:wrap">
-    <span style="font-size:.8rem;color:var(--txt3)">${grnList.length} GRN${grnList.length !== 1 ? 's' : ''}</span>
+    <span style="font-size:.8rem;color:var(--txt3)">${grnList.length} GRN${grnList.length !== 1 ? 's' : ''} &middot; <span style="color:var(--txt4)">click a row for details &middot; ▸ to expand line items</span></span>
     <button onclick="window.pstDownloadCSV('grn')" class="csv-btn">⬇ CSV</button>
   </div>
   <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
@@ -16653,15 +16657,16 @@ function pstRenderGRNRegister(c, q) {
       <th style="text-align:center">Lines</th><th style="text-align:right">Total GRN Qty</th>
       <th>Received On</th>
     </tr></thead>
-    <tbody>${grnList.map(g => `<tr>
+    <tbody>${grnList.map((g, i) => `<tr data-gi="${i}" style="cursor:pointer" onclick="_grnOpenDetail(${i})">
       <td style="font-weight:700;color:var(--green);font-size:.82rem;white-space:nowrap">
-        ${g.grnNo !== '(Pending GRN)' ? g.grnNo : '<span style="color:var(--txt3);font-style:italic;font-size:.76rem">Pending GRN</span>'}
+        <span class="grn-caret" onclick="event.stopPropagation();_grnToggle(${i},this)" title="Expand line items" style="display:inline-block;width:1.1em;color:var(--txt3);cursor:pointer">▸</span>
+        ${g.grnNo !== '(Pending GRN)' ? esc(g.grnNo) : '<span style="color:var(--txt3);font-style:italic;font-size:.76rem">Pending GRN</span>'}
       </td>
-      <td><span style="background:${g.type === 'Stock Transfer' ? '#e3f2fd' : '#f3e5f5'};color:${g.type === 'Stock Transfer' ? '#1565c0' : '#6a1b9a'};padding:.12rem .4rem;border-radius:4px;font-size:.73rem">${g.type || 'Invoice'}</span></td>
-      <td style="font-size:.78rem">${g.site || '—'}</td>
-      <td style="font-size:.74rem;color:#1565c0">${g.poNo || '—'}</td>
-      <td style="font-size:.77rem;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${g.vendorDet || '—'}</td>
-      <td style="font-size:.74rem">${g.invNo || '—'}</td>
+      <td><span style="background:${g.type === 'Stock Transfer' ? '#e3f2fd' : '#f3e5f5'};color:${g.type === 'Stock Transfer' ? '#1565c0' : '#6a1b9a'};padding:.12rem .4rem;border-radius:4px;font-size:.73rem">${esc(g.type) || 'Invoice'}</span></td>
+      <td style="font-size:.78rem">${esc(g.site) || '—'}</td>
+      <td style="font-size:.74rem;color:#1565c0">${esc(g.poNo) || '—'}</td>
+      <td style="font-size:.77rem;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(g.vendorDet) || '—'}</td>
+      <td style="font-size:.74rem">${esc(g.invNo) || '—'}</td>
       <td style="text-align:center;font-weight:600">${g.lines}</td>
       <td style="text-align:right;font-weight:700;color:#2e7d32;font-size:.88rem">${g.totalGRN}</td>
       <td style="white-space:nowrap;font-size:.78rem">${(g.receivedOn || '').split(' ')[0] || '—'}</td>
@@ -16671,6 +16676,63 @@ function pstRenderGRNRegister(c, q) {
   const _t_pstGRN = (typeof c !== "undefined" ? c : el)?.querySelector(".emp-table, .vpi-tbl");
   if (_t_pstGRN) { makeTableSortable(_t_pstGRN); wrapTableScroll(_t_pstGRN); }
 }
+// GRN line-item rows (the StockIN records that make up a GRN) — used by both the
+// inline tree toggle and the detail popup.
+function _grnItemRows(g) {
+  const esc = _mdpEsc;
+  return (g.items || []).map(r => {
+    const part = r['Part Description'] || r['Part Details'] || '—';
+    const td = 'padding:5px 8px;font-size:.74rem';
+    return `<tr>
+      <td style="${td};color:var(--txt3);white-space:nowrap">${esc(r['MR No']) || '—'}</td>
+      <td style="${td}">${esc(part)}</td>
+      <td style="${td};white-space:nowrap">${esc(r['SI ID']) || '—'}</td>
+      <td style="${td};text-align:right">${esc(r['MR Qty']) || '—'}</td>
+      <td style="${td};text-align:right">${esc(r['Invoice Qty']) || '—'}</td>
+      <td style="${td};text-align:right;font-weight:700;color:#2e7d32">${esc(r['GRN Qty']) || '—'}</td></tr>`;
+  }).join('');
+}
+// Inline tree: insert/remove the GRN's StockIN line items right under its row.
+window._grnToggle = function(i, caret) {
+  const g = (window._pstGRNList || [])[i]; if (!g) return;
+  const parent = caret.closest('tr'); if (!parent) return;
+  if (parent.dataset.expanded === '1') {
+    let n = parent.nextElementSibling;
+    while (n && n.classList.contains('grn-kid')) { const x = n; n = n.nextElementSibling; x.remove(); }
+    parent.dataset.expanded = ''; caret.textContent = '▸';
+    return;
+  }
+  const cols = parent.children.length;
+  const esc = _mdpEsc;
+  const inner = (g.items || []).map(r => {
+    const part = r['Part Description'] || r['Part Details'] || '—';
+    return `<div style="display:flex;gap:1rem;padding:3px 0;font-size:.75rem;border-bottom:1px dashed var(--border)">
+      <span style="flex:1">${esc(part)}</span>
+      <span style="color:var(--txt3);white-space:nowrap">MR ${esc(r['MR No']) || '—'}</span>
+      <span style="white-space:nowrap">Inv ${esc(r['Invoice Qty']) || '—'}</span>
+      <span style="white-space:nowrap;font-weight:700;color:#2e7d32">GRN ${esc(r['GRN Qty']) || '—'}</span></div>`;
+  }).join('');
+  parent.insertAdjacentHTML('afterend',
+    `<tr class="grn-kid" style="background:var(--surface2)"><td colspan="${cols}" style="padding:.4rem 1rem .6rem 2.4rem">${inner || '<span style="color:var(--txt3)">No line items.</span>'}</td></tr>`);
+  parent.dataset.expanded = '1'; caret.textContent = '▾';
+};
+// GRN detail popup — header details + line items + invoice attachment (by CheckSum).
+window._grnOpenDetail = function(i) {
+  const g = (window._pstGRNList || [])[i]; if (!g) return;
+  const esc = _mdpEsc;
+  const top = [['GRN No', g.grnNo === '(Pending GRN)' ? 'Pending' : g.grnNo], ['Type', g.type || 'Invoice'],
+    ['Site', g.site], ['PO No', g.poNo], ['Vendor / Supplier', g.vendorDet], ['Invoice / ST No', g.invNo],
+    ['Received On', _mdpFmtDate(g.receivedOn)], ['Lines', g.lines], ['Total GRN Qty', g.totalGRN]];
+  const directUrls = ['Invoice(Attachment)', 'Invoice (Attachment)', 'Invoice Attachment', 'Invoice Copy', 'Bill(Attachment)', 'Attachment']
+    .map(c => ({ url: (g.items[0] || {})[c], label: 'Invoice / Attachment' })).filter(o => o.url);
+  const body = _regKV(top)
+    + `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">&#128230; Line Items (${g.lines})</h4>`
+    + _regTbl(['MR No', 'Part', 'SI ID', 'MR Qty', 'Inv Qty', 'GRN Qty'], _grnItemRows(g))
+    + `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">&#129534; Invoice Attachments</h4>`
+    + `<div id="siAttBox"><div style="color:var(--txt3);font-size:.78rem;padding:.5rem">&#9203; Loading invoice attachments&hellip;</div></div>`;
+  _regOpenModal('GRN · ' + (esc(g.grnNo === '(Pending GRN)' ? (g.invNo || 'Pending') : g.grnNo)), body);
+  _siLoadAttachments((g.css || [])[0] || '', directUrls);
+};
 
 /* ── STOCK LEVELS TAB ─────────────────────────────── */
 function pstRenderLevels(c, q) {
