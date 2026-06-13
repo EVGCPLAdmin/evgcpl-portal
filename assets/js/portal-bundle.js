@@ -646,25 +646,37 @@ function exportTableCSV(table, filename) {
   // (DOM) order — which _tblColApply has already reordered/hidden. So the CSV
   // always matches the arranged column order and show/hide state.
   const hidden = el => !!(el && el.style && el.style.display === 'none');
-  const rows = [];
   const ths = Array.from(table.querySelectorAll('thead th'));
   const visIdx = [];
   const headers = [];
   ths.forEach((th, i) => {
     if (hidden(th)) return;
     visIdx.push(i);
-    // Strip sort arrows from header text
     const clone = th.cloneNode(true);
     clone.querySelectorAll('.sort-arrow').forEach(a => a.remove());
-    headers.push('"' + clone.textContent.trim().replace(/"/g, '""') + '"');
+    headers.push(clone.textContent.trim());
   });
-  rows.push(headers.join(','));
+  // Clean numeric/currency cells: drop the ₹/$/€/£ symbol and thousands commas
+  // so the value column holds a plain number (text cells are left untouched).
+  let hasCurrency = false;
+  const clean = raw => {
+    let t = String(raw == null ? '' : raw).trim();
+    const isCur = /[₹$€£]/.test(t);
+    if (isCur) hasCurrency = true;
+    if (isCur || /^-?[\d,]+(\.\d+)?$/.test(t)) t = t.replace(/[₹$€£]/g, '').replace(/(\d),(?=\d)/g, '$1').trim();
+    return t;
+  };
+  const q = s => '"' + String(s).replace(/"/g, '""') + '"';
+  const dataRows = [];
   table.querySelectorAll('tbody tr').forEach(tr => {
+    if (!visIdx.length) return;
     const tds = Array.from(tr.children);
-    const cells = visIdx.map(i => '"' + ((tds[i] && tds[i].textContent) || '').trim().replace(/"/g, '""') + '"');
-    if (cells.length) rows.push(cells.join(','));
+    dataRows.push(visIdx.map(i => clean((tds[i] && tds[i].textContent) || '')));
   });
-  const csv = rows.join('\n');
+  if (hasCurrency) headers.push('Currency');
+  const out = [headers.map(q).join(',')];
+  dataRows.forEach(cells => out.push((hasCurrency ? cells.concat('INR') : cells).map(q).join(',')));
+  const csv = out.join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1272,12 +1284,26 @@ function _tblFiltersAll() { try { return JSON.parse(localStorage.getItem('evg_tb
 function _tblFiltersGet(sig) { const v = _tblFiltersAll()[sig]; return Array.isArray(v) ? v : []; }
 function _tblFiltersSet(sig, fields) { const a = _tblFiltersAll(); if (fields && fields.length) a[sig] = fields; else delete a[sig]; try { localStorage.setItem('evg_tbl_filters', JSON.stringify(a)); } catch (e) {} }
 function _tblFilterCellText(td) { return (td.textContent || '').trim().replace(/\s+/g, ' '); }
+// Parse a numeric/currency cell to a signed number: strips ₹/$/€/£ + commas;
+// a "Dr" (debit) suffix makes it negative so a balance column sorts/filters by
+// its real Cr(+)/Dr(−) value.
+function _tblNumParse(t) {
+  t = String(t == null ? '' : t);
+  if (!/\d/.test(t)) return null;
+  const neg = /\bDr\b/i.test(t);
+  const m = t.replace(/[₹$€£,]/g, '').match(/-?\d+(\.\d+)?/);
+  if (!m) return null;
+  let n = parseFloat(m[0]);
+  if (neg && n > 0) n = -n;
+  return n;
+}
 function _tblFilterApply(table) {
   const ths = Array.from(table.querySelectorAll('thead th'));
   const keys = _tblColKeys(ths);
   const idxOf = {}; keys.forEach((k, i) => idxOf[k] = i);
   const vals = table._evgFilterVals || {};
-  const active = Object.keys(vals).filter(k => vals[k] && vals[k].v !== '' && idxOf[k] != null);
+  const isActive = f => f && (f.mode === 'num' ? (f.op && f.v1 !== '' && f.v1 != null) : (f.v !== '' && f.v != null));
+  const active = Object.keys(vals).filter(k => isActive(vals[k]) && idxOf[k] != null);
   let shown = 0, total = 0;
   table.querySelectorAll('tbody tr').forEach(tr => {
     const cells = tr.children;
@@ -1287,7 +1313,14 @@ function _tblFilterApply(table) {
     for (const k of active) {
       const f = vals[k]; const td = cells[idxOf[k]]; if (!td) continue;
       const t = _tblFilterCellText(td);
-      if (f.mode === 'eq' ? t !== f.v : t.toLowerCase().indexOf(String(f.v).toLowerCase()) < 0) { ok = false; break; }
+      let pass;
+      if (f.mode === 'num') {
+        const n = _tblNumParse(t), a = parseFloat(f.v1), b = parseFloat(f.v2);
+        pass = n != null && (f.op === 'gt' ? n > a : f.op === 'lt' ? n < a : f.op === 'ge' ? n >= a : f.op === 'le' ? n <= a
+          : f.op === 'bt' ? (isNaN(b) ? n >= a : (n >= Math.min(a, b) && n <= Math.max(a, b))) : true);
+      } else if (f.mode === 'eq') pass = t === f.v;
+      else pass = t.toLowerCase().indexOf(String(f.v).toLowerCase()) >= 0;
+      if (!pass) { ok = false; break; }
     }
     tr.style.display = ok ? '' : 'none';
     if (ok) shown++;
@@ -1314,32 +1347,54 @@ function _tblFilterBarBuild(table) {
     table._evgFilterBar = bar;
   }
   const vals = table._evgFilterVals = table._evgFilterVals || {};
+  // A column is numeric if most of its non-empty cells look like numbers/currency
+  // (optionally with a Cr/Dr suffix) → gets an operator filter (>, <, between).
+  const isNumericCol = i => {
+    let num = 0, tot = 0;
+    table.querySelectorAll('tbody tr').forEach(tr => { const c = tr.children; if (c.length === ths.length) { const t = _tblFilterCellText(c[i]); if (t && t !== '—') { tot++; if (/^-?\s*[₹$€£]?\s?[\d,]+(\.\d+)?(\s*(Cr|Dr))?$/i.test(t)) num++; } } });
+    return tot >= 3 && num / tot >= 0.6;
+  };
+  const inStyle = 'font-size:.76rem;border:1px solid var(--border);border-radius:6px;padding:4px 7px;background:var(--surface2);color:var(--txt)';
   bar.innerHTML = '';
   fields.forEach(k => {
     if (idxOf[k] == null) return;
     const i = idxOf[k];
-    const distinct = new Set();
-    table.querySelectorAll('tbody tr').forEach(tr => { const c = tr.children; if (c.length === ths.length) { const t = _tblFilterCellText(c[i]); if (t) distinct.add(t.slice(0, 60)); } });
-    const opts = Array.from(distinct).sort((a, b) => a.localeCompare(b));
     const box = document.createElement('div');
-    box.style.cssText = 'display:flex;flex-direction:column;gap:2px;min-width:130px;max-width:220px';
+    box.style.cssText = 'display:flex;flex-direction:column;gap:2px;min-width:130px;max-width:260px';
     const lab = document.createElement('label');
     lab.style.cssText = 'font-size:.62rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em';
     lab.textContent = labelOf[k];
     box.appendChild(lab);
-    const cur = vals[k] ? vals[k].v : '';
-    let ctl;
-    if (opts.length <= 40) {
-      ctl = document.createElement('select');
-      ctl.innerHTML = '<option value="">All</option>' + opts.map(o => `<option${o === cur ? ' selected' : ''}>${o.replace(/[<>&"]/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;' }[c]))}</option>`).join('');
-      ctl.addEventListener('change', () => { vals[k] = { v: ctl.value, mode: 'eq' }; _tblFilterApply(table); });
+    if (isNumericCol(i)) {
+      const f = (vals[k] && vals[k].mode === 'num') ? vals[k] : { mode: 'num', op: '', v1: '', v2: '' };
+      const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:3px;align-items:center';
+      const opSel = document.createElement('select');
+      opSel.innerHTML = '<option value="">All</option><option value="gt">&gt;</option><option value="lt">&lt;</option><option value="ge">&ge;</option><option value="le">&le;</option><option value="bt">between</option>';
+      opSel.value = f.op || ''; opSel.style.cssText = inStyle + ';flex:0 0 auto';
+      const v1 = document.createElement('input'); v1.type = 'number'; v1.placeholder = 'value'; v1.value = f.v1 || ''; v1.style.cssText = inStyle + ';width:76px';
+      const v2 = document.createElement('input'); v2.type = 'number'; v2.placeholder = 'and'; v2.value = f.v2 || ''; v2.style.cssText = inStyle + ';width:76px'; v2.style.display = f.op === 'bt' ? '' : 'none';
+      const sync = () => { vals[k] = { mode: 'num', op: opSel.value, v1: v1.value, v2: v2.value }; v2.style.display = opSel.value === 'bt' ? '' : 'none'; _tblFilterApply(table); };
+      opSel.addEventListener('change', sync); v1.addEventListener('input', sync); v2.addEventListener('input', sync);
+      row.appendChild(opSel); row.appendChild(v1); row.appendChild(v2);
+      box.appendChild(row);
     } else {
-      ctl = document.createElement('input');
-      ctl.type = 'text'; ctl.placeholder = 'contains…'; ctl.value = (vals[k] && vals[k].mode === 'has') ? cur : '';
-      ctl.addEventListener('input', () => { vals[k] = { v: ctl.value, mode: 'has' }; _tblFilterApply(table); });
+      const distinct = new Set();
+      table.querySelectorAll('tbody tr').forEach(tr => { const c = tr.children; if (c.length === ths.length) { const t = _tblFilterCellText(c[i]); if (t) distinct.add(t.slice(0, 60)); } });
+      const opts = Array.from(distinct).sort((a, b) => a.localeCompare(b));
+      const cur = (vals[k] && vals[k].mode !== 'num') ? vals[k].v : '';
+      let ctl;
+      if (opts.length <= 40) {
+        ctl = document.createElement('select');
+        ctl.innerHTML = '<option value="">All</option>' + opts.map(o => `<option${o === cur ? ' selected' : ''}>${o.replace(/[<>&"]/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;' }[c]))}</option>`).join('');
+        ctl.addEventListener('change', () => { vals[k] = { v: ctl.value, mode: 'eq' }; _tblFilterApply(table); });
+      } else {
+        ctl = document.createElement('input');
+        ctl.type = 'text'; ctl.placeholder = 'contains…'; ctl.value = (vals[k] && vals[k].mode === 'has') ? cur : '';
+        ctl.addEventListener('input', () => { vals[k] = { v: ctl.value, mode: 'has' }; _tblFilterApply(table); });
+      }
+      ctl.style.cssText = inStyle + ';width:100%';
+      box.appendChild(ctl);
     }
-    ctl.style.cssText = 'font-size:.76rem;border:1px solid var(--border);border-radius:6px;padding:4px 7px;background:var(--surface2);color:var(--txt);width:100%';
-    box.appendChild(ctl);
     bar.appendChild(box);
   });
   const right = document.createElement('div');
@@ -1384,7 +1439,9 @@ window.tblFilterPanel = function(sig) {
   const ths = Array.from(t.querySelectorAll('thead th'));
   const keys = _tblColKeys(ths);
   const labelOf = {}; ths.forEach((th, i) => labelOf[keys[i]] = (th.textContent || '').trim().replace(/\s+/g, ' ') || keys[i]);
-  const chosen = new Set(_tblFiltersGet(sig));
+  // Default: filter by ALL fields until the user trims the set.
+  const saved = _tblFiltersGet(sig);
+  const chosen = new Set(saved.length ? saved : keys);
   document.getElementById('evgFilterModal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'evgFilterModal';
@@ -1396,9 +1453,10 @@ window.tblFilterPanel = function(sig) {
         <h3 style="font-size:.95rem;font-weight:700;color:var(--g9)">&#9660; Filter fields</h3>
         <button class="evg-flt-x" style="border:none;background:none;font-size:1.3rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
       </div>
-      <div style="padding:.5rem 1.2rem;font-size:.72rem;color:var(--txt3)">Tick the fields you want to filter this table by &mdash; each appears above the table as a dropdown (or contains-search for high-variety fields).</div>
+      <div style="padding:.5rem 1.2rem;font-size:.72rem;color:var(--txt3)">All fields are filterable by default. Each appears above the table as a dropdown, a contains-search (high-variety text), or an operator filter <b>&gt; &lt; between</b> (numeric/amount columns). Untick any you don't need.</div>
       <div class="evg-flt-list" style="padding:.7rem 1.2rem 1rem;overflow:auto"></div>
       <div style="display:flex;gap:.5rem;justify-content:flex-end;padding:.9rem 1.2rem;border-top:1px solid var(--border)">
+        <button class="btn btn-secondary btn-sm evg-flt-all">&#10003; All</button>
         <button class="btn btn-secondary btn-sm evg-flt-clear">&#8635; Clear all</button>
         <button class="btn btn-primary btn-sm evg-flt-done">&#10003; Done</button>
       </div>
@@ -1420,6 +1478,7 @@ window.tblFilterPanel = function(sig) {
     document.querySelectorAll('#mainContent table[data-evg-filter="1"]').forEach(x => { if (x.dataset.evgSig === sig) _tblFilterBarBuild(x); });
   };
   modal.querySelector('.evg-flt-x').addEventListener('click', () => modal.remove());
+  modal.querySelector('.evg-flt-all').addEventListener('click', () => { keys.forEach(k => chosen.add(k)); list.querySelectorAll('input').forEach(c => c.checked = true); save(); });
   modal.querySelector('.evg-flt-clear').addEventListener('click', () => { chosen.clear(); list.querySelectorAll('input').forEach(c => c.checked = false); save(); });
   modal.querySelector('.evg-flt-done').addEventListener('click', () => { save(); modal.remove(); });
 };
@@ -4443,9 +4502,9 @@ function _vplpRenderBody() {
       <select onchange="_vplpSetVendor(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${opts}</select>
     </div>
     <div style="font-size:.72rem;color:var(--txt3)">${d.vendors.length} vendor(s)</div></div></div>`;
-  if (!_vplpVendor) { c.innerHTML = selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger.</div>`; return; }
+  if (!_vplpVendor) { c.innerHTML = toggle + selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
   const v = d.vendors.find(x => x.key === _vplpVendor);
-  if (!v) { c.innerHTML = selector; return; }
+  if (!v) { c.innerHTML = toggle + selector; return; }
   const head = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem">
     <div><div style="font-weight:700;font-size:1rem">${esc(v.name)}${v.vid ? ` <span style="font-size:.72rem;color:var(--txt3)">[${esc(v.vid)}]</span>` : ''}</div>
     <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) received &middot; ${v.payCount} payment(s)</div></div>
