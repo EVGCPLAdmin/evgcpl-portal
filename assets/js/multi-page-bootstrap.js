@@ -191,13 +191,11 @@
     // SCM group
     'scm':               'scm.html',
     'scm-pending':       'scm.html',
-    'scm-register':      'scm.html',
     'scm-site':          'scm.html',
     'scm-vendor':        'scm.html',
     'mrs':               'scm.html',
     'purchase':          'scm.html',
     'stores':            'scm.html',
-    'stores-stockin':    'scm.html',
     'stores-siraw':      'scm.html',
     'stores-grn':        'scm.html',
     'stores-openpo':     'scm.html',
