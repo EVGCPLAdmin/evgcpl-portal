@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.66.0';
-const PORTAL_BUILD    = 552;
-const PORTAL_BUILD_AT = '2026-06-13T01:32:16Z';
+const PORTAL_VERSION  = '3.67.0';
+const PORTAL_BUILD    = 553;
+const PORTAL_BUILD_AT = '2026-06-13T01:34:28Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4300,6 +4300,7 @@ function _scLedRenderBody() {
 // The vendor picker lists ONLY vendors that have at least one PO payment
 // (PaymentRequest row with Payment To = Vendor and a non-empty Order No).
 let _vplpVendor = '';
+let _vplpView   = 'vendor';   // 'vendor' = per-vendor ledger · 'flat' = all-vendor flat list
 let _vplpFY = '';
 let _vplpData = null;
 function renderVendorLedgerPO() {
@@ -4320,6 +4321,8 @@ function renderVendorLedgerPO() {
 window._vplpReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _vplpEnsure(true).then(() => _vplpRenderBody()).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
 window._vplpSetVendor = function(v) { _vplpVendor = v; _vplpFY = ''; _vplpRenderBody(); };
 window._vplpSetFY     = function(v) { _vplpFY = v; _vplpRenderBody(); };
+window._vplpSetView   = function(v) { _vplpView = v; _vplpRenderBody(); };
+window._vplpFlatOpen  = function(i) { const r = (window._vplpFlatRows || [])[i]; if (!r) return; _vplpVendor = r.v.key; _vplpFY = ''; _vplpView = 'vendor'; _vplpRenderBody(); };
 
 let _vplpGRNRows = null;
 async function _vplpEnsure(force) {
@@ -4427,6 +4430,11 @@ function _vplpRenderBody() {
   const c = document.getElementById('vplp-body'); if (!c) return;
   const d = _vplpData; if (!d) return;
   const esc = _mdpEsc;
+  const toggle = `<div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap">
+    <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
+    <button onclick="_vplpSetView('flat')" class="btn btn-sm ${_vplpView === 'flat' ? 'btn-primary' : 'btn-secondary'}">&#128203; Flat List (all vendors)</button>
+  </div>`;
+  if (_vplpView === 'flat') { c.innerHTML = toggle + _vplpFlatList(); return; }
   const opts = `<option value="">Select vendor&hellip;</option>` + d.vendors.map(v =>
     `<option value="${esc(v.key)}"${v.key === _vplpVendor ? ' selected' : ''}>${esc(v.name)}${v.vid ? ` [${esc(v.vid)}]` : ''}${v.unmapped ? ' · Unmapped' : ''} (${Object.keys(v.poKeys).length} PO &middot; ${v.payCount} pay)</option>`).join('');
   const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
@@ -4442,7 +4450,67 @@ function _vplpRenderBody() {
     <div><div style="font-weight:700;font-size:1rem">${esc(v.name)}${v.vid ? ` <span style="font-size:.72rem;color:var(--txt3)">[${esc(v.vid)}]</span>` : ''}</div>
     <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) received &middot; ${v.payCount} payment(s)</div></div>
   </div>`;
-  c.innerHTML = selector + head + _vplpLedger(v);
+  c.innerHTML = toggle + selector + head + _vplpLedger(v);
+}
+// Flat list — one row per vendor with their final Dr/Cr balance + totals.
+function _vplpFlatList() {
+  const d = _vplpData, esc = _mdpEsc;
+  const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
+  const drcr = n => inr(Math.abs(n)) + (n >= 0 ? ' Cr' : ' Dr');
+  // Completed vendor payments per vendor key — one pass.
+  const debitByKey = {};
+  (_mdpRows || []).forEach(r => {
+    if (r.payTo !== 'Vendor') return;
+    if (!(r.status && r.status.cat === 'completed')) return;
+    const vid = _vplpVendorToken(r.vendor) || _vplpVendorToken(r.paidTo);
+    const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
+    debitByKey[key] = (debitByKey[key] || 0) + r.amount;
+  });
+  let rows = d.vendors.map(v => {
+    let mat = 0, addl = 0, taxA = 0, taxB = 0;
+    Object.keys(v.poKeys).forEach(k => {
+      const i = d.poInfo[k] || {}; const m = d.poRecv[k] || 0, ta = d.poTaxA[k] || 0, tb = i.taxB || 0, ad = i.addl || 0;
+      if (m + ad + ta + tb <= 0) return; mat += m; addl += ad; taxA += ta; taxB += tb;
+    });
+    const credit = mat + addl + taxA + taxB, debit = debitByKey[v.key] || 0;
+    return { v, mat, addl, taxA, taxB, credit, debit, bal: credit - debit };
+  }).filter(r => r.credit > 0 || r.debit > 0);
+  rows.sort((a, b) => b.bal - a.bal);
+  window._vplpFlatRows = rows;
+  if (!rows.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No vendor activity yet.</div>';
+  const T = rows.reduce((s, r) => { ['mat', 'addl', 'taxA', 'taxB', 'credit', 'debit'].forEach(k => s[k] += r[k]); return s; }, { mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0 });
+  const bal = T.credit - T.debit;
+  const m = x => x ? inr(x) : '—';
+  const kpi = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.55rem;margin-bottom:1rem">
+    <div class="kpi-card" style="padding:.55rem .75rem;border-left:4px solid ${bal >= 0 ? '#ea580c' : '#1d4ed8'}"><div class="kpi-value" style="font-size:.98rem">${drcr(bal)}</div><div class="kpi-label" style="font-size:.64rem">Net Outstanding (payable)</div></div>
+    <div class="kpi-card" style="padding:.55rem .75rem"><div class="kpi-value" style="font-size:.98rem">${rows.length}</div><div class="kpi-label" style="font-size:.64rem">Vendors</div></div>
+    <div class="kpi-card" style="padding:.55rem .75rem"><div class="kpi-value" style="font-size:.98rem">${inr(T.credit)}</div><div class="kpi-label" style="font-size:.64rem">Total Billed (Cr)</div></div>
+    <div class="kpi-card" style="padding:.55rem .75rem"><div class="kpi-value" style="font-size:.98rem">${inr(T.debit)}</div><div class="kpi-label" style="font-size:.64rem">Total Paid (Dr)</div></div>
+  </div>`;
+  const body = rows.map((r, i) => `<tr style="cursor:pointer" onclick="_vplpFlatOpen(${i})" title="Open detailed ledger">
+    <td style="padding:6px 9px">${esc(r.v.name)}${r.v.vid ? ` <span style="color:var(--txt3);font-size:.72rem">[${esc(r.v.vid)}]</span>` : ''}${r.v.unmapped ? ' <span style="color:#c2410c;font-size:.66rem">·Unmapped</span>' : ''}</td>
+    <td style="padding:6px 9px;text-align:right;color:#b45309">${m(r.mat)}</td>
+    <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(r.addl)}</td>
+    <td style="padding:6px 9px;text-align:right;color:#2563eb">${m(r.taxA + r.taxB)}</td>
+    <td style="padding:6px 9px;text-align:right;color:#15803d;font-weight:600">${m(r.credit)}</td>
+    <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${m(r.debit)}</td>
+    <td style="padding:6px 9px;text-align:right;font-weight:700;color:var(--g8)">${drcr(r.bal)}</td></tr>`).join('');
+  const tfoot = `<tr style="background:var(--surface2);font-weight:700">
+    <td style="padding:7px 9px">Totals &middot; ${rows.length}</td>
+    <td style="padding:7px 9px;text-align:right;color:#b45309">${m(T.mat)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(T.addl)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#2563eb">${m(T.taxA + T.taxB)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#15803d">${m(T.credit)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(T.debit)}</td>
+    <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td></tr>`;
+  return kpi + `<div class="card"><div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:.78rem">
+      <thead><tr style="background:var(--g9);color:#fff;text-align:left">
+        <th style="padding:8px 9px">Vendor</th>
+        <th style="padding:8px 9px;text-align:right">Material</th><th style="padding:8px 9px;text-align:right">Add'l</th>
+        <th style="padding:8px 9px;text-align:right">Tax</th><th style="padding:8px 9px;text-align:right">Billed (Cr)</th>
+        <th style="padding:8px 9px;text-align:right">Paid (Dr)</th><th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th>
+      </tr></thead><tbody>${body}</tbody><tfoot>${tfoot}</tfoot></table></div></div>`;
 }
 // Indian FY runs Apr→Mar; the FY "start year" identifies it (2026 → FY 2026-27).
 function _vplpFYof(v) { const t = _mdpDateVal(v); if (!t) return ''; const d = new Date(t); return String(d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1); }
