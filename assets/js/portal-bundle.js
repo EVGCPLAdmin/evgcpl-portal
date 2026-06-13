@@ -13433,19 +13433,21 @@ function renderSiteManager() {
     _smSelectedSite = name;
     renderSiteManager();
   };
+  { const _et = document.getElementById('sm-emp-table')?.querySelector('table'); if (_et) _evgExposeFields(_et, siteEmps, ['Name','Code','Designation','Department','Type']);
+    const _qt = document.getElementById('sm-eq-table')?.querySelector('table'); if (_qt) _evgExposeFields(_qt, siteAssets, ['Asset Name','Code','Category','Own/Hire','Status']); }
   window.smFilterEmps = function() {
     const q = (document.getElementById('sm-emp-search')?.value||'').toLowerCase();
     const filtered = siteEmps.filter(u =>
       (u.name+u.dept+u.desig).toLowerCase().includes(q));
     const t = document.getElementById('sm-emp-table');
-    if (t) t.innerHTML = renderSMEmpTable(filtered);
+    if (t) { t.innerHTML = renderSMEmpTable(filtered); const _et = t.querySelector('table'); if (_et) _evgExposeFields(_et, filtered, ['Name','Code','Designation','Department','Type']); }
   };
   window.smFilterEquipment = function() {
     const q = (document.getElementById('sm-eq-search')?.value||'').toLowerCase();
     const filtered = siteAssets.filter(a =>
       (a.name+a.category+a.code).toLowerCase().includes(q));
     const t = document.getElementById('sm-eq-table');
-    if (t) t.innerHTML = renderSMEquipTable(filtered);
+    if (t) { t.innerHTML = renderSMEquipTable(filtered); const _et = t.querySelector('table'); if (_et) _evgExposeFields(_et, filtered, ['Asset Name','Code','Category','Own/Hire','Status']); }
   };
 
   // ── OPS TAB STYLES ──────────────────────────────────────
@@ -13588,7 +13590,8 @@ function renderSiteManager() {
         </table>`}
       </div>
     </div>`;
-    makeTableSortable(el.querySelector('.emp-table')); wrapTableScroll(el.querySelector('.emp-table'));
+    const _te = el.querySelector('.emp-table'); if (_te) _evgExposeFields(_te, rows, ['Request No','Requested By','Part Description','Type','Status','Approver','Date']);
+    makeTableSortable(_te); wrapTableScroll(_te);
   }
 
   function smRenderPO(el) {
@@ -13628,7 +13631,8 @@ function renderSiteManager() {
         </table>`}
       </div>
     </div>`;
-    makeTableSortable(el.querySelector('.emp-table')); wrapTableScroll(el.querySelector('.emp-table'));
+    const _te = el.querySelector('.emp-table'); if (_te) _evgExposeFields(_te, rows, ['PO No','Date','Vendor','Amount','Status','Approver']);
+    makeTableSortable(_te); wrapTableScroll(_te);
   }
 
   function smRenderStock(el) {
@@ -13664,7 +13668,8 @@ function renderSiteManager() {
         </table>`}
       </div>
     </div>`;
-    makeTableSortable(el.querySelector('.emp-table')); wrapTableScroll(el.querySelector('.emp-table'));
+    const _te = el.querySelector('.emp-table'); if (_te) _evgExposeFields(_te, levels, ['#','Part Details','Stock IN','Transfer','Stock Out','Site Stock']);
+    makeTableSortable(_te); wrapTableScroll(_te);
   }
 
   function smRenderGRN(el) {
@@ -14245,6 +14250,7 @@ function renderEquipmentModule() {
       </div>
     </div>
   `;
+  { const _eqT = document.getElementById('eq-table')?.querySelector('table'); if (_eqT) _evgExposeFields(_eqT, assets, ['Asset Name','Code','Category','Site','Own/Hire','Status']); }
 
   window.eqApplyFilter = function() {
     const site  = document.getElementById('eq-f-site')?.value||'';
@@ -14260,7 +14266,7 @@ function renderEquipmentModule() {
     const badge = document.getElementById('eq-count-badge');
     if (badge) badge.innerHTML = `<strong>${rows.length}</strong> assets`;
     const t = document.getElementById('eq-table');
-    if (t) t.innerHTML = renderEQTable(rows);
+    if (t) { t.innerHTML = renderEQTable(rows); const _eqT = t.querySelector('table'); if (_eqT) _evgExposeFields(_eqT, rows, ['Asset Name','Code','Category','Site','Own/Hire','Status']); }
   };
 }
 
