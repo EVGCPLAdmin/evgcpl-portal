@@ -4411,6 +4411,17 @@ function _scLedRenderBody() {
 // (PaymentRequest row with Payment To = Vendor and a non-empty Order No).
 let _vplpVendor = '';
 let _vplpView   = 'vendor';   // 'vendor' = per-vendor ledger · 'flat' = all-vendor flat list
+let _vplpFlatStatus = '';     // flat-list balance-status filter: '' | Payable | Settled | Advance
+// Vendor balance status (AP / creditors-ledger convention):
+//   Cr balance (we owe)  → Payable (Outstanding)
+//   Debit = Credit       → Settled
+//   Dr balance (overpaid)→ Advance (debit balance / recoverable)
+function _vplpBalStatus(bal) { return bal > 1 ? 'Payable' : bal < -1 ? 'Advance' : 'Settled'; }
+const _VPLP_STATUS_META = {
+  Payable: { label: 'Payable (Outstanding)', bg: '#ffedd5', color: '#c2410c', dot: '#ea580c' },
+  Settled: { label: 'Settled', bg: '#dcfce7', color: '#15803d', dot: '#16a34a' },
+  Advance: { label: 'Advance (Dr)', bg: '#dbeafe', color: '#1d4ed8', dot: '#2563eb' },
+};
 let _vplpFY = '';
 let _vplpData = null;
 function renderVendorLedgerPO() {
@@ -4432,6 +4443,7 @@ window._vplpReload    = function(btn) { if (btn) { btn.disabled = true; btn.text
 window._vplpSetVendor = function(v) { _vplpVendor = v; _vplpFY = ''; _vplpRenderBody(); };
 window._vplpSetFY     = function(v) { _vplpFY = v; _vplpRenderBody(); };
 window._vplpSetView   = function(v) { _vplpView = v; _vplpRenderBody(); };
+window._vplpSetFlatStatus = function(v) { _vplpFlatStatus = v; _vplpRenderBody(); };
 window._vplpFlatOpen  = function(i) { const r = (window._vplpFlatRows || [])[i]; if (!r) return; _vplpVendor = r.v.key; _vplpFY = ''; _vplpView = 'vendor'; _vplpRenderBody(); };
 
 let _vplpGRNRows = null;
@@ -4565,6 +4577,7 @@ function _vplpRenderBody() {
 }
 // Flat list — one row per vendor with their final Dr/Cr balance + totals.
 function _vplpFlatList() {
+  _vplpEnsureLedgerStyle();
   const d = _vplpData, esc = _mdpEsc;
   const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
   const drcr = n => inr(Math.abs(n)) + (n >= 0 ? ' Cr' : ' Dr');
@@ -4583,23 +4596,35 @@ function _vplpFlatList() {
       const i = d.poInfo[k] || {}; const m = d.poRecv[k] || 0, ta = d.poTaxA[k] || 0, tb = i.taxB || 0, ad = i.addl || 0;
       if (m + ad + ta + tb <= 0) return; mat += m; addl += ad; taxA += ta; taxB += tb;
     });
-    const credit = mat + addl + taxA + taxB, debit = debitByKey[v.key] || 0;
-    return { v, mat, addl, taxA, taxB, credit, debit, bal: credit - debit };
+    const credit = mat + addl + taxA + taxB, debit = debitByKey[v.key] || 0, bal = credit - debit;
+    return { v, mat, addl, taxA, taxB, credit, debit, bal, status: _vplpBalStatus(bal) };
   }).filter(r => r.credit > 0 || r.debit > 0);
-  rows.sort((a, b) => b.bal - a.bal);
-  window._vplpFlatRows = rows;
+  // Group by balance status (Payable → Advance → Settled), then by size within.
+  const gOrd = { Payable: 0, Advance: 1, Settled: 2 };
+  rows.sort((a, b) => (gOrd[a.status] - gOrd[b.status]) || (Math.abs(b.bal) - Math.abs(a.bal)));
+  const counts = rows.reduce((s, r) => { s[r.status] = (s[r.status] || 0) + 1; return s; }, {});
+  // Default status filter.
+  const shown = _vplpFlatStatus ? rows.filter(r => r.status === _vplpFlatStatus) : rows;
+  window._vplpFlatRows = shown;
   if (!rows.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No vendor activity yet.</div>';
-  const T = rows.reduce((s, r) => { ['mat', 'addl', 'taxA', 'taxB', 'credit', 'debit'].forEach(k => s[k] += r[k]); return s; }, { mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0 });
+  const T = shown.reduce((s, r) => { ['mat', 'addl', 'taxA', 'taxB', 'credit', 'debit'].forEach(k => s[k] += r[k]); return s; }, { mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0 });
   const bal = T.credit - T.debit;
   const m = x => x ? inr(x) : '—';
+  const statChip = st => { const c = _VPLP_STATUS_META[st]; return `<span style="display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;font-weight:700;background:${c.bg};color:${c.color};padding:2px 9px;border-radius:20px;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:${c.dot}"></span>${c.label}</span>`; };
+  const statBtn = (val, label, n) => `<button onclick="_vplpSetFlatStatus('${val}')" class="btn btn-sm ${_vplpFlatStatus === val ? 'btn-primary' : 'btn-secondary'}">${label}${n != null ? ` (${n})` : ''}</button>`;
+  const filterBar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.45rem;align-items:center;flex-wrap:wrap">
+    <span style="font-size:.7rem;font-weight:700;color:var(--txt3);margin-right:.2rem">BALANCE STATUS</span>
+    ${statBtn('', 'All', rows.length)}${statBtn('Payable', 'Payable', counts.Payable || 0)}${statBtn('Settled', 'Settled', counts.Settled || 0)}${statBtn('Advance', 'Advance', counts.Advance || 0)}
+  </div>`;
   const kpi = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.55rem;margin-bottom:1rem">
     <div class="kpi-card" style="padding:.55rem .75rem;border-left:4px solid ${bal >= 0 ? '#ea580c' : '#1d4ed8'}"><div class="kpi-value" style="font-size:.98rem">${drcr(bal)}</div><div class="kpi-label" style="font-size:.64rem">Net Outstanding (payable)</div></div>
-    <div class="kpi-card" style="padding:.55rem .75rem"><div class="kpi-value" style="font-size:.98rem">${rows.length}</div><div class="kpi-label" style="font-size:.64rem">Vendors</div></div>
+    <div class="kpi-card" style="padding:.55rem .75rem"><div class="kpi-value" style="font-size:.98rem">${shown.length}</div><div class="kpi-label" style="font-size:.64rem">Vendors${_vplpFlatStatus ? ' · ' + _vplpFlatStatus : ''}</div></div>
     <div class="kpi-card" style="padding:.55rem .75rem"><div class="kpi-value" style="font-size:.98rem">${inr(T.credit)}</div><div class="kpi-label" style="font-size:.64rem">Total Billed (Cr)</div></div>
     <div class="kpi-card" style="padding:.55rem .75rem"><div class="kpi-value" style="font-size:.98rem">${inr(T.debit)}</div><div class="kpi-label" style="font-size:.64rem">Total Paid (Dr)</div></div>
   </div>`;
-  const body = rows.map((r, i) => `<tr style="cursor:pointer" onclick="_vplpFlatOpen(${i})" title="Open detailed ledger">
+  const body = shown.map((r, i) => `<tr style="cursor:pointer" onclick="_vplpFlatOpen(${i})" title="Open detailed ledger">
     <td style="padding:6px 9px">${esc(r.v.name)}${r.v.vid ? ` <span style="color:var(--txt3);font-size:.72rem">[${esc(r.v.vid)}]</span>` : ''}${r.v.unmapped ? ' <span style="color:#c2410c;font-size:.66rem">·Unmapped</span>' : ''}</td>
+    <td style="padding:6px 9px">${statChip(r.status)}</td>
     <td style="padding:6px 9px;text-align:right;color:#b45309">${m(r.mat)}</td>
     <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(r.addl)}</td>
     <td style="padding:6px 9px;text-align:right;color:#2563eb">${m(r.taxA + r.taxB)}</td>
@@ -4607,17 +4632,17 @@ function _vplpFlatList() {
     <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${m(r.debit)}</td>
     <td style="padding:6px 9px;text-align:right;font-weight:700;color:var(--g8)">${drcr(r.bal)}</td></tr>`).join('');
   const tfoot = `<tr style="background:var(--surface2);font-weight:700">
-    <td style="padding:7px 9px">Totals &middot; ${rows.length}</td>
+    <td style="padding:7px 9px" colspan="2">Totals &middot; ${shown.length}</td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(T.mat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(T.addl)}</td>
     <td style="padding:7px 9px;text-align:right;color:#2563eb">${m(T.taxA + T.taxB)}</td>
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(T.credit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(T.debit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td></tr>`;
-  return kpi + `<div class="card"><div style="overflow-x:auto">
-    <table style="width:100%;border-collapse:collapse;font-size:.78rem">
+  return filterBar + kpi + `<div class="card"><div style="overflow-x:auto">
+    <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
-        <th style="padding:8px 9px">Vendor</th>
+        <th style="padding:8px 9px">Vendor</th><th style="padding:8px 9px">Balance Status</th>
         <th style="padding:8px 9px;text-align:right">Material</th><th style="padding:8px 9px;text-align:right">Add'l</th>
         <th style="padding:8px 9px;text-align:right">Tax</th><th style="padding:8px 9px;text-align:right">Billed (Cr)</th>
         <th style="padding:8px 9px;text-align:right">Paid (Dr)</th><th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th>
@@ -4626,10 +4651,23 @@ function _vplpFlatList() {
 // Indian FY runs Apr→Mar; the FY "start year" identifies it (2026 → FY 2026-27).
 function _vplpFYof(v) { const t = _mdpDateVal(v); if (!t) return ''; const d = new Date(t); return String(d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1); }
 function _vplpFYLabel(sy) { return 'FY ' + sy + '-' + String((+sy + 1) % 100).padStart(2, '0'); }
+// Ledger table chrome: breathing room on the first column + a Totals row that
+// stays stuck to the bottom of the scroll area in a distinct colour (only the
+// rows between header and totals scroll).
+function _vplpEnsureLedgerStyle() {
+  if (document.getElementById('evg-ledger-style')) return;
+  const st = document.createElement('style'); st.id = 'evg-ledger-style';
+  st.textContent = `
+    .evg-ledger-tbl thead th:first-child, .evg-ledger-tbl tbody td:first-child, .evg-ledger-tbl tfoot td:first-child { padding-left:18px !important; }
+    .evg-ledger-tbl thead th { padding-top:10px; padding-bottom:10px; }
+    .evg-ledger-tbl tfoot td { position:sticky; bottom:0; background:#0e5a34 !important; color:#fff !important; font-weight:700; z-index:4; border-top:2px solid var(--gold,#d4a017); box-shadow:0 -2px 6px rgba(0,0,0,.18); }`;
+  document.head.appendChild(st);
+}
 function _vplpLedger(v) {
   const esc = _mdpEsc, d = _vplpData;
   const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
   const drcr = n => inr(Math.abs(n)) + (n >= 0 ? ' Cr' : ' Dr');
+  _vplpEnsureLedgerStyle();
   const all = [];
   // Credit (goods received) — approved POs of this vendor with receipts. Credit =
   // Material(a) + Additional(b) + Tax(a) + Tax(b).
@@ -4730,7 +4768,7 @@ function _vplpLedger(v) {
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td></tr>`;
   return fyBar + kpi + `<div class="card"><div style="overflow-x:auto">
-    <table data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
+    <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
         <th style="padding:8px 9px;text-align:right">Material (a)</th><th style="padding:8px 9px;text-align:right">Add'l (b)</th>
