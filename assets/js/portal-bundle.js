@@ -1143,7 +1143,17 @@ function _tblColsResolve(sig, keys, defHidden) {
   return { order, hidden: Array.from(hidden) };
 }
 function _tblColDefHidden(table) {
-  return table && table.dataset.evgDefaultHidden ? table.dataset.evgDefaultHidden.split('|').filter(Boolean) : null;
+  if (!table) return null;
+  const ths = Array.from(table.querySelectorAll('thead th'));
+  // Prefer deriving the default-hidden keys from th[data-evg-extra] using the
+  // SAME key algorithm the manager uses — guaranteed to match regardless of
+  // label punctuation (apostrophes, "·", "&" …). Falls back to the explicit
+  // data-evg-default-hidden="key|key" attribute.
+  if (ths.some(th => th.hasAttribute('data-evg-extra'))) {
+    const keys = _tblColKeys(ths);
+    return ths.map((th, i) => th.hasAttribute('data-evg-extra') ? keys[i] : null).filter(Boolean);
+  }
+  return table.dataset.evgDefaultHidden ? table.dataset.evgDefaultHidden.split('|').filter(Boolean) : null;
 }
 function _tblColApply(table, sig) {
   const ths = Array.from(table.querySelectorAll('thead th'));
@@ -1535,19 +1545,26 @@ window.tblColPanel = function(sig) {
     <div style="background:var(--surface);border-radius:14px;max-width:420px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.4)">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.2rem;border-bottom:1px solid var(--border)">
         <h3 style="font-size:.95rem;font-weight:700;color:var(--g9)">&#9881; Arrange Columns</h3>
-        <button onclick="document.getElementById('evgColModal').remove()" style="border:none;background:none;font-size:1.3rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
+        <button class="evg-col-x" style="border:none;background:none;font-size:1.3rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
       </div>
       <div style="padding:.5rem 1rem;font-size:.72rem;color:var(--txt3)">Drag to reorder &middot; tick to show / hide</div>
       ${hasGroups ? `<div style="padding:0 1rem .4rem"><input id="evgColSearch" type="text" placeholder="🔍 Search fields…" oninput="tblColFilter(this.value)" style="width:100%;font-size:.8rem;border:1px solid var(--border);border-radius:7px;padding:6px 9px;background:var(--surface2);color:var(--txt)"></div>` : ''}
       <ul id="evgColList" style="list-style:none;margin:0;padding:.4rem 1rem 1rem;overflow:auto">${rows}</ul>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end;padding:.9rem 1.2rem;border-top:1px solid var(--border)">
-        <button onclick="tblColReset('${sig}')" class="btn btn-secondary btn-sm">&#8635; Reset</button>
-        ${isAdmin ? `<button onclick="tblColSetSystemDefault('${sig}',this)" class="btn btn-secondary btn-sm" title="Make this the org-wide default for everyone">&#9733; Set system default</button>` : ''}
-        <button onclick="tblColApplyFromPanel('${sig}')" class="btn btn-primary btn-sm">&#10003; Apply &amp; Save</button>
+        <button class="btn btn-secondary btn-sm evg-col-reset">&#8635; Reset</button>
+        ${isAdmin ? `<button class="btn btn-secondary btn-sm evg-col-sysdef" title="Make this the org-wide default for everyone">&#9733; Set system default</button>` : ''}
+        <button class="btn btn-primary btn-sm evg-col-apply">&#10003; Apply &amp; Save</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
   modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  // Bind footer buttons via JS (sig captured in closure) — a table signature can
+  // contain a quote (e.g. the ledger's "Add'l (b)") which would break an inline
+  // onclick="…('sig')" string and silently kill Apply & Save / Reset.
+  modal.querySelector('.evg-col-x')?.addEventListener('click', () => modal.remove());
+  modal.querySelector('.evg-col-reset')?.addEventListener('click', () => tblColReset(sig));
+  modal.querySelector('.evg-col-sysdef')?.addEventListener('click', e => tblColSetSystemDefault(sig, e.currentTarget));
+  modal.querySelector('.evg-col-apply')?.addEventListener('click', () => tblColApplyFromPanel(sig));
   // HTML5 drag-and-drop reordering
   const list = modal.querySelector('#evgColList');
   let dragEl = null;
@@ -4680,7 +4697,7 @@ function _vplpLedger(v) {
       .concat(siFields.map(f => `<td style="${xtd}">${e.kind === 'cr' ? (_mdpEsc(siJoin(e.rcpts, f)) || '—') : '—'}</td>`),
               payFields.map(f => `<td style="${xtd}">${e.kind === 'dr' ? _regRawCell(pay[f]) : '—'}</td>`)).join('');
   };
-  const extraHead = extraLabels.map(l => `<th style="padding:8px 9px;white-space:nowrap">${esc(l)}</th>`).join('');
+  const extraHead = extraLabels.map(l => `<th data-evg-extra="1" style="padding:8px 9px;white-space:nowrap">${esc(l)}</th>`).join('');
   const curatedLabels = ['Date', 'Reference', 'Particulars', 'Material (a)', "Add'l (b)", 'Tax (a)', 'Tax (b)', 'Credit', 'Debit', 'Balance Dr/Cr', 'Status'];
   const defHidden = _mdpEsc(_regHdrKeys(curatedLabels.concat(extraLabels)).slice(curatedLabels.length).join('|'));
   const body = entries.slice().reverse().map(e => {
