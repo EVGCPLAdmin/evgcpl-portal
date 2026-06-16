@@ -3725,6 +3725,7 @@ function _mdpParseRow(r) {
     monthYear:   r['Month-Year'] || '',
     rawStatus:   raw || acStat,
     status:      getPayStatus(raw || acStat),
+    raw:         r,   // full PaymentRequest row → exposed as optional ledger columns
   };
 }
 
@@ -4426,6 +4427,7 @@ function _vplpCompute() {
       poNo: _opGet(r, HC, ['PO No']), vendorId: vid, vendorName: _opGet(r, HC, ['Vendor Name']),
       date: _opGet(r, HC, ['PO Date']), approved: /approv/i.test(_opGet(r, HC, ['PO Approval Status'])),
       taxB: _opNum(_opGet(r, HC, ['Tax (b)', 'Tax(b)', 'Tax B'])), addl: _opNum(_opGet(r, HC, ['Sub Total (b)', 'Sub Total(b)', 'Sub Total B'])),
+      raw: r,   // full PO_Actual row → exposed as optional ledger columns
     };
     if (vid && !vendorById[vid]) vendorById[vid] = poInfo[k].vendorName;
   });
@@ -4586,7 +4588,7 @@ function _vplpLedger(v) {
     const mat = d.poRecv[k] || 0, taxA = d.poTaxA[k] || 0, taxB = i.taxB || 0, addl = i.addl || 0;
     const credit = mat + addl + taxA + taxB;
     if (credit <= 0) return;
-    all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: d.poRcpt[k] || [], kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+    all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: d.poRcpt[k] || [], poRaw: i.raw || null, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
   });
   // Debit (payment) — this vendor's completed payments (vendor-level; orderNo not required).
   (_mdpRows || []).forEach(r => {
@@ -4595,7 +4597,7 @@ function _vplpLedger(v) {
     const vid = _vplpVendorToken(r.vendor) || _vplpVendorToken(r.paidTo);
     const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
     if (key !== v.key) return;
-    all.push({ date: r.date, ref: r.requestId || r.uuid, type: 'Payment' + (r.orderNo ? ' · ' + esc(r.orderNo) : ''), kind: 'dr', mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
+    all.push({ date: r.date, ref: r.requestId || r.uuid, type: 'Payment' + (r.orderNo ? ' · ' + esc(r.orderNo) : ''), payRaw: r.raw || null, kind: 'dr', mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
   });
   if (!all.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No approved-PO receipts or completed payments for this vendor.</div>';
   // Financial-year filter.
@@ -4625,6 +4627,29 @@ function _vplpLedger(v) {
     ${card('✅', 'background:#dcfce7;color:#16a34a', inr(totDebit), 'Paid (Debit)')}
   </div>`;
   const m = x => x ? inr(x) : '—';
+  // Optional columns from PO_Actual (credit rows), StockIN (credit rows) and
+  // PaymentRequest (debit rows). Rendered HIDDEN by default — the ⚙ Columns
+  // manager lets each user pick + save them (personal localStorage) and admins
+  // ★ Set system default (org-wide PortalConfig 'tbl_cols').
+  const poFields = _regRawCols(_openPOHeaders);
+  const siFields = _regRawCols(_openPOStock);
+  const payFields = _regRawCols((_mdpRows || []).filter(x => x && x.raw).slice(0, 1).map(x => x.raw));
+  const extraLabels = poFields.map(f => 'PO · ' + f).concat(siFields.map(f => 'GRN · ' + f), payFields.map(f => 'Pay · ' + f));
+  const xtd = 'padding:6px 9px;font-size:.74rem;white-space:nowrap';
+  const siJoin = (rcpts, f) => {
+    const seen = {}, vals = [];
+    (rcpts || []).forEach(rc => { const r = _openPOStock[rc.idx]; if (!r) return; let v = r[f]; if (v == null || !String(v).trim()) return; v = String(v); const disp = (_siLooksDate(v) && _mdpDateVal(v)) ? _mdpFmtDate(v) : v; if (!seen[disp]) { seen[disp] = 1; vals.push(disp); } });
+    return vals.length ? vals.slice(0, 3).join(', ') + (vals.length > 3 ? ' +' + (vals.length - 3) : '') : '';
+  };
+  const extraCells = e => {
+    const po = e.poRaw || {}, pay = e.payRaw || {};
+    return poFields.map(f => `<td style="${xtd}">${e.kind === 'cr' ? _regRawCell(po[f]) : '—'}</td>`)
+      .concat(siFields.map(f => `<td style="${xtd}">${e.kind === 'cr' ? (_mdpEsc(siJoin(e.rcpts, f)) || '—') : '—'}</td>`),
+              payFields.map(f => `<td style="${xtd}">${e.kind === 'dr' ? _regRawCell(pay[f]) : '—'}</td>`)).join('');
+  };
+  const extraHead = extraLabels.map(l => `<th style="padding:8px 9px;white-space:nowrap">${esc(l)}</th>`).join('');
+  const curatedLabels = ['Date', 'Reference', 'Particulars', 'Material (a)', "Add'l (b)", 'Tax (a)', 'Tax (b)', 'Credit', 'Debit', 'Balance Dr/Cr', 'Status'];
+  const defHidden = _mdpEsc(_regHdrKeys(curatedLabels.concat(extraLabels)).slice(curatedLabels.length).join('|'));
   const body = entries.slice().reverse().map(e => {
     const s = e.status;
     const click = e.uuid ? ` style="cursor:pointer" onclick="_accOpenPRDetail('${e.uuid}')"` : '';
@@ -4642,7 +4667,7 @@ function _vplpLedger(v) {
       <td style="padding:6px 9px;text-align:right;color:#15803d;font-weight:600">${m(e.credit)}</td>
       <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${m(e.debit)}</td>
       <td style="padding:6px 9px;text-align:right;font-weight:700;color:var(--g8)">${drcr(e.balance)}</td>
-      <td style="padding:6px 9px">${statusCell}</td>
+      <td style="padding:6px 9px">${statusCell}</td>${extraCells(e)}
     </tr>`;
   }).join('');
   const tfoot = `<tr style="background:var(--surface2);font-weight:700">
@@ -4655,13 +4680,13 @@ function _vplpLedger(v) {
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td></tr>`;
   return fyBar + kpi + `<div class="card"><div style="overflow-x:auto">
-    <table style="width:100%;border-collapse:collapse;font-size:.78rem">
+    <table data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
         <th style="padding:8px 9px;text-align:right">Material (a)</th><th style="padding:8px 9px;text-align:right">Add'l (b)</th>
         <th style="padding:8px 9px;text-align:right">Tax (a)</th><th style="padding:8px 9px;text-align:right">Tax (b)</th>
         <th style="padding:8px 9px;text-align:right">Credit</th><th style="padding:8px 9px;text-align:right">Debit</th>
-        <th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th><th style="padding:8px 9px">Status</th>
+        <th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th><th style="padding:8px 9px">Status</th>${extraHead}
       </tr></thead><tbody>${body}</tbody><tfoot>${tfoot}</tfoot></table></div></div>`;
 }
 // ═══════════════════════════════════════════════════════════════════════
