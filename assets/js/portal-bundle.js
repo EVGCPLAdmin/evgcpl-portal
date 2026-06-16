@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.70.0';
-const PORTAL_BUILD    = 559;
-const PORTAL_BUILD_AT = '2026-06-16T15:08:52Z';
+const PORTAL_VERSION  = '3.70.1';
+const PORTAL_BUILD    = 560;
+const PORTAL_BUILD_AT = '2026-06-16T15:20:23Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4557,7 +4557,7 @@ function _vplpRenderBody() {
     <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
     <button onclick="_vplpSetView('flat')" class="btn btn-sm ${_vplpView === 'flat' ? 'btn-primary' : 'btn-secondary'}">&#128203; Flat List (all vendors)</button>
   </div>`;
-  if (_vplpView === 'flat') { c.innerHTML = toggle + _vplpFlatList(); return; }
+  if (_vplpView === 'flat') { c.innerHTML = _vplpFlatList(toggle); return; }
   const opts = `<option value="">Select vendor&hellip;</option>` + d.vendors.map(v =>
     `<option value="${esc(v.key)}"${v.key === _vplpVendor ? ' selected' : ''}>${esc(v.name)}${v.vid ? ` [${esc(v.vid)}]` : ''}${v.unmapped ? ' · Unmapped' : ''} (${Object.keys(v.poKeys).length} PO &middot; ${v.payCount} pay)</option>`).join('');
   const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
@@ -4576,7 +4576,7 @@ function _vplpRenderBody() {
   c.innerHTML = toggle + selector + head + _vplpLedger(v);
 }
 // Flat list — one row per vendor with their final Dr/Cr balance + totals.
-function _vplpFlatList() {
+function _vplpFlatList(toggle) {
   _vplpEnsureLedgerStyle();
   const d = _vplpData, esc = _mdpEsc;
   const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
@@ -4606,21 +4606,29 @@ function _vplpFlatList() {
   // Default status filter.
   const shown = _vplpFlatStatus ? rows.filter(r => r.status === _vplpFlatStatus) : rows;
   window._vplpFlatRows = shown;
-  if (!rows.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No vendor activity yet.</div>';
+  if (!rows.length) return (toggle || '') + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No vendor activity yet.</div>';
   const T = shown.reduce((s, r) => { ['mat', 'addl', 'taxA', 'taxB', 'credit', 'debit'].forEach(k => s[k] += r[k]); return s; }, { mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0 });
   const bal = T.credit - T.debit;
   const m = x => x ? inr(x) : '—';
   const statChip = st => { const c = _VPLP_STATUS_META[st]; return `<span style="display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;font-weight:700;background:${c.bg};color:${c.color};padding:2px 9px;border-radius:20px;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:${c.dot}"></span>${c.label}</span>`; };
-  const statBtn = (val, label, n) => `<button onclick="_vplpSetFlatStatus('${val}')" class="btn btn-sm ${_vplpFlatStatus === val ? 'btn-primary' : 'btn-secondary'}">${label}${n != null ? ` (${n})` : ''}</button>`;
-  const filterBar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.45rem;align-items:center;flex-wrap:wrap">
-    <span style="font-size:.7rem;font-weight:700;color:var(--txt3);margin-right:.2rem">BALANCE STATUS</span>
-    ${statBtn('', 'All', rows.length)}${statBtn('Payable', 'Payable', counts.Payable || 0)}${statBtn('Settled', 'Settled', counts.Settled || 0)}${statBtn('Advance', 'Advance', counts.Advance || 0)}
-  </div>`;
-  const kpi = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.55rem;margin-bottom:1rem">
-    <div class="kpi-card" style="padding:.55rem .75rem;border-left:4px solid ${bal >= 0 ? '#ea580c' : '#1d4ed8'}"><div class="kpi-value" style="font-size:.98rem">${drcr(bal)}</div><div class="kpi-label" style="font-size:.64rem">Net Outstanding (payable)</div></div>
-    <div class="kpi-card" style="padding:.55rem .75rem"><div class="kpi-value" style="font-size:.98rem">${shown.length}</div><div class="kpi-label" style="font-size:.64rem">Vendors${_vplpFlatStatus ? ' · ' + _vplpFlatStatus : ''}</div></div>
-    <div class="kpi-card" style="padding:.55rem .75rem"><div class="kpi-value" style="font-size:.98rem">${inr(T.credit)}</div><div class="kpi-label" style="font-size:.64rem">Total Billed (Cr)</div></div>
-    <div class="kpi-card" style="padding:.55rem .75rem"><div class="kpi-value" style="font-size:.98rem">${inr(T.debit)}</div><div class="kpi-label" style="font-size:.64rem">Total Paid (Dr)</div></div>
+  const statBtn = (val, label, n) => `<button onclick="_vplpSetFlatStatus('${val}')" class="btn btn-sm ${_vplpFlatStatus === val ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 9px;font-size:.72rem">${label}${n != null ? ` (${n})` : ''}</button>`;
+  const stat = (val, lbl, col) => `<div style="display:flex;flex-direction:column;line-height:1.1"><span style="font-size:.92rem;font-weight:800;${col ? `color:${col}` : ''}">${val}</span><span style="font-size:.58rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap">${lbl}</span></div>`;
+  const viewBtn = (val, label) => `<button onclick="_vplpSetView('${val}')" class="btn btn-sm ${_vplpView === val ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 9px;font-size:.72rem">${label}</button>`;
+  const sep = `<span style="width:1px;height:20px;background:var(--border);margin:0 .15rem"></span>`;
+  // One compact header bar: view toggle + status filter on the left, totals on the right (wraps to 2 rows on narrow screens).
+  const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.5rem 1.1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
+    <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+      ${viewBtn('vendor', '&#128100; Per Vendor')}${viewBtn('flat', '&#128203; Flat List')}
+      ${sep}
+      <span style="font-size:.64rem;font-weight:700;color:var(--txt3)">STATUS</span>
+      ${statBtn('', 'All', rows.length)}${statBtn('Payable', 'Payable', counts.Payable || 0)}${statBtn('Settled', 'Settled', counts.Settled || 0)}${statBtn('Advance', 'Advance', counts.Advance || 0)}
+    </div>
+    <div style="display:flex;gap:1.1rem;align-items:center;flex-wrap:wrap">
+      ${stat(drcr(bal), 'Net Outstanding', bal >= 0 ? '#ea580c' : '#1d4ed8')}
+      ${stat(shown.length, 'Vendors' + (_vplpFlatStatus ? ' · ' + _vplpFlatStatus : ''))}
+      ${stat(inr(T.credit), 'Billed (Cr)', '#15803d')}
+      ${stat(inr(T.debit), 'Paid (Dr)', '#16a34a')}
+    </div>
   </div>`;
   const body = shown.map((r, i) => `<tr style="cursor:pointer" onclick="_vplpFlatOpen(${i})" title="Open detailed ledger">
     <td style="padding:6px 9px">${esc(r.v.name)}${r.v.vid ? ` <span style="color:var(--txt3);font-size:.72rem">[${esc(r.v.vid)}]</span>` : ''}${r.v.unmapped ? ' <span style="color:#c2410c;font-size:.66rem">·Unmapped</span>' : ''}</td>
@@ -4639,7 +4647,7 @@ function _vplpFlatList() {
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(T.credit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(T.debit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td></tr>`;
-  return filterBar + kpi + `<div class="card"><div style="overflow-x:auto">
+  return header + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Vendor</th><th style="padding:8px 9px">Balance Status</th>
