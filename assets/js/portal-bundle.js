@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.69.0';
-const PORTAL_BUILD    = 555;
-const PORTAL_BUILD_AT = '2026-06-16T14:47:34Z';
+const PORTAL_VERSION  = '3.69.1';
+const PORTAL_BUILD    = 556;
+const PORTAL_BUILD_AT = '2026-06-16T14:52:19Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1501,7 +1501,18 @@ window.tblColPanel = function(sig) {
   const hidden = new Set(cfg.hidden);
   const isAdmin = (typeof _accIsAdmin === 'function' && _accIsAdmin()) || (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin());
   document.getElementById('evgColModal')?.remove();
-  const rows = cfg.order.map(k => `
+  // Group columns by a "Source ·" prefix (PO · / GRN · / Pay ·) when present, so
+  // long field sets (e.g. the vendor ledger) are scannable. Headers are inserted
+  // as the order is walked, so they never change the saved column order.
+  const groupOf = lab => { const mm = /^(PO|GRN|Pay)\s*·/.exec(String(lab || '')); return mm ? mm[1] : 'Ledger'; };
+  const groupName = { Ledger: 'Ledger columns', PO: '📄 PO_Actual fields', GRN: '📦 StockIN fields', Pay: '💳 PaymentRequest fields' };
+  const hasGroups = cfg.order.some(k => /^(PO|GRN|Pay)\s*·/.test(labelByKey[k] || ''));
+  let prevG = null;
+  const rows = cfg.order.map(k => {
+    const lab = labelByKey[k] || k;
+    let head = '';
+    if (hasGroups) { const g = groupOf(lab); if (g !== prevG) { prevG = g; head = `<li class="evg-col-grp" style="list-style:none;margin:.55rem 0 .3rem;padding:0 .2rem;font-size:.64rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3)">${groupName[g] || g}</li>`; } }
+    return head + `
     <li draggable="true" data-k="${k}" class="evg-col-row"
         style="display:flex;align-items:center;gap:.6rem;padding:.5rem .6rem;border:1px solid var(--border);border-radius:8px;margin-bottom:.4rem;background:var(--surface);cursor:grab">
       <span style="color:var(--txt3);font-size:1rem">&#8942;&#8942;</span>
@@ -1509,7 +1520,8 @@ window.tblColPanel = function(sig) {
         <input type="checkbox" ${hidden.has(k) ? '' : 'checked'} data-k="${k}" style="width:15px;height:15px;accent-color:var(--g7)">
         <span style="font-size:.84rem;color:var(--g9);font-weight:600">${labelByKey[k] || k}</span>
       </label>
-    </li>`).join('');
+    </li>`;
+  }).join('');
   const modal = document.createElement('div');
   modal.id = 'evgColModal';
   modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
@@ -1520,6 +1532,7 @@ window.tblColPanel = function(sig) {
         <button onclick="document.getElementById('evgColModal').remove()" style="border:none;background:none;font-size:1.3rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
       </div>
       <div style="padding:.5rem 1rem;font-size:.72rem;color:var(--txt3)">Drag to reorder &middot; tick to show / hide</div>
+      ${hasGroups ? `<div style="padding:0 1rem .4rem"><input id="evgColSearch" type="text" placeholder="🔍 Search fields…" oninput="tblColFilter(this.value)" style="width:100%;font-size:.8rem;border:1px solid var(--border);border-radius:7px;padding:6px 9px;background:var(--surface2);color:var(--txt)"></div>` : ''}
       <ul id="evgColList" style="list-style:none;margin:0;padding:.4rem 1rem 1rem;overflow:auto">${rows}</ul>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end;padding:.9rem 1.2rem;border-top:1px solid var(--border)">
         <button onclick="tblColReset('${sig}')" class="btn btn-secondary btn-sm">&#8635; Reset</button>
@@ -1540,6 +1553,20 @@ window.tblColPanel = function(sig) {
       const after = (e.clientY - li.getBoundingClientRect().top) > li.offsetHeight / 2;
       if (dragEl && dragEl !== li) list.insertBefore(dragEl, after ? li.nextSibling : li);
     });
+  });
+};
+window.tblColFilter = function(q) {
+  q = String(q || '').toLowerCase().trim();
+  const list = document.getElementById('evgColList'); if (!list) return;
+  list.querySelectorAll('.evg-col-row').forEach(li => {
+    const lab = (li.textContent || '').toLowerCase();
+    li.style.display = (!q || lab.indexOf(q) >= 0) ? '' : 'none';
+  });
+  // Hide a group header when all its rows are filtered out.
+  list.querySelectorAll('.evg-col-grp').forEach(h => {
+    let n = h.nextElementSibling, any = false;
+    while (n && !n.classList.contains('evg-col-grp')) { if (n.classList.contains('evg-col-row') && n.style.display !== 'none') { any = true; break; } n = n.nextElementSibling; }
+    h.style.display = any ? '' : 'none';
   });
 };
 function _tblColReadPanel(sig) {
