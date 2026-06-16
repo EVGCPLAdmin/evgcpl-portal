@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '3.69.1';
-const PORTAL_BUILD    = 556;
-const PORTAL_BUILD_AT = '2026-06-16T14:52:19Z';
+const PORTAL_VERSION  = '3.69.2';
+const PORTAL_BUILD    = 557;
+const PORTAL_BUILD_AT = '2026-06-16T14:54:01Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1127,14 +1127,20 @@ function _tblColsResolve(sig, keys, defHidden) {
   const personal = _tblColsPersonalAll()[sig];
   const sys = (typeof pcReadJSON === 'function' ? (pcReadJSON('tbl_cols', {}) || {}) : {})[sig];
   const base = personal || sys || null;
+  const knownToBase = new Set((base && Array.isArray(base.order)) ? base.order : []);
   let order = (base && Array.isArray(base.order)) ? base.order.filter(k => keys.includes(k)) : [];
-  keys.forEach(k => { if (!order.includes(k)) order.push(k); });   // append new columns
+  keys.forEach(k => { if (!order.includes(k)) order.push(k); });   // append columns the saved config never saw
   // Hidden resolution: personal/system config wins; else the table's compiled
   // default-hidden set (data-evg-default-hidden="key|key" — lets a render site
   // expose ALL raw fields as columns while showing only a curated set).
-  const hidden = (base && Array.isArray(base.hidden)) ? base.hidden.filter(k => keys.includes(k))
-    : (Array.isArray(defHidden) ? defHidden.filter(k => keys.includes(k)) : []);
-  return { order, hidden };
+  const hidden = new Set((base && Array.isArray(base.hidden)) ? base.hidden.filter(k => keys.includes(k))
+    : (Array.isArray(defHidden) ? defHidden.filter(k => keys.includes(k)) : []));
+  // Columns added to the table AFTER a config was saved are unknown to that
+  // config — keep the saved arrangement intact but default those new columns to
+  // hidden (per the table's default-hidden), so exposing fields later never
+  // un-hides them for someone who already has a saved/admin default.
+  if (base && Array.isArray(defHidden)) keys.forEach(k => { if (!knownToBase.has(k) && defHidden.includes(k)) hidden.add(k); });
+  return { order, hidden: Array.from(hidden) };
 }
 function _tblColDefHidden(table) {
   return table && table.dataset.evgDefaultHidden ? table.dataset.evgDefaultHidden.split('|').filter(Boolean) : null;
