@@ -7925,35 +7925,34 @@ function _accwTableHtml(rows) {
     </tr>`;
   };
 
-  // Cap how many data rows we actually paint. Thousands of <tr> at once is what
-  // makes the worklist feel stuck; totals/footer still reflect ALL rows, and the
-  // notice tells the user to narrow the filters (or collapse groups) to see more.
-  const ROW_CAP = 500;
-  let _shown = 0, _capped = false;
-  const body = gentries.map(([k, grp]) => {
-    const sub = _accwSum(grp);
-    const isCollapsed = ACCW.collapsed.has(k);
-    const header = ACCW.groupBy==='none' ? '' : `
-      <tr style="background:var(--surface2);cursor:pointer" onclick="_accwToggleGroup('${String(k).replace(/'/g,"\\'")}')">
-        <td colspan="${ncol}" style="padding:6px 9px;border-bottom:1px solid var(--border);font-weight:700;font-size:.78rem;color:var(--txt1)">
-          <span style="display:inline-block;width:14px">${isCollapsed?'▸':'▾'}</span>
-          ${esc(k)} <span style="color:var(--txt3);font-weight:500">&middot; ${grp.length}</span>
-          <span style="float:right;color:var(--g8)">${_accwFmt(sub)}</span>
-        </td>
-      </tr>`;
-    let cells = '';
-    if (!isCollapsed) {
-      for (const r of grp) {
-        if (_shown >= ROW_CAP) { _capped = true; break; }
-        cells += rowHtml(r); _shown++;
-      }
+  // Progressive rendering. Build the FULL ordered list of <tr> HTML (group
+  // headers + rows, honoring collapse), but only paint a first window into the
+  // DOM; the rest stream in as the user scrolls (_accwMaybeLoadMore). Painting
+  // thousands of <tr> at once is what made the worklist feel stuck. Totals and
+  // the footer still reflect every row.
+  const items = [];
+  gentries.forEach(([k, grp]) => {
+    if (ACCW.groupBy !== 'none') {
+      const sub = _accwSum(grp);
+      const isCollapsed = ACCW.collapsed.has(k);
+      items.push(`
+        <tr style="background:var(--surface2);cursor:pointer" onclick="_accwToggleGroup('${String(k).replace(/'/g,"\\'")}')">
+          <td colspan="${ncol}" style="padding:6px 9px;border-bottom:1px solid var(--border);font-weight:700;font-size:.78rem;color:var(--txt1)">
+            <span style="display:inline-block;width:14px">${isCollapsed?'▸':'▾'}</span>
+            ${esc(k)} <span style="color:var(--txt3);font-weight:500">&middot; ${grp.length}</span>
+            <span style="float:right;color:var(--g8)">${_accwFmt(sub)}</span>
+          </td>
+        </tr>`);
+      if (isCollapsed) return;
     }
-    return header + cells;
-  }).join('');
-  const capNote = _capped ? `<tr><td colspan="${ncol}" style="text-align:center;padding:.75rem;background:var(--surface2);color:var(--txt2);font-size:.76rem;border-bottom:1px solid var(--border)">Showing the first ${_shown.toLocaleString('en-IN')} of ${rows.length.toLocaleString('en-IN')} requests — narrow the filters (Stage / Site / Search) or group &amp; collapse to see the rest. Totals below reflect all ${rows.length.toLocaleString('en-IN')}.</td></tr>` : '';
+    for (const r of grp) items.push(rowHtml(r));
+  });
+  ACCW._items = items;
+  ACCW._n = Math.min(_ACCW_RENDER_INIT, items.length);
+  const body = items.slice(0, ACCW._n).join('');
 
   return `
-    <div class="card"><div style="overflow:auto;max-height:66vh;border-radius:0 0 var(--rad) var(--rad)">
+    <div class="card"><div id="accwScroller" onscroll="_accwMaybeLoadMore()" style="overflow:auto;max-height:66vh;border-radius:0 0 var(--rad) var(--rad)">
       <table class="data-table" data-evg-defaults="off" style="width:100%">
         <thead><tr style="background:var(--g9);color:#fff;position:sticky;top:0;z-index:2">
           <th style="${TH};text-align:center;width:34px"><input type="checkbox" onclick="_accwToggleAll(this.checked)" title="Select all shown" style="width:15px;height:15px;cursor:pointer"></th>
@@ -7962,7 +7961,7 @@ function _accwTableHtml(rows) {
           <th style="${TH}" title="Vendor bill status from the Vendor Ledger (PO)">Vendor Status</th>
           <th style="${TH};text-align:center">Age</th><th style="${TH}">Date</th><th style="${TH};text-align:center">Actions</th>
         </tr></thead>
-        <tbody>${body || `<tr><td colspan="${ncol}" style="text-align:center;padding:3rem;color:var(--txt3)">No matching requests.</td></tr>`}${capNote}</tbody>
+        <tbody id="accwTbody">${body || `<tr><td colspan="${ncol}" style="text-align:center;padding:3rem;color:var(--txt3)">No matching requests.</td></tr>`}</tbody>
         <tfoot><tr style="background:var(--g9);color:#fff;position:sticky;bottom:0;font-weight:800">
           <td colspan="5" style="padding:8px 9px;text-align:right">${rows.length} request(s) &middot; Grand total</td>
           <td style="padding:8px 9px;text-align:right">${_accwFmt(grand)}</td>
@@ -7971,6 +7970,24 @@ function _accwTableHtml(rows) {
       </table>
     </div></div>
     <div id="accwBulkBar">${_accwBulkBarHtml()}</div>`;
+}
+// Progressive worklist rendering: paint a window, stream the rest on scroll.
+const _ACCW_RENDER_INIT = 200, _ACCW_RENDER_CHUNK = 200;
+function _accwMaybeLoadMore() {
+  const sc = document.getElementById('accwScroller');
+  if (!sc || !ACCW._items || ACCW._n >= ACCW._items.length) return;
+  if (sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 600) _accwAppendRows();
+}
+function _accwAppendRows() {
+  const tb = document.getElementById('accwTbody'), sc = document.getElementById('accwScroller');
+  if (!tb || !sc || !ACCW._items || ACCW._n >= ACCW._items.length) return;
+  const next = ACCW._items.slice(ACCW._n, ACCW._n + _ACCW_RENDER_CHUNK);
+  tb.insertAdjacentHTML('beforeend', next.join(''));
+  ACCW._n += next.length;
+  // Keep filling if the user flung the scrollbar straight to the bottom.
+  if (ACCW._n < ACCW._items.length && sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 600) {
+    requestAnimationFrame(_accwAppendRows);
+  }
 }
 function _accwBulkBarHtml() {
   if (!ACCW.sel.size) return '';
