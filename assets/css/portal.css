@@ -491,11 +491,11 @@ body.dev-mode .dev-mode-toggle-btn { color:var(--gold) !important; }
 .kpi-card {
   background:var(--surface);border-radius:var(--rad-lg);
   padding:1.4rem 1.6rem;
-  box-shadow:var(--shadow);border:1px solid var(--border);
+  box-shadow:var(--shadow-sm);border:1px solid var(--border);
   position:relative;overflow:hidden;
   transition:transform var(--transition),box-shadow var(--transition);
 }
-.kpi-card:hover{transform:translateY(-3px);box-shadow:var(--shadow-md)}
+.kpi-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
 .kpi-card::after{
   content:'';position:absolute;bottom:0;left:0;right:0;height:3px;
   background:linear-gradient(90deg,var(--g7),var(--g4));
@@ -1381,9 +1381,9 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 3px rgba(60,185,109,.14);
 }
 
-/* KPI cards: smoother lift, slightly richer shadow on hover */
+/* KPI cards: smoother lift, refined (subtle) shadow on hover — "elite" defaults */
 .kpi-card { transition: transform var(--transition), box-shadow var(--transition); }
-.kpi-card:hover { box-shadow: var(--shadow-lg); }
+.kpi-card:hover { box-shadow: var(--shadow-md); }
 
 /* Cards lift gently when they're clickable */
 .card[onclick], .card-pad[onclick] { transition: transform var(--transition), box-shadow var(--transition); }
