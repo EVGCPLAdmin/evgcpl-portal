@@ -182,6 +182,7 @@
 
     // HR group
     'hr-dashboard':      'hr.html',
+    'mess-individual':   'hr.html',
     'my-profile':        'hr.html',
     'onboarding':        'hr.html',
     'rewards':           'hr.html',
