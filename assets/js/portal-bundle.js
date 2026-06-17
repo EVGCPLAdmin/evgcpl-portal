@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.5.1';
-const PORTAL_BUILD    = 571;
-const PORTAL_BUILD_AT = '2026-06-17T10:19:38Z';
+const PORTAL_VERSION  = '4.6.0';
+const PORTAL_BUILD    = 572;
+const PORTAL_BUILD_AT = '2026-06-17T14:13:05Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -3074,11 +3074,14 @@ function renderPage(page) {
     'po-register':    renderPORegister,
     'stockin-register': renderStockINRegister,
     'tendering':      () => renderPlaceholder('📜','Tendering','Client bid management, BOQ uploads & tender register','Coming in Phase 4'),
-    'accounts':       renderAccountsModule,
+    // The classic list page and the standalone KPI page were retired — the
+    // Accounts Workspace (v2) is the single Accounts UI. Old routes redirect to
+    // it so saved links / role configs / the #accounts deep-link keep working.
+    'accounts':       () => renderAccountsWorkspace(),
     'accounts-v2':        () => renderAccountsWorkspace(),
     'accounts-dashboard': () => renderAccountsWorkspace('dashboard'),
     'accounts-worklist':  () => renderAccountsWorkspace('worklist'),
-    'accounts-kpi':   renderAccountsKpiPage,
+    'accounts-kpi':   () => renderAccountsWorkspace('dashboard'),
     'planning':          () => navigate('budgeting'),
     'planning-overview': () => navigate('budgeting'),
     'planning-setup':    () => navigate('budgeting'),
@@ -7706,7 +7709,6 @@ function renderAccountsWorkspace(initialTab) {
           <p>Dashboard insights &middot; grouped worklist &middot; actions — all in one place</p>
         </div>
         <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-          <button class="btn btn-secondary btn-sm" onclick="navigate('accounts')">&#8592; Classic view</button>
           <button class="btn btn-secondary btn-sm" onclick="renderAccountsWorkspace()">&#8635; Refresh</button>
           <button class="btn btn-primary btn-sm" onclick="_accOpenNewPR()">&#10133; New Request</button>
         </div>
@@ -8862,7 +8864,8 @@ async function _accPRSubmit() {
 
   _accToast('✅ Payment request submitted' + (resp.requestId ? (' — ' + resp.requestId) : ''));
   _accCloseNewPR();
-  renderAccountsModule();
+  // (classic list retired — re-render the Workspace below)
+  renderAccountsWorkspace();
 }
 
 // ══════════════════════════════════════════════════════════════

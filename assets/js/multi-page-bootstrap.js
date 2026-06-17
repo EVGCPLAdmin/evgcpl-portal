@@ -211,8 +211,12 @@
     'equipment':         'site-ops.html',
     'store':             'site-ops.html',
 
-    // Accounts
+    // Accounts (the Workspace is the single Accounts UI; classic/KPI routes redirect to it)
     'accounts':          'accounts.html',
+    'accounts-v2':       'accounts.html',
+    'accounts-dashboard':'accounts.html',
+    'accounts-worklist': 'accounts.html',
+    'accounts-kpi':      'accounts.html',
     'ledgers':           'accounts.html',
     'ledger-vendor':     'accounts.html',
     'ledger-sc':         'accounts.html',
