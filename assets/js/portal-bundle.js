@@ -451,6 +451,41 @@ function applyDevModeUI() {
   applyRoleNavRestrictions(STATE.role);
 }
 
+// Hard refresh — force the browser/CDN to re-fetch the current document and its
+// versioned assets, bypassing any stale cache. The portal is a static site whose
+// HTML is cached independently of the bundle, so a stale page can keep pointing
+// at an old build; this guarantees the newest version loads.
+window.portalHardRefresh = function() {
+  // Best-effort cache/service-worker purge (none today, but future-proof).
+  try { if (window.caches && caches.keys) caches.keys().then(ks => ks.forEach(k => caches.delete(k))); } catch (e) {}
+  try { if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())); } catch (e) {}
+  // Re-request the document with a one-shot cache-busting param so the CDN can't
+  // serve a stale HTML. The param is stripped again once the fresh page loads.
+  try {
+    const u = new URL(window.location.href);
+    u.searchParams.set('_hr', String(Date.now()));
+    window.location.replace(u.toString());
+  } catch (e) { window.location.reload(); }
+};
+// Inject the Hard-Refresh button into the (per-page, hand-coded) header so it
+// appears on every page without editing each HTML file. Idempotent.
+function _headerEnsureHardRefresh() {
+  // Drop the cache-busting param left by a prior hard refresh.
+  try {
+    const u = new URL(window.location.href);
+    if (u.searchParams.has('_hr')) { u.searchParams.delete('_hr'); history.replaceState(null, '', u.pathname + (u.search || '') + (u.hash || '')); }
+  } catch (e) {}
+  const right = document.querySelector('.header-right');
+  if (!right || document.getElementById('hardRefreshBtn')) return;
+  const btn = document.createElement('button');
+  btn.id = 'hardRefreshBtn';
+  btn.className = 'h-icon-btn';
+  btn.title = 'Hard Refresh — reload the latest version (bypass cache)';
+  btn.setAttribute('onclick', 'portalHardRefresh()');
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+  right.insertBefore(btn, right.firstChild); // leftmost icon in the header cluster
+}
+
 function getDefaultPage(role) {
   if (role === 'dept_head') {
     const dept = (STATE.deptHeadDept || '').toLowerCase();
@@ -487,6 +522,7 @@ function launchApp() {
   applyPortalConfig();
   applyRoleNavRestrictions(STATE.role);
   applyDevModeUI();
+  _headerEnsureHardRefresh();
   document.getElementById('loginScreen').classList.add('fade-out');
   setTimeout(() => {
     document.getElementById('loginScreen').style.display = 'none';
