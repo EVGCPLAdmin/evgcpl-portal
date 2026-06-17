@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.3.3';
-const PORTAL_BUILD    = 567;
-const PORTAL_BUILD_AT = '2026-06-17T06:07:24Z';
+const PORTAL_VERSION  = '4.4.0';
+const PORTAL_BUILD    = 568;
+const PORTAL_BUILD_AT = '2026-06-17T09:31:34Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -795,7 +795,9 @@ window.EVG = {
     resize: true,          // drag-to-resize columns (persisted per table)
     columnManager: true,   // ⚙ Columns: drag reorder + show/hide + set-default
     widthPct: 100,         // table block width as % of the content area
-    rows: 0,               // rows before vertical scroll (0 = show all)
+    rows: 12,              // rows before vertical scroll (0 = show all) — sticky header engages
+    density: 'comfortable',// row height: 'comfortable' (roomy) | 'compact' (tight)
+    search: true,          // per-table quick search box in the toolbar
     zebra: false,          // alternating row striping
     rowBorders: true,      // horizontal row separator lines
     gutter: 25,            // px left/right fit-to-screen gutter (desktop)
@@ -866,6 +868,9 @@ function _evgDesignCardHtml() {
     <input type="number" value="${EVG[t][k]}" onchange="evgSetSetting('${t}','${k}',this.value,'num')" style="width:90px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.82rem;background:var(--surface2)"></label>`;
   const txt = (t, k, label) => `<label style="display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:var(--txt3)">${label}
     <input type="text" value="${String(EVG[t][k])}" onchange="evgSetSetting('${t}','${k}',this.value)" style="width:120px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.82rem;background:var(--surface2)"></label>`;
+  const sel = (t, k, label, opts) => `<label style="display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:var(--txt3)">${label}
+    <select onchange="evgSetSetting('${t}','${k}',this.value)" style="width:120px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.82rem;background:var(--surface2)">
+      ${opts.map(o => `<option value="${o[0]}" ${String(EVG[t][k]) === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select></label>`;
   const group = (title, body) => `<div style="border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem;flex:1;min-width:220px">
     <div style="font-size:.82rem;font-weight:700;color:var(--g9);margin-bottom:.5rem">${title}</div>
     <div style="display:flex;flex-wrap:wrap;gap:.6rem 1.1rem;align-items:flex-end">${body}</div></div>`;
@@ -881,7 +886,7 @@ function _evgDesignCardHtml() {
       </div>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:.8rem">
-      ${group('&#128202; Table', tog('table', 'wrap', 'Wrap text for all columns') + tog('table', 'resize', 'Resizeable column') + tog('table', 'columnManager', 'Column manager') + tog('table', 'zebra', 'Row striping (zebra)') + tog('table', 'rowBorders', 'Row borders') + num('table', 'widthPct', 'Table width', '%') + num('table', 'rows', 'Rows before scroll'))}
+      ${group('&#128202; Table', tog('table', 'wrap', 'Wrap text for all columns') + tog('table', 'resize', 'Resizeable column') + tog('table', 'columnManager', 'Column manager') + tog('table', 'search', 'Search box') + tog('table', 'zebra', 'Row striping (zebra)') + tog('table', 'rowBorders', 'Row borders') + sel('table', 'density', 'Row density', [['comfortable', 'Comfortable'], ['compact', 'Compact']]) + num('table', 'widthPct', 'Table width', '%') + num('table', 'rows', 'Rows before scroll'))}
       ${group('&#127183; KPI Card', num('card', 'radius', 'Corner radius', 'px') + num('card', 'minWidth', 'Min width', 'px') + num('card', 'valueSize', 'Value size', 'rem') + tog('card', 'hoverShadow', 'Hover shadow') + txt('card', 'accent', 'Accent colour'))}
       ${group('&#128208; Dashboard', num('dashboard', 'gridMin', 'Grid min', 'px') + txt('dashboard', 'gap', 'Card gap') + txt('dashboard', 'sectionGap', 'Section gap'))}
       ${group('&#128221; Form', num('form', 'inputRadius', 'Input radius', 'px') + txt('form', 'gap', 'Field gap') + txt('form', 'labelPos', 'Label position'))}
@@ -968,6 +973,8 @@ function applyTableFeatures() {
     if (EVG.table.columnManager) { try { _tblColInit(t); } catch (e) {} }
     try { _tblStyleInit(t); } catch (e) {}            // 🎨 Style button + per-table overrides
     try { _tblFilterInit(t); } catch (e) {}           // ▼ Filter button + filter bar
+    try { _tblQuickToolsInit(t); } catch (e) {}       // ↩ Wrap / ▤ Density toggles + search box
+    try { _tblApplyColNowrap(t); } catch (e) {}       // per-column data-nowrap → single-line
     if (EVG.table.resize)        { try { _tblMakeResizable(t); } catch (e) {} }
   });
 }
@@ -1003,13 +1010,24 @@ function _tblObserveMainContent() {
 //  localStorage keyed by the header signature. Tables that manage their
 //  own <colgroup> (e.g. Open PO) are skipped.
 // ════════════════════════════════════════════════════════════════
+// Approximate row height (px) used to size the rows-before-scroll cap. Density
+// dominates; nowrap shaves a little. `dens` lets a single table override the
+// global default for its own height calc.
+function _tblRowH(dens) {
+  const d = dens || EVG.table.density || 'comfortable';
+  const base = d === 'compact' ? 34 : 44;
+  return EVG.table.wrap ? base : base - 6;
+}
 function _tblEngineEnsureStyles() {
   if (document.getElementById('evg-tbl-engine')) return;
   const T = EVG.table, C = EVG.card, D = EVG.dashboard;
   const sb = T.scrollbar, g = T.gutter;
   const wpct = Math.min(100, Math.max(20, parseInt(T.widthPct, 10) || 100));
   const rcap = Math.max(0, parseInt(T.rows, 10) || 0);
-  const rowH = T.wrap ? 40 : 32;
+  const rowH = _tblRowH();
+  // Density paddings — the global default is baked in here; per-table overrides
+  // use the !important .evg-density-* classes below (beat each table's own CSS).
+  const dPad = T.density === 'compact' ? '4px 8px' : '9px 12px';
   const s = document.createElement('style');
   s.id = 'evg-tbl-engine';
   s.textContent = `
@@ -1042,12 +1060,24 @@ function _tblEngineEnsureStyles() {
     #mainContent .tbl-wrap table.evg-borders-off td { border-bottom:none !important; }
     #mainContent .tbl-wrap table.evg-wrap-on th, #mainContent .tbl-wrap table.evg-wrap-on td { white-space:normal !important; overflow-wrap:break-word; word-break:break-word; }
     #mainContent .tbl-wrap table.evg-nowrap th, #mainContent .tbl-wrap table.evg-nowrap td { white-space:nowrap !important; overflow:hidden; text-overflow:ellipsis; }
+    /* Density — global default baked above; per-table override classes win. */
+    #mainContent .tbl-wrap table td { padding:${dPad}; }
+    #mainContent .tbl-wrap table.evg-density-compact th, #mainContent .tbl-wrap table.evg-density-compact td { padding-top:4px !important; padding-bottom:4px !important; }
+    #mainContent .tbl-wrap table.evg-density-comfortable th, #mainContent .tbl-wrap table.evg-density-comfortable td { padding-top:9px !important; padding-bottom:9px !important; }
+    /* Per-column single-line: th[data-nowrap] → that column's cells get tagged with .evg-col-nowrap (by index) at runtime. */
+    #mainContent .tbl-wrap table td.evg-col-nowrap, #mainContent .tbl-wrap table th.evg-col-nowrap { white-space:nowrap !important; overflow:hidden; text-overflow:ellipsis; }
+    /* Toolbar quick-tools active state + search box */
+    .tbl-csv-btn.evg-qt-on { background:var(--tint,#eaf5ee); border-color:var(--g6,#2e7d4f); color:var(--g8,#14502f); }
+    .tbl-toolbar-right { display:flex; align-items:center; gap:.5rem; margin-left:auto; }
+    .tbl-search { font-size:.72rem; padding:3px 9px; border-radius:5px; border:1px solid var(--border,#e0ece4); background:var(--surface,#fff); color:var(--txt,#1a2b22); width:150px; outline:none; }
+    .tbl-search:focus { border-color:var(--g6,#2e7d4f); box-shadow:0 0 0 2px rgba(26,96,56,.15); }
     .evg-rs { position:absolute; top:0; right:0; width:8px; height:100%; cursor:col-resize; user-select:none; z-index:6; }
     .evg-rs:hover { background:rgba(26,96,56,.25); }
     @media(min-width:1025px){ #mainContent .tbl-outer { margin-inline: calc(${g}px - 2.2rem); } }
     /* ── EVG.card (KPI) ── */
     .evg-kpi { background:var(--surface,#fff); border:1px solid var(--border,#e0ece4); border-radius:${C.radius}px;
-      padding:${C.pad}; display:flex; flex-direction:column; gap:.2rem; position:relative; overflow:hidden; }
+      padding:${C.pad}; display:flex; flex-direction:column; gap:.2rem; position:relative; overflow:hidden;
+      box-shadow:0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.06); }
     .evg-kpi::before { content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:${C.accent}; }
     .evg-kpi[data-click] { cursor:pointer; transition:box-shadow .15s, transform .15s; }
     ${C.hoverShadow ? '.evg-kpi[data-click]:hover { box-shadow:0 8px 22px rgba(0,0,0,.1); transform:translateY(-1px); }' : ''}
@@ -1247,10 +1277,14 @@ function _tblStyleApply(table, sig) {
   tri('evg-zebra-on', 'evg-zebra-off', 'zebra');
   tri('evg-borders-on', 'evg-borders-off', 'rowBorders');
   tri('evg-wrap-on', 'evg-nowrap', 'wrap');
+  // Density override (string, not tri): comfortable | compact | '' (inherit).
+  const dens = o.density || EVG.table.density;
+  table.classList.remove('evg-density-compact', 'evg-density-comfortable');
+  if (o.density === 'compact' || o.density === 'comfortable') table.classList.add('evg-density-' + o.density);
   const outer = table.closest('.tbl-outer');
   const wrap  = table.closest('.tbl-wrap');
   if (outer) outer.style.maxWidth = ('widthPct' in o) ? (Math.min(100, Math.max(20, o.widthPct || 100)) + '%') : '';
-  if (wrap)  wrap.style.maxHeight = ('rows' in o) ? (o.rows > 0 ? Math.round(46 + o.rows * (EVG.table.wrap ? 40 : 32)) + 'px' : 'none') : '';
+  if (wrap)  wrap.style.maxHeight = ('rows' in o) ? (o.rows > 0 ? Math.round(46 + o.rows * _tblRowH(dens)) + 'px' : 'none') : '';
 }
 function _tblStyleInit(table) {
   const outer = table.closest('.tbl-outer');
@@ -1275,6 +1309,7 @@ function _tblStyleReapply(sig) {
 }
 window.tblStyleSet    = function(sig, key, val) { const o = _tblStyleGet(sig); if (val === '') delete o[key]; else o[key] = (val === 'on'); _tblStyleSet(sig, o); _tblStyleReapply(sig); };
 window.tblStyleSetNum = function(sig, key, val) { const o = _tblStyleGet(sig); if (val === '' || val == null) delete o[key]; else o[key] = Math.max(0, parseInt(val, 10) || 0); _tblStyleSet(sig, o); _tblStyleReapply(sig); };
+window.tblStyleSetStr = function(sig, key, val) { const o = _tblStyleGet(sig); if (val === '' || val == null) delete o[key]; else o[key] = String(val); _tblStyleSet(sig, o); _tblStyleReapply(sig); };
 window.tblStyleReset  = function(sig) { _tblStyleSet(sig, {}); _tblStyleReapply(sig); document.getElementById('evgStyleModal')?.remove(); };
 window.tblStylePanel  = function(sig) {
   document.getElementById('evgStyleModal')?.remove();
@@ -1294,6 +1329,13 @@ window.tblStylePanel  = function(sig) {
     </select></label>`;
   const num = (k, label, ph) => `<label style="${lblStyle}">${label}
     <input type="number" class="evg-style-num" data-k="${k}" value="${(k in o) ? o[k] : ''}" placeholder="${ph}" style="${selStyle};width:150px"></label>`;
+  const densVal = ('density' in o) ? o.density : '';
+  const densSel = `<label style="${lblStyle}">Row density
+    <select class="evg-style-str" data-k="density" style="${selStyle};min-width:150px">
+      <option value="" ${densVal === '' ? 'selected' : ''}>System default</option>
+      <option value="comfortable" ${densVal === 'comfortable' ? 'selected' : ''}>Comfortable</option>
+      <option value="compact" ${densVal === 'compact' ? 'selected' : ''}>Compact</option>
+    </select></label>`;
   const modal = document.createElement('div');
   modal.id = 'evgStyleModal';
   modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
@@ -1309,6 +1351,7 @@ window.tblStylePanel  = function(sig) {
         ${tri('zebra', 'Row striping (zebra)')}
         ${tri('rowBorders', 'Row borders')}
         ${tri('wrap', 'Wrap text')}
+        ${densSel}
         ${num('widthPct', 'Table width (%)', 'system')}
         ${num('rows', 'Rows before scroll', 'system · 0 = all')}
       </div>
@@ -1321,11 +1364,84 @@ window.tblStylePanel  = function(sig) {
   // Bind via closure (sig captured, never interpolated) so any header signature
   // — including ones with quotes — works.
   modal.querySelectorAll('.evg-style-tri').forEach(sel => sel.addEventListener('change', () => tblStyleSet(sig, sel.dataset.k, sel.value)));
+  modal.querySelectorAll('.evg-style-str').forEach(sel => sel.addEventListener('change', () => tblStyleSetStr(sig, sel.dataset.k, sel.value)));
   modal.querySelectorAll('.evg-style-num').forEach(inp => inp.addEventListener('input', () => tblStyleSetNum(sig, inp.dataset.k, inp.value)));
   modal.querySelector('.evg-style-x')?.addEventListener('click', () => modal.remove());
   modal.querySelector('.evg-style-reset')?.addEventListener('click', () => tblStyleReset(sig));
   modal.querySelector('.evg-style-done')?.addEventListener('click', () => { _tblStyleReapply(sig); modal.remove(); });
 };
+// ── Per-column single-line: tag each column whose <th> has data-nowrap so only
+// that column renders single-line (the rest still wrap). Index-based and
+// idempotent, so it survives column-manager reorders and async row arrival. ──
+function _tblApplyColNowrap(table) {
+  if (!table) return;
+  const ths = Array.from(table.querySelectorAll('thead th'));
+  const nowrapIdx = ths.map((th, i) => th.hasAttribute('data-nowrap') ? i : -1).filter(i => i >= 0);
+  if (!nowrapIdx.length) return;
+  const tag = row => { const cells = row.children; nowrapIdx.forEach(i => { if (cells[i]) cells[i].classList.add('evg-col-nowrap'); }); };
+  const htr = table.querySelector('thead tr'); if (htr) tag(htr);
+  table.querySelectorAll('tbody tr').forEach(tag);
+}
+
+// ── Quick toolbar tools: one-click Wrap + Density toggles (left) and a per-table
+// search box (right). The toggles write into the per-table style override
+// (evg_tbl_style) so they persist and beat the global default — same store the
+// 🎨 Style panel uses. Suppress the search with data-evg-search="off". ──
+function _tblQuickToolsInit(table) {
+  if (table.dataset.evgQtools) return;
+  const outer = table.closest('.tbl-outer');
+  const toolbar = outer && outer.querySelector('.tbl-toolbar');
+  const left = toolbar && toolbar.querySelector('.tbl-toolbar-left');
+  if (!toolbar || !left) return;
+  table.dataset.evgQtools = '1';
+  const sig = table.dataset.evgSig || _tblSig(table); table.dataset.evgSig = sig;
+
+  const wrapBtn = document.createElement('button');
+  wrapBtn.className = 'tbl-csv-btn evg-wrap-btn';
+  wrapBtn.innerHTML = '&#8617; Wrap';
+  wrapBtn.title = 'Toggle text wrap for this table';
+  const syncWrap = () => { const o = _tblStyleGet(sig); const on = ('wrap' in o) ? o.wrap : EVG.table.wrap; wrapBtn.classList.toggle('evg-qt-on', !!on); };
+  wrapBtn.onclick = () => { const o = _tblStyleGet(sig); const on = ('wrap' in o) ? o.wrap : EVG.table.wrap; tblStyleSet(sig, 'wrap', on ? 'off' : 'on'); syncWrap(); };
+  syncWrap(); left.appendChild(wrapBtn);
+
+  const densBtn = document.createElement('button');
+  densBtn.className = 'tbl-csv-btn evg-dens-btn';
+  densBtn.title = 'Toggle row density (comfortable / compact)';
+  const syncDens = () => { const o = _tblStyleGet(sig); const d = o.density || EVG.table.density; densBtn.innerHTML = (d === 'compact' ? '&#9783; Compact' : '&#9776; Comfortable'); densBtn.classList.toggle('evg-qt-on', d === 'compact'); };
+  densBtn.onclick = () => { const o = _tblStyleGet(sig); const d = o.density || EVG.table.density; tblStyleSetStr(sig, 'density', d === 'compact' ? 'comfortable' : 'compact'); syncDens(); };
+  syncDens(); left.appendChild(densBtn);
+
+  if (EVG.table.search && table.dataset.evgSearch !== 'off') {
+    let right = toolbar.querySelector('.tbl-toolbar-right');
+    if (!right) { right = document.createElement('div'); right.className = 'tbl-toolbar-right'; toolbar.appendChild(right); }
+    const inp = document.createElement('input');
+    inp.type = 'search'; inp.className = 'tbl-search'; inp.placeholder = 'Search…';
+    inp.setAttribute('aria-label', 'Search table');
+    inp.oninput = () => _tblSearchApply(table, inp.value);
+    right.appendChild(inp);
+    table._evgSearchInput = inp;
+  }
+}
+// Client-side row filter for the per-table search box. Matches whole-row text;
+// hides non-matching rows and updates the record badge to "shown / total".
+function _tblSearchApply(table, q) {
+  const needle = String(q || '').trim().toLowerCase();
+  const ncol = table.querySelectorAll('thead th').length;
+  let shown = 0, total = 0;
+  table.querySelectorAll('tbody tr').forEach(tr => {
+    const isData = tr.children.length === ncol;   // skip subtotal / empty-state rows
+    if (isData) total++;
+    if (!needle) { tr.style.display = ''; if (isData) shown++; return; }
+    const match = (tr.textContent || '').toLowerCase().includes(needle);
+    tr.style.display = match ? '' : 'none';
+    if (match && isData) shown++;
+  });
+  if (table._rowBadgeId) {
+    const badge = document.getElementById(table._rowBadgeId);
+    if (badge) badge.textContent = needle ? (shown + ' / ' + total + ' records') : (total + ' record' + (total !== 1 ? 's' : ''));
+  }
+}
+
 // ── Universal table filters ───────────────────────────────────────────────
 // Every engine table gets a ▼ Filter button. The user CHOOSES which fields to
 // filter by (persisted per table signature in localStorage 'evg_tbl_filters');
