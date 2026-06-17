@@ -9949,7 +9949,7 @@ function _accUpdateBuildRow(prUuid) {
     'Details of Request': details,
     'Status': _accV('acc-up-status'),
     'Pending Reason': _accV('acc-up-reason'),
-    'Date': _accFmtLongDate(_accV('acc-up-date')),
+    'Date': _accFmtDate(_accV('acc-up-date')),
     'UTR Details': _accV('acc-up-utr'),
     'Comments (If Any)': _accV('acc-up-comments'),
     'Timestamp': _accFmtDateTime(new Date()),
