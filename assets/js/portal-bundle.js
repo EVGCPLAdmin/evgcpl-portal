@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.1.0';
-const PORTAL_BUILD    = 562;
-const PORTAL_BUILD_AT = '2026-06-17T01:49:27Z';
+const PORTAL_VERSION  = '4.3.0';
+const PORTAL_BUILD    = 564;
+const PORTAL_BUILD_AT = '2026-06-17T04:34:04Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -451,6 +451,41 @@ function applyDevModeUI() {
   applyRoleNavRestrictions(STATE.role);
 }
 
+// Hard refresh — force the browser/CDN to re-fetch the current document and its
+// versioned assets, bypassing any stale cache. The portal is a static site whose
+// HTML is cached independently of the bundle, so a stale page can keep pointing
+// at an old build; this guarantees the newest version loads.
+window.portalHardRefresh = function() {
+  // Best-effort cache/service-worker purge (none today, but future-proof).
+  try { if (window.caches && caches.keys) caches.keys().then(ks => ks.forEach(k => caches.delete(k))); } catch (e) {}
+  try { if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())); } catch (e) {}
+  // Re-request the document with a one-shot cache-busting param so the CDN can't
+  // serve a stale HTML. The param is stripped again once the fresh page loads.
+  try {
+    const u = new URL(window.location.href);
+    u.searchParams.set('_hr', String(Date.now()));
+    window.location.replace(u.toString());
+  } catch (e) { window.location.reload(); }
+};
+// Inject the Hard-Refresh button into the (per-page, hand-coded) header so it
+// appears on every page without editing each HTML file. Idempotent.
+function _headerEnsureHardRefresh() {
+  // Drop the cache-busting param left by a prior hard refresh.
+  try {
+    const u = new URL(window.location.href);
+    if (u.searchParams.has('_hr')) { u.searchParams.delete('_hr'); history.replaceState(null, '', u.pathname + (u.search || '') + (u.hash || '')); }
+  } catch (e) {}
+  const right = document.querySelector('.header-right');
+  if (!right || document.getElementById('hardRefreshBtn')) return;
+  const btn = document.createElement('button');
+  btn.id = 'hardRefreshBtn';
+  btn.className = 'h-icon-btn';
+  btn.title = 'Hard Refresh — reload the latest version (bypass cache)';
+  btn.setAttribute('onclick', 'portalHardRefresh()');
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+  right.insertBefore(btn, right.firstChild); // leftmost icon in the header cluster
+}
+
 function getDefaultPage(role) {
   if (role === 'dept_head') {
     const dept = (STATE.deptHeadDept || '').toLowerCase();
@@ -487,6 +522,7 @@ function launchApp() {
   applyPortalConfig();
   applyRoleNavRestrictions(STATE.role);
   applyDevModeUI();
+  _headerEnsureHardRefresh();
   document.getElementById('loginScreen').classList.add('fade-out');
   setTimeout(() => {
     document.getElementById('loginScreen').style.display = 'none';
@@ -2503,7 +2539,7 @@ function applyRoleNavRestrictions(role) {
   });
   // Hide groups where all dropdown items hidden
   topNav.querySelectorAll('.tnav-group').forEach(group => {
-    if (group.id === 'tnav-md-command' || group.id === 'tnav-devmode-group') return;
+    if (group.id === 'tnav-md-command' || group.id === 'tnav-devmode-group' || group.id === 'tnav-more-group') return;
     if (group.querySelector('.tnav-btn.solo[data-route]')) return;
     const items = group.querySelectorAll('.tnav-item[data-route]');
     if (!items.length) return;
@@ -2513,6 +2549,9 @@ function applyRoleNavRestrictions(role) {
   if (role === 'site') {
     topNav.querySelectorAll('[data-role-section-hide="site"]').forEach(g => { g.style.display = 'none'; });
   }
+  // Collapse any groups that don't fit into the "More" menu (after role-based
+  // visibility is settled). A rAF re-run catches late font/layout shifts.
+  try { _navApplyOverflow(); requestAnimationFrame(() => { try { _navApplyOverflow(); } catch (e) {} }); } catch (e) {}
   try { _routeRegistryAudit(); } catch (e) {}
 }
 
@@ -2741,6 +2780,99 @@ function _navBuildSubmenus() {
     });
     host.appendChild(fly);
   }
+}
+
+// ── Top-nav overflow → "More" menu ───────────────────────────────────────────
+// The desktop top nav is a fixed-height flex row with no wrapping; on narrower
+// desktops the right-most groups used to run off-screen (body has overflow-x
+// hidden, so they were simply lost). _navApplyOverflow() measures the visible
+// groups and collapses the ones that don't fit into a single "More" dropdown,
+// rebuilt as lightweight navigate items + side flyouts. Dashboard (first group)
+// and the trailing Admin/Dev group stay pinned; role-based visibility is
+// untouched (we toggle a CSS class, never inline display).
+const _NAV_DOTS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>';
+function _navMoreEntry(group) {
+  const labelOf = el => { let t = ''; (el ? el.childNodes : []).forEach(n => { if (n.nodeType === 3) t += n.textContent; }); return (t || (el ? el.textContent : '') || '').trim(); };
+  const solo = group.querySelector('.tnav-btn.solo[data-route]');
+  if (solo) {
+    const route = solo.getAttribute('data-route');
+    const it = document.createElement('div');
+    it.className = 'tnav-item';
+    it.setAttribute('data-route', route);
+    it.setAttribute('onclick', "navigate('" + route + "')");
+    it.innerHTML = (solo.querySelector('svg') ? solo.querySelector('svg').outerHTML : '') + labelOf(solo);
+    return it;
+  }
+  const btn = group.querySelector('.tnav-btn');
+  const head = document.createElement('div');
+  head.className = 'tnav-item has-sub';
+  head.innerHTML = (btn && btn.querySelector('svg') ? btn.querySelector('svg').outerHTML : '') + labelOf(btn) +
+    '<svg class="tnav-sub-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 6 15 12 9 18"/></svg>';
+  const fly = document.createElement('div');
+  fly.className = 'tnav-subdropdown';
+  group.querySelectorAll('.tnav-dropdown > .tnav-item[data-route]').forEach(src => {
+    if (getComputedStyle(src).display === 'none') return;
+    const route = src.getAttribute('data-route');
+    const it = document.createElement('div');
+    it.className = 'tnav-item';
+    it.setAttribute('data-route', route);
+    it.setAttribute('onclick', "navigate('" + route + "')");
+    it.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/></svg>' + labelOf(src);
+    fly.appendChild(it);
+  });
+  head.appendChild(fly);
+  return head;
+}
+function _navApplyOverflow() {
+  const topNav = document.getElementById('topNav');
+  if (!topNav) return;
+  if (window.innerWidth <= 1024 || getComputedStyle(topNav).display === 'none') return;
+  // Ensure the "More" group exists, parked just before the spacer.
+  let more = document.getElementById('tnav-more-group');
+  if (!more) {
+    more = document.createElement('div');
+    more.className = 'tnav-group';
+    more.id = 'tnav-more-group';
+    more.innerHTML = '<button class="tnav-btn">' + _NAV_DOTS_SVG + 'More' +
+      '<svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>' +
+      '<div class="tnav-dropdown tnav-more-dd"></div>';
+    topNav.insertBefore(more, topNav.querySelector('.tnav-spacer'));
+  }
+  more.style.display = ''; // never let the role-restriction pass hide the More host
+  const moreDD = more.querySelector('.tnav-more-dd');
+  // Reset to the fully-expanded state before measuring.
+  topNav.querySelectorAll('.tnav-group.tnav-collapsed').forEach(g => g.classList.remove('tnav-collapsed'));
+  moreDD.innerHTML = '';
+  const spacer = topNav.querySelector('.tnav-spacer');
+  const groups = Array.from(topNav.querySelectorAll(':scope > .tnav-group'));
+  const visible = groups.filter(g => g !== more && getComputedStyle(g).display !== 'none');
+  // Collapsible = visible left-cluster groups (before the spacer), minus the first (Dashboard).
+  const firstVisible = visible[0];
+  const collapsible = visible.filter(g => g !== firstVisible &&
+    (!spacer || (g.compareDocumentPosition(spacer) & Node.DOCUMENT_POSITION_FOLLOWING)));
+  const avail = topNav.clientWidth - 16; // padding 0 .5rem
+  let fixed = 0;
+  visible.forEach(g => { if (!collapsible.includes(g)) fixed += g.offsetWidth; });
+  const moreW = more.offsetWidth; // More currently rendered (empty dropdown, button only)
+  let used = fixed;
+  const overflow = [];
+  for (let i = 0; i < collapsible.length; i++) {
+    if (used + collapsible[i].offsetWidth + moreW > avail) { overflow.push(...collapsible.slice(i)); break; }
+    used += collapsible[i].offsetWidth;
+  }
+  // A lone overflow that fits without needing the More button: keep it inline.
+  if (overflow.length === 1 && used + overflow[0].offsetWidth <= avail) overflow.length = 0;
+  if (!overflow.length) { more.classList.add('tnav-collapsed'); return; }
+  overflow.forEach(g => { g.classList.add('tnav-collapsed'); moreDD.appendChild(_navMoreEntry(g)); });
+  more.classList.remove('tnav-collapsed');
+}
+let _navOverflowTimer = null;
+if (typeof window !== 'undefined' && !window._navOverflowHooked) {
+  window._navOverflowHooked = true;
+  window.addEventListener('resize', () => {
+    clearTimeout(_navOverflowTimer);
+    _navOverflowTimer = setTimeout(() => { try { _navApplyOverflow(); } catch (e) {} }, 150);
+  });
 }
 
 
@@ -4445,6 +4577,10 @@ window._vplpSetFY     = function(v) { _vplpFY = v; _vplpRenderBody(); };
 window._vplpSetView   = function(v) { _vplpView = v; _vplpRenderBody(); };
 window._vplpSetFlatStatus = function(v) { _vplpFlatStatus = v; _vplpRenderBody(); };
 window._vplpFlatOpen  = function(i) { const r = (window._vplpFlatRows || [])[i]; if (!r) return; _vplpVendor = r.v.key; _vplpFY = ''; _vplpView = 'vendor'; _vplpRenderBody(); };
+// Jump straight to a vendor's PO ledger (used by the Vendor master / portal).
+// Vendors are keyed in the ledger by their Vendor-ID token (e.g. EGVE001);
+// renderVendorLedgerPO() doesn't reset _vplpVendor, so set it before navigating.
+window._vplpOpenVendor = function(vid) { _vplpVendor = String(vid || '').toUpperCase(); _vplpFY = ''; _vplpView = 'vendor'; navigate('vendor-ledger-po'); };
 
 let _vplpGRNRows = null;
 async function _vplpEnsure(force) {
@@ -4575,13 +4711,12 @@ function _vplpRenderBody() {
   </div>`;
   c.innerHTML = toggle + selector + head + _vplpLedger(v);
 }
-// Flat list — one row per vendor with their final Dr/Cr balance + totals.
-function _vplpFlatList(toggle) {
-  _vplpEnsureLedgerStyle();
-  const d = _vplpData, esc = _mdpEsc;
-  const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
-  const drcr = n => inr(Math.abs(n)) + (n >= 0 ? ' Cr' : ' Dr');
-  // Completed vendor payments per vendor key — one pass.
+// Per-vendor Dr/Cr rows: credit = received goods (material + tax + charges),
+// debit = completed vendor payments, bal = credit − debit, status by sign.
+// Shared by the flat list and by PR bill-status lookups.
+function _vplpVendorRows() {
+  const d = _vplpData;
+  if (!d) return [];
   const debitByKey = {};
   (_mdpRows || []).forEach(r => {
     if (r.payTo !== 'Vendor') return;
@@ -4590,7 +4725,7 @@ function _vplpFlatList(toggle) {
     const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
     debitByKey[key] = (debitByKey[key] || 0) + r.amount;
   });
-  let rows = d.vendors.map(v => {
+  return d.vendors.map(v => {
     let mat = 0, addl = 0, taxA = 0, taxB = 0;
     Object.keys(v.poKeys).forEach(k => {
       const i = d.poInfo[k] || {}; const m = d.poRecv[k] || 0, ta = d.poTaxA[k] || 0, tb = i.taxB || 0, ad = i.addl || 0;
@@ -4598,7 +4733,45 @@ function _vplpFlatList(toggle) {
     });
     const credit = mat + addl + taxA + taxB, debit = debitByKey[v.key] || 0, bal = credit - debit;
     return { v, mat, addl, taxA, taxB, credit, debit, bal, status: _vplpBalStatus(bal) };
-  }).filter(r => r.credit > 0 || r.debit > 0);
+  });
+}
+// vendor key → {credit,debit,bal,status}, cached against the current ledger data.
+let _vplpStatusMapCache = null, _vplpStatusMapFor = null;
+function _vplpVendorStatusMap() {
+  if (_vplpStatusMapCache && _vplpStatusMapFor === _vplpData) return _vplpStatusMapCache;
+  const m = {};
+  _vplpVendorRows().forEach(r => { m[r.v.key] = { credit: r.credit, debit: r.debit, bal: r.bal, status: r.status }; });
+  _vplpStatusMapFor = _vplpData; _vplpStatusMapCache = m;
+  return m;
+}
+// Vendor bill status (Payable/Settled/Advance) for a PaymentRequest row, keyed
+// exactly as the vendor ledger does. Returns null for non-vendor PRs, when the
+// ledger data isn't loaded, or when the vendor has no PO/payment activity.
+window._vplpStatusForPR = function(r) {
+  if (!r || r.payTo !== 'Vendor' || !_vplpData) return null;
+  const vid = _vplpVendorToken(r.vendor) || _vplpVendorToken(r.paidTo);
+  const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
+  const m = _vplpVendorStatusMap()[key];
+  if (!m) return null;
+  return { status: m.status, bal: m.bal, credit: m.credit, debit: m.debit, meta: _VPLP_STATUS_META[m.status] };
+};
+// Compact vendor bill-status chip (reused on the worklist + PR voucher).
+function _vplpStatusChipFor(r, opts) {
+  const s = window._vplpStatusForPR(r);
+  if (!s) return (opts && opts.dash) || '';
+  const showBal = !opts || opts.showBal !== false;
+  const inr = n => '₹' + Math.round(Math.abs(n)).toLocaleString('en-IN');
+  const balTxt = showBal ? ` <span style="font-weight:600">${inr(s.bal)}${s.bal >= 0 ? ' Cr' : ' Dr'}</span>` : '';
+  return `<span style="display:inline-flex;align-items:center;gap:.3rem;font-size:.68rem;font-weight:700;background:${s.meta.bg};color:${s.meta.color};padding:2px 8px;border-radius:20px;white-space:nowrap"><span style="width:6px;height:6px;border-radius:50%;background:${s.meta.dot}"></span>${s.meta.label}${balTxt}</span>`;
+}
+
+// Flat list — one row per vendor with their final Dr/Cr balance + totals.
+function _vplpFlatList(toggle) {
+  _vplpEnsureLedgerStyle();
+  const d = _vplpData, esc = _mdpEsc;
+  const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
+  const drcr = n => inr(Math.abs(n)) + (n >= 0 ? ' Cr' : ' Dr');
+  let rows = _vplpVendorRows().filter(r => r.credit > 0 || r.debit > 0);
   // Group by balance status (Payable → Advance → Settled), then by size within.
   const gOrd = { Payable: 0, Advance: 1, Settled: 2 };
   rows.sort((a, b) => (gOrd[a.status] - gOrd[b.status]) || (Math.abs(b.bal) - Math.abs(a.bal)));
@@ -7428,7 +7601,11 @@ function renderAccountsWorkspace(initialTab) {
       </div>
     </div>
     <div id="accwBody"><div style="text-align:center;padding:3rem;color:var(--txt3)">&#8987; Loading payment requests…</div></div>`;
-  _accReloadRows().then(() => _accwRenderBody())
+  // Load the PaymentRequest rows + the Vendor Ledger (PO) data in parallel so the
+  // worklist's Vendor Status column can render synchronously on first paint. The
+  // ledger load is best-effort — the column degrades to "—" if it fails.
+  const _vplpReady = (typeof _vplpEnsure === 'function') ? _vplpEnsure().catch(() => {}) : Promise.resolve();
+  Promise.all([_accReloadRows(), _vplpReady]).then(() => _accwRenderBody())
     .catch(() => { const b=document.getElementById('accwBody'); if (b) b.innerHTML='<div style="padding:2.5rem;text-align:center;color:var(--danger)">&#9888; Could not load the PaymentRequest sheet.</div>'; });
 }
 function _accwSetTab(t) { ACCW.tab = t; _accwRenderBody(); }
@@ -7623,7 +7800,7 @@ function _accwTableHtml(rows) {
   else rows.forEach(r => { const k=_accwGroupKey(r); if (!groups.has(k)) groups.set(k,[]); groups.get(k).push(r); });
   const gentries = [...groups.entries()].sort((a,b)=>_accwSum(b[1])-_accwSum(a[1]));
   const grand = _accwSum(rows);
-  const ncol = 10;
+  const ncol = 11;
 
   const tc = { 'vendor':['#dbeafe','#1d4ed8'], 'employee':['#dcfce7','#15803d'], 'sub contractor':['#fef3c7','#b45309'], 'others':['#f3e8ff','#7c3aed'] };
   const rowHtml = (r) => {
@@ -7655,6 +7832,7 @@ function _accwTableHtml(rows) {
       <td style="${TD};font-family:monospace;font-size:.72rem;color:var(--txt2);white-space:nowrap">${esc(r.orderNo)||'—'}</td>
       <td style="${TD};text-align:right;font-weight:700;color:${r.amount>0?'var(--g8)':'var(--txt3)'};white-space:nowrap">${_accwFmt(r.amount)}</td>
       <td style="${TD};white-space:nowrap">${st.label?`<span style="background:${st.bg};color:${st.color};padding:2px 8px;border-radius:9px;font-size:.66rem;font-weight:600;border:1px solid ${st.color}22">${esc(st.label)}</span>`:'—'}</td>
+      <td style="${TD};white-space:nowrap">${(typeof _vplpStatusChipFor==='function')?_vplpStatusChipFor(r,{dash:'<span style=\"color:var(--txt3)\">—</span>'}):'—'}</td>
       <td style="${TD};text-align:center">${_accwAgeChip(_accwAge(r))}</td>
       <td style="${TD};white-space:nowrap;color:var(--txt2);font-size:.74rem">${esc(r.date)||'—'}</td>
       <td style="${TD};white-space:nowrap;text-align:center">
@@ -7689,13 +7867,14 @@ function _accwTableHtml(rows) {
           <th style="${TH};text-align:center;width:34px"><input type="checkbox" onclick="_accwToggleAll(this.checked)" title="Select all shown" style="width:15px;height:15px;cursor:pointer"></th>
           <th style="${TH}">Request ID</th><th style="${TH}">Request Details</th><th style="${TH}">Site</th>
           <th style="${TH}">Order No</th><th style="${TH};text-align:right">Amount</th><th style="${TH}">Status</th>
+          <th style="${TH}" title="Vendor bill status from the Vendor Ledger (PO)">Vendor Status</th>
           <th style="${TH};text-align:center">Age</th><th style="${TH}">Date</th><th style="${TH};text-align:center">Actions</th>
         </tr></thead>
         <tbody>${body || `<tr><td colspan="${ncol}" style="text-align:center;padding:3rem;color:var(--txt3)">No matching requests.</td></tr>`}</tbody>
         <tfoot><tr style="background:var(--g9);color:#fff;position:sticky;bottom:0;font-weight:800">
           <td colspan="5" style="padding:8px 9px;text-align:right">${rows.length} request(s) &middot; Grand total</td>
           <td style="padding:8px 9px;text-align:right">${_accwFmt(grand)}</td>
-          <td colspan="4"></td>
+          <td colspan="5"></td>
         </tr></tfoot>
       </table>
     </div></div>
@@ -7734,11 +7913,12 @@ async function _accwBulkAdvance() {
 function _accwExportCsv() {
   if (typeof _accCan === 'function' && !_accCan('export')) { alert('You do not have permission to export.'); return; }
   const rows = _accwFiltered();
-  const head = ['Request ID','Payee','Type','Site','For','Order No','Bill No','Amount','Currency','Stage','Status','Age (days)','Date'];
+  const head = ['Request ID','Payee','Type','Site','For','Order No','Bill No','Amount','Currency','Stage','Status','Vendor Status','Age (days)','Date'];
   const esc = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+  const vStat = r => { const s = (typeof _vplpStatusForPR==='function') ? _vplpStatusForPR(r) : null; return s ? (s.status + ' (' + Math.round(Math.abs(s.bal)).toLocaleString('en-IN') + (s.bal>=0?' Cr':' Dr') + ')') : ''; };
   const lines = [head.map(esc).join(',')];
   rows.forEach(r => lines.push([r.requestId, _accStripCode(r.paidTo)||r.payTo, r.payTo, r.site, r.entity, r.orderNo, r.billNo,
-    r.amount, r.currency, _accViewById(_accStageOf(r)).label, (r.status&&r.status.label)||'', _accwAge(r), r.date].map(esc).join(',')));
+    r.amount, r.currency, _accViewById(_accStageOf(r)).label, (r.status&&r.status.label)||'', vStat(r), _accwAge(r), r.date].map(esc).join(',')));
   const blob = new Blob([lines.join('\n')], { type:'text/csv' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = 'accounts-worklist-' + new Date().toISOString().slice(0,10) + '.csv';
@@ -9117,6 +9297,17 @@ function _accOpenPRDetail(uuid) {
   _accDrawPRAttachments(row);
   _accRenderDetailActions(row);
   _accDrawPOItems(row);
+  _accDrawVendorStatus(row);
+}
+
+// Fill the voucher's vendor bill-status chip (Payable/Settled/Advance + net
+// balance) from the Vendor Ledger (PO). Lazily loads ledger data if needed.
+function _accDrawVendorStatus(r) {
+  const slot = document.getElementById('acc-detail-vendorstatus');
+  if (!slot || !r || r.payTo !== 'Vendor') return;
+  const paint = () => { try { slot.innerHTML = (typeof _vplpStatusChipFor === 'function') ? _vplpStatusChipFor(r, { showBal: true }) : ''; } catch (e) {} };
+  if (typeof _vplpData !== 'undefined' && _vplpData) { paint(); return; }
+  if (typeof _vplpEnsure === 'function') _vplpEnsure().then(paint).catch(() => {});
 }
 
 // Whole-tab cache for PO_Items_Actual (the items tab keys to a request via its
@@ -9288,6 +9479,7 @@ function _accDrawPRDetail(dr, r) {
             <div style="display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;margin-top:2px">
               <span style="font-size:1rem;font-weight:700;color:var(--g8)">${esc(payee) || '—'}</span>
               ${r.payTo ? `<span style="font-size:.6rem;font-weight:700;padding:1px 7px;border-radius:9px;background:#e0e7ff;color:#4338ca">${esc(r.payTo)}</span>` : ''}
+              ${r.payTo === 'Vendor' ? '<span id="acc-detail-vendorstatus" title="Vendor bill status from the Vendor Ledger (PO)"></span>' : ''}
             </div>
             <div style="font-size:.73rem;color:var(--txt2);margin-top:2px">${esc(r.site)}${r.site && r.entity ? ' &middot; ' : ''}${esc(r.entity)}</div>
           </div>
@@ -17219,7 +17411,9 @@ function vpiSelectVendor(id, name) {
   document.getElementById('vpi-search').value = name;
   document.getElementById('vpi-suggest').style.display = 'none';
   const badge = document.getElementById('vpi-selected-badge');
-  badge.innerHTML = `🏢 <span>${name}</span> <span style="font-size:.75rem;color:var(--txt3);font-weight:400">${id}</span>`;
+  const idEsc = String(id).replace(/'/g, "\\'");
+  badge.innerHTML = `🏢 <span>${name}</span> <span style="font-size:.75rem;color:var(--txt3);font-weight:400">${id}</span>` +
+    `<button onclick="event.stopPropagation();_vplpOpenVendor('${idEsc}')" class="btn btn-secondary btn-sm" style="margin-left:.4rem" title="Open this vendor's PO ledger (Dr/Cr running balance)">📒 Vendor Ledger (PO)</button>`;
   badge.style.display = 'flex';
   badge.style.gap = '.5rem';
   badge.style.alignItems = 'center';

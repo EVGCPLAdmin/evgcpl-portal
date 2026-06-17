@@ -1251,6 +1251,18 @@ th.sort-desc .sort-arrow::after{content:'▼';opacity:1}
 /* Spacer pushes Admin to far right */
 .tnav-spacer { flex:1; }
 
+/* Overflow "More" menu — groups that don't fit collapse out of the bar */
+.tnav-group.tnav-collapsed { display:none !important; }
+/* Inside the More dropdown each parked group is a full-width row; its items
+   fly out to the LEFT (More sits near the right edge of the bar). */
+.tnav-more-dd .tnav-item.has-sub { justify-content:flex-start; }
+.tnav-more-dd .tnav-item.has-sub .tnav-sub-caret { margin-left:auto; }
+.tnav-more-dd .tnav-subdropdown {
+  left:auto; right:100%;
+  border-left:none; border-right:2px solid var(--gold);
+  border-radius:10px 0 0 10px;
+}
+
 /* Dev mode shows hidden items */
 .tnav-item[data-status="dev"] { display:none; }
 body.dev-mode .tnav-item[data-status="dev"] { display:flex; }
