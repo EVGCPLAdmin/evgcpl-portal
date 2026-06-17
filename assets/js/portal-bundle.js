@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.7.1';
-const PORTAL_BUILD    = 577;
-const PORTAL_BUILD_AT = '2026-06-17T20:20:03Z';
+const PORTAL_VERSION  = '4.8.0';
+const PORTAL_BUILD    = 578;
+const PORTAL_BUILD_AT = '2026-06-17T20:35:33Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2518,11 +2518,11 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','md-command','md-payments','ledgers','vendor-ledger-po','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','subcontractor','po-register','stockin-register','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','my-tasks','expense-ledger','md-command','md-payments','ledgers','vendor-ledger-po','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','subcontractor','po-register','stockin-register','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
   hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','subcontractor','po-register','stockin-register','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
-  accounts:  new Set(['dashboard','my-profile','accounts','ledgers','vendor-ledger-po','subcontractor','po-register','stockin-register','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  accounts:  new Set(['dashboard','my-tasks','expense-ledger','my-profile','accounts','ledgers','vendor-ledger-po','subcontractor','po-register','stockin-register','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   employee:  new Set(['dashboard','my-profile','my-documents','accounts','policies','rewards','apps','wall','planning-overview','execution','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   dept_head: null,   // built dynamically from DEPT_HEAD_ROUTES below
   vendor:    new Set(['my-portal','my-orders','my-invoices','my-documents']),
@@ -3058,6 +3058,8 @@ function renderPage(page) {
     'dashboard':      renderDashboard,
     'md-command':     renderMDCommand,
     'md-payments':    renderMDPayments,
+    'expense-ledger': renderExpenseLedger,
+    'my-tasks':       renderMyTasks,
     'ledgers':        () => renderLedgers('Employee'),
     'ledger-sc':      () => renderLedgers('Sub Contractor'),
     'vendor-ledger-po': renderVendorLedgerPO,
@@ -5943,6 +5945,7 @@ const PAYMENT_SHEET_ID = '1mLddxLRf719EaXE9XSET9gT8l0a8Cxns362yIbHo63g'; // Acco
 // Accounts backend exec URL is resolved via getExec('accounts') — managed in
 // the exec registry / PortalConfig sheet (exec_accounts), not hardcoded here.
 const STORES_SHEET_ID  = '1iMQxgqGilUh2_3NCZl5D-EMt-NC8FwugX83q2fWb8fE'; // v2_Stores – StockIN / GRN_No tabs
+const EXPENSE_SHEET_ID = '1v7oS-VGxOaistVIaKHoI2A5AYJly2QbFKhe-6oi8k7g'; // Cash/Mess expenses – CashExpenseMonth · Cash Expenses · Ledger · Individual Food Expenses
 
 // ══════════════════════════════════════════════════════════
 //  MRS DASHBOARD
@@ -9685,10 +9688,144 @@ async function _accQuickReject(uuid) {
 const CONFIG_KEY = 'evgcpl_portal_config_v2';
 const LEGACY_CONFIG_KEYS = ['evgcpl_portal_config']; // cleared on first load
 
+// ════════════════════════════════════════════════════════════════
+//  EXPENSE LEDGER (route 'expense-ledger') — site cash-expense ledger from the
+//  Expenses spreadsheet (EXPENSE_SHEET_ID). The `Cash For` column splits it
+//  into two views: "Other Expenses" and "Site Mess Expenses". Source tabs:
+//   • CashExpenseMonth — monthly per-site ledger (Opening/Initiated/Paid/Closing,
+//     Ledger Status Open|Closed).
+//   • Ledger — the line-item bills (Expense Head / Sub-Head / Amount / Status).
+//  Pending = a month whose Ledger Status is not "Closed".
+// ════════════════════════════════════════════════════════════════
+let _expLedData = null;                 // { month:[...], items:[...] }
+let _expLedView = 'Other Expenses';     // 'Other Expenses' | 'Mess Expenses'
+let _expLedSite = '';
+function _expNum(v) { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; }
+function _expFmt(n) { return '₹' + Math.round(n || 0).toLocaleString('en-IN'); }
+function _expLedEnsure() {
+  if (_expLedData) return Promise.resolve(_expLedData);
+  return Promise.all([
+    fetchSheet('CashExpenseMonth', null, EXPENSE_SHEET_ID, { rawId: true }),
+    fetchSheet('Ledger',           null, EXPENSE_SHEET_ID, { rawId: true }),
+  ]).then(([month, items]) => {
+    _expLedData = {
+      month: (month || []).filter(r => r['Site Name']).map(r => ({
+        site: r['Site Name'] || '', cashFor: r['Cash For'] || '', requestId: r['Request ID'] || '',
+        from: r['For the Period (From)'] || '', to: r['For the Period (To)'] || '',
+        opening: _expNum(r['Opening Balance']), initiated: _expNum(r['Initiated']), paid: _expNum(r['Paid']),
+        billsFor: _expNum(r['Bills Updated For']), closing: _expNum(r['Closing Balance']),
+        status: r['Ledger Status'] || '', monthYear: r['Month-Year'] || '', month: r['Month'] || '', fy: r['Financial Year'] || '',
+      })),
+      items: (items || []).filter(r => r['Site Name']).map(r => ({
+        site: r['Site Name'] || '', spentUnder: r['Spent Under'] || '', date: r['Date of Expense'] || '',
+        head: r['Expense Head'] || '', subHead: r['Expense Sub-Head'] || '', details: r['Details'] || '',
+        amount: _expNum(r['Amount']), status: r['Status'] || '', monthYear: r['Month-Year'] || '',
+      })),
+    };
+    return _expLedData;
+  });
+}
+function renderExpenseLedger() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header"><div class="page-header-row">
+      <div><h1>&#129534; Expense Ledger</h1><p>Monthly cash-expense ledger by site &middot; Other Expenses &amp; Site Mess Expenses &middot; pending (open) months highlighted</p></div>
+      <button class="btn btn-secondary btn-sm" onclick="_expLedReload(this)">&#8635; Refresh</button>
+    </div></div>
+    <div id="expled-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading expense ledger&hellip;</div></div>`;
+  _expLedEnsure().then(() => _expLedRenderBody()).catch(() => {
+    const b = document.getElementById('expled-body');
+    if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);padding:1.5rem">Could not load the expense ledger. Try Refresh.</div>';
+  });
+}
+function _expLedReload(btn) { _expLedData = null; if (btn) btn.disabled = true; renderExpenseLedger(); }
+function _expLedSetView(v) { _expLedView = v; _expLedRenderBody(); }
+function _expLedSetSite(s) { _expLedSite = s; _expLedRenderBody(); }
+function _expLedRenderBody() {
+  const b = document.getElementById('expled-body'); if (!b || !_expLedData) return;
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const inView = _expLedData.month.filter(r => r.cashFor === _expLedView);
+  const sites = [...new Set(inView.map(r => r.site).filter(Boolean))].sort();
+  const rows = inView.filter(r => !_expLedSite || r.site === _expLedSite);
+  const isPending = r => !/closed/i.test(r.status);
+  const pend = rows.filter(isPending);
+  const totInit = rows.reduce((s, r) => s + r.initiated, 0);
+  const totPaid = rows.reduce((s, r) => s + r.paid, 0);
+  const totClose = rows.reduce((s, r) => s + r.closing, 0);
+  const tab = (v, label) => `<button onclick="_expLedSetView('${v}')" class="btn btn-sm" style="${_expLedView === v ? 'background:var(--g7);color:#fff;border-color:var(--g7)' : ''}">${label}</button>`;
+  const kpis = `<div class="evg-kpi-grid" style="margin-bottom:1rem">
+    ${evgKpiCard({ icon: '🗓️', value: rows.length.toLocaleString('en-IN'), label: _expLedView + ' — months' })}
+    ${evgKpiCard({ icon: '⏳', value: pend.length.toLocaleString('en-IN'), label: 'Pending (open)', accent: pend.length ? '#c2410c' : undefined })}
+    ${evgKpiCard({ icon: '💸', value: _expFmt(totInit), label: 'Initiated' })}
+    ${evgKpiCard({ icon: '✅', value: _expFmt(totPaid), label: 'Paid' })}
+    ${evgKpiCard({ icon: '📤', value: _expFmt(totClose), label: 'Closing balance', accent: totClose < 0 ? '#c62828' : undefined })}
+  </div>`;
+  const controls = `<div class="card" style="margin-bottom:.8rem"><div class="card-body" style="padding:.7rem 1rem;display:flex;gap:.7rem;flex-wrap:wrap;align-items:center">
+    <div style="display:flex;gap:.4rem">${tab('Other Expenses', '🧾 Other Expenses')}${tab('Mess Expenses', '🍲 Site Mess Expenses')}</div>
+    <span style="flex:1"></span>
+    <label style="font-size:.72rem;color:var(--txt3);font-weight:700">SITE</label>
+    <select onchange="_expLedSetSite(this.value)" style="font-size:.8rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface2)"><option value="">All Sites</option>${sites.map(s => `<option ${s === _expLedSite ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
+  </div></div>`;
+  const TH = 'padding:8px 9px;text-align:left;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,.15)';
+  const TD = 'padding:6px 9px;border-bottom:1px solid var(--border)';
+  const trs = rows.sort((a, b) => (b.monthYear || '').localeCompare(a.monthYear || '') || a.site.localeCompare(b.site)).map(r => {
+    const pendBadge = isPending(r)
+      ? '<span style="background:#ffedd5;color:#c2410c;padding:2px 8px;border-radius:9px;font-size:.66rem;font-weight:700;border:1px solid #fdba74">● Open</span>'
+      : '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9px;font-size:.66rem;font-weight:600">Closed</span>';
+    return `<tr style="${isPending(r) ? 'background:#fff7ed' : ''}">
+      <td style="${TD};white-space:nowrap;font-weight:600">${esc(r.site) || '—'}</td>
+      <td style="${TD};white-space:nowrap;color:var(--txt2);font-size:.74rem">${esc(r.monthYear) || '—'}</td>
+      <td style="${TD};white-space:nowrap;color:var(--txt2);font-size:.72rem">${esc(r.from)}${r.to ? ' → ' + esc(r.to) : ''}</td>
+      <td style="${TD};text-align:right;white-space:nowrap">${_expFmt(r.opening)}</td>
+      <td style="${TD};text-align:right;white-space:nowrap;font-weight:600">${_expFmt(r.initiated)}</td>
+      <td style="${TD};text-align:right;white-space:nowrap">${_expFmt(r.paid)}</td>
+      <td style="${TD};text-align:right;white-space:nowrap;font-weight:700;color:${r.closing < 0 ? 'var(--danger)' : 'var(--g8)'}">${_expFmt(r.closing)}</td>
+      <td style="${TD};text-align:center">${pendBadge}</td>
+    </tr>`;
+  }).join('');
+  b.innerHTML = controls + kpis + `<div class="card"><table class="data-table" style="width:100%">
+    <thead><tr style="background:var(--g9);color:#fff">
+      <th style="${TH}">Site</th><th style="${TH}">Month</th><th style="${TH}">Period</th>
+      <th style="${TH};text-align:right">Opening</th><th style="${TH};text-align:right">Initiated</th>
+      <th style="${TH};text-align:right">Paid</th><th style="${TH};text-align:right">Closing</th>
+      <th style="${TH};text-align:center">Status</th>
+    </tr></thead>
+    <tbody>${trs || `<tr><td colspan="8" style="text-align:center;padding:3rem;color:var(--txt3)">No ${esc(_expLedView)} records.</td></tr>`}</tbody>
+  </table></div>`;
+  if (typeof applyTableFeatures === 'function') setTimeout(applyTableFeatures, 0);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  MY TASKS (route 'my-tasks') — PLACEHOLDER (backlog: see BACKLOG.md).
+//  Intent: one per-user inbox that lists every PENDING item across the portal
+//  where the current user is the named approver/next actioner. To be detailed
+//  and wired later.
+// ════════════════════════════════════════════════════════════════
+function renderMyTasks() {
+  const el = document.getElementById('mainContent');
+  const who = (STATE.user && (STATE.user.name || STATE.user.email)) || 'you';
+  el.innerHTML = `
+    <div class="page-header"><div class="page-header-row">
+      <div><h1>&#9989; My Tasks</h1><p>One consolidated, per-user list of everything pending your approval or action</p></div>
+    </div></div>
+    <div class="card card-pad" style="text-align:center;padding:3rem 1.5rem;max-width:680px;margin:1.5rem auto">
+      <div style="font-size:2.4rem;line-height:1;margin-bottom:.6rem">&#128203;</div>
+      <div style="font-weight:700;font-size:1.05rem;margin-bottom:.4rem">Coming soon</div>
+      <p style="color:var(--txt2);font-size:.88rem;max-width:520px;margin:0 auto .9rem">
+        This will gather every <b>pending</b> item across the portal — payment requests, cash/mess
+        expense approvals, leave/OD, and more — wherever <b>${esc_(who)}</b> is the named approver or
+        next actioner, into a single worklist.
+      </p>
+      <span style="display:inline-block;background:var(--surface2);color:var(--txt3);font-size:.72rem;font-weight:700;padding:.3rem .7rem;border-radius:20px;border:1px solid var(--border)">In backlog — to be detailed</span>
+    </div>`;
+}
+function esc_(s) { return (typeof escapeHtml_ === 'function') ? escapeHtml_(s) : String(s == null ? '' : s); }
+
 // ── Master module registry ─────────────────────────────────────
 const MODULE_REGISTRY = [
   // ── Main ──────────────────────────────────────────────────────
   { route:'dashboard',         label:'Dashboard',              section:'Main',             defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
+  { route:'my-tasks',          label:'My Tasks',               section:'Main',             defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
   // Note: md-command merged into Dashboard for MD; not exposed in Config.
 
   // ── HR & People ───────────────────────────────────────────────
@@ -9724,6 +9861,7 @@ const MODULE_REGISTRY = [
 
   // ── Accounts ──────────────────────────────────────────────────
   { route:'md-payments',       label:'Payments & Approvals',   section:'Accounts',         defStatus:'live', defRoles:['md'] },
+  { route:'expense-ledger',    label:'Expense Ledger',         section:'Accounts',         defStatus:'live', defRoles:['md','accounts','hr','dept_head'] },
   { route:'ledgers',           label:'Ledgers',                section:'Accounts',         defStatus:'live', defRoles:['md','accounts'] },
   { route:'accounts',          label:'Accounts & Payments',    section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-dashboard',label:'Accounts Dashboard',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },

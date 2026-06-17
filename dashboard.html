@@ -8,7 +8,7 @@
 <title>Dashboard · EVGCPL Portal</title>
 <link rel="icon" type="image/jpeg" href="assets/img/EG.jpg"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=DM+Mono:wght@500&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="assets/css/portal.css?v=577"/>
+<link rel="stylesheet" href="assets/css/portal.css?v=578"/>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body data-page="dashboard">
@@ -24,6 +24,12 @@
       <button class="tnav-btn solo" onclick="navigate('dashboard')" data-route="dashboard">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
         Dashboard
+      </button>
+    </div>
+    <div class="tnav-group" data-internal="true" data-roles="all">
+      <button class="tnav-btn solo" onclick="navigate('my-tasks')" data-route="my-tasks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        My Tasks
       </button>
     </div>
     <div class="tnav-group" id="tnav-md-command" data-internal="true" data-roles="md" style="display:none">
@@ -153,6 +159,10 @@
         <div class="tnav-item" data-status="live" data-route="ledgers" onclick="navigate('ledgers')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
           Ledgers<span class="tnav-item-badge live">New</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="expense-ledger" onclick="navigate('expense-ledger')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+          Expense Ledger<span class="tnav-item-badge live">New</span>
         </div>
         <div class="tnav-item" data-status="live" data-route="accounts-dashboard" onclick="navigate('accounts-dashboard')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
@@ -596,7 +606,7 @@
   <!-- AI CHAT PANEL -->
 </div><!-- /app -->
 
-<script src="assets/js/portal-bundle.js?v=577"></script>
-<script src="assets/js/multi-page-bootstrap.js?v=577"></script>
+<script src="assets/js/portal-bundle.js?v=578"></script>
+<script src="assets/js/multi-page-bootstrap.js?v=578"></script>
 </body>
 </html>
