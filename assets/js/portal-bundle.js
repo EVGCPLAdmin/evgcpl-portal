@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.9.2';
-const PORTAL_BUILD    = 581;
-const PORTAL_BUILD_AT = '2026-06-17T21:00:12Z';
+const PORTAL_VERSION  = '4.9.3';
+const PORTAL_BUILD    = 582;
+const PORTAL_BUILD_AT = '2026-06-17T21:49:36Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -9699,10 +9699,14 @@ const LEGACY_CONFIG_KEYS = ['evgcpl_portal_config']; // cleared on first load
 // ════════════════════════════════════════════════════════════════
 // Tree model: payment request (Cash Expenses, "Cash-N") → its bills (Ledger rows
 // with the same Request ID) → the approval trail (Cash Expenses - Approval).
-let _expLedData = null;                 // { reqs:[...], billsByReq:Map, apprByReq:Map }
+// Tree model: a monthly per-site ledger entry (CashExpenseMonth) is the top
+// node; its UUID (the "MCE-site|Cash For|period" composite) is what the bills
+// (Ledger) and the cash requests (Cash Expenses) carry as their CheckSum. So
+// each month node links to: its payment requests + its bills, by CheckSum=UUID.
+let _expLedData = null;
 let _expLedView = 'Other Expenses';     // 'Other Expenses' | 'Mess Expenses'
 let _expLedSite = '';
-let _expLedOpen = new Set();            // expanded Request IDs
+let _expLedOpen = new Set();            // expanded month UUIDs
 function _expNum(v) { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; }
 function _expFmt(n) { return '₹' + Math.round(n || 0).toLocaleString('en-IN'); }
 function _expName(v) { v = String(v || ''); return v.includes('|') ? v.split('|').pop().trim() : v; } // "EG123|NAME" → NAME
@@ -9710,37 +9714,41 @@ function _expGroup(arr, key) { const m = new Map(); (arr || []).forEach(x => { c
 function _expLedEnsure() {
   if (_expLedData) return Promise.resolve(_expLedData);
   return Promise.all([
+    fetchSheet('CashExpenseMonth',         null, EXPENSE_SHEET_ID, { rawId: true, headers: 1 }),
     fetchSheet('Cash Expenses',            null, EXPENSE_SHEET_ID, { rawId: true, headers: 1 }),
     fetchSheet('Ledger',                   null, EXPENSE_SHEET_ID, { rawId: true, headers: 1 }),
-    fetchSheet('Cash Expenses - Approval', null, EXPENSE_SHEET_ID, { rawId: true, headers: 1 }),
-  ]).then(([reqs, bills, appr]) => {
-    const R = (reqs || []).filter(r => r['Request ID']).map(r => ({
-      requestId: r['Request ID'] || '', site: r['Site Name'] || '', cashFor: r['Cash For'] || '',
-      headCount: r['Total Head count of Mess eligible members'] || '', guest: r['Guest'] || '',
-      fixedRate: r['Fixed rate/day for the site'] || '', eligible: _expNum(r['Eligible amount']),
-      initiated: _expNum(r['Amount Initiated by HR']), from: r['For the Period (From)'] || '', to: r['For the Period (To)'] || '',
-      payTo: _expName(r['Process Paymnet To'] || r['Process Payment To']), account: r['Select Account'] || '',
-      comments: r['Comments (If Any)'] || '', status: r['Status'] || '', stage: r['Stage'] || '', close: r['Close?'] || '',
-      monthYear: r['Month-Year'] || '', fy: r['Financial Year'] || '',
+  ]).then(([months, reqs, bills]) => {
+    const M = (months || []).filter(r => r['UUID']).map(r => ({
+      uuid: r['UUID'] || '', requestId: r['Request ID'] || '', site: r['Site Name'] || '', cashFor: r['Cash For'] || '',
+      from: r['For the Period (From)'] || '', to: r['For the Period (To)'] || '',
+      opening: _expNum(r['Opening Balance']), initiated: _expNum(r['Initiated']), paid: _expNum(r['Paid']),
+      closing: _expNum(r['Closing Balance']), status: r['Ledger Status'] || '', monthYear: r['Month-Year'] || '', fy: r['Financial Year'] || '',
     }));
-    const B = (bills || []).filter(r => r['Request ID']).map(r => ({
-      requestId: r['Request ID'] || '', site: r['Site Name'] || '', madeBy: _expName(r['Expense Made by']),
+    const Q = (reqs || []).filter(r => r['CheckSum']).map(r => ({
+      key: r['CheckSum'] || '', requestId: r['Request ID'] || '', cashFor: r['Cash For'] || '',
+      headCount: r['Total Head count of Mess eligible members'] || '', fixedRate: r['Fixed rate/day for the site'] || '',
+      eligible: _expNum(r['Eligible amount']), initiated: _expNum(r['Amount Initiated by HR']),
+      from: r['For the Period (From)'] || '', to: r['For the Period (To)'] || '',
+      payTo: _expName(r['Process Paymnet To'] || r['Process Payment To']), status: r['Status'] || '', stage: r['Stage'] || '',
+      comments: r['Comments (If Any)'] || '',
+    }));
+    const B = (bills || []).filter(r => r['CheckSum']).map(r => ({
+      key: r['CheckSum'] || '', requestId: r['Request ID'] || '', madeBy: _expName(r['Expense Made by']),
       spentUnder: r['Spent Under'] || '', date: r['Date of Expense'] || '', head: r['Expense Head'] || '',
-      subHead: r['Expense Sub-Head'] || '', details: r['Details'] || '', amount: _expNum(r['Amount']),
-      status: r['Status'] || '', monthYear: r['Month-Year'] || '',
+      subHead: r['Expense Sub-Head'] || '', details: r['Details'] || '', amount: _expNum(r['Amount']), status: r['Status'] || '',
       bills: Array.from({ length: 10 }, (_, i) => r['Bill' + (i + 1)]).filter(u => u && /^https?:/i.test(u)),
     }));
-    const A = (appr || []).filter(r => r['Request ID']).map(r => ({
-      requestId: r['Request ID'] || '', stage: r['Stage'] || '', status: r['Status'] || '',
-      approved: _expNum(r['Approved Amount']), by: _expName(r['Processed By']), on: r['Processed On'] || '', comments: r['Comments'] || '',
-    }));
-    _expLedData = { reqs: R, billsByReq: _expGroup(B, 'requestId'), apprByReq: _expGroup(A, 'requestId'),
-      meta: { reqRows: (reqs || []).length, billRows: (bills || []).length, apprRows: (appr || []).length,
-        other: R.filter(r => /other/i.test(r.cashFor)).length, mess: R.filter(r => /mess/i.test(r.cashFor)).length } };
+    const billsByKey = _expGroup(B, 'key');
+    _expLedData = {
+      months: M, reqsByKey: _expGroup(Q, 'key'), billsByKey,
+      meta: { monthRows: (months || []).length, reqRows: (reqs || []).length, billRows: (bills || []).length,
+        other: M.filter(r => /other/i.test(r.cashFor)).length, mess: M.filter(r => /mess/i.test(r.cashFor)).length,
+        linked: M.filter(r => (billsByKey.get(r.uuid) || []).length).length },
+    };
     return _expLedData;
   });
 }
-function _expReqPending(r) { return !/closed|paid|completed/i.test(r.status + ' ' + r.close); }
+function _expMonthPending(m) { return !/closed/i.test(m.status); }
 function _expLedToggle(id) { id = String(id); if (_expLedOpen.has(id)) _expLedOpen.delete(id); else _expLedOpen.add(id); _expLedRenderBody(); }
 function renderExpenseLedger() {
   const el = document.getElementById('mainContent');
@@ -9762,58 +9770,70 @@ function _expLedRenderBody() {
   const b = document.getElementById('expled-body'); if (!b || !_expLedData) return;
   const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
   const wantMess = /mess/i.test(_expLedView);
-  const inView = _expLedData.reqs.filter(r => wantMess ? /mess/i.test(r.cashFor) : /other/i.test(r.cashFor));
+  const inView = _expLedData.months.filter(r => wantMess ? /mess/i.test(r.cashFor) : /other/i.test(r.cashFor));
   const sites = [...new Set(inView.map(r => r.site).filter(Boolean))].sort();
-  const reqs = inView.filter(r => !_expLedSite || r.site === _expLedSite)
-    .sort((a, b) => (b.monthYear || '').localeCompare(a.monthYear || '') || String(b.requestId).localeCompare(String(a.requestId)));
-  const billsOf = r => _expLedData.billsByReq.get(r.requestId) || [];
-  const apprOf = r => _expLedData.apprByReq.get(r.requestId) || [];
-  const pend = reqs.filter(_expReqPending);
-  const totInit = reqs.reduce((s, r) => s + r.initiated, 0);
-  const totBilled = reqs.reduce((s, r) => s + billsOf(r).reduce((t, x) => t + x.amount, 0), 0);
+  const months = inView.filter(r => !_expLedSite || r.site === _expLedSite)
+    .sort((a, b) => (b.monthYear || '').localeCompare(a.monthYear || '') || String(a.site).localeCompare(String(b.site)));
+  const billsOf = mo => _expLedData.billsByKey.get(mo.uuid) || [];
+  const reqsOf = mo => _expLedData.reqsByKey.get(mo.uuid) || [];
+  const pend = months.filter(_expMonthPending);
+  const totInit = months.reduce((s, r) => s + r.initiated, 0);
+  const totBilled = months.reduce((s, r) => s + billsOf(r).reduce((t, x) => t + x.amount, 0), 0);
   const tab = (v, label) => `<button onclick="_expLedSetView('${v}')" class="btn btn-sm" style="${_expLedView === v ? 'background:var(--g7);color:#fff;border-color:var(--g7)' : ''}">${label}</button>`;
   const kpis = `<div class="evg-kpi-grid" style="margin-bottom:1rem">
-    ${evgKpiCard({ icon: '🧾', value: reqs.length.toLocaleString('en-IN'), label: _expLedView + ' — requests' })}
-    ${evgKpiCard({ icon: '⏳', value: pend.length.toLocaleString('en-IN'), label: 'Pending', accent: pend.length ? '#c2410c' : undefined })}
+    ${evgKpiCard({ icon: '🗓️', value: months.length.toLocaleString('en-IN'), label: _expLedView + ' — months' })}
+    ${evgKpiCard({ icon: '⏳', value: pend.length.toLocaleString('en-IN'), label: 'Open', accent: pend.length ? '#c2410c' : undefined })}
     ${evgKpiCard({ icon: '💸', value: _expFmt(totInit), label: 'Initiated' })}
     ${evgKpiCard({ icon: '📑', value: _expFmt(totBilled), label: 'Billed' })}
   </div>`;
   const m = _expLedData.meta || {};
   const controls = `<div class="card" style="margin-bottom:.8rem"><div class="card-body" style="padding:.7rem 1rem;display:flex;gap:.7rem;flex-wrap:wrap;align-items:center">
     <div style="display:flex;gap:.4rem">${tab('Other Expenses', '🧾 Other Expenses')}${tab('Mess Expenses', '🍲 Site Mess Expenses')}</div>
-    <span style="font-size:.68rem;color:var(--txt3)" title="Rows loaded from the Expenses sheet">${m.reqRows || 0} requests (${m.other || 0} other / ${m.mess || 0} mess) · ${m.billRows || 0} bills</span>
+    <span style="font-size:.68rem;color:var(--txt3)" title="Rows loaded from the Expenses sheet">${m.monthRows || 0} months (${m.other || 0} other / ${m.mess || 0} mess) · ${m.reqRows || 0} requests · ${m.billRows || 0} bills · ${m.linked || 0} linked</span>
     <span style="flex:1"></span>
     <label style="font-size:.72rem;color:var(--txt3);font-weight:700">SITE</label>
     <select onchange="_expLedSetSite(this.value)" style="font-size:.8rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface2)"><option value="">All Sites</option>${sites.map(s => `<option ${s === _expLedSite ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
   </div></div>`;
-  const kv = (label, val) => val ? `<div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:.62rem;text-transform:uppercase;letter-spacing:.04em;color:var(--txt3);font-weight:700">${label}</span><span style="font-size:.82rem;color:var(--txt1)">${esc(val)}</span></div>` : '';
-  const statusBadge = (txt, pending) => `<span style="background:${pending ? '#ffedd5' : '#dcfce7'};color:${pending ? '#c2410c' : '#15803d'};padding:2px 9px;border-radius:9px;font-size:.66rem;font-weight:700;border:1px solid ${pending ? '#fdba74' : 'transparent'};white-space:nowrap">${pending ? '● ' : ''}${esc(txt || (pending ? 'Pending' : 'Done'))}</span>`;
-  const nodes = reqs.map(r => {
-    const open = _expLedOpen.has(String(r.requestId));
-    const bills = billsOf(r); const appr = apprOf(r);
+  const kv = (label, val) => (val || val === 0) ? `<div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:.62rem;text-transform:uppercase;letter-spacing:.04em;color:var(--txt3);font-weight:700">${label}</span><span style="font-size:.82rem;color:var(--txt1)">${esc(val)}</span></div>` : '';
+  const statusBadge = (txt, pending) => `<span style="background:${pending ? '#ffedd5' : '#dcfce7'};color:${pending ? '#c2410c' : '#15803d'};padding:2px 9px;border-radius:9px;font-size:.66rem;font-weight:700;border:1px solid ${pending ? '#fdba74' : 'transparent'};white-space:nowrap">${pending ? '● ' : ''}${esc(txt || (pending ? 'Open' : 'Closed'))}</span>`;
+  const TH = 'padding:6px 8px;text-align:left;font-weight:600;font-size:.7rem;color:var(--txt2);border-bottom:1px solid var(--border);white-space:nowrap';
+  const TD = 'padding:5px 8px;border-bottom:1px solid var(--border);font-size:.78rem;vertical-align:top';
+  const nodes = months.map(mo => {
+    const open = _expLedOpen.has(String(mo.uuid));
+    const bills = billsOf(mo); const reqs = reqsOf(mo);
     const billed = bills.reduce((t, x) => t + x.amount, 0);
-    const pending = _expReqPending(r);
-    const head = `<div onclick="_expLedToggle('${String(r.requestId).replace(/'/g, "\\'")}')" style="cursor:pointer;display:flex;align-items:center;gap:.7rem;padding:.65rem .9rem;${pending ? 'background:#fff7ed;' : ''}">
+    const pending = _expMonthPending(mo);
+    const head = `<div onclick="_expLedToggle('${String(mo.uuid).replace(/'/g, "\\'").replace(/"/g, '&quot;')}')" style="cursor:pointer;display:flex;align-items:center;gap:.7rem;padding:.65rem .9rem;${pending ? 'background:#fff7ed;' : ''}">
       <span style="color:var(--txt3);width:14px;flex-shrink:0">${open ? '▾' : '▸'}</span>
       <div style="min-width:0;flex:1;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
-        <b style="font-family:monospace;color:var(--g8)">${esc(r.requestId)}</b>
-        <span style="font-weight:600">${esc(r.site) || '—'}</span>
-        ${r.payTo ? `<span style="font-size:.74rem;color:var(--txt2)">→ ${esc(r.payTo)}</span>` : ''}
-        <span style="font-size:.72rem;color:var(--txt3)">${esc(r.from)}${r.to ? ' – ' + esc(r.to) : ''}</span>
+        <b style="font-weight:700">${esc(mo.site) || '—'}</b>
+        <span style="font-size:.74rem;color:var(--txt2)">${esc(mo.monthYear)}</span>
+        <span style="font-size:.72rem;color:var(--txt3)">${esc(mo.from)}${mo.to ? ' – ' + esc(mo.to) : ''}</span>
       </div>
-      <span style="font-size:.72rem;color:var(--txt3);white-space:nowrap">${bills.length} bill${bills.length === 1 ? '' : 's'}</span>
-      <span style="font-weight:700;color:var(--g8);white-space:nowrap" title="Initiated">${_expFmt(r.initiated)}</span>
-      ${statusBadge(r.status || r.stage, pending)}
+      <span style="font-size:.72rem;color:var(--txt3);white-space:nowrap">${reqs.length} req · ${bills.length} bill${bills.length === 1 ? '' : 's'}</span>
+      <span style="font-weight:700;color:var(--g8);white-space:nowrap" title="Initiated">${_expFmt(mo.initiated)}</span>
+      <span style="font-weight:700;white-space:nowrap;color:${mo.closing < 0 ? 'var(--danger)' : 'var(--txt2)'}" title="Closing balance">${_expFmt(mo.closing)}</span>
+      ${statusBadge(mo.status, pending)}
     </div>`;
     if (!open) return `<div style="border-bottom:1px solid var(--border)">${head}</div>`;
-    const details = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.7rem;padding:.8rem .9rem;background:var(--surface2);border-top:1px dashed var(--border)">
-      ${kv('Cash For', r.cashFor)}${kv('Head Count', r.headCount)}${kv('Guest', r.guest)}${kv('Fixed Rate/Day', r.fixedRate)}
-      ${kv('Eligible', r.eligible ? _expFmt(r.eligible) : '')}${kv('Initiated', _expFmt(r.initiated))}${kv('Pay To', r.payTo)}${kv('Account', r.account)}
-      ${kv('Period', (r.from || '') + (r.to ? ' – ' + r.to : ''))}${kv('Status', r.status)}${kv('Stage', r.stage)}${kv('Month', r.monthYear)}
-      ${r.comments ? `<div style="grid-column:1/-1">${kv('Comments', r.comments)}</div>` : ''}
+    const details = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.7rem;padding:.8rem .9rem;background:var(--surface2);border-top:1px dashed var(--border)">
+      ${kv('Cash For', mo.cashFor)}${kv('Opening', _expFmt(mo.opening))}${kv('Initiated', _expFmt(mo.initiated))}${kv('Paid', _expFmt(mo.paid))}
+      ${kv('Billed', _expFmt(billed))}${kv('Closing', _expFmt(mo.closing))}${kv('Ledger Status', mo.status)}${kv('Period', (mo.from || '') + (mo.to ? ' – ' + mo.to : ''))}
     </div>`;
-    const TH = 'padding:6px 8px;text-align:left;font-weight:600;font-size:.7rem;color:var(--txt2);border-bottom:1px solid var(--border);white-space:nowrap';
-    const TD = 'padding:5px 8px;border-bottom:1px solid var(--border);font-size:.78rem;vertical-align:top';
+    const reqRows = reqs.map(q => `<tr>
+      <td style="${TD};white-space:nowrap;font-family:monospace;color:var(--g8)">${esc(q.requestId)}</td>
+      <td style="${TD};white-space:nowrap">${esc(q.payTo) || '—'}</td>
+      <td style="${TD};white-space:nowrap;color:var(--txt2)">${esc(q.from)}${q.to ? ' – ' + esc(q.to) : ''}</td>
+      <td style="${TD};text-align:center">${esc(q.headCount)}</td>
+      <td style="${TD};text-align:right;white-space:nowrap;font-weight:600">${_expFmt(q.initiated)}</td>
+      <td style="${TD}">${esc(q.status || q.stage)}</td>
+    </tr>`).join('');
+    const reqTbl = reqs.length ? `<div style="padding:.2rem .9rem .2rem">
+      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--g8);margin:.5rem 0 .4rem">Payment requests (${reqs.length})</div>
+      <table data-evg-defaults="off" style="width:100%;border-collapse:collapse;background:var(--surface1);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <thead><tr><th style="${TH}">Request</th><th style="${TH}">Pay To</th><th style="${TH}">Period</th><th style="${TH};text-align:center">Heads</th><th style="${TH};text-align:right">Initiated</th><th style="${TH}">Status</th></tr></thead>
+        <tbody>${reqRows}</tbody>
+      </table></div>` : '';
     const billRows = bills.map(x => `<tr>
       <td style="${TD};white-space:nowrap;color:var(--txt2)">${esc(x.date)}</td>
       <td style="${TD}">${esc(x.head) || '—'}${x.subHead ? `<div style="font-size:.68rem;color:var(--txt3)">${esc(x.subHead)}</div>` : ''}</td>
@@ -9823,22 +9843,17 @@ function _expLedRenderBody() {
       <td style="${TD}">${esc(x.status)}</td>
       <td style="${TD};white-space:nowrap">${x.bills.length ? x.bills.map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--g7);font-size:.72rem;margin-right:.4rem">📎${i + 1}</a>`).join('') : '<span style="color:var(--txt3)">—</span>'}</td>
     </tr>`).join('');
-    const billsTbl = `<div style="padding:.4rem .9rem .9rem">
-      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--g8);margin:.3rem 0 .4rem">Bills (${bills.length}) &middot; total ${_expFmt(billed)}</div>
+    const billsTbl = `<div style="padding:.2rem .9rem .9rem">
+      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--g8);margin:.6rem 0 .4rem">Bills (${bills.length}) &middot; total ${_expFmt(billed)}</div>
       <table data-evg-defaults="off" style="width:100%;border-collapse:collapse;background:var(--surface1);border:1px solid var(--border);border-radius:8px;overflow:hidden">
         <thead><tr><th style="${TH}">Date</th><th style="${TH}">Expense Head</th><th style="${TH}">Details</th><th style="${TH}">Made By</th><th style="${TH};text-align:right">Amount</th><th style="${TH}">Status</th><th style="${TH}">Bills</th></tr></thead>
-        <tbody>${billRows || `<tr><td colspan="7" style="${TD};text-align:center;color:var(--txt3);padding:1rem">No bills recorded against this request yet.</td></tr>`}</tbody>
-      </table>
-      ${appr.length ? `<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--g8);margin:.7rem 0 .35rem">Approval trail</div>
-        <div style="display:flex;flex-direction:column;gap:.25rem">${appr.map(a => `<div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;font-size:.74rem;background:var(--surface1);border:1px solid var(--border);border-radius:6px;padding:.35rem .6rem">
-          <b>${esc(a.stage) || '—'}</b><span>${esc(a.status)}</span>${a.approved ? `<span style="color:var(--g8);font-weight:600">${_expFmt(a.approved)}</span>` : ''}<span style="color:var(--txt3)">${esc(a.by)}</span><span style="color:var(--txt3)">${esc(a.on)}</span>${a.comments ? `<span style="color:var(--txt2)">— ${esc(a.comments)}</span>` : ''}
-        </div>`).join('')}</div>` : ''}
-    </div>`;
-    return `<div style="border-bottom:1px solid var(--border)">${head}${details}${billsTbl}</div>`;
+        <tbody>${billRows || `<tr><td colspan="7" style="${TD};text-align:center;color:var(--txt3);padding:1rem">No bills recorded for this month yet.</td></tr>`}</tbody>
+      </table></div>`;
+    return `<div style="border-bottom:1px solid var(--border)">${head}${details}${reqTbl}${billsTbl}</div>`;
   }).join('');
-  const empty = m.reqRows
-    ? `<div style="text-align:center;padding:3rem;color:var(--txt3)">No ${esc(_expLedView)} requests${_expLedSite ? ' for ' + esc(_expLedSite) : ''}.<div style="font-size:.74rem;margin-top:.5rem">Loaded ${m.reqRows} requests total — ${m.other} Other, ${m.mess} Mess. Try the other tab${_expLedSite ? ' or clear the site filter' : ''}.</div></div>`
-    : `<div style="text-align:center;padding:3rem;color:var(--txt3)">No payment requests loaded from the <b>Cash Expenses</b> tab.<div style="font-size:.74rem;margin-top:.5rem">Bills loaded: ${m.billRows || 0}. If bills loaded but requests didn't, the tab name or its sharing differs — tell me and I'll adjust.</div></div>`;
+  const empty = m.monthRows
+    ? `<div style="text-align:center;padding:3rem;color:var(--txt3)">No ${esc(_expLedView)}${_expLedSite ? ' for ' + esc(_expLedSite) : ''}.<div style="font-size:.74rem;margin-top:.5rem">Loaded ${m.monthRows} months — ${m.other} Other, ${m.mess} Mess. Try the other tab${_expLedSite ? ' or clear the site filter' : ''}.</div></div>`
+    : `<div style="text-align:center;padding:3rem;color:var(--txt3)">No ledger months loaded from the <b>CashExpenseMonth</b> tab.<div style="font-size:.74rem;margin-top:.5rem">Bills loaded: ${m.billRows || 0}.</div></div>`;
   b.innerHTML = controls + kpis + `<div class="card" style="padding:0">${nodes || empty}</div>`;
 }
 
