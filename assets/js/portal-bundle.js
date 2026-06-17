@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.6.2';
-const PORTAL_BUILD    = 574;
-const PORTAL_BUILD_AT = '2026-06-17T14:37:46Z';
+const PORTAL_VERSION  = '4.6.3';
+const PORTAL_BUILD    = 575;
+const PORTAL_BUILD_AT = '2026-06-17T18:36:20Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -8193,63 +8193,63 @@ function _accDrawNewPRForm(dr) {
       <button onclick="_accCloseNewPR()" style="background:rgba(255,255,255,.18);border:none;color:#fff;width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:1rem">&#10006;</button>
     </div>
 
-    <div style="flex:1;overflow-y:auto;padding:1.1rem 1.3rem">
+    <div class="evg-form" style="flex:1;overflow-y:auto;padding:1.1rem 1.3rem">
 
       ${sec('1 &middot; Initiator', grid(
-        fld('Date of Request', `<input id="acc-pr-dateOfRequest" type="date" value="${today}" class="rc-inp">`, true),
-        fld('Payment Requested By', `<input id="acc-pr-initiator" value="${esc(initiatorDefault)}" ${initiatorLocked ? 'readonly title="Auto-filled from your profile"' : ''} class="rc-inp" style="${initiatorLocked ? ro : ''}">`, true),
-        fld('Department', `<select id="acc-pr-department" class="rc-inp" onchange="_accPROnDeptChange()">${opt(depts)}</select>`),
-        fld('From Which Process', `<select id="acc-pr-fromWhichProcess" class="rc-inp" onchange="_accPROnProcessChange()">${opt(procs)}</select>`),
-        fld('Manual / Auto', `<select id="acc-pr-manualAuto" class="rc-inp"><option value="Manual" selected>Manual</option><option value="Auto">Auto</option></select>`)
+        fld('Date of Request', `<input id="acc-pr-dateOfRequest" type="date" value="${today}">`, true),
+        fld('Payment Requested By', `<input id="acc-pr-initiator" value="${esc(initiatorDefault)}" ${initiatorLocked ? 'readonly title="Auto-filled from your profile"' : ''} style="${initiatorLocked ? ro : ''}">`, true),
+        fld('Department', `<select id="acc-pr-department" onchange="_accPROnDeptChange()">${opt(depts)}</select>`),
+        fld('From Which Process', `<select id="acc-pr-fromWhichProcess" onchange="_accPROnProcessChange()">${opt(procs)}</select>`),
+        fld('Manual / Auto', `<select id="acc-pr-manualAuto"><option value="Manual" selected>Manual</option><option value="Auto">Auto</option></select>`)
       ))}
 
       ${sec('2 &middot; Payment To', `
-        ${fld('Payment To', `<select id="acc-pr-paymentTo" class="rc-inp" onchange="_accPROnPaymentToChange()">${opt(['Employee', 'Vendor', 'Sub Contractor', 'Others'])}</select>`, true)}
-        <div id="acc-pr-paidto-employee" style="display:none">${fld('Paid To (Employee)', `<select id="acc-pr-paidToEmployee" class="rc-inp" onchange="_accPRAutoFillBankDetails()">${opt(empNames)}</select>`)}</div>
-        <div id="acc-pr-paidto-vendor" style="display:none">${fld('Paid To (Vendor)', `<select id="acc-pr-paidToVendor" class="rc-inp" onchange="_accPRAutoFillBankDetails()">${opt(vendorNames)}</select>`)}</div>
-        <div id="acc-pr-paidto-sc" style="display:none">${fld('Paid To (Sub Contractor)', `<select id="acc-pr-paidToSC" class="rc-inp" onchange="_accPRAutoFillBankDetails()">${opt(scNames)}</select>`)}</div>
-        <div id="acc-pr-paidto-others" style="display:none">${fld('Paid To (Others)', `<input id="acc-pr-paidToOthers" class="rc-inp" placeholder="Name of payee">`)}</div>
+        ${fld('Payment To', `<select id="acc-pr-paymentTo" onchange="_accPROnPaymentToChange()">${opt(['Employee', 'Vendor', 'Sub Contractor', 'Others'])}</select>`, true)}
+        <div id="acc-pr-paidto-employee" style="display:none">${fld('Paid To (Employee)', `<select id="acc-pr-paidToEmployee" onchange="_accPRAutoFillBankDetails()">${opt(empNames)}</select>`)}</div>
+        <div id="acc-pr-paidto-vendor" style="display:none">${fld('Paid To (Vendor)', `<select id="acc-pr-paidToVendor" onchange="_accPRAutoFillBankDetails()">${opt(vendorNames)}</select>`)}</div>
+        <div id="acc-pr-paidto-sc" style="display:none">${fld('Paid To (Sub Contractor)', `<select id="acc-pr-paidToSC" onchange="_accPRAutoFillBankDetails()">${opt(scNames)}</select>`)}</div>
+        <div id="acc-pr-paidto-others" style="display:none">${fld('Paid To (Others)', `<input id="acc-pr-paidToOthers" placeholder="Name of payee">`)}</div>
       `)}
 
       ${sec('3 &middot; Site &amp; Company', grid(
-        fld('Site Name', `<select id="acc-pr-siteName" class="rc-inp" onchange="_accPROnSiteChange()">${opt(siteNames)}</select>`),
-        fld('Company', `<input id="acc-pr-company" class="rc-inp" placeholder="Auto-fills from site">`)
+        fld('Site Name', `<select id="acc-pr-siteName" onchange="_accPROnSiteChange()">${opt(siteNames)}</select>`),
+        fld('Company', `<input id="acc-pr-company" placeholder="Auto-fills from site">`)
       ))}
 
       ${sec('4 &middot; Bill &amp; PO Reference', `
         ${grid(
-          fld('Order No', `<input id="acc-pr-orderNo" class="rc-inp">`, false, 'acc-pr-orderNo-wrap'),
-          fld('Bill No', `<input id="acc-pr-billNo" class="rc-inp">`, false, 'acc-pr-billNo-wrap')
+          fld('Order No', `<input id="acc-pr-orderNo">`, false, 'acc-pr-orderNo-wrap'),
+          fld('Bill No', `<input id="acc-pr-billNo">`, false, 'acc-pr-billNo-wrap')
         )}
-        <div id="acc-pr-paymentTerms-wrap" style="display:none">${fld('Payment Terms', `<input id="acc-pr-paymentTerms" class="rc-inp" placeholder="e.g. Net 30">`)}</div>
+        <div id="acc-pr-paymentTerms-wrap" style="display:none">${fld('Payment Terms', `<input id="acc-pr-paymentTerms" placeholder="e.g. Net 30">`)}</div>
         <div id="acc-pr-po-wrap" style="display:none">${grid(
-          fld('PO Value', `<input id="acc-pr-poValue" type="number" step="0.01" class="rc-inp" oninput="_accPRRecalcPending()">`),
-          fld('Invoice Value', `<input id="acc-pr-invoiceValue" type="number" step="0.01" class="rc-inp">`),
-          fld('Paid Value', `<input id="acc-pr-paidValue" value="0" readonly class="rc-inp" style="${ro}">`),
-          fld('Pending Value', `<input id="acc-pr-pendingValue" value="0" readonly class="rc-inp" style="${ro}">`)
+          fld('PO Value', `<input id="acc-pr-poValue" type="number" step="0.01" oninput="_accPRRecalcPending()">`),
+          fld('Invoice Value', `<input id="acc-pr-invoiceValue" type="number" step="0.01">`),
+          fld('Paid Value', `<input id="acc-pr-paidValue" value="0" readonly style="${ro}">`),
+          fld('Pending Value', `<input id="acc-pr-pendingValue" value="0" readonly style="${ro}">`)
         )}</div>
       `)}
 
       ${sec('5 &middot; Financial', grid(
-        fld('Currency', `<select id="acc-pr-currency" class="rc-inp">${opt(currencies, 'Indian Rupee')}</select>`),
-        fld('Amount', `<input id="acc-pr-amount" type="number" step="0.01" class="rc-inp">`, true),
-        fld('Nature of Expenses', `<select id="acc-pr-natureOfExpenses" class="rc-inp" onchange="_accPROnNatureChange()">${opt(natures)}</select>`),
-        fld('Account Code Description', `<select id="acc-pr-accountCodeDesc" class="rc-inp" onchange="_accPROnAccCodeChange()">${opt(accDescs)}</select>`),
-        fld('GST', `<input id="acc-pr-gst" type="number" step="0.01" class="rc-inp">`),
-        fld('TDS', `<input id="acc-pr-tds" type="number" step="0.01" class="rc-inp">`)
+        fld('Currency', `<select id="acc-pr-currency">${opt(currencies, 'Indian Rupee')}</select>`),
+        fld('Amount', `<input id="acc-pr-amount" type="number" step="0.01">`, true),
+        fld('Nature of Expenses', `<select id="acc-pr-natureOfExpenses" onchange="_accPROnNatureChange()">${opt(natures)}</select>`),
+        fld('Account Code Description', `<select id="acc-pr-accountCodeDesc" onchange="_accPROnAccCodeChange()">${opt(accDescs)}</select>`),
+        fld('GST', `<input id="acc-pr-gst" type="number" step="0.01">`),
+        fld('TDS', `<input id="acc-pr-tds" type="number" step="0.01">`)
       ) + `<input id="acc-pr-costCode" type="hidden">`)}
 
       ${sec('6 &middot; Bank Details', grid(
-        fld('A/C Holder Name', `<input id="acc-pr-acHolderName" class="rc-inp">`),
-        fld('A/C Number', `<input id="acc-pr-acNumber" class="rc-inp">`),
-        fld('IFSC Code', `<input id="acc-pr-ifsc" class="rc-inp" placeholder="XXXX0XXXXXX">`),
-        fld('Bank Name', `<input id="acc-pr-bankName" class="rc-inp">`)
+        fld('A/C Holder Name', `<input id="acc-pr-acHolderName">`),
+        fld('A/C Number', `<input id="acc-pr-acNumber">`),
+        fld('IFSC Code', `<input id="acc-pr-ifsc" placeholder="XXXX0XXXXXX">`),
+        fld('Bank Name', `<input id="acc-pr-bankName">`)
       ))}
 
       ${sec('7 &middot; Narrative &amp; Attachments', `
-        ${fld('Narrative / Comments', `<textarea id="acc-pr-narrative" rows="3" class="rc-inp" style="resize:vertical"></textarea>`, true)}
-        ${fld('Account Type', `<input id="acc-pr-accountType" class="rc-inp">`)}
-        ${fld('Attachments (invoice + supporting docs)', `<input id="acc-pr-files" type="file" multiple class="rc-inp" style="padding:6px">`)}
+        ${fld('Narrative / Comments', `<textarea id="acc-pr-narrative" rows="3" style="resize:vertical"></textarea>`, true)}
+        ${fld('Account Type', `<input id="acc-pr-accountType">`)}
+        ${fld('Attachments (invoice + supporting docs)', `<input id="acc-pr-files" type="file" multiple style="padding:6px">`)}
       `)}
     </div>
 
@@ -9450,29 +9450,28 @@ function _accDrawUpdateForm(box, uuid) {
   const statuses = _accAllowedStatuses();
   const opts = '<option value=""></option>' + statuses.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
   const reasons = ['Wrong A/C Number', 'Ledger Mismatch', 'Benificery Pending'];
-  const ctrl = 'width:100%;box-sizing:border-box;font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 9px;background:var(--surface1)';
 
   box.innerHTML = `
-    <div style="border:1px solid var(--border);border-radius:10px;padding:.9rem 1rem;margin-bottom:1rem;background:var(--surface1)">
+    <div class="evg-form" style="border:1px solid var(--border);border-radius:10px;padding:.9rem 1rem;margin-bottom:1rem;background:var(--surface1)">
       <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:.6rem">
         <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">New Status <span style="color:var(--danger)">*</span></label>
-        <select id="acc-up-status" onchange="_accUpdateFormOnStatusChange()" style="${ctrl}">${opts}</select>
+        <select id="acc-up-status" onchange="_accUpdateFormOnStatusChange()">${opts}</select>
       </div>
       <div id="acc-up-reason-wrap" style="display:none;flex-direction:column;gap:3px;margin-bottom:.6rem">
         <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">Pending Reason <span style="color:var(--danger)">*</span></label>
-        <select id="acc-up-reason" style="${ctrl}"><option value=""></option>${reasons.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}</select>
+        <select id="acc-up-reason"><option value=""></option>${reasons.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}</select>
       </div>
       <div id="acc-up-utr-wrap" style="display:none;flex-direction:column;gap:3px;margin-bottom:.6rem">
         <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">UTR Details <span style="color:var(--danger)">*</span></label>
-        <input id="acc-up-utr" style="${ctrl}" placeholder="Bank UTR / transaction reference">
+        <input id="acc-up-utr" placeholder="Bank UTR / transaction reference">
       </div>
       <div id="acc-up-comments-wrap" style="display:flex;flex-direction:column;gap:3px;margin-bottom:.6rem">
         <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">Comments <span id="acc-up-comments-req" style="color:var(--danger);display:none">*</span></label>
-        <textarea id="acc-up-comments" rows="2" style="${ctrl};resize:vertical"></textarea>
+        <textarea id="acc-up-comments" rows="2" style="resize:vertical"></textarea>
       </div>
       <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:.8rem">
         <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">Date</label>
-        <input id="acc-up-date" type="date" value="${today}" style="${ctrl}">
+        <input id="acc-up-date" type="date" value="${today}">
       </div>
       <div style="display:flex;gap:.6rem;justify-content:flex-end">
         <button onclick="_accToggleUpdateForm('${(uuid || '').replace(/'/g, "\\'")}')" class="btn btn-secondary btn-sm">Cancel</button>
