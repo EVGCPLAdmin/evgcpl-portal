@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.9.3';
-const PORTAL_BUILD    = 582;
-const PORTAL_BUILD_AT = '2026-06-17T21:49:36Z';
+const PORTAL_VERSION  = '4.10.0';
+const PORTAL_BUILD    = 583;
+const PORTAL_BUILD_AT = '2026-06-17T21:53:36Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2519,7 +2519,7 @@ function applyResolvedRole(resolved) {
 
 const ROLE_ROUTES = {
   md:        new Set(['dashboard','my-tasks','expense-ledger','md-command','md-payments','ledgers','vendor-ledger-po','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','subcontractor','po-register','stockin-register','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
-  hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','mess-individual','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','subcontractor','po-register','stockin-register','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   accounts:  new Set(['dashboard','my-tasks','expense-ledger','my-profile','accounts','ledgers','vendor-ledger-po','subcontractor','po-register','stockin-register','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
@@ -3065,6 +3065,7 @@ function renderPage(page) {
     'vendor-ledger-po': renderVendorLedgerPO,
     'onboarding':     renderOnboardingPortal,
     'recruitment':    renderRecruitmentModule,
+    'mess-individual': renderIndividualMess,
     'hr-dashboard':   renderHRDashboard,
     'my-profile':     renderMyProfile,
     'rewards':        renderRewardsModule,
@@ -9858,6 +9859,94 @@ function _expLedRenderBody() {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  INDIVIDUAL MESS EXPENSES (route 'mess-individual') — per-employee monthly
+//  mess allowance from the Expenses sheet (Individual Food Expenses + its
+//  Approval tab). Pending = a record not yet Approved/Paid.
+// ════════════════════════════════════════════════════════════════
+let _imData = null, _imSite = '', _imMonth = '', _imStatus = '';
+function _imEnsure() {
+  if (_imData) return Promise.resolve(_imData);
+  return Promise.all([
+    fetchSheet('Individual Food Expenses',          null, EXPENSE_SHEET_ID, { rawId: true, headers: 1 }),
+    fetchSheet('Individual Food Expenses Approval', null, EXPENSE_SHEET_ID, { rawId: true, headers: 1 }),
+  ]).then(([recs, appr]) => {
+    const R = (recs || []).filter(r => r['Request ID']).map(r => ({
+      requestId: r['Request ID'] || '', name: r['Employee Name'] || '', empId: r['Employee ID'] || '',
+      desig: r['Designation'] || '', payroll: r['Payroll'] || '', grade: r['Grade'] || '', site: r['Site Name'] || '',
+      perDay: _expNum(r['Per Day Mess Allowance']), punches: r['No.of Punch Previous Month'] || '',
+      eligible: _expNum(r['Elgible Amount of current month']), payable: _expNum(r['Final Payable amount']),
+      status: r['Status'] || '', monthSel: r['Month Selection'] || r['Month-Year'] || '', monthYear: r['Month-Year'] || '', fy: r['Financial Year'] || '',
+    }));
+    _imData = { recs: R, apprByReq: _expGroup((appr || []).filter(a => a['Request ID']).map(a => ({
+      requestId: a['Request ID'] || '', level: a['Approval Level'] || '', status: a['Approval Status'] || '',
+      approved: _expNum(a['Approved Amount']), by: _expName(a['Approved By']), on: a['Approved On'] || '', comments: a['Comments / Remarks'] || '',
+    })), 'requestId'), meta: { recRows: (recs || []).length, apprRows: (appr || []).length } };
+    return _imData;
+  });
+}
+function _imPending(r) { return !/approved|paid|completed|closed/i.test(r.status); }
+function renderIndividualMess() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header"><div class="page-header-row">
+      <div><h1>&#127869;&#65039; Individual Mess Expenses</h1><p>Per-employee monthly mess allowance &middot; eligibility, punches &amp; final payable &middot; pending highlighted</p></div>
+      <button class="btn btn-secondary btn-sm" onclick="_imReload(this)">&#8635; Refresh</button>
+    </div></div>
+    <div id="im-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading individual mess data&hellip;</div></div>`;
+  _imEnsure().then(() => _imRenderBody()).catch(() => {
+    const b = document.getElementById('im-body');
+    if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);padding:1.5rem">Could not load individual mess data. Try Refresh.</div>';
+  });
+}
+function _imReload(btn) { _imData = null; if (btn) btn.disabled = true; renderIndividualMess(); }
+function _imSet(k, v) { if (k === 'site') _imSite = v; else if (k === 'month') _imMonth = v; else if (k === 'status') _imStatus = v; _imRenderBody(); }
+function _imRenderBody() {
+  const b = document.getElementById('im-body'); if (!b || !_imData) return;
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const all = _imData.recs;
+  const sites = [...new Set(all.map(r => r.site).filter(Boolean))].sort();
+  const monthsList = [...new Set(all.map(r => r.monthYear || r.monthSel).filter(Boolean))].sort().reverse();
+  const rows = all.filter(r => (!_imSite || r.site === _imSite) && (!_imMonth || (r.monthYear || r.monthSel) === _imMonth) && (!_imStatus || (_imStatus === 'pending' ? _imPending(r) : !_imPending(r))));
+  const pend = rows.filter(_imPending);
+  const totPay = rows.reduce((s, r) => s + r.payable, 0);
+  const sel = 'font-size:.8rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface2)';
+  const kpis = `<div class="evg-kpi-grid" style="margin-bottom:1rem">
+    ${evgKpiCard({ icon: '👥', value: rows.length.toLocaleString('en-IN'), label: 'Records' })}
+    ${evgKpiCard({ icon: '⏳', value: pend.length.toLocaleString('en-IN'), label: 'Pending', accent: pend.length ? '#c2410c' : undefined })}
+    ${evgKpiCard({ icon: '💸', value: _expFmt(totPay), label: 'Final payable' })}
+  </div>`;
+  const controls = `<div class="card" style="margin-bottom:.8rem"><div class="card-body" style="padding:.7rem 1rem;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
+    <span style="font-size:.68rem;color:var(--txt3)">${_imData.meta.recRows} records loaded</span><span style="flex:1"></span>
+    <select onchange="_imSet('site',this.value)" style="${sel}"><option value="">All Sites</option>${sites.map(s => `<option ${s === _imSite ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
+    <select onchange="_imSet('month',this.value)" style="${sel}"><option value="">All Months</option>${monthsList.map(s => `<option ${s === _imMonth ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
+    <select onchange="_imSet('status',this.value)" style="${sel}"><option value="">Any status</option><option value="pending" ${_imStatus === 'pending' ? 'selected' : ''}>Pending</option><option value="done" ${_imStatus === 'done' ? 'selected' : ''}>Approved/Paid</option></select>
+  </div></div>`;
+  const TH = 'padding:8px 9px;text-align:left;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,.15)';
+  const TD = 'padding:6px 9px;border-bottom:1px solid var(--border)';
+  const trs = rows.sort((a, b) => (b.monthYear || '').localeCompare(a.monthYear || '') || a.name.localeCompare(b.name)).map(r => {
+    const p = _imPending(r);
+    return `<tr style="${p ? 'background:#fff7ed' : ''}">
+      <td style="${TD};white-space:nowrap"><div style="font-weight:600">${esc(r.name) || '—'}</div><div style="font-size:.68rem;color:var(--txt3)">${esc(r.empId)}${r.desig ? ' · ' + esc(r.desig) : ''}</div></td>
+      <td style="${TD};white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.site)}">${esc(r.site) || '—'}</td>
+      <td style="${TD};white-space:nowrap;color:var(--txt2);font-size:.74rem">${esc(r.monthYear || r.monthSel)}</td>
+      <td style="${TD};text-align:right;white-space:nowrap">${r.perDay ? _expFmt(r.perDay) : '—'}</td>
+      <td style="${TD};text-align:center">${esc(r.punches) || '—'}</td>
+      <td style="${TD};text-align:right;white-space:nowrap">${r.eligible ? _expFmt(r.eligible) : '—'}</td>
+      <td style="${TD};text-align:right;white-space:nowrap;font-weight:700;color:var(--g8)">${_expFmt(r.payable)}</td>
+      <td style="${TD};white-space:nowrap">${p ? `<span style="background:#ffedd5;color:#c2410c;padding:2px 8px;border-radius:9px;font-size:.66rem;font-weight:700;border:1px solid #fdba74">● ${esc(r.status) || 'Pending'}</span>` : `<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9px;font-size:.66rem;font-weight:600">${esc(r.status) || 'Done'}</span>`}</td>
+    </tr>`;
+  }).join('');
+  b.innerHTML = controls + kpis + `<div class="card"><table class="data-table" style="width:100%">
+    <thead><tr style="background:var(--g9);color:#fff">
+      <th style="${TH}">Employee</th><th style="${TH}">Site</th><th style="${TH}">Month</th>
+      <th style="${TH};text-align:right">Per Day</th><th style="${TH};text-align:center">Punches</th>
+      <th style="${TH};text-align:right">Eligible</th><th style="${TH};text-align:right">Final Payable</th><th style="${TH}">Status</th>
+    </tr></thead>
+    <tbody>${trs || `<tr><td colspan="8" style="text-align:center;padding:3rem;color:var(--txt3)">No records${_imData.meta.recRows ? ' for this filter' : ' loaded from Individual Food Expenses'}.</td></tr>`}</tbody>
+  </table></div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
 //  MY TASKS (route 'my-tasks') — PLACEHOLDER (backlog: see BACKLOG.md).
 //  Intent: one per-user inbox that lists every PENDING item across the portal
 //  where the current user is the named approver/next actioner. To be detailed
@@ -9895,6 +9984,7 @@ const MODULE_REGISTRY = [
   { route:'my-profile',        label:'My Profile',             section:'HR & People',      defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
   { route:'onboarding',        label:'Onboarding',             section:'HR & People',      defStatus:'live', defRoles:['md','hr'] },
   { route:'recruitment',       label:'Recruitment',            section:'HR & People',      defStatus:'live', defRoles:['md','hr','dept_head','site'] },
+  { route:'mess-individual',   label:'Individual Mess Expenses',section:'HR & People',     defStatus:'live', defRoles:['md','hr','accounts','dept_head'] },
   { route:'policies',          label:'Policies Hub',           section:'HR & People',      defStatus:'live', defRoles:['md','hr','site','employee','dept_head'] },
 
   // ── Site Ops ──────────────────────────────────────────────────
