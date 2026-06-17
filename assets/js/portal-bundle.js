@@ -9714,7 +9714,7 @@ function _expLedEnsure() {
     fetchSheet('Ledger',                   null, EXPENSE_SHEET_ID, { rawId: true }),
     fetchSheet('Cash Expenses - Approval', null, EXPENSE_SHEET_ID, { rawId: true }),
   ]).then(([reqs, bills, appr]) => {
-    const R = (reqs || []).filter(r => r['Request ID'] && r['Site Name']).map(r => ({
+    const R = (reqs || []).filter(r => r['Request ID']).map(r => ({
       requestId: r['Request ID'] || '', site: r['Site Name'] || '', cashFor: r['Cash For'] || '',
       headCount: r['Total Head count of Mess eligible members'] || '', guest: r['Guest'] || '',
       fixedRate: r['Fixed rate/day for the site'] || '', eligible: _expNum(r['Eligible amount']),
@@ -9734,7 +9734,9 @@ function _expLedEnsure() {
       requestId: r['Request ID'] || '', stage: r['Stage'] || '', status: r['Status'] || '',
       approved: _expNum(r['Approved Amount']), by: _expName(r['Processed By']), on: r['Processed On'] || '', comments: r['Comments'] || '',
     }));
-    _expLedData = { reqs: R, billsByReq: _expGroup(B, 'requestId'), apprByReq: _expGroup(A, 'requestId') };
+    _expLedData = { reqs: R, billsByReq: _expGroup(B, 'requestId'), apprByReq: _expGroup(A, 'requestId'),
+      meta: { reqRows: (reqs || []).length, billRows: (bills || []).length, apprRows: (appr || []).length,
+        other: R.filter(r => /other/i.test(r.cashFor)).length, mess: R.filter(r => /mess/i.test(r.cashFor)).length } };
     return _expLedData;
   });
 }
@@ -9776,8 +9778,10 @@ function _expLedRenderBody() {
     ${evgKpiCard({ icon: '💸', value: _expFmt(totInit), label: 'Initiated' })}
     ${evgKpiCard({ icon: '📑', value: _expFmt(totBilled), label: 'Billed' })}
   </div>`;
+  const m = _expLedData.meta || {};
   const controls = `<div class="card" style="margin-bottom:.8rem"><div class="card-body" style="padding:.7rem 1rem;display:flex;gap:.7rem;flex-wrap:wrap;align-items:center">
     <div style="display:flex;gap:.4rem">${tab('Other Expenses', '🧾 Other Expenses')}${tab('Mess Expenses', '🍲 Site Mess Expenses')}</div>
+    <span style="font-size:.68rem;color:var(--txt3)" title="Rows loaded from the Expenses sheet">${m.reqRows || 0} requests (${m.other || 0} other / ${m.mess || 0} mess) · ${m.billRows || 0} bills</span>
     <span style="flex:1"></span>
     <label style="font-size:.72rem;color:var(--txt3);font-weight:700">SITE</label>
     <select onchange="_expLedSetSite(this.value)" style="font-size:.8rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface2)"><option value="">All Sites</option>${sites.map(s => `<option ${s === _expLedSite ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
@@ -9832,7 +9836,10 @@ function _expLedRenderBody() {
     </div>`;
     return `<div style="border-bottom:1px solid var(--border)">${head}${details}${billsTbl}</div>`;
   }).join('');
-  b.innerHTML = controls + kpis + `<div class="card" style="padding:0">${nodes || `<div style="text-align:center;padding:3rem;color:var(--txt3)">No ${esc(_expLedView)} requests.</div>`}</div>`;
+  const empty = m.reqRows
+    ? `<div style="text-align:center;padding:3rem;color:var(--txt3)">No ${esc(_expLedView)} requests${_expLedSite ? ' for ' + esc(_expLedSite) : ''}.<div style="font-size:.74rem;margin-top:.5rem">Loaded ${m.reqRows} requests total — ${m.other} Other, ${m.mess} Mess. Try the other tab${_expLedSite ? ' or clear the site filter' : ''}.</div></div>`
+    : `<div style="text-align:center;padding:3rem;color:var(--txt3)">No payment requests loaded from the <b>Cash Expenses</b> tab.<div style="font-size:.74rem;margin-top:.5rem">Bills loaded: ${m.billRows || 0}. If bills loaded but requests didn't, the tab name or its sharing differs — tell me and I'll adjust.</div></div>`;
+  b.innerHTML = controls + kpis + `<div class="card" style="padding:0">${nodes || empty}</div>`;
 }
 
 // ════════════════════════════════════════════════════════════════
