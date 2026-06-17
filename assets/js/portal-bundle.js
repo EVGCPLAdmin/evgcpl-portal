@@ -1077,10 +1077,10 @@ function _tblEngineEnsureStyles() {
     /* ── EVG.card (KPI) ── */
     .evg-kpi { background:var(--surface,#fff); border:1px solid var(--border,#e0ece4); border-radius:${C.radius}px;
       padding:${C.pad}; display:flex; flex-direction:column; gap:.2rem; position:relative; overflow:hidden;
-      box-shadow:0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.06); }
+      box-shadow:var(--shadow-sm,0 1px 4px rgba(13,51,32,.08)); }
     .evg-kpi::before { content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:${C.accent}; }
     .evg-kpi[data-click] { cursor:pointer; transition:box-shadow .15s, transform .15s; }
-    ${C.hoverShadow ? '.evg-kpi[data-click]:hover { box-shadow:0 8px 22px rgba(0,0,0,.1); transform:translateY(-1px); }' : ''}
+    ${C.hoverShadow ? '.evg-kpi[data-click]:hover { box-shadow:var(--shadow-md,0 4px 20px rgba(13,51,32,.13)); transform:translateY(-2px); }' : ''}
     .evg-kpi .evg-kpi-val { font-size:${C.valueSize}rem; font-weight:700; color:var(--g9,#0d3320); line-height:1.1; }
     .evg-kpi .evg-kpi-lbl { font-size:.8rem; color:var(--txt3,#6b7c74); font-weight:500; }
     .evg-kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(${C.minWidth}px,1fr)); gap:.85rem; }
