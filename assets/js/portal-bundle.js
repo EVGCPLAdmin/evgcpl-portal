@@ -8399,6 +8399,14 @@ function _accFmtDateTime(d) {
   const p = n => String(n).padStart(2, '0');
   return `${p(dt.getDate())}/${p(dt.getMonth() + 1)}/${dt.getFullYear()} ${p(dt.getHours())}:${p(dt.getMinutes())}:${p(dt.getSeconds())}`;
 }
+// Numeric DD/MM/YYYY (no time). Use this when recording/displaying a plain date —
+// unlike _accFmtLongDate, this accepts a Date object directly.
+function _accFmtDate(d) {
+  const dt = d ? (d instanceof Date ? d : new Date(d)) : new Date();
+  if (isNaN(dt)) return String(d || '');
+  const p = n => String(n).padStart(2, '0');
+  return `${p(dt.getDate())}/${p(dt.getMonth() + 1)}/${dt.getFullYear()}`;
+}
 
 function _accOpenNewPR() {
   let dr = document.getElementById('accPRDrawer');
@@ -8826,6 +8834,9 @@ function _accPrintVoucher() {
 // Handles GViz "Date(2026,4,28)" (month 0-based), ISO, and dd/mm/yyyy strings.
 function _accFmtLongDate(v) {
   if (!v) return '';
+  // Accept a Date object directly — stringifying it would otherwise fall through
+  // every parser below and return the raw "Tue Jun 16 2026 … GMT+0530" toString.
+  if (v instanceof Date) return isNaN(v.getTime()) ? '' : v.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
   const s = String(v).trim();
   let d = null;
   if (/^Date\(\d+,\d+,\d+/.test(s)) {
@@ -10032,7 +10043,7 @@ async function _accQuickStatus(uuid, status, comments, utr, silent) {
     'Details of Request': details,
     'Status': status,
     'Pending Reason': '',
-    'Date': _accFmtLongDate(new Date()),
+    'Date': _accFmtDate(new Date()),
     'UTR Details': utr || '',
     'Comments (If Any)': comments || '',
     'Timestamp': _accFmtDateTime(new Date()),
