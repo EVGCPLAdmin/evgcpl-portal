@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.3.0';
-const PORTAL_BUILD    = 564;
-const PORTAL_BUILD_AT = '2026-06-17T04:34:04Z';
+const PORTAL_VERSION  = '4.3.1';
+const PORTAL_BUILD    = 565;
+const PORTAL_BUILD_AT = '2026-06-17T05:50:54Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -9360,9 +9360,19 @@ function _accDrawPOItems(r) {
       }
       const pick = (x, keys) => { for (const k of keys) { if (x[k] != null && String(x[k]).trim() !== '') return String(x[k]).trim(); } return ''; };
       const fmtN = v => { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? '' : n.toLocaleString('en-IN'); };
+      // The readable item text lives in "Material Description" ("PartNo | Description");
+      // the "Part Details" column is just a CheckSum key. Build the same CheckSum →
+      // Material Description map Open PO uses so a raw key still resolves to text.
+      const norm = (typeof _opNorm === 'function') ? _opNorm : (s => String(s == null ? '' : s).trim().toLowerCase());
+      const matMap = {};
+      rows.forEach(x => { const k = norm(pick(x, ['Part Details', 'Part Description'])); if (!k || matMap[k]) return; const md = pick(x, ['Material Description', 'Material Desc', 'Material Name', 'Material']); if (md) matMap[k] = md; });
+      const readable = raw => (typeof _opPartReadable === 'function') ? _opPartReadable(raw, matMap).text : String(raw || '');
       let grand = 0;
       const body = rows.map((x, i) => {
-        const desc = pick(x, ['Item Name', 'Item Description', 'Material Name', 'Material', 'Description', 'Particulars', 'Item', 'Part Description', 'Part Details']);
+        // Prefer the readable Material Description; only fall back to the Part Details
+        // CheckSum, which readable()/matMap then resolve to text (never the bare key).
+        const rawDesc = pick(x, ['Material Description', 'Material Desc', 'Item Name', 'Item Description', 'Material Name', 'Material', 'Description', 'Particulars', 'Item']) || pick(x, ['Part Details', 'Part Description']);
+        const desc = readable(rawDesc);
         const unit = pick(x, ['Unit', 'UOM', 'Units']);
         const qty  = pick(x, ['Qty', 'Quantity', 'PO Qty', 'Order Qty', 'Quantity Ordered']);
         const rate = pick(x, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']);
