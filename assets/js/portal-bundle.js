@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.3.2';
-const PORTAL_BUILD    = 566;
-const PORTAL_BUILD_AT = '2026-06-17T05:56:23Z';
+const PORTAL_VERSION  = '4.3.3';
+const PORTAL_BUILD    = 567;
+const PORTAL_BUILD_AT = '2026-06-17T06:07:24Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -9949,7 +9949,7 @@ function _accUpdateBuildRow(prUuid) {
     'Details of Request': details,
     'Status': _accV('acc-up-status'),
     'Pending Reason': _accV('acc-up-reason'),
-    'Date': _accFmtLongDate(_accV('acc-up-date')),
+    'Date': _accFmtDate(_accV('acc-up-date')),
     'UTR Details': _accV('acc-up-utr'),
     'Comments (If Any)': _accV('acc-up-comments'),
     'Timestamp': _accFmtDateTime(new Date()),
