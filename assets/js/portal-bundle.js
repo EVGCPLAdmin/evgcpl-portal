@@ -9093,42 +9093,52 @@ function _accOrderFieldRows(r, partRow, fmtAmt) {
 }
 
 // Drag-and-drop arranger modal for the Order fields.
-function _accArrangeOrderFields() {
+// Shared drag-arranger modal — powers both the voucher Order-Fields and the
+// Voucher-Blocks arrangers (identical chrome; only labels / config / callbacks
+// vary). Drag to reorder + tick to show/hide; Reset / ★ Set-as-default / Save.
+function _accArrangerModal(o) {
   const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
-  const label = Object.fromEntries(ACC_ORDER_FIELDS_DEF.map(f => [f.key, f.label]));
-  const cfg = _accGetOrderFieldCfg();
-  const old = document.getElementById('accFieldArranger'); if (old) old.remove();
+  const old = document.getElementById(o.id); if (old) old.remove();
   const ov = document.createElement('div');
-  ov.id = 'accFieldArranger';
+  ov.id = o.id;
   ov.style.cssText = 'position:fixed;inset:0;z-index:1400;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:4vh 4vw';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   ov.innerHTML = `
-    <div style="background:#fff;width:380px;max-width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column">
+    <div style="background:#fff;width:${o.width}px;max-width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column">
       <div style="padding:.85rem 1.1rem;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff">
-        <div style="font-weight:800;font-size:.95rem">Arrange Order Fields</div>
-        <div style="font-size:.72rem;opacity:.9;margin-top:2px">Drag to reorder &middot; tick to show / hide</div>
+        <div style="font-weight:800;font-size:.95rem">${o.title}</div>
+        <div style="font-size:.72rem;opacity:.9;margin-top:2px">${o.subtitle}</div>
       </div>
-      <ul id="accFieldArrangerList" style="list-style:none;margin:0;padding:.6rem;max-height:55vh;overflow-y:auto">
-        ${cfg.map(c => `
+      <ul id="${o.listId}" style="list-style:none;margin:0;padding:.6rem;max-height:58vh;overflow-y:auto">
+        ${o.cfg.map(c => `
           <li draggable="true" data-key="${esc(c.key)}" style="display:flex;align-items:center;gap:.6rem;padding:.55rem .7rem;margin-bottom:.4rem;border:1px solid var(--border);border-radius:8px;background:var(--surface1);cursor:grab;user-select:none">
             <span style="color:var(--txt3);font-size:.95rem;line-height:1">&#8942;&#8942;</span>
             <input type="checkbox" ${c.enabled ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer" onclick="event.stopPropagation()">
-            <span style="font-size:.84rem;color:var(--txt1);flex:1">${esc(label[c.key] || c.key)}</span>
+            <span style="font-size:.84rem;color:var(--txt1);flex:1">${esc(o.labels[c.key] || c.key)}</span>
           </li>`).join('')}
       </ul>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;padding:.8rem 1.1rem;border-top:1px solid var(--border)">
         <div style="display:flex;gap:.5rem">
-          <button onclick="_accResetOrderFields()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset</button>
-          ${_accDefaultBtn('acc_default_order_fields', 'accFieldArrangerList')}
+          <button onclick="${o.resetFn}()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset</button>
+          ${_accDefaultBtn(o.defaultKey, o.listId)}
         </div>
         <div style="display:flex;gap:.5rem">
-          <button onclick="document.getElementById('accFieldArranger').remove()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Cancel</button>
-          <button onclick="_accSaveArrangedFields()" class="btn btn-sm" style="background:var(--g7);color:#fff;border:none;font-size:.74rem;font-weight:700;padding:4px 14px">Save</button>
+          <button onclick="document.getElementById('${o.id}').remove()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Cancel</button>
+          <button onclick="${o.saveFn}()" class="btn btn-sm" style="background:var(--g7);color:#fff;border:none;font-size:.74rem;font-weight:700;padding:4px 14px">Save</button>
         </div>
       </div>
     </div>`;
   document.body.appendChild(ov);
-  _accWireFieldDnd(document.getElementById('accFieldArrangerList'));
+  _accWireFieldDnd(document.getElementById(o.listId));
+}
+
+function _accArrangeOrderFields() {
+  _accArrangerModal({
+    id: 'accFieldArranger', listId: 'accFieldArrangerList', width: 380,
+    title: 'Arrange Order Fields', subtitle: 'Drag to reorder &middot; tick to show / hide',
+    cfg: _accGetOrderFieldCfg(), labels: Object.fromEntries(ACC_ORDER_FIELDS_DEF.map(f => [f.key, f.label])),
+    resetFn: '_accResetOrderFields', defaultKey: 'acc_default_order_fields', saveFn: '_accSaveArrangedFields',
+  });
 }
 
 function _accWireFieldDnd(list) {
@@ -9312,41 +9322,12 @@ function _accResetColumns() {
 
 // Voucher block (section) arranger — reorder + show/hide whole blocks.
 function _accArrangeBlocks() {
-  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
-  const label = Object.fromEntries(ACC_VBLOCKS_DEF.map(d => [d.key, d.label]));
-  const cfg = _accGetVoucherBlockCfg();
-  const old = document.getElementById('accBlockArranger'); if (old) old.remove();
-  const ov = document.createElement('div');
-  ov.id = 'accBlockArranger';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:1400;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:4vh 4vw';
-  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
-  ov.innerHTML = `
-    <div style="background:#fff;width:400px;max-width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column">
-      <div style="padding:.85rem 1.1rem;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff">
-        <div style="font-weight:800;font-size:.95rem">Arrange Voucher Blocks</div>
-        <div style="font-size:.72rem;opacity:.9;margin-top:2px">Drag to reorder sections &middot; tick to show / hide</div>
-      </div>
-      <ul id="accBlockArrangerList" style="list-style:none;margin:0;padding:.6rem;max-height:58vh;overflow-y:auto">
-        ${cfg.map(c => `
-          <li draggable="true" data-key="${esc(c.key)}" style="display:flex;align-items:center;gap:.6rem;padding:.5rem .7rem;margin-bottom:.35rem;border:1px solid var(--border);border-radius:8px;background:var(--surface1);cursor:grab;user-select:none">
-            <span style="color:var(--txt3);font-size:.95rem;line-height:1">&#8942;&#8942;</span>
-            <input type="checkbox" ${c.enabled ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer" onclick="event.stopPropagation()">
-            <span style="font-size:.84rem;color:var(--txt1);flex:1">${esc(label[c.key] || c.key)}</span>
-          </li>`).join('')}
-      </ul>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;padding:.8rem 1.1rem;border-top:1px solid var(--border)">
-        <div style="display:flex;gap:.5rem">
-          <button onclick="_accResetBlocks()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset</button>
-          ${_accDefaultBtn('acc_default_voucher_blocks', 'accBlockArrangerList')}
-        </div>
-        <div style="display:flex;gap:.5rem">
-          <button onclick="document.getElementById('accBlockArranger').remove()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Cancel</button>
-          <button onclick="_accSaveArrangedBlocks()" class="btn btn-sm" style="background:var(--g7);color:#fff;border:none;font-size:.74rem;font-weight:700;padding:4px 14px">Save</button>
-        </div>
-      </div>
-    </div>`;
-  document.body.appendChild(ov);
-  _accWireFieldDnd(document.getElementById('accBlockArrangerList'));
+  _accArrangerModal({
+    id: 'accBlockArranger', listId: 'accBlockArrangerList', width: 400,
+    title: 'Arrange Voucher Blocks', subtitle: 'Drag to reorder sections &middot; tick to show / hide',
+    cfg: _accGetVoucherBlockCfg(), labels: Object.fromEntries(ACC_VBLOCKS_DEF.map(d => [d.key, d.label])),
+    resetFn: '_accResetBlocks', defaultKey: 'acc_default_voucher_blocks', saveFn: '_accSaveArrangedBlocks',
+  });
 }
 function _accSaveArrangedBlocks() {
   const cfg = _accReadModalList('accBlockArrangerList'); if (!cfg.length) return;
@@ -10050,26 +10031,39 @@ function _accUpdateFormOnStatusChange() {
   if (rq) rq.style.display = reqComments ? '' : 'none';
 }
 
-function _accUpdateBuildRow(prUuid) {
+// Single source of truth for the AccountsUpdate sheet row shape — used by both
+// write paths (the Update form and the quick status/approve/reject actions) so
+// they can never drift apart. `f` supplies the variable fields; the identity /
+// timestamp / request-details columns are filled here.
+function _accBuildUpdateRow(reqUuid, f) {
   const rid = (crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0, 8) : String(Date.now()).slice(-8);
   const email = STATE.user?.email || '';
   const me = (STATE.masters.users || []).find(u => (u.email || '').toLowerCase() === email.toLowerCase());
   const updatedBy = me ? (me.employeeRef || me.name) : (STATE.user?.name || '');
-  const pr = (window._accAllRows || []).find(r => r.uuid === prUuid);
-  const details = pr ? [pr.requestId, pr.payTo, pr.amount].filter(Boolean).join(' · ') : prUuid;
+  const pr = (window._accAllRows || []).find(r => r.uuid === reqUuid);
+  const details = pr ? [pr.requestId, pr.payTo, pr.amount].filter(Boolean).join(' · ') : reqUuid;
   return {
     'UUID': 'ACC-AU-' + rid,
     'UserEmail': email,
     'Updated By': updatedBy,
-    'Request ID': prUuid,
+    'Request ID': reqUuid,
     'Details of Request': details,
-    'Status': _accV('acc-up-status'),
-    'Pending Reason': _accV('acc-up-reason'),
-    'Date': _accFmtDate(_accV('acc-up-date')),
-    'UTR Details': _accV('acc-up-utr'),
-    'Comments (If Any)': _accV('acc-up-comments'),
+    'Status': f.status,
+    'Pending Reason': f.reason || '',
+    'Date': f.date,
+    'UTR Details': f.utr || '',
+    'Comments (If Any)': f.comments || '',
     'Timestamp': _accFmtDateTime(new Date()),
   };
+}
+function _accUpdateBuildRow(prUuid) {
+  return _accBuildUpdateRow(prUuid, {
+    status: _accV('acc-up-status'),
+    reason: _accV('acc-up-reason'),
+    date: _accFmtDate(_accV('acc-up-date')),
+    utr: _accV('acc-up-utr'),
+    comments: _accV('acc-up-comments'),
+  });
 }
 
 async function _accUpdateFormSubmit(prUuid) {
@@ -10145,25 +10139,7 @@ async function _accQuickStatus(uuid, status, comments, utr, silent) {
     if (!silent) _accToast('🔒 You do not have permission to update payments.');
     return false;
   }
-  const rid = (crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0, 8) : String(Date.now()).slice(-8);
-  const email = STATE.user?.email || '';
-  const me = (STATE.masters.users || []).find(u => (u.email || '').toLowerCase() === email.toLowerCase());
-  const updatedBy = me ? (me.employeeRef || me.name) : (STATE.user?.name || '');
-  const pr = (window._accAllRows || []).find(r => r.uuid === uuid);
-  const details = pr ? [pr.requestId, pr.payTo, pr.amount].filter(Boolean).join(' · ') : uuid;
-  const row = {
-    'UUID': 'ACC-AU-' + rid,
-    'UserEmail': email,
-    'Updated By': updatedBy,
-    'Request ID': uuid,
-    'Details of Request': details,
-    'Status': status,
-    'Pending Reason': '',
-    'Date': _accFmtDate(new Date()),
-    'UTR Details': utr || '',
-    'Comments (If Any)': comments || '',
-    'Timestamp': _accFmtDateTime(new Date()),
-  };
+  const row = _accBuildUpdateRow(uuid, { status, date: _accFmtDate(new Date()), utr, comments });
   const resp = await _accPostAwait({ action: 'saveAccountsUpdate', sheetId: PAYMENT_SHEET_ID, tab: 'AccountsUpdate', row: row });
   if (!resp || resp.success === false) {
     const msg = (resp && resp.message) || 'unknown error';
