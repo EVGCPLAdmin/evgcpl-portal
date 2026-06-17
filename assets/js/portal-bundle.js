@@ -795,7 +795,7 @@ window.EVG = {
     resize: true,          // drag-to-resize columns (persisted per table)
     columnManager: true,   // ⚙ Columns: drag reorder + show/hide + set-default
     widthPct: 100,         // table block width as % of the content area
-    rows: 12,              // rows before vertical scroll (0 = show all) — sticky header engages
+    rows: 0,               // rows before vertical scroll (0 = fit to viewport, single scrollbar) — sticky header engages
     density: 'comfortable',// row height: 'comfortable' (roomy) | 'compact' (tight)
     search: true,          // per-table quick search box in the toolbar
     zebra: false,          // alternating row striping
@@ -977,6 +977,24 @@ function applyTableFeatures() {
     try { _tblApplyColNowrap(t); } catch (e) {}       // per-column data-nowrap → single-line
     if (EVG.table.resize)        { try { _tblMakeResizable(t); } catch (e) {} }
   });
+  _tblFitHeights();
+}
+// Size each table's scroll region to end at the viewport bottom so the PAGE
+// doesn't also scroll — that page-scroll-on-top-of-wrap-scroll was the "nested
+// scrollbars" on every table. Only runs in fit mode (no explicit row cap); a
+// user-chosen rows-before-scroll (EVG.table.rows > 0) keeps its fixed cap.
+function _tblFitHeights() {
+  if ((parseInt(EVG.table.rows, 10) || 0) > 0) return;
+  const mc = document.getElementById('mainContent'); if (!mc) return;
+  mc.querySelectorAll('.tbl-wrap, #accwScroller').forEach(w => {
+    const top = w.getBoundingClientRect().top;
+    if (top <= 0 || top > window.innerHeight) return; // off-screen / not laid out yet
+    w.style.maxHeight = Math.max(220, Math.round(window.innerHeight - top - 16)) + 'px';
+  });
+}
+let _tblFitTimer = null;
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', () => { clearTimeout(_tblFitTimer); _tblFitTimer = setTimeout(_tblFitHeights, 150); });
 }
 // Watch #mainContent so tables that render later (async data, filter/tab
 // re-renders) get the engine too — the feature is then consistently default,
