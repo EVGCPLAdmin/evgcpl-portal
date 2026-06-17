@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.5.0';
-const PORTAL_BUILD    = 570;
-const PORTAL_BUILD_AT = '2026-06-17T10:15:36Z';
+const PORTAL_VERSION  = '4.5.1';
+const PORTAL_BUILD    = 571;
+const PORTAL_BUILD_AT = '2026-06-17T10:19:38Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -7978,7 +7978,7 @@ function _accwTableHtml(rows) {
 
   return `
     <div class="card"><div style="overflow:auto;max-height:66vh;border-radius:0 0 var(--rad) var(--rad)">
-      <table class="data-table" style="width:100%">
+      <table class="data-table" data-evg-cols="skip" style="width:100%">
         <thead><tr style="background:var(--g9);color:#fff;position:sticky;top:0;z-index:2">
           <th style="${TH};text-align:center;width:34px"><input type="checkbox" onclick="_accwToggleAll(this.checked)" title="Select all shown" style="width:15px;height:15px;cursor:pointer"></th>
           <th style="${TH}">Request ID</th><th style="${TH}">Request Details</th><th style="${TH}">Site</th>
