@@ -7978,7 +7978,7 @@ function _accwTableHtml(rows) {
 
   return `
     <div class="card"><div style="overflow:auto;max-height:66vh;border-radius:0 0 var(--rad) var(--rad)">
-      <table class="data-table" style="width:100%">
+      <table class="data-table" data-evg-cols="skip" style="width:100%">
         <thead><tr style="background:var(--g9);color:#fff;position:sticky;top:0;z-index:2">
           <th style="${TH};text-align:center;width:34px"><input type="checkbox" onclick="_accwToggleAll(this.checked)" title="Select all shown" style="width:15px;height:15px;cursor:pointer"></th>
           <th style="${TH}">Request ID</th><th style="${TH}">Request Details</th><th style="${TH}">Site</th>
