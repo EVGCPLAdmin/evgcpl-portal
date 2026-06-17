@@ -218,7 +218,6 @@
     'accounts-worklist': 'accounts.html',
     'accounts-kpi':      'accounts.html',
     'ledgers':           'accounts.html',
-    'ledger-vendor':     'accounts.html',
     'ledger-sc':         'accounts.html',
     'vendor-ledger-po':  'accounts.html',
 

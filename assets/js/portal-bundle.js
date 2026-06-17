@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.6.1';
-const PORTAL_BUILD    = 573;
-const PORTAL_BUILD_AT = '2026-06-17T14:19:42Z';
+const PORTAL_VERSION  = '4.6.2';
+const PORTAL_BUILD    = 574;
+const PORTAL_BUILD_AT = '2026-06-17T14:37:46Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2737,7 +2737,6 @@ const NAV_SUBMENUS = {
   ledgers: {
     children: [
       { route:'ledgers',          label:'Employee Ledger',       status:'live' },
-      { route:'ledger-vendor',    label:'Vendor Ledger',         status:'live' },
       { route:'ledger-sc',        label:'Sub Contractor Ledger', status:'live' },
       { route:'vendor-ledger-po', label:'Vendor Ledger (PO)',    status:'live' },
     ],
@@ -3042,7 +3041,6 @@ function renderPage(page) {
     'md-command':     renderMDCommand,
     'md-payments':    renderMDPayments,
     'ledgers':        () => renderLedgers('Employee'),
-    'ledger-vendor':  () => renderLedgers('Vendor'),
     'ledger-sc':      () => renderLedgers('Sub Contractor'),
     'vendor-ledger-po': renderVendorLedgerPO,
     'onboarding':     renderOnboardingPortal,
@@ -7819,7 +7817,7 @@ function _accwWorklistHtml() {
       <div style="display:flex;gap:.7rem;flex-wrap:wrap;align-items:flex-end">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:200px">
           <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Search</label>
-          <input id="accwSearch" value="${esc(ACCW.search)}" oninput="ACCW.search=this.value;_accwRenderListOnly()" placeholder="Request ID, payee, Order No, Bill No, UTR…" style="${selStyle};width:100%;box-sizing:border-box">
+          <input id="accwSearch" value="${esc(ACCW.search)}" oninput="ACCW.search=this.value;_accwDebouncedList()" placeholder="Request ID, payee, Order No, Bill No, UTR…" style="${selStyle};width:100%;box-sizing:border-box">
         </div>
         <div style="display:flex;flex-direction:column;gap:3px">
           <label style="font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Stage</label>
@@ -7864,6 +7862,13 @@ function _accwWorklistHtml() {
 function _accwRenderListOnly() {
   const el = document.getElementById('accwList'); if (!el) { _accwRenderBody(); return; }
   el.innerHTML = _accwTableHtml(_accwFiltered());
+}
+// Debounced re-render for the search box — typing fast over thousands of rows
+// must not rebuild the whole table on every keystroke (that's the "stuck" lag).
+let _accwListTimer = null;
+function _accwDebouncedList() {
+  clearTimeout(_accwListTimer);
+  _accwListTimer = setTimeout(_accwRenderListOnly, 180);
 }
 function _accwTableHtml(rows) {
   const esc = (typeof escapeHtml_==='function') ? escapeHtml_ : (s=>String(s||''));
@@ -7920,6 +7925,11 @@ function _accwTableHtml(rows) {
     </tr>`;
   };
 
+  // Cap how many data rows we actually paint. Thousands of <tr> at once is what
+  // makes the worklist feel stuck; totals/footer still reflect ALL rows, and the
+  // notice tells the user to narrow the filters (or collapse groups) to see more.
+  const ROW_CAP = 500;
+  let _shown = 0, _capped = false;
   const body = gentries.map(([k, grp]) => {
     const sub = _accwSum(grp);
     const isCollapsed = ACCW.collapsed.has(k);
@@ -7931,13 +7941,20 @@ function _accwTableHtml(rows) {
           <span style="float:right;color:var(--g8)">${_accwFmt(sub)}</span>
         </td>
       </tr>`;
-    const cells = isCollapsed ? '' : grp.map(rowHtml).join('');
+    let cells = '';
+    if (!isCollapsed) {
+      for (const r of grp) {
+        if (_shown >= ROW_CAP) { _capped = true; break; }
+        cells += rowHtml(r); _shown++;
+      }
+    }
     return header + cells;
   }).join('');
+  const capNote = _capped ? `<tr><td colspan="${ncol}" style="text-align:center;padding:.75rem;background:var(--surface2);color:var(--txt2);font-size:.76rem;border-bottom:1px solid var(--border)">Showing the first ${_shown.toLocaleString('en-IN')} of ${rows.length.toLocaleString('en-IN')} requests — narrow the filters (Stage / Site / Search) or group &amp; collapse to see the rest. Totals below reflect all ${rows.length.toLocaleString('en-IN')}.</td></tr>` : '';
 
   return `
     <div class="card"><div style="overflow:auto;max-height:66vh;border-radius:0 0 var(--rad) var(--rad)">
-      <table class="data-table" data-evg-cols="skip" style="width:100%">
+      <table class="data-table" data-evg-defaults="off" style="width:100%">
         <thead><tr style="background:var(--g9);color:#fff;position:sticky;top:0;z-index:2">
           <th style="${TH};text-align:center;width:34px"><input type="checkbox" onclick="_accwToggleAll(this.checked)" title="Select all shown" style="width:15px;height:15px;cursor:pointer"></th>
           <th style="${TH}">Request ID</th><th style="${TH}">Request Details</th><th style="${TH}">Site</th>
@@ -7945,7 +7962,7 @@ function _accwTableHtml(rows) {
           <th style="${TH}" title="Vendor bill status from the Vendor Ledger (PO)">Vendor Status</th>
           <th style="${TH};text-align:center">Age</th><th style="${TH}">Date</th><th style="${TH};text-align:center">Actions</th>
         </tr></thead>
-        <tbody>${body || `<tr><td colspan="${ncol}" style="text-align:center;padding:3rem;color:var(--txt3)">No matching requests.</td></tr>`}</tbody>
+        <tbody>${body || `<tr><td colspan="${ncol}" style="text-align:center;padding:3rem;color:var(--txt3)">No matching requests.</td></tr>`}${capNote}</tbody>
         <tfoot><tr style="background:var(--g9);color:#fff;position:sticky;bottom:0;font-weight:800">
           <td colspan="5" style="padding:8px 9px;text-align:right">${rows.length} request(s) &middot; Grand total</td>
           <td style="padding:8px 9px;text-align:right">${_accwFmt(grand)}</td>
