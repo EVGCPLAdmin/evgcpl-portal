@@ -10917,6 +10917,7 @@ function uaGetDraft() {
   let cfg = pcReadJSON('access_config', null);
   if (!cfg) cfg = { enforce:false, groups: uaSeedGroups(), users:{} };
   cfg.groups = cfg.groups || []; cfg.users = cfg.users || {};
+  cfg.superAdmins = Array.isArray(cfg.superAdmins) ? cfg.superAdmins : [];
   window._uaDraft = cfg;
   return cfg;
 }
@@ -10927,9 +10928,22 @@ function uaGroup(gid) { return uaGetDraft().groups.find(g => g.id === gid); }
 // Head/AT-code account resolves to md but must still be restrict-able by group.
 // Only the super-admin bypasses enforcement, so they can never lock themselves
 // out of the Access configuration.
+//
+// Two sources: a hard-wired BOOTSTRAP list (substring match, can never be
+// removed — guarantees the portal owner is never locked out even if the saved
+// config is wiped) plus an org-configurable list stored in access_config.
+// superAdmins (exact email match), editable from the Access & Pages tab.
+const _SUPERADMIN_BOOTSTRAP = ['admin@evgcpl', 'neurolooom'];
+function _accessSuperAdminList() {
+  const acc = (typeof pcReadJSON === 'function') ? pcReadJSON('access_config', null) : null;
+  const extra = (acc && Array.isArray(acc.superAdmins)) ? acc.superAdmins : [];
+  return extra.map(e => String(e || '').toLowerCase().trim()).filter(Boolean);
+}
 function _accessIsSuperAdmin() {
-  const email = ((STATE && STATE.user && STATE.user.email) || '').toLowerCase();
-  return email.includes('admin@evgcpl') || email.includes('neurolooom');
+  const email = ((STATE && STATE.user && STATE.user.email) || '').toLowerCase().trim();
+  if (!email) return false;
+  if (_SUPERADMIN_BOOTSTRAP.some(b => email.includes(b))) return true;
+  return _accessSuperAdminList().includes(email);
 }
 
 // Browser-local escape hatch so an admin can never be permanently locked out
@@ -11260,6 +11274,24 @@ function _cfgRenderAccess() {
       </div>
     </div>
 
+    <!-- Super Admins -->
+    <div class="card card-pad" style="margin-bottom:1.1rem;border-left:4px solid #7c3aed">
+      <div style="font-weight:700;color:var(--g9)">&#128081; Super Admins
+        <span style="font-size:.72rem;color:var(--txt3);font-weight:400;margin-left:.3rem">Bypass all access enforcement &middot; full Configuration access</span></div>
+      <div style="font-size:.78rem;color:var(--txt3);margin:.25rem 0 .6rem">Super admins always see every page and can never be locked out. Add anyone by their Mail ID. Built-in owners can't be removed.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.6rem">
+        ${_SUPERADMIN_BOOTSTRAP.map(b => `<span style="display:inline-flex;align-items:center;gap:5px;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:14px;padding:3px 10px;font-size:.74rem;color:#6b21a8">&#128274; ${b} <span style="font-size:.6rem;opacity:.7">built-in</span></span>`).join('')}
+        ${(draft.superAdmins||[]).map(e => `<span title="${e}" style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 6px 3px 10px;font-size:.74rem">${e}<button onclick="uaRemoveSuperAdmin('${e}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px">&times;</button></span>`).join('')
+          || '<span style="font-size:.74rem;color:var(--txt3)">No additional super admins yet</span>'}
+      </div>
+      <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+        <input id="uaSaEmail" type="email" autocomplete="off" placeholder="name@evgcpl.com"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();uaAddSuperAdmin(this.value);}"
+          style="flex:1;min-width:220px;padding:7px 11px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface2);color:var(--txt)">
+        <button onclick="uaAddSuperAdmin(document.getElementById('uaSaEmail').value)" class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;padding:.5rem 1.1rem;font-weight:700">+ Add super admin</button>
+      </div>
+    </div>
+
     <div style="display:grid;grid-template-columns:260px 1fr;gap:1rem;align-items:start">
       <div class="card card-pad">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem">
@@ -11348,6 +11380,20 @@ function _cfgRenderAccess() {
     uaDirty(); _cfgRenderAccess();
   };
   window.uaToggleEnforce = function(on) { uaGetDraft().enforce = !!on; uaDirty(); _cfgRenderAccess(); };
+  window.uaAddSuperAdmin = function(email) {
+    email = (email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert('Enter a valid Mail ID, e.g. name@evgcpl.com'); return; }
+    if (_SUPERADMIN_BOOTSTRAP.some(b => email.includes(b))) { alert('That account is already a built-in super admin.'); return; }
+    const d = uaGetDraft();
+    d.superAdmins = Array.isArray(d.superAdmins) ? d.superAdmins : [];
+    if (!d.superAdmins.includes(email)) d.superAdmins.push(email);
+    uaDirty(); _cfgRenderAccess();
+  };
+  window.uaRemoveSuperAdmin = function(email) {
+    const d = uaGetDraft();
+    d.superAdmins = (d.superAdmins || []).filter(e => e !== email);
+    uaDirty(); _cfgRenderAccess();
+  };
   window.uaDirty = function() { const b = document.getElementById('uaSaveBtn'); if (b) { b.innerHTML = '&#10003; Save &amp; Apply *'; b.style.background = '#f0a500'; b.style.color = '#0d3320'; } };
   window.uaResetDefaults = function() {
     if (!confirm('Reset all access groups to the role-based defaults? This clears custom groups and user assignments.')) return;
