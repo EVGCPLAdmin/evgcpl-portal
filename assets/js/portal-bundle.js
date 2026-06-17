@@ -9710,9 +9710,9 @@ function _expGroup(arr, key) { const m = new Map(); (arr || []).forEach(x => { c
 function _expLedEnsure() {
   if (_expLedData) return Promise.resolve(_expLedData);
   return Promise.all([
-    fetchSheet('Cash Expenses',            null, EXPENSE_SHEET_ID, { rawId: true }),
-    fetchSheet('Ledger',                   null, EXPENSE_SHEET_ID, { rawId: true }),
-    fetchSheet('Cash Expenses - Approval', null, EXPENSE_SHEET_ID, { rawId: true }),
+    fetchSheet('Cash Expenses',            null, EXPENSE_SHEET_ID, { rawId: true, headers: 1 }),
+    fetchSheet('Ledger',                   null, EXPENSE_SHEET_ID, { rawId: true, headers: 1 }),
+    fetchSheet('Cash Expenses - Approval', null, EXPENSE_SHEET_ID, { rawId: true, headers: 1 }),
   ]).then(([reqs, bills, appr]) => {
     const R = (reqs || []).filter(r => r['Request ID']).map(r => ({
       requestId: r['Request ID'] || '', site: r['Site Name'] || '', cashFor: r['Cash For'] || '',
@@ -18579,6 +18579,10 @@ function fetchSheet(sheetName, tq, spreadsheetId, opts) {
             + `?tqx=out:json;reqId:${reqId}`
             + `&sheet=${encodeURIComponent(sheetName)}`;
     if (tq) url += `&tq=${encodeURIComponent(tq)}`;
+    // opts.headers forces the number of header rows — needed for tabs where gviz
+    // can't auto-detect the header (e.g. all-text columns: amounts stored as text),
+    // which otherwise returns letter-labelled columns and empty header-keyed access.
+    if (opts && opts.headers != null) url += `&headers=${encodeURIComponent(opts.headers)}`;
 
     const timer = setTimeout(() => {
       delete _gvizHandlers[reqId];
