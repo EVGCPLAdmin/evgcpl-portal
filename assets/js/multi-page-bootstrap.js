@@ -213,6 +213,8 @@
 
     // Accounts (the Workspace is the single Accounts UI; classic/KPI routes redirect to it)
     'accounts':          'accounts.html',
+    'expense-ledger':    'accounts.html',
+    'my-tasks':          'dashboard.html',
     'accounts-v2':       'accounts.html',
     'accounts-dashboard':'accounts.html',
     'accounts-worklist': 'accounts.html',
