@@ -182,6 +182,10 @@
 
     // HR group
     'hr-dashboard':      'hr.html',
+    'rec-requisitions':  'hr.html',
+    'rec-offers':        'hr.html',
+    'rec-prejoining':    'hr.html',
+    'rec-joining':       'hr.html',
     'mess-individual':   'hr.html',
     'my-profile':        'hr.html',
     'onboarding':        'hr.html',
