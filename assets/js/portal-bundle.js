@@ -8926,10 +8926,19 @@ function _accOpenPRDetail(uuid) {
 function _accDrawVendorStatus(r) {
   const slot = document.getElementById('acc-detail-vendorstatus');
   if (!slot || !r || r.payTo !== 'Vendor') return;
-  const paint = () => { try { slot.innerHTML = (typeof _vplpStatusChipFor === 'function') ? _vplpStatusChipFor(r, { showBal: true }) : ''; } catch (e) {} };
+  const vid = (typeof _vplpVendorToken === 'function') ? (_vplpVendorToken(r.vendor) || _vplpVendorToken(r.paidTo) || '') : '';
+  const link = `<a href="#" onclick="event.preventDefault();event.stopPropagation();_accOpenVendorLedger('${String(vid).replace(/'/g, "\\'")}')" title="Open this vendor's ledger (PO · Dr/Cr running balance)" style="margin-left:.55rem;font-size:.72rem;font-weight:700;color:var(--g7);white-space:nowrap;text-decoration:none">&#128210; View Ledger &rarr;</a>`;
+  const paint = () => { try { const chip = (typeof _vplpStatusChipFor === 'function') ? _vplpStatusChipFor(r, { showBal: true }) : ''; slot.innerHTML = chip + link; } catch (e) { slot.innerHTML = link; } };
   if (typeof _vplpData !== 'undefined' && _vplpData) { paint(); return; }
-  if (typeof _vplpEnsure === 'function') _vplpEnsure().then(paint).catch(() => {});
+  if (typeof _vplpEnsure === 'function') _vplpEnsure().then(paint).catch(() => { slot.innerHTML = link; });
+  else slot.innerHTML = link;
 }
+// Jump from a vendor payment voucher straight to that vendor's PO ledger.
+window._accOpenVendorLedger = function(vid) {
+  if (typeof _accClosePRDetail === 'function') { try { _accClosePRDetail(); } catch (e) {} }
+  if (typeof _vplpOpenVendor === 'function') _vplpOpenVendor(vid || '');
+  else if (typeof navigate === 'function') navigate('vendor-ledger-po');
+};
 
 // Whole-tab cache for PO_Items_Actual (the items tab keys to a request via its
 // CheckSum column). gviz WHERE only works on column letters, and CheckSum's
