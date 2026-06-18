@@ -6,7 +6,7 @@
 > Script. This document is the canonical reference for how the portal is built,
 > deployed, and structured.
 
-**Current release:** v3.49.0 · build 528 · 2026-06-12
+**Current release:** v4.11.0 · build 584 · 2026-06-18
 _(authoritative source: [`version.json`](../version.json))_
 
 ---
@@ -124,7 +124,12 @@ instance updates. Component classes: `.evg-kpi`, `.evg-kpi-grid`,
 `.evg-dash-grid`, `.evg-form` (CSS generated in `_tblEngineEnsureStyles`).
 
 The **universal table engine** stamps features onto every rendered data table:
-- wrap · drag-resize columns · fit-to-screen · big scrollbar
+- wrap · drag-resize columns · per-table quick search · **density** toggle
+  (comfortable/compact) · per-column `data-nowrap`.
+- **Viewport-fit scroll** — `_tblFitHeights()` sizes each table's scroll region
+  to end at the viewport bottom (default `EVG.table.rows = 0`), so the page
+  itself doesn't also scroll — **one scrollbar, no nesting**. A user-set
+  rows-before-scroll keeps its fixed cap.
 - **⚙ Columns** manager — drag-reorder + show/hide + ★ set-as-default
   (personal `localStorage evg_tbl_cols`; admin org-wide via PortalConfig
   `tbl_cols`); widths persist in `evg_tbl_widths`.
@@ -133,7 +138,9 @@ The **universal table engine** stamps features onto every rendered data table:
   default *and* inline cell styles via `!important`).
 - **⬇ CSV** export — honours the column manager's visible columns & order.
 
-Opt a single instance out entirely with `data-evg-defaults="off"`.
+Opt a single instance out entirely with `data-evg-defaults="off"` (used where a
+view manages its own scroll/toolbar, e.g. the Accounts Worklist, which also
+streams rows progressively on scroll for large datasets).
 
 ### 4.5 Access control & roles
 Roles (`ROLES`): `md`, `hr`, `site`, `employee`, `purchase`, `accounts`,
@@ -158,6 +165,7 @@ External roles (`vendor`, `sc`) land on `external.html`, not the staff shell.
 | `PAYMENT_SHEET_ID` | "Account View" — `PaymentRequest` tab (payments/approvals/ledgers) |
 | `PO_SHEET_ID` | v2_Purchase — `PO_Actual` (header) + `PO_Items_Actual` (lines) |
 | `STORES_SHEET_ID` | v2_Stores — `StockIN` / GRN tabs |
+| `EXPENSE_SHEET_ID` | "Expenses" — `CashExpenseMonth` (monthly ledger), `Cash Expenses` (requests), `Cash Expenses - Approval`, `Ledger` (bills), `Individual Food Expenses` (+ Approval). Numeric columns are text → fetch with `headers:1`. |
 | `RECRUITMENT_SHEET_ID` | Recruitment |
 | `SAFETY_SHEET_ID` | Safety module |
 | `REWARDS_SHEET_ID` | Rewards & Recognition + Blog/Wall |
@@ -194,11 +202,13 @@ Source of truth: `MODULE_REGISTRY`. Status `live` unless noted.
 | Section | Route | Label | Roles |
 |---|---|---|---|
 | Main | `dashboard` | Dashboard | all staff |
+| | `my-tasks` | **My Tasks** — per-user pending-approvals inbox _(placeholder; see BACKLOG.md)_ | all staff |
 | | `md-command` | MD Command Centre | md |
 | HR & People | `hr-dashboard` | HR Dashboard | md, hr, dept_head |
 | | `my-profile` | My Profile (Summary/Job/Comp/Time Off/Documents/Team/**Statement**) | all staff |
 | | `onboarding` | Onboarding | md, hr |
-| | `recruitment` | Recruitment | md, hr, dept_head, site |
+| | `recruitment` (+ sub-pages `rec-requisitions` / `rec-offers` / `rec-prejoining` / `rec-joining`) | Recruitment — Overview, Requisitions, Offer Letters, Pre-Joining, Joining (each tab is a nav sub-page) | md, hr, dept_head, site |
+| | `mess-individual` | **Individual Mess Expenses** — per-employee monthly mess allowance (`Individual Food Expenses`) | md, hr, accounts, dept_head |
 | | `policies` | Policies Hub | md, hr, site, employee, dept_head |
 | Site Ops | `site-manager` | Site Manager | md, site, dept_head |
 | | `safety` | Safety Module | md, site, hr, dept_head |
@@ -212,9 +222,9 @@ Source of truth: `MODULE_REGISTRY`. Status `live` unless noted.
 | | `subcontractor` | Subcontractor Portal (SC ledger) | md, purchase, accounts |
 | | `tendering` | Tendering | md, purchase _(dev)_ |
 | Accounts | `md-payments` | Payments & Approvals | md |
-| | `ledgers` | **Ledgers** (Employee/Vendor/Sub-Contractor) | md, accounts |
-| | `vendor-ledger-po` | **Vendor Ledger (PO Payments)** | md, accounts |
-| | `accounts` / `-dashboard` / `-worklist` / `-v2` / `-kpi` | Accounts workspace & KPIs | md, accounts, dept_head |
+| | `ledgers` (+ `ledger-sc`, `vendor-ledger-po`) | **Ledgers** (Employee / Sub-Contractor / Vendor PO) | md, accounts |
+| | `expense-ledger` | **Expense Ledger** — cash-expense drill-down tree (month → requests → bills) from `EXPENSE_SHEET_ID`; Other Expenses / Site Mess split; pending highlighted | md, accounts, hr, dept_head |
+| | `accounts` / `-dashboard` / `-worklist` (legacy aliases `-v2` / `-kpi`) | Accounts Workspace & KPIs (classic + KPI pages retired to redirects) | md, accounts, dept_head |
 | Planning | `budgeting`, `execution` (DPR), planning/PCC routes | Budgeting / Execution / Cost Control | varies |
 | Plant & Machinery | `plant-log`, `plant-verify`, `plant-maintenance` | Log / Verify / Maintenance | md, site, dept_head |
 | Reports | `reports`, `data-hub` | Reports / Universal Data Hub | md, hr, purchase, accounts, dept_head |
@@ -333,9 +343,11 @@ cache-busts `?v=<build>` on every HTML asset ref, syncs the top nav from
 
 | Item | Status | Notes |
 |---|---|---|
-| Salary / **Pay Slip** | ⏸️ parked | Compensation tab → live Salary Breakup (Drive); monthly Pay Slip from a **separate salary sheet** — needs sheet ID + column headers. |
-| Vendor Ledger — include Tax/Additional in Outstanding | open | one-line change if desired |
-| Vendor Ledger — match POs by vendor name (not only payment Order No) | open | would surface received-but-unpaid POs |
+| **My Tasks** (per-user approval inbox) | placeholder shipped | Consolidate every pending item where the user is the approver/next actioner. Spec in `BACKLOG.md`. |
+| **HR restructure** — Day-to-Day (Employee Register, Attendance, Leave, OD, Attendance Review) & Other Operations (Site Mess, Individual Mess, Advance & Loans) classifications + roll-up overviews | partial | Individual Mess + Site Mess (Expense Ledger) done; Employee Register data exists. **Needs sheets** for Attendance / Leave / OD / Attendance Review / Advance & Loans, and the Recruitment page list (now done). |
+| **Expense Ledger** — per-bill drill detail; remove the temporary load-diagnostic counter once verified | open | Loader already pulls the `Ledger` line items. |
+| Salary / **Pay Slip** | ⏸️ parked | Monthly Pay Slip from a **separate salary sheet** — needs sheet ID + column headers. |
+| Vendor Ledger — include Tax/Additional in Outstanding; match POs by vendor name | open | small changes if desired |
 | Tendering module | dev | "Coming" |
 
 ---
