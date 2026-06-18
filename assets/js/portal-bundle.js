@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.10.0';
-const PORTAL_BUILD    = 583;
-const PORTAL_BUILD_AT = '2026-06-17T21:53:36Z';
+const PORTAL_VERSION  = '4.11.0';
+const PORTAL_BUILD    = 584;
+const PORTAL_BUILD_AT = '2026-06-18T07:00:00Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2759,9 +2759,18 @@ const NAV_SUBMENUS = {
       { route:'vendor-ledger-po', label:'Vendor Ledger (PO)',    status:'live' },
     ],
   },
+  // Recruitment parent → each of its in-module tabs is also a level-3 sub-page.
+  // The parent route ('recruitment') is the Overview landing.
+  recruitment: {
+    children: [
+      { route:'recruitment',      label:'Overview',      status:'live' },
+      { route:'rec-requisitions', label:'Requisitions',  status:'live' },
+      { route:'rec-offers',       label:'Offer Letters', status:'live' },
+      { route:'rec-prejoining',   label:'Pre-Joining',   status:'live' },
+      { route:'rec-joining',      label:'Joining',       status:'live' },
+    ],
+  },
 };
-
-// route → parent-route map for every level-3 child
 function _navChildParentMap() {
   const out = {};
   for (const p in NAV_SUBMENUS) (NAV_SUBMENUS[p].children || []).forEach(c => { if (c.route !== p) out[c.route] = p; });
@@ -3064,7 +3073,11 @@ function renderPage(page) {
     'ledger-sc':      () => renderLedgers('Sub Contractor'),
     'vendor-ledger-po': renderVendorLedgerPO,
     'onboarding':     renderOnboardingPortal,
-    'recruitment':    renderRecruitmentModule,
+    'recruitment':    () => _rcOpenTab('overview'),
+    'rec-requisitions': () => _rcOpenTab('requisitions'),
+    'rec-offers':     () => _rcOpenTab('offer-letters'),
+    'rec-prejoining': () => _rcOpenTab('pre-joining'),
+    'rec-joining':    () => _rcOpenTab('joining'),
     'mess-individual': renderIndividualMess,
     'hr-dashboard':   renderHRDashboard,
     'my-profile':     renderMyProfile,
@@ -22085,6 +22098,10 @@ function renderRecruitmentModule() {
 // ══════════════════════════════════════════════════════════════
 //  TAB SWITCHER
 // ══════════════════════════════════════════════════════════════
+// Deep-link entry for the Recruitment level-3 sub-pages (NAV_SUBMENUS children):
+// set the active tab, then render the module. renderRecruitmentModule falls back
+// to the first role-allowed tab if this one isn't available to the user.
+function _rcOpenTab(key) { _rcTab = key; renderRecruitmentModule(); }
 function _rcSwitchTab(key) {
   _rcTab = key;
   document.querySelectorAll('[id^="rc-tab-"]').forEach(b => {
