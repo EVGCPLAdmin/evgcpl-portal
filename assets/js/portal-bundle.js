@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.11.2';
-const PORTAL_BUILD    = 586;
-const PORTAL_BUILD_AT = '2026-06-19T10:23:29Z';
+const PORTAL_VERSION  = '4.11.3';
+const PORTAL_BUILD    = 587;
+const PORTAL_BUILD_AT = '2026-06-19T12:41:54Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4348,7 +4348,9 @@ function _mdpBulkPost(ids, status, action, comments) {
   (async () => {
     const failed = [];
     for (const r of rows) {
-      const ok = await _accQuickStatus(r.uuid, status, comments, '', true);
+      // Deterministic idempotency key per (request, status): a double-submit or a
+      // retry posts the SAME key, so the backend dedupes it to one row.
+      const ok = await _accQuickStatus(r.uuid, status, comments, '', true, r.uuid + '|' + status);
       if (!ok) { failed.push(r); _txnDrop(r.uuid); }
     }
     if (failed.length) {
@@ -4356,7 +4358,11 @@ function _mdpBulkPost(ids, status, action, comments) {
       alert(`${failed.length} of ${rows.length} request(s) could not be ${action.toLowerCase()} and were returned to the queue.${last ? '\n\nLast error: ' + last : ''}`);
       _mdpRender();
     } else {
-      _accToast(`${action === 'Rejected' ? '' : '✅ '}${action} ${rows.length} request${rows.length === 1 ? '' : 's'}${action === 'Approved' ? ' — moving to Accounts' : ''}`);
+      // Posted to Sheets — but the request only counts as done once the sheet's
+      // derived status confirms it. The "In Transaction" shelf keeps showing it
+      // (and the reconcile poll clears it) so we never claim a final "Approved"
+      // that hasn't actually landed.
+      _accToast(`${rows.length} request${rows.length === 1 ? '' : 's'} ${action === 'Rejected' ? 'rejected' : 'submitted'} — confirming on Sheets…`);
     }
   })();
 }
@@ -7607,7 +7613,7 @@ async function _accAdvance(uuid) {
   if (typeof accRender === 'function' && document.getElementById('accTbody')) accRender();
   if (document.getElementById('mdp-content') && typeof _mdpRender === 'function') _mdpRender();
   _accToast('Moving to ' + nx.to + '…');
-  const ok = await _accQuickStatus(uuid, nx.status, '', utr.trim(), true);
+  const ok = await _accQuickStatus(uuid, nx.status, '', utr.trim(), true, uuid + '|' + nx.status);
   if (ok) {
     _accToast('✅ Moved to ' + nx.to);
   } else {
@@ -8050,7 +8056,7 @@ async function _accwBulkAdvance() {
   doable.forEach(r => { const v=_accViewById(_accStageOf(r)); _txnParkRow(r, v.next.status, '→ '+v.next.to, 'acc'); });
   ACCW.sel.clear(); _accwRenderListOnly();
   if (typeof _accToast==='function') _accToast('Advancing '+doable.length+' request(s)…');
-  for (const r of doable) { const v=_accViewById(_accStageOf(r)); try { await _accQuickStatus(r.uuid, v.next.status, '', '', true); } catch(e){} }
+  for (const r of doable) { const v=_accViewById(_accStageOf(r)); try { await _accQuickStatus(r.uuid, v.next.status, '', '', true, r.uuid + '|' + v.next.status); } catch(e){} }
   if (typeof _accToast==='function') _accToast('✅ Advanced '+doable.length+' request(s)');
   await _accReloadRows(); _accwRenderBody();
 }
@@ -9563,8 +9569,14 @@ function _accBuildUpdateRow(reqUuid, f) {
   const updatedBy = me ? (me.employeeRef || me.name) : (STATE.user?.name || '');
   const pr = (window._accAllRows || []).find(r => r.uuid === reqUuid);
   const details = pr ? [pr.requestId, pr.payTo, pr.amount].filter(Boolean).join(' · ') : reqUuid;
+  const uuid = 'ACC-AU-' + rid;
   return {
-    'UUID': 'ACC-AU-' + rid,
+    'UUID': uuid,
+    // Stable idempotency key for this write. Built once with the row, so the
+    // v4.11.2 transient-retry re-posts the SAME key — the backend dedupes on it
+    // (see docs/APPS_SCRIPT_accounts-write-fix.md), making retries / lost-ack
+    // re-posts safe (no duplicate AccountsUpdate row). Defaults to the row UUID.
+    'DedupeKey': f.dedupeKey || uuid,
     'UserEmail': email,
     'Updated By': updatedBy,
     'Request ID': reqUuid,
@@ -9653,14 +9665,16 @@ function _accCan(action) {
   return ['accounts','accounts-v2','accounts-worklist','accounts-dashboard','md-payments'].some(rt => userCan(rt, action));
 }
 
-async function _accQuickStatus(uuid, status, comments, utr, silent) {
+async function _accQuickStatus(uuid, status, comments, utr, silent, dedupeKey) {
   // Central write-path gate: a user with no Accounts action permission cannot
   // post status/advance updates when group access is enforced.
   if (!_accCan('update') && !_accCan('advance') && !_accCan('verify') && !_accCan('approve')) {
     if (!silent) _accToast('🔒 You do not have permission to update payments.');
     return false;
   }
-  const row = _accBuildUpdateRow(uuid, { status, date: _accFmtDate(new Date()), utr, comments });
+  // Build the row ONCE (stable UUID + DedupeKey) so the retry loop below re-posts
+  // the identical idempotency key; the backend dedupes on it.
+  const row = _accBuildUpdateRow(uuid, { status, date: _accFmtDate(new Date()), utr, comments, dedupeKey });
   // Google Apps Script intermittently returns "Service Spreadsheets timed out
   // while accessing document …" (and lock/quota/deadline blips) when the
   // PaymentRequest workbook is busy. These are transient: the same row (stable
@@ -9696,9 +9710,9 @@ async function _accQuickStatus(uuid, status, comments, utr, silent) {
 async function _accQuickApprove(uuid) {
   if (!confirm('Approve this payment request and move it to Accounts for processing?')) return;
   const status = 'Process Payment, Move to Accounts';
-  if (await _accQuickStatus(uuid, status, '')) {
+  if (await _accQuickStatus(uuid, status, '', '', false, uuid + '|' + status)) {
     _txnParkRow((window._accAllRows || []).find(r => r.uuid === uuid), status, 'Approved', 'acc');
-    _accToast('✅ Approved — moving to Accounts');
+    _accToast('Approval submitted — confirming on Sheets…');
     if (typeof accRender === 'function') accRender();
   }
 }
@@ -9708,9 +9722,9 @@ async function _accQuickReject(uuid) {
   if (reason === null) return;
   if (!reason.trim()) { alert('A reason is required to reject.'); return; }
   const status = 'Reject Payment (MD)';
-  if (await _accQuickStatus(uuid, status, reason.trim())) {
+  if (await _accQuickStatus(uuid, status, reason.trim(), '', false, uuid + '|' + status)) {
     _txnParkRow((window._accAllRows || []).find(r => r.uuid === uuid), status, 'Rejected', 'acc');
-    _accToast('Request rejected');
+    _accToast('Rejection submitted — confirming on Sheets…');
     if (typeof accRender === 'function') accRender();
   }
 }
