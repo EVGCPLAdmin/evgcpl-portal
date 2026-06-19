@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.11.1';
-const PORTAL_BUILD    = 585;
-const PORTAL_BUILD_AT = '2026-06-18T12:45:54Z';
+const PORTAL_VERSION  = '4.11.2';
+const PORTAL_BUILD    = 586;
+const PORTAL_BUILD_AT = '2026-06-19T10:23:29Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -9661,18 +9661,36 @@ async function _accQuickStatus(uuid, status, comments, utr, silent) {
     return false;
   }
   const row = _accBuildUpdateRow(uuid, { status, date: _accFmtDate(new Date()), utr, comments });
-  const resp = await _accPostAwait({ action: 'saveAccountsUpdate', sheetId: PAYMENT_SHEET_ID, tab: 'AccountsUpdate', row: row });
-  if (!resp || resp.success === false) {
-    const msg = (resp && resp.message) || 'unknown error';
+  // Google Apps Script intermittently returns "Service Spreadsheets timed out
+  // while accessing document …" (and lock/quota/deadline blips) when the
+  // PaymentRequest workbook is busy. These are transient: the same row (stable
+  // UUID) can be safely re-posted — the worst case is a duplicate update row
+  // with the identical status, so the request still ends up Approved/Rejected.
+  // Retry a few times with backoff before giving up, so a single timeout no
+  // longer bounces the approval back to the queue.
+  const TRANSIENT = /tim(e|ed)\s*out|timeout|service spreadsheets|spreadsheet.*(busy|access)|try again|lock(ed)?|deadline|rate.?limit|too many|quota|exceeded|temporar|unavailable|503|429/i;
+  const MAX = 4;
+  let resp = null, msg = 'unknown error';
+  for (let attempt = 1; attempt <= MAX; attempt++) {
+    if (attempt > 1) await new Promise(r => setTimeout(r, 1200 * (attempt - 1) + Math.floor(Math.random() * 400)));
+    try { resp = await _accPostAwait({ action: 'saveAccountsUpdate', sheetId: PAYMENT_SHEET_ID, tab: 'AccountsUpdate', row: row }); }
+    catch (e) { resp = { success: false, message: String(e && e.message || e) }; }
+    if (resp && resp.success !== false) return true;          // success
+    msg = (resp && resp.message) || 'unknown error';
+    if (!TRANSIENT.test(msg)) break;                          // permanent error → don't retry
+    if (!silent && attempt < MAX) _accToast('Sheets busy — retrying (' + attempt + '/' + (MAX - 1) + ')…');
+  }
+  {
     if (silent) { window._accLastQuickErr = msg; return false; }
     if (/unknown (post )?action/i.test(msg)) {
       alert('Apps Script redeploy required.\n\nThe "saveAccountsUpdate" backend action is in the deployed build but the live Apps Script /exec has not been redeployed yet.');
+    } else if (TRANSIENT.test(msg)) {
+      alert('Google Sheets was busy and kept timing out after several retries.\n\nThe request is back in your queue — please try again in a minute.\n\nDetails: ' + msg);
     } else {
       alert('Could not post the update:\n\n' + msg);
     }
     return false;
   }
-  return true;
 }
 
 async function _accQuickApprove(uuid) {
