@@ -4713,6 +4713,7 @@ const _VPLP_STATUS_META = {
 };
 let _vplpFY = '';
 let _vplpData = null;
+let _vplpVMRows = null;   // 7-VendorMaster rows — bridges payment name/account → Vendor ID
 function renderVendorLedgerPO() {
   const el = document.getElementById('mainContent');
   el.innerHTML = `
@@ -4748,11 +4749,32 @@ async function _vplpEnsure(force) {
     try { _vplpGRNRows = await fetchSheet('GRN_No', null, STORES_SHEET_ID, { rawId: true }) || []; }
     catch (e) { _vplpGRNRows = []; }
   }
+  if (force || !_vplpVMRows) {
+    // Vendor Master — the bridge from a payment (which carries only a vendor
+    // NAME + bank account, no Vendor ID) to the PO-side Vendor ID, so payments
+    // net against POs instead of splitting into an Unmapped bucket.
+    try { _vplpVMRows = await fetchSheet('7-VendorMaster', null, SHEET_ID) || []; }
+    catch (e) { _vplpVMRows = []; }
+  }
   _vplpData = _vplpCompute();
 }
 function _vplpVendorToken(s) {
   const m = String(s == null ? '' : s).toUpperCase().match(/[A-Z]{1,4}\d+/);
   return m ? m[0] : '';
+}
+// Digits-only bank account, leading zeros stripped (handles "ACNO:'000651000070"
+// vs "651000070"); ignored if too short to be a real account.
+function _vplpNormAcc(s) { const d = String(s == null ? '' : s).replace(/\D/g, '').replace(/^0+/, ''); return d.length >= 6 ? d : ''; }
+// Resolve a PaymentRequest row to a Vendor ID. PaymentRequest has no Vendor ID,
+// so: a code token if present, else the Vendor Master bridge by selected vendor
+// NAME (Paid To (Vendor), chosen from that same master) or by bank ACCOUNT.
+function _vplpResolveVid(r, bridge) {
+  const tok = _vplpVendorToken(r.vendor) || _vplpVendorToken(r.paidTo);
+  if (tok) return tok;
+  const B = bridge || (_vplpData && _vplpData.bridge);
+  if (!B) return '';
+  return B.nameToVid[_opNorm(r.vendor || '')] || B.accToVid[_vplpNormAcc(r.acNumber)]
+      || B.nameToVid[_opNorm(r.paidTo || '')] || B.nameToVid[_opNorm(r.acHolder || '')] || '';
 }
 // Per-PO received value (line level) + Tax(a)/(b) + Additional Charges. Vendor
 // resolved by Vendor ID (PO) / code token (payment); unresolved kept Unmapped.
@@ -4802,7 +4824,19 @@ function _vplpCompute() {
     poTaxA[k] = (poTaxA[k] || 0) + lineTax * (oq > 0 ? Math.min(m.qty / oq, 1) : 1);
     const g = poRcpt[k] = poRcpt[k] || []; m.rcpts.forEach(rc => { if (!g.some(z => z.idx === rc.idx)) g.push(rc); });
   });
-  // Vendors keyed by Vendor ID; unresolved payment codes kept in an Unmapped bucket.
+  // Vendor Master bridge: name → Vendor ID and bank-account → Vendor ID. Lets a
+  // payment (which carries only the selected vendor NAME + account, no Vendor ID)
+  // resolve to the same Vendor ID the POs use, so it nets instead of splitting.
+  const bridge = { nameToVid: {}, accToVid: {} };
+  (_vplpVMRows || []).forEach(r => {
+    const vid = String(r['Vendor ID'] || '').toUpperCase().trim(); if (!vid) return;
+    [r['Vendor Name'], r['Legal Name'], r['A/C HOLDER NAME'], r['Account Holder Name']].forEach(nm => {
+      const n = _opNorm(nm || ''); if (n && !bridge.nameToVid[n]) bridge.nameToVid[n] = vid;
+    });
+    const a = _vplpNormAcc(r['A/C NUMBER'] || r['Account Number'] || r['AC NUMBER'] || r['A/C No'] || '');
+    if (a && !bridge.accToVid[a]) bridge.accToVid[a] = vid;
+  });
+  // Vendors keyed by Vendor ID; payments that still don't resolve stay Unmapped.
   const vendors = {};
   const getV = (vid, name, acc) => {
     const key = vid ? vid : ('UNMAP:' + _opNorm(name || '?'));
@@ -4816,11 +4850,10 @@ function _vplpCompute() {
   (_mdpRows || []).forEach(r => {
     if (r.payTo !== 'Vendor') return;
     if (!(r.status && r.status.cat === 'completed')) return;
-    const vid = _vplpVendorToken(r.vendor) || _vplpVendorToken(r.paidTo);
-    getV(vid, r.paidTo || r.vendor, r.acNumber).payCount++;
+    getV(_vplpResolveVid(r, bridge), r.paidTo || r.vendor, r.acNumber).payCount++;
   });
   const list = Object.values(vendors).sort((a, b) => (a.unmapped - b.unmapped) || (a.name || '').localeCompare(b.name || ''));
-  return { vendors: list, poInfo, poRecv, poTaxA, poRcpt };
+  return { vendors: list, poInfo, poRecv, poTaxA, poRcpt, bridge };
 }
 // GRN + invoice sub-line for a credit (material-received) row. Each receipt's
 // GRN No links to its StockIN detail; invoice numbers are shown after.
@@ -4878,7 +4911,7 @@ function _vplpVendorRows() {
   (_mdpRows || []).forEach(r => {
     if (r.payTo !== 'Vendor') return;
     if (!(r.status && r.status.cat === 'completed')) return;
-    const vid = _vplpVendorToken(r.vendor) || _vplpVendorToken(r.paidTo);
+    const vid = _vplpResolveVid(r);
     const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
     debitByKey[key] = (debitByKey[key] || 0) + r.amount;
   });
@@ -4906,7 +4939,7 @@ function _vplpVendorStatusMap() {
 // ledger data isn't loaded, or when the vendor has no PO/payment activity.
 window._vplpStatusForPR = function(r) {
   if (!r || r.payTo !== 'Vendor' || !_vplpData) return null;
-  const vid = _vplpVendorToken(r.vendor) || _vplpVendorToken(r.paidTo);
+  const vid = _vplpResolveVid(r);
   const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
   const m = _vplpVendorStatusMap()[key];
   if (!m) return null;
@@ -5020,7 +5053,7 @@ function _vplpLedger(v) {
   (_mdpRows || []).forEach(r => {
     if (r.payTo !== 'Vendor') return;
     if (!(r.status && r.status.cat === 'completed')) return;
-    const vid = _vplpVendorToken(r.vendor) || _vplpVendorToken(r.paidTo);
+    const vid = _vplpResolveVid(r);
     const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
     if (key !== v.key) return;
     all.push({ date: r.date, ref: r.requestId || r.uuid, type: 'Payment' + (r.orderNo ? ' · ' + esc(r.orderNo) : ''), payRaw: r.raw || null, kind: 'dr', mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
@@ -8932,7 +8965,7 @@ function _accOpenPRDetail(uuid) {
 function _accDrawVendorStatus(r) {
   const slot = document.getElementById('acc-detail-vendorstatus');
   if (!slot || !r || r.payTo !== 'Vendor') return;
-  const vid = (typeof _vplpVendorToken === 'function') ? (_vplpVendorToken(r.vendor) || _vplpVendorToken(r.paidTo) || '') : '';
+  const vid = (typeof _vplpResolveVid === 'function') ? _vplpResolveVid(r) : '';
   const link = `<a href="#" onclick="event.preventDefault();event.stopPropagation();_accOpenVendorLedger('${String(vid).replace(/'/g, "\\'")}')" title="Open this vendor's ledger (PO · Dr/Cr running balance)" style="margin-left:.55rem;font-size:.72rem;font-weight:700;color:var(--g7);white-space:nowrap;text-decoration:none">&#128210; View Ledger &rarr;</a>`;
   const paint = () => { try { const chip = (typeof _vplpStatusChipFor === 'function') ? _vplpStatusChipFor(r, { showBal: true }) : ''; slot.innerHTML = chip + link; } catch (e) { slot.innerHTML = link; } };
   if (typeof _vplpData !== 'undefined' && _vplpData) { paint(); return; }
