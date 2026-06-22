@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.13.2';
-const PORTAL_BUILD    = 594;
-const PORTAL_BUILD_AT = '2026-06-22T09:48:10Z';
+const PORTAL_VERSION  = '4.13.3';
+const PORTAL_BUILD    = 595;
+const PORTAL_BUILD_AT = '2026-06-22T10:02:09Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -7053,7 +7053,7 @@ function _pvBuildRows() {
         raw: r,
         poNo:     G(['PO No']),
         date:     G(['PO Date']),
-        vendor:   G(['Vendor Name']),
+        vendor:   G(['Vendor Name', 'Vendor', 'Supplier Name', 'Supplier', 'Party Name']),
         site:     G(['Site Name']),
         status:   statusRaw,
         lock,
@@ -7353,7 +7353,14 @@ function _pvDetailBody(r) {
 
 function _pvVendorLedgerSummary(vendorName) {
   if (!vendorName || !_mdpRows) return '<div style="font-size:.78rem;color:var(--txt3)">Payment ledger not loaded.</div>';
-  const rows = _mdpRows.filter(r => r.payTo === 'Vendor' && r.paidTo === vendorName);
+  const vn = _opNorm(vendorName);
+  const rows = _mdpRows.filter(r =>
+    r.payTo === 'Vendor' && (
+      _opNorm(r.vendor) === vn ||
+      _opNorm(_mdpStrip(r.paidTo)) === vn ||
+      _opNorm(r.paidTo) === vn
+    )
+  );
   if (!rows.length) return `<div style="font-size:.78rem;color:var(--txt3)">No payment records for <b>${_mdpEsc(vendorName)}</b>.</div>`;
   const esc = _mdpEsc;
   const inr = v => '&#8377;' + Number(v || 0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
