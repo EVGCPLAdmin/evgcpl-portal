@@ -7194,13 +7194,18 @@ function _pvDetailBody(r) {
   const IC = _opColMap(_openPOItems);
   const AC = _opColMap(_openPOAddlCharges);
   const K  = _opPO(r.poNo);
+  const KK = _opPOKey(r.poNo); // letter-sorted for EGVE/EVGE variants
   const G  = cands => _opGet(r.raw, HC, cands);
 
   // Items for this PO
   const items = _openPOItems.filter(x => _opPO(_opGet(x, IC, ['PO No', 'Order No'])) === K);
 
-  // Additional Charges rows for this PO
-  const addlRows = _openPOAddlCharges.filter(x => _opPO(_opGet(x, AC, ['PO No', 'PO No (Key)', 'Order No'])) === K);
+  // Additional Charges rows for this PO — try both simple and key-sorted PO number
+  const _addlPOCols = ['PO No', 'PO No (Key)', 'Order No', 'PO Number', 'PO No.', 'PO'];
+  const addlRows = _openPOAddlCharges.filter(x => {
+    const xpo = _opGet(x, AC, _addlPOCols);
+    return _opPO(xpo) === K || _opPOKey(xpo) === KK;
+  });
 
   // Build historical rate map (Part × Site) from all other approved POs
   const hdrByPO = {};
@@ -7273,14 +7278,17 @@ function _pvDetailBody(r) {
   }).join('');
 
   // ── Additional Charges table (from separate sheet tab)
+  // Read header totals early so the fallback note can show them when tab rows are missing.
+  const _subBHdr = _opNum(G(['Sub Total (b)', 'Sub Total(b)', 'Sub Total B']));
+  const _taxBHdr = _opNum(G(['Tax (b)', 'Tax(b)', 'Tax B']));
   let calcSubB = 0, calcTaxB = 0;
   const addlChargeRows = addlRows.map(x => {
     const g = c => _opGet(x, AC, c);
-    const desc  = g(['Description', 'Charge Description', 'Charge Type', 'Particulars', 'Type']);
-    const amt   = _opNum(g(['Amount', 'Base Amount', 'Charge Amount']));
-    const taxP  = g(['Tax (%)', 'Tax %', 'GST %', 'Tax Percentage', 'Tax']);
-    const taxA  = _opNum(g(['Tax Amount', 'Tax Amt', 'Tax. Amount']));
-    const tot   = _opNum(g(['Total', 'Total Amount', 'Net Amount'])) || amt + taxA;
+    const desc  = g(['Description', 'Charge Description', 'Charge Type', 'Particulars', 'Type', 'Charge', 'Service Description', 'Item']);
+    const amt   = _opNum(g(['Amount', 'Base Amount', 'Charge Amount', 'Sub Total', 'Value', 'Net']));
+    const taxP  = g(['Tax (%)', 'Tax %', 'GST %', 'Tax Percentage', 'Tax Rate', 'Tax']);
+    const taxA  = _opNum(g(['Tax Amount', 'Tax Amt', 'Tax. Amount', 'GST Amount']));
+    const tot   = _opNum(g(['Total', 'Total Amount', 'Net Amount', 'Grand Total'])) || (amt + taxA);
     calcSubB += (amt || tot); calcTaxB += taxA;
     const td = 'padding:5px 8px;font-size:.77rem';
     return `<tr>
@@ -7360,7 +7368,19 @@ function _pvDetailBody(r) {
             <thead><tr><th>Description</th><th style="text-align:right">Amount</th><th>Tax %</th><th style="text-align:right">Tax Amt</th><th style="text-align:right">Total</th></tr></thead>
             <tbody>${addlChargeRows}</tbody>
            </table></div>`
-        : '<div style="color:var(--txt3);font-size:.78rem;padding:.25rem 0">No additional charges for this PO.</div>'}
+        : _subBHdr
+          ? `<div style="overflow-x:auto"><table class="data-table" style="font-size:.77rem;margin:0">
+               <thead><tr><th>Description</th><th style="text-align:right">Amount</th><th>Tax %</th><th style="text-align:right">Tax Amt</th><th style="text-align:right">Total</th></tr></thead>
+               <tbody><tr>
+                 <td style="padding:5px 8px">Additional Charges</td>
+                 <td style="padding:5px 8px;text-align:right">${inr(_subBHdr)}</td>
+                 <td style="padding:5px 8px;color:var(--txt3)">—</td>
+                 <td style="padding:5px 8px;text-align:right;color:var(--txt2)">${_taxBHdr ? inr(_taxBHdr) : '—'}</td>
+                 <td style="padding:5px 8px;text-align:right;font-weight:600">${inr(_subBHdr + (_taxBHdr || 0))}</td>
+               </tr></tbody>
+             </table></div>
+             <div style="font-size:.7rem;color:var(--txt3);margin-top:.3rem">&#9432; Breakup not available — total from PO header</div>`
+          : '<div style="color:var(--txt3);font-size:.78rem;padding:.25rem 0">No additional charges for this PO.</div>'}
     </div>
 
     <div style="padding:0 1rem">
