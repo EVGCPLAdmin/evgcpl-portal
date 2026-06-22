@@ -185,3 +185,125 @@ Only revisit moving the Accounts core off Sheets when a **second** module hits t
 concurrency wall, **or** finance needs a first-class immutable ledger / bank-UPI
 integration / real-time cash position. The inbox + dedupe pattern above is also the natural
 seam to swap in a real datastore later without touching the portal's write contract.
+
+---
+
+# Additional handler — `saveVendorOpeningBalance` (Vendor Ledger opening balances)
+
+> **Added this session.** The Vendor Ledger (PO) now has a side-pull **Opening Balance**
+> form that records a vendor's carried-forward Dr/Cr balance. The portal already builds and
+> POSTs the row; the `accounts` Apps Script project needs **one small additive handler** to
+> append it. This is a plain append (not money-movement, low contention) — it does **not**
+> need the inbox/dedupe machinery above; a direct append is fine.
+
+## Where it writes
+A **separate spreadsheet** — the Vendor Master workbook
+`1WhjqAGb5XNSQ-q-tPA7tGPQa-aPpgX2LHzzOy2HwTkA`, tab **`OpeningBalance`**. The portal sends
+the sheet ID + tab in the payload, so the handler does not hard-code them.
+
+> ⚠️ **Access requirement:** the `accounts` Apps Script must be able to **write** to that
+> Vendor Master workbook (the account running the web app needs edit access, or share the
+> sheet with it). If it can't open the file, `SpreadsheetApp.openById` throws.
+
+## Contract the portal sends
+`POST` (content-type `text/plain`):
+
+```json
+{
+  "action": "saveVendorOpeningBalance",
+  "sheetId": "1WhjqAGb5XNSQ-q-tPA7tGPQa-aPpgX2LHzzOy2HwTkA",
+  "tab": "OpeningBalance",
+  "row": {
+    "UUID": "VOB-xxxxxxxx",
+    "SystemEmail": "...", "UserEmail": "...",
+    "Timestamp": "22/06/2026 21:19:28",
+    "Updated By": "...",
+    "VendorKey(UUID)": "<vendor-master UUID>",
+    "Vendor ID": "MV300",
+    "Vendor Name": "USHA MARTIN",
+    "Vendor Detail": "MV300|USHA MARTIN",
+    "Opening Balance": 125000,          // SIGNED: + = Cr (payable b/f), − = Dr (advance)
+    "As On (Date)": "31/03/2026",
+    "Remarks (If Any)": "Balance carried forward from FY 2025-26"
+  }
+}
+```
+
+Expected response: `{"success": true, "uuid": "VOB-xxxxxxxx"}`. The portal treats any
+`success !== false` as saved, closes the drawer, and re-reads the tab so the opening balance
+appears as the ledger's first entry.
+
+**Note on the signed amount:** the `OpeningBalance` tab has **no Dr/Cr column**, so the side
+is encoded in the sign of `Opening Balance` (+ credit / − debit). If you'd rather store the
+side explicitly, add a `Dr/Cr` column to the tab and tell the frontend — it can send it as a
+separate field.
+
+## Implementation — generic header-mapped append
+
+```javascript
+function saveVendorOpeningBalance_(payload) {
+  var row = payload.row || {};
+  var sheetId = payload.sheetId;
+  var tab     = payload.tab || 'OpeningBalance';
+  if (!sheetId) return { success: false, message: 'missing sheetId' };
+  if (!row['Vendor ID'] && !row['VendorKey(UUID)']) {
+    return { success: false, message: 'missing Vendor ID / Vendor Key' };
+  }
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(8000)) return { success: false, message: 'busy, try again' };
+  try {
+    var sh = SpreadsheetApp.openById(sheetId).getSheetByName(tab);
+    if (!sh) return { success: false, message: 'tab not found: ' + tab };
+    appendRowByHeader_(sh, row);                 // maps by header name (see helper)
+    return { success: true, uuid: row.UUID || '' };
+  } catch (e) {
+    return { success: false, message: 'append failed: ' + e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Reusable: append an object to a sheet, aligning each value to the column whose
+// header (row 1) matches the object key. Unknown keys are ignored; missing
+// columns are left blank. Header order in the sheet can change freely.
+function appendRowByHeader_(sh, obj) {
+  var header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  var line = header.map(function (h) { return (h in obj) ? obj[h] : ''; });
+  sh.appendRow(line);
+}
+```
+
+## Wire it into the router
+In the project's `doPost`, add the case alongside the existing actions:
+
+```javascript
+case 'saveVendorOpeningBalance':
+  return _json(saveVendorOpeningBalance_(payload));
+```
+
+(`_json` = your existing `ContentService.createTextOutput(JSON.stringify(x))
+.setMimeType(ContentService.MimeType.JSON)` wrapper — reuse whatever
+`saveNewPaymentRequest` / `saveAccountsUpdate` already use.)
+
+## Test
+1. From the portal: Vendor Ledger (PO) → **⊕ Opening Balance** → pick a vendor, enter an
+   amount + Dr/Cr + as-on date → **Save**. One new row should land in `OpeningBalance` with
+   the headers populated and a signed `Opening Balance`.
+2. Re-open that vendor's ledger → the opening balance shows as the **first entry** (an
+   "Opening" chip) and seeds the running balance.
+3. Save a second amount for the same vendor → the ledger **sums** both (useful for
+   adjustments). If you instead want a re-entry to *replace* the old one, add a `Status`/
+   `Active` column and filter in the handler — tell the frontend and it will honour it.
+
+---
+
+# Summary of changes this session (what touches Apps Script vs frontend-only)
+
+| Change | Apps Script work needed? |
+|---|---|
+| **Vendor Ledger Opening Balance** — side-pull entry form + fold-in to the ledger | **Yes** — add the `saveVendorOpeningBalance` handler above (+ grant the web app write access to the Vendor Master workbook). |
+| **Vendor Master → `7-VendorMaster_Actual`** on its own sheet, canonical everywhere (ledger bridge, new-PR vendor list + bank auto-fill, vendor portal search, masters loader, Data Hub, Sheet-Linking) | **No** — these are gviz **reads** (by header), no backend change. Only ensure the new Vendor Master sheet is shared **Anyone with link → Viewer** for reads. |
+| Vendor Ledger **GRN "+N" → wrap** (Particulars column) | **No** — display-only. |
+
+Everything else from the MD-approval write-fix above still stands and is unaffected by these
+additions.
