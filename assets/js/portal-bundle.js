@@ -5662,8 +5662,6 @@ window._poOpenDetail = function(poNo) {
     ['Additional Terms', G(['Additional Terms'])], ['Purpose', G(['Purpose of Purchase'])],
   ].filter(([l, v]) => !dead(v));
 
-  const directUrls = ['Quote(Attachment)', 'Quote(Attachment 2)', 'Quote(Attachment 3)', 'Quote(Attachment 4)', 'Quote(Attachment 5)']
-    .map((c, i) => ({ url: G([c]), label: i === 0 ? 'Quote / Attachment' : 'Attachment ' + (i + 1) })).filter(o => o.url);
   const H = t => `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">${t}</h4>`;
 
   const grnSection = grnRows.length ? (H('&#128230; Goods Received (GRN) &mdash; ' + grnRows.length) + _regTbl(
@@ -5690,26 +5688,32 @@ window._poOpenDetail = function(poNo) {
     + `<div id="poAttBox"><div style="color:var(--txt3);font-size:.78rem;padding:.5rem">&#9203; Loading attachments&hellip;</div></div>`;
 
   _regOpenModal('Purchase Order · ' + esc(poNo), body);
-  _poLoadAttachments(G(['UUID']), directUrls);
+  _poLoadAttachments(G(['UUID']), poNo);
  } catch (e) {
   console.error('PO detail render failed', e);
   _regOpenModal('Purchase Order · ' + _mdpEsc(String(poNo || '')),
     '<div style="color:var(--danger);padding:1rem;font-size:.85rem">Could not render this PO &mdash; ' + _mdpEsc(String((e && e.message) || e)) + '</div>');
  }
 };
-// Quote attachments are referenced by the PO_Actual UUID → search Drive by UUID.
-window._poLoadAttachments = async function(uuid, directUrls) {
+// PO documents live in the Shared Drive, NAMED by either the PO_Actual UUID
+// (quote attachments, e.g. "SCMv1-xxxx.Quote(Attachment).pdf") or the PO Number
+// (the generated PO PDF). Search Drive by BOTH and show whatever is found. We do
+// NOT render sheet-column URLs — those AppSheet refs 404 outside the app.
+window._poLoadAttachments = async function(uuid, poNo) {
   const box = document.getElementById('poAttBox'); if (!box) return;
   const esc = _mdpEsc;
-  const cards = [];
-  (directUrls || []).forEach(o => cards.push(_regAttCard(o.url, o.label, 'PO sheet')));
   let files = [];
-  if (uuid) { try { const resp = await _accPostAwait({ action: 'listPRAttachments', link: uuid, orderNo: uuid }); if (resp && resp.success !== false) files = resp.files || []; } catch (e) {} }
+  try {
+    const resp = await _accPostAwait({ action: 'listPRAttachments', link: uuid || '', orderNo: poNo || '' });
+    if (resp && resp.success !== false) files = resp.files || [];
+  } catch (e) {}
   if (!document.getElementById('poAttBox')) return;            // modal closed / switched
-  files.forEach(f => cards.push(_regAttCard(f.url, f.name, f.matchedOn || 'Drive', f.mimeType, f.size)));
-  if (!cards.length) { box.innerHTML = `<div style="color:var(--txt3);font-size:.78rem;padding:.5rem">No quote attachments found for this PO. <span style="font-size:.7rem">(searched Drive by PO UUID ${esc(uuid || '—')})</span></div>`; return; }
-  const firstUrl = (directUrls && directUrls[0] && directUrls[0].url) || (files[0] && files[0].url) || '';
-  const pv = _regDrivePreview(firstUrl);
+  const cards = files.map(f => _regAttCard(f.url, f.name, f.matchedOn || 'Drive', f.mimeType, f.size));
+  if (!cards.length) {
+    box.innerHTML = `<div style="color:var(--txt3);font-size:.78rem;padding:.5rem">No documents found for this PO. <span style="font-size:.7rem">(searched Drive for &ldquo;${esc(poNo || uuid || '—')}&rdquo;)</span></div>`;
+    return;
+  }
+  const pv = _regDrivePreview(files[0] && files[0].url);
   box.innerHTML = cards.join('') + (pv ? `<iframe src="${esc(pv)}" style="width:100%;height:520px;border:1px solid var(--border);border-radius:9px;margin-top:.6rem;background:#fff"></iframe>` : '');
 };
 
@@ -7174,7 +7178,7 @@ let _pvAllRows    = [];
 let _pvFilter     = 'all';
 let _pvSearch     = '';
 let _pvSite       = '';
-let _pvLastDocUUID = '', _pvLastDirectUrls = [];
+let _pvLastDocUUID = '', _pvLastPONo = '';
 let _pvLedgerFY = '';
 let _pvLedgerVendorKey = '';
 window._pvSetLedgerFY = function(fy) {
@@ -7376,7 +7380,7 @@ window._pvToggle = function(poNo) {
   const titleHtml = `${_mdpEsc(poNo)} <span style="background:${st.bg};color:${st.color};padding:.12rem .45rem;border-radius:20px;font-size:.68rem;font-weight:700;margin-left:.4rem">${st.label}</span>`;
   _pvLedgerFY = '';
   _regOpenModal(titleHtml, _pvDetailBody(r), headerExtra);
-  _poLoadAttachments(_pvLastDocUUID, _pvLastDirectUrls);
+  _poLoadAttachments(_pvLastDocUUID, _pvLastPONo);
   _pvLoadVendorLedger(r);
 };
 
@@ -7539,14 +7543,13 @@ function _pvDetailBody(r) {
 
   const inWords = G(['Amount in Words']);
 
-  // ── Documents: PO PDF + Quote attachments — loaded async by _poLoadAttachments
+  // ── Documents: quote attachments (Drive files named by UUID) + the PO PDF
+  // (Drive file named by PO Number) — both fetched by _poLoadAttachments. Sheet-
+  // column URLs are intentionally NOT shown (AppSheet refs 404 outside the app).
   const quoteRef  = G(['Quote Ref', 'Quote Reference', 'Quote No']);
   const quoteDate = G(['Quote Date']);
-  const poPdfUrl  = G(['PO PDF', 'PO PDF Link', 'PO Document', 'PO Doc Link', 'PO Link', 'Document Link', 'PO File']);
-  _pvLastDirectUrls = ['Quote(Attachment)', 'Quote(Attachment 2)', 'Quote(Attachment 3)', 'Quote(Attachment 4)', 'Quote(Attachment 5)']
-    .map((c, i) => ({ url: G([c]), label: i === 0 ? 'Quote' : 'Quote ' + (i + 1) })).filter(o => o.url);
-  if (poPdfUrl) _pvLastDirectUrls.unshift({ url: poPdfUrl, label: 'PO PDF' });
   _pvLastDocUUID = G(['UUID']) || '';
+  _pvLastPONo    = r.poNo || '';
   const docSection = `
     ${H('Documents')}
     <div style="padding:0 1rem .5rem">
