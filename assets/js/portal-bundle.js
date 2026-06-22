@@ -7144,104 +7144,160 @@ function _pvDetailBody(r) {
   const inr = v => '&#8377;' + Number(v || 0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
   const HC = _opColMap(_openPOHeaders);
   const IC = _opColMap(_openPOItems);
+  const AC = _opColMap(_openPOAddlCharges);
   const K  = _opPO(r.poNo);
   const G  = cands => _opGet(r.raw, HC, cands);
 
   // Items for this PO
   const items = _openPOItems.filter(x => _opPO(_opGet(x, IC, ['PO No', 'Order No'])) === K);
 
-  // Build historical rate map keyed by partNorm||siteNorm, excluding this PO
+  // Additional Charges rows for this PO
+  const addlRows = _openPOAddlCharges.filter(x => _opPO(_opGet(x, AC, ['PO No', 'PO No (Key)', 'Order No'])) === K);
+
+  // Build historical rate map (Part × Site) from all other approved POs
   const hdrByPO = {};
   _openPOHeaders.forEach(h => { const k = _opPO(_opGet(h, HC, ['PO No'])); if (k) hdrByPO[k] = h; });
   const rateMap = {};
+  const _matMap = _opMatMap();
   _openPOItems.forEach(x => {
     const xPoNo = _opPO(_opGet(x, IC, ['PO No', 'Order No']));
     if (xPoNo === K) return;
     const ph = hdrByPO[xPoNo]; if (!ph) return;
     const site = _opNorm(_opGet(ph, HC, ['Site Name']));
-    const matMap = _opMatMap();
     const rawDesc = _opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name']) ||
                     _opGet(x, IC, ['Description', 'Item Description', 'Particulars', 'Item']) ||
                     _opGet(x, IC, ['Part Details', 'Part Description']);
-    const part = _opNorm(_opPartReadable(rawDesc, matMap).text || rawDesc);
+    const part = _opNorm(_opPartReadable(rawDesc, _matMap).text || rawDesc);
     const rate = _opNum(_opGet(x, IC, ['Unit Rate', 'Rate', 'Unit Price', 'Price', 'Basic Rate']));
     if (!part || !rate) return;
     const key = part + '||' + site;
     (rateMap[key] = rateMap[key] || []).push({ rate, poNo: _opGet(ph, HC, ['PO No']), date: _opGet(ph, HC, ['PO Date']) });
   });
 
-  // Line items table
-  const matMap = _opMatMap();
+  // ── Line items table (PDF columns: MR ID | Description | UOM | Qty | Unit Rate | Tax % | Tax Amt | Total)
+  let calcSubA = 0, calcTaxA = 0;
   const itemRows = items.map(x => {
     const g = c => _opGet(x, IC, c);
-    const partKey  = g(['Part Details', 'Part Description']);
-    const rawDesc  = g(['Material Description', 'Material Desc', 'Material Name', 'Material']) ||
-                     g(['Description', 'Item Description', 'Particulars', 'Item']) || partKey;
-    const pr   = _opPartReadable(rawDesc, matMap);
-    const qty  = _opNum(g(['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
-    const rate = _opNum(g(['Unit Rate', 'Rate', 'Unit Price', 'Price', 'Basic Rate']));
-    const uom  = g(['UOM', 'Unit', 'Units']);
-    const taxP = g(['Tax (%)', 'Tax %', 'Tax Percentage', 'GST %', 'Tax Percent']);
-    const tot  = _opNum(g(['Total Amount', 'Amount', 'Line Total'])) || qty * rate;
+    const mrId    = g(['MR ID', 'MR No', 'MRS', 'MR']);
+    const partKey = g(['Part Details', 'Part Description']);
+    const rawDesc = g(['Material Description', 'Material Desc', 'Material Name', 'Material']) ||
+                    g(['Description', 'Item Description', 'Particulars', 'Item']) || partKey;
+    const pr    = _opPartReadable(rawDesc, _matMap);
+    const qty   = _opNum(g(['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
+    const rate  = _opNum(g(['Unit Rate', 'Rate', 'Unit Price', 'Price', 'Basic Rate']));
+    const uom   = g(['UOM', 'Unit', 'Units']);
+    const taxP  = g(['Tax (%)', 'Tax %', 'Tax Percentage', 'GST %', 'Tax Percent']);
+    const taxA  = _opNum(g(['Tax. Amount', 'Tax Amount', 'Tax Amt', 'Total Tax']));
+    const tot   = _opNum(g(['Total Amount', 'Amount', 'Line Total'])) || qty * rate;
+    calcSubA += tot; calcTaxA += taxA;
 
-    // Rate comparison against Part × Site history
+    // Rate badge vs Part × Site history
     const partNorm = _opNorm(pr.text || rawDesc);
     const siteNorm = _opNorm(r.site);
     const hist = (rateMap[partNorm + '||' + siteNorm] || []);
     let rateBadge = '';
     if (rate && hist.length) {
-      const avg = hist.reduce((s, e) => s + e.rate, 0) / hist.length;
+      const avg  = hist.reduce((s, e) => s + e.rate, 0) / hist.length;
       const diff = (rate - avg) / avg;
-      const lastRef = hist.sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date))[0];
-      const tooltip = lastRef ? `Past avg &#8377;${Math.round(avg).toLocaleString('en-IN')} (${hist.length} PO${hist.length>1?'s':''}, last: ${esc(lastRef.poNo)})` : '';
-      if (diff > 0.1)       rateBadge = `<span title="${tooltip}" style="background:#ffebee;color:#c62828;font-size:.62rem;font-weight:700;padding:.1rem .4rem;border-radius:10px;margin-left:.3rem;cursor:help">HIGH +${Math.round(diff*100)}%</span>`;
-      else if (diff < -0.1) rateBadge = `<span title="${tooltip}" style="background:#e8f5e9;color:#2e7d32;font-size:.62rem;font-weight:700;padding:.1rem .4rem;border-radius:10px;margin-left:.3rem;cursor:help">LOW ${Math.round(diff*100)}%</span>`;
-      else                  rateBadge = `<span title="${tooltip}" style="background:#e3f2fd;color:#1565c0;font-size:.62rem;font-weight:700;padding:.1rem .4rem;border-radius:10px;margin-left:.3rem;cursor:help">EQUAL</span>`;
+      const last = hist.sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date))[0];
+      const tip  = `Past avg &#8377;${Math.round(avg).toLocaleString('en-IN')} (${hist.length} PO${hist.length>1?'s':''}, last: ${esc(last.poNo)})`;
+      if (diff > 0.1)       rateBadge = `<span title="${tip}" style="background:#ffebee;color:#c62828;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">HIGH +${Math.round(diff*100)}%</span>`;
+      else if (diff < -0.1) rateBadge = `<span title="${tip}" style="background:#e8f5e9;color:#2e7d32;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">LOW ${Math.round(diff*100)}%</span>`;
+      else                  rateBadge = `<span title="${tip}" style="background:#e3f2fd;color:#1565c0;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">EQUAL</span>`;
     }
-    const descHtml = (pr.partNo ? `<span style="font-family:monospace;font-size:.7rem;color:var(--g7)">${esc(pr.partNo)}</span> &middot; ` : '') + esc(pr.partDesc || '—');
-    const td = 'padding:5px 8px;font-size:.78rem';
+    const descHtml = (pr.partNo ? `<span style="font-family:monospace;font-size:.68rem;color:var(--g7)">${esc(pr.partNo)}</span> &middot; ` : '') + esc(pr.partDesc || '—');
+    const td = 'padding:5px 8px;font-size:.77rem';
     return `<tr>
+      <td style="${td};color:var(--txt3);font-size:.7rem;white-space:nowrap">${esc(mrId) || '—'}</td>
       <td style="${td}">${descHtml}</td>
-      <td style="${td}">${esc(uom) || '—'}</td>
+      <td style="${td};white-space:nowrap">${esc(uom) || '—'}</td>
       <td style="${td};text-align:right">${qty || '—'}</td>
       <td style="${td};text-align:right;white-space:nowrap">${rate ? inr(rate) : '—'}${rateBadge}</td>
-      <td style="${td}">${esc(taxP) || '—'}</td>
+      <td style="${td};color:var(--txt3)">${esc(taxP) || '—'}</td>
+      <td style="${td};text-align:right;color:var(--txt2)">${taxA ? inr(taxA) : '—'}</td>
       <td style="${td};text-align:right;font-weight:600">${tot ? inr(tot) : '—'}</td>
     </tr>`;
   }).join('');
 
-  // Additional charges breakdown
-  const subA = _opNum(G(['Sub Total (a)']));
-  const taxA = _opNum(G(['Tax (a)']));
-  const subB = _opNum(G(['Sub Total (b)']));
-  const taxB = _opNum(G(['Tax (b)']));
-  const addC = _opNum(G(['Additional Charges', 'Additional Charge', 'Addl Charges']));
-  const rnd  = _opNum(G(['Round', 'Round off', 'Roundoff']));
-  const net  = _opNum(G(['Net Amount', 'Grand Total']));
-  const tRow = (l, v, bold) => v
-    ? `<tr><td style="padding:3px 14px 3px 0;color:${bold?'var(--txt)':'var(--txt3)'};${bold?'font-weight:700;border-top:1px solid var(--border);padding-top:6px':''}">${l}</td><td style="text-align:right;padding:3px 0;${bold?'font-weight:700;border-top:1px solid var(--border);padding-top:6px;color:var(--txt)':'color:var(--txt)'}">${inr(v)}</td></tr>` : '';
-  const chargesHtml = `<div style="display:flex;justify-content:flex-end;margin:.4rem 0 .25rem"><table style="font-size:.8rem;min-width:240px"><tbody>
-    ${tRow('Sub Total (a)', subA)}
-    ${tRow('Tax (a)', taxA)}
-    ${tRow('Sub Total (b)', subB)}
-    ${tRow('Tax (b)', taxB)}
-    ${tRow('Additional Charges', addC)}
-    ${rnd ? tRow('Round off', rnd) : ''}
-    ${tRow('Net Amount', net || (subA + taxA + (addC||0)), true)}
-  </tbody></table></div>`;
+  // ── Additional Charges table (from separate sheet tab)
+  let calcSubB = 0, calcTaxB = 0;
+  const addlChargeRows = addlRows.map(x => {
+    const g = c => _opGet(x, AC, c);
+    const desc  = g(['Description', 'Charge Description', 'Charge Type', 'Particulars', 'Type']);
+    const amt   = _opNum(g(['Amount', 'Base Amount', 'Charge Amount']));
+    const taxP  = g(['Tax (%)', 'Tax %', 'GST %', 'Tax Percentage', 'Tax']);
+    const taxA  = _opNum(g(['Tax Amount', 'Tax Amt', 'Tax. Amount']));
+    const tot   = _opNum(g(['Total', 'Total Amount', 'Net Amount'])) || amt + taxA;
+    calcSubB += (amt || tot); calcTaxB += taxA;
+    const td = 'padding:5px 8px;font-size:.77rem';
+    return `<tr>
+      <td style="${td}">${esc(desc) || '—'}</td>
+      <td style="${td};text-align:right">${amt ? inr(amt) : '—'}</td>
+      <td style="${td};color:var(--txt3)">${esc(taxP) || '—'}</td>
+      <td style="${td};text-align:right;color:var(--txt2)">${taxA ? inr(taxA) : '—'}</td>
+      <td style="${td};text-align:right;font-weight:600">${tot ? inr(tot) : '—'}</td>
+    </tr>`;
+  }).join('');
 
-  const H = t => `<div style="font-size:.75rem;font-weight:700;color:var(--g9);margin:.9rem 0 .4rem;text-transform:uppercase;letter-spacing:.04em;padding:0 1rem">${t}</div>`;
+  // ── Totals — prefer header values, fall back to calculated sums
+  const subA = _opNum(G(['Sub Total (a)'])) || calcSubA;
+  const taxA_h = _opNum(G(['Tax (a)'])) || calcTaxA;
+  const subB = _opNum(G(['Sub Total (b)'])) || calcSubB;
+  const taxB_h = _opNum(G(['Tax (b)'])) || calcTaxB;
+  const rnd  = _opNum(G(['Round', 'Round off', 'Roundoff']));
+  const net  = _opNum(G(['Net Amount', 'Grand Total'])) || (subA + taxA_h + subB + taxB_h + (rnd||0));
+
+  const tRowFn = (l, v, bold, accent) => {
+    if (!v && v !== 0) return '';
+    const color = accent || (bold ? 'var(--txt)' : 'var(--txt3)');
+    const border = bold ? 'border-top:2px solid var(--border);padding-top:7px;' : '';
+    return `<tr>
+      <td style="padding:3px 16px 3px 0;font-size:.8rem;${border}color:${color};${bold?'font-weight:700':''}">${l}</td>
+      <td style="text-align:right;padding:3px 0;font-size:.8rem;${border}color:${color};${bold?'font-weight:700':''}">${inr(v)}</td>
+    </tr>`;
+  };
+
+  const totalsHtml = `<div style="display:flex;justify-content:flex-end;margin:.5rem 0 .5rem">
+    <table style="min-width:260px"><tbody>
+      ${tRowFn('Sub Total (a)', subA)}
+      ${tRowFn('Tax (a)', taxA_h)}
+      ${subB ? tRowFn('Sub Total (b)', subB) : ''}
+      ${taxB_h ? tRowFn('Tax (b)', taxB_h) : ''}
+      ${rnd ? tRowFn('Round off (\xb1)', rnd) : ''}
+      ${tRowFn('Grand Total', net, true, '#1a6634')}
+    </tbody></table>
+  </div>`;
+
+  const H = t => `<div style="font-size:.72rem;font-weight:700;color:var(--g9);margin:1rem 0 .4rem;text-transform:uppercase;letter-spacing:.05em;padding:0 1rem;border-left:3px solid var(--g5)">${t}</div>`;
+
+  const inWords = G(['Amount in Words']);
 
   return `<div>
     ${H('Items &amp; Rates')}
     <div style="padding:0 1rem .25rem">
-    ${items.length ? `<div style="overflow-x:auto"><table class="data-table" style="font-size:.78rem;margin:0">
-      <thead><tr><th>Description</th><th>UOM</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit Rate</th><th>Tax %</th><th style="text-align:right">Total</th></tr></thead>
-      <tbody>${itemRows}</tbody>
-    </table></div>` : '<div style="color:var(--txt3);font-size:.78rem">No line items found.</div>'}
+      ${items.length
+        ? `<div style="overflow-x:auto"><table class="data-table" style="font-size:.77rem;margin:0">
+            <thead><tr><th>MR ID</th><th>Description</th><th>UOM</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit Rate</th><th>Tax %</th><th style="text-align:right">Tax Amt</th><th style="text-align:right">Total</th></tr></thead>
+            <tbody>${itemRows}</tbody>
+           </table></div>`
+        : '<div style="color:var(--txt3);font-size:.78rem;padding:.25rem 0">No line items found.</div>'}
     </div>
+
     ${H('Additional Charges')}
-    <div style="padding:0 1rem .5rem">${chargesHtml}</div>
+    <div style="padding:0 1rem .25rem">
+      ${addlRows.length
+        ? `<div style="overflow-x:auto"><table class="data-table" style="font-size:.77rem;margin:0">
+            <thead><tr><th>Description</th><th style="text-align:right">Amount</th><th>Tax %</th><th style="text-align:right">Tax Amt</th><th style="text-align:right">Total</th></tr></thead>
+            <tbody>${addlChargeRows}</tbody>
+           </table></div>`
+        : '<div style="color:var(--txt3);font-size:.78rem;padding:.25rem 0">No additional charges for this PO.</div>'}
+    </div>
+
+    <div style="padding:0 1rem">
+      ${totalsHtml}
+      ${inWords ? `<div style="font-size:.76rem;color:var(--txt2);margin-bottom:.75rem"><b>In words:</b> ${esc(inWords)}</div>` : ''}
+    </div>
+
     ${H('Vendor Bill Status — ' + _mdpEsc(r.vendor || '—'))}
     <div style="padding:0 1rem 1rem">${_pvVendorLedgerSummary(r.vendor)}</div>
   </div>`;
@@ -16606,11 +16662,12 @@ function pstRenderStockINRaw(c) {
 
    Both source files (v2_Purchase: PO_Actual + PO_Items_Actual, and v2_Stores:
    StockIN) are fetched fresh by _openPOEnsure; the tab's Reload button forces it. */
-let _openPOLoaded   = false;
-let _openPOHeaders  = [];
-let _openPOItems    = [];
-let _openPOStock    = [];
-let _openPOPayments = [];   // raw PaymentRequest rows, joined to POs by Order No
+let _openPOLoaded      = false;
+let _openPOHeaders     = [];
+let _openPOItems       = [];
+let _openPOStock       = [];
+let _openPOPayments    = [];   // raw PaymentRequest rows, joined to POs by Order No
+let _openPOAddlCharges = [];   // Additional Charges tab rows (one row per charge per PO)
 
 const _opNorm = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const _opPO   = s => String(s == null ? '' : s).trim().toUpperCase();
@@ -16687,6 +16744,10 @@ async function _openPOEnsure(force) {
     if (!pay || !pay.length) { await new Promise(z => setTimeout(z, 600)); pay = await fetchSheet(payTab, null, paySid); }
   } catch (e) { pay = []; }
   _openPOPayments = pay || [];
+  // Additional Charges tab — one row per additional charge per PO (freight, loading, etc.)
+  let addlCharges = [];
+  try { addlCharges = await grab('Additional Charges', PO_SHEET_ID, null) || []; } catch (e) { addlCharges = []; }
+  _openPOAddlCharges = addlCharges;
   _openPOLoaded  = true;
 }
 
