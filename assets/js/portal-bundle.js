@@ -5039,7 +5039,9 @@ function _vplpEnsureLedgerStyle() {
     .evg-ledger-tbl tfoot td { position:sticky; bottom:0; background:#0e5a34 !important; color:#fff !important; font-weight:700; z-index:4; border-top:2px solid var(--gold,#d4a017); box-shadow:0 -2px 6px rgba(0,0,0,.18); }`;
   document.head.appendChild(st);
 }
-function _vplpLedger(v) {
+function _vplpLedger(v, embedOpts) {
+  const _fy = (embedOpts && embedOpts.fy !== undefined) ? embedOpts.fy : _vplpFY;
+  const _onChangeFY = (embedOpts && embedOpts.onChangeFY) || '_vplpSetFY';
   const esc = _mdpEsc, d = _vplpData;
   const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
   const drcr = n => inr(Math.abs(n)) + (n >= 0 ? ' Cr' : ' Dr');
@@ -5066,13 +5068,13 @@ function _vplpLedger(v) {
   if (!all.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No approved-PO receipts or completed payments for this vendor.</div>';
   // Financial-year filter.
   const fySet = Array.from(new Set(all.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
-  const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _vplpFY ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
+  const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _fy ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
   const fyBar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
     <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">FINANCIAL YEAR</label>
-    <select onchange="_vplpSetFY(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2)">${fyOpts}</select>
-    <span style="font-size:.7rem;color:var(--txt3)">${_vplpFY ? _vplpFYLabel(_vplpFY) + ' · Apr–Mar' : 'All transactions'}</span>
+    <select onchange="${_onChangeFY}(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2)">${fyOpts}</select>
+    <span style="font-size:.7rem;color:var(--txt3)">${_fy ? _vplpFYLabel(_fy) + ' · Apr–Mar' : 'All transactions'}</span>
   </div>`;
-  const entries = _vplpFY ? all.filter(e => _vplpFYof(e.date) === _vplpFY) : all;
+  const entries = _fy ? all.filter(e => _vplpFYof(e.date) === _fy) : all;
   if (!entries.length) return fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   // Chronological; same-day credits (receipt) before debits (payment).
   entries.sort((a, b) => (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
@@ -6980,6 +6982,44 @@ let _pvFilter     = 'all';
 let _pvSearch     = '';
 let _pvSite       = '';
 let _pvLastDocUUID = '', _pvLastDirectUrls = [];
+let _pvLedgerFY = '';
+let _pvLedgerVendorKey = '';
+window._pvSetLedgerFY = function(fy) {
+  _pvLedgerFY = fy;
+  const box = document.getElementById('pvVendorLedgerBox');
+  if (!box || !_vplpData) return;
+  const v = _vplpData.vendors.find(x => x.key === _pvLedgerVendorKey);
+  if (!v) return;
+  box.innerHTML = _vplpLedger(v, { fy: _pvLedgerFY, onChangeFY: '_pvSetLedgerFY' });
+  applyTableFeatures(box);
+};
+async function _pvLoadVendorLedger(r) {
+  const box = document.getElementById('pvVendorLedgerBox');
+  if (!box) return;
+  try {
+    await _vplpEnsure();
+    const d = _vplpData;
+    if (!d) { box.innerHTML = '<div style="color:var(--txt3);font-size:.78rem">Ledger data unavailable.</div>'; return; }
+    // Resolve vendor key: prefer Vendor ID from the PO header, then name match
+    const HC = _opColMap(_openPOHeaders);
+    const ph = _openPOHeaders.find(h => _opPO(_opGet(h, HC, ['PO No'])) === _opPO(r.poNo));
+    let vendorKey = '';
+    if (ph) { const vid = String(_opGet(ph, HC, ['Vendor ID']) || '').toUpperCase().trim(); if (vid) vendorKey = vid; }
+    if (!vendorKey) {
+      const vn = _opNorm(r.vendor || '');
+      const hit = d.vendors.find(v => _opNorm(v.name) === vn);
+      if (hit) vendorKey = hit.key;
+    }
+    _pvLedgerVendorKey = vendorKey;
+    const v = vendorKey ? d.vendors.find(x => x.key === vendorKey) : null;
+    if (!v) { box.innerHTML = `<div style="font-size:.78rem;color:var(--txt3);padding:.5rem 0">No PO ledger activity found for <b>${_mdpEsc(r.vendor || '—')}</b>.</div>`; return; }
+    box.innerHTML = _vplpLedger(v, { fy: _pvLedgerFY, onChangeFY: '_pvSetLedgerFY' });
+    applyTableFeatures(box);
+  } catch (err) {
+    const b = document.getElementById('pvVendorLedgerBox');
+    if (b) b.innerHTML = '<div style="color:var(--danger);font-size:.78rem">Could not load vendor ledger.</div>';
+  }
+}
 function renderPurchaseView() {
   const el = document.getElementById('mainContent');
   _pvFilter = 'all'; _pvSearch = ''; _pvSite = '';
@@ -7141,8 +7181,10 @@ window._pvToggle = function(poNo) {
     : AS.purchase();
   const headerExtra = `<a href="${_mdpEsc(appLink)}" target="_blank" class="btn btn-sm btn-secondary" style="font-size:.72rem;text-decoration:none">&#128279; AppSheet</a>`;
   const titleHtml = `${_mdpEsc(poNo)} <span style="background:${st.bg};color:${st.color};padding:.12rem .45rem;border-radius:20px;font-size:.68rem;font-weight:700;margin-left:.4rem">${st.label}</span>`;
+  _pvLedgerFY = '';
   _regOpenModal(titleHtml, _pvDetailBody(r), headerExtra);
   _poLoadAttachments(_pvLastDocUUID, _pvLastDirectUrls);
+  _pvLoadVendorLedger(r);
 };
 
 function _pvDetailBody(r) {
@@ -7298,18 +7340,6 @@ function _pvDetailBody(r) {
       <div id="poAttBox" style="color:var(--txt3);font-size:.78rem;padding:.3rem 0">&#9203; Loading documents&hellip;</div>
     </div>`;
 
-  // ── Vendor payment ledger (full running-balance view)
-  const _vn = _opNorm(r.vendor || '');
-  const vendorPayRows = _mdpRows
-    ? _mdpRows.filter(pr => pr.payTo === 'Vendor' && (
-        _opNorm(pr.vendor) === _vn ||
-        _opNorm(_mdpStrip(pr.paidTo)) === _vn ||
-        _opNorm(pr.paidTo) === _vn
-      ))
-    : [];
-  const vendorLedger = vendorPayRows.length
-    ? partyLedgerRender(vendorPayRows, { onRowClick: '_accOpenPRDetail', noKpi: true })
-    : `<div style="font-size:.78rem;color:var(--txt3);padding:.5rem 0">No payment records found for <b>${esc(r.vendor || '—')}</b>.</div>`;
 
   return `<div>
     ${docSection}
@@ -7377,7 +7407,7 @@ function _pvDetailBody(r) {
     </div>` : ''}
 
     ${H('Vendor Ledger — ' + _mdpEsc(r.vendor || '—'))}
-    <div style="padding:0 1rem 1rem">${vendorLedger}</div>
+    <div style="padding:0 1rem 1rem"><div id="pvVendorLedgerBox" style="color:var(--txt3);font-size:.78rem;padding:.3rem 0">&#9203; Loading vendor ledger&hellip;</div></div>
   </div>`;
 }
 
