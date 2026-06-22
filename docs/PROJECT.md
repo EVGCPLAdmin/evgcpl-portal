@@ -159,7 +159,8 @@ External roles (`vendor`, `sc`) land on `external.html`, not the staff shell.
 ### 5.1 Google Sheets (read by header name via gviz)
 | Constant | Purpose |
 |---|---|
-| `SHEET_ID` | Master spreadsheet (cost centres, vendor/SC masters) |
+| `SHEET_ID` | Master spreadsheet (cost centres, site/asset/SC masters) |
+| `VENDOR_MASTER_SHEET_ID` | **Vendor Master** — canonical `7-VendorMaster_Actual` tab (read by header everywhere) + `OpeningBalance` tab (Vendor Ledger opening balances). Replaces the legacy `7-VendorMaster` tab on the Masters sheet. |
 | `V2_MASTER_SHEET_ID` | v2_Master |
 | `EMP_SHEET_ID` | Employee Register (+ UUID tab `0A_EmployeePersonalDetails`) |
 | `PAYMENT_SHEET_ID` | "Account View" — `PaymentRequest` tab (payments/approvals/ledgers) |
@@ -273,14 +274,15 @@ A vendor account statement scoped to PO purchases (not the billed-amount model):
 - **Additional Charges** = `Sub Total (b)` (`PO_Actual`).
 - **Debit (Paid)** = the vendor's paid PO payments.
 - **Opening Balance** = a vendor's carried-forward Dr/Cr balance, recorded via a
-  side-pull form (⊕ Opening Balance) capturing **Vendor Key, Vendor Code,
-  Opening Balance + Dr/Cr, Details, and an "as-of" date**. It folds into the
-  ledger as the first entry (Cr → payable b/f, Dr → advance) and seeds the
-  running balance. Stored in a dedicated sheet — `VENDOR_OPENING_BAL_SHEET_ID` /
-  `VENDOR_OPENING_BAL_TAB` (**placeholders** in `portal-bundle.js`; set them once
-  the sheet is provided). Write posts via `getExec('accounts')` action
-  `saveVendorOpeningBalance`; until the sheet ID is set the ledger opens at zero
-  and the form explains it isn't wired yet.
+  side-pull form (⊕ Opening Balance) capturing **Vendor ID, Vendor Key (UUID),
+  Vendor Name, Vendor Detail, Opening Balance + Dr/Cr, Remarks, and an "as-on"
+  date**. It folds into the ledger as the first entry (Cr → payable b/f, Dr →
+  advance) and seeds the running balance; an opening-balance-only vendor still
+  appears. Stored in the `OpeningBalance` tab of the Vendor Master sheet
+  (`VENDOR_OPENING_BAL_SHEET_ID` / `_TAB`); the amount is **signed** (+ Cr / −
+  Dr — the tab has no separate Dr/Cr column). Write posts via
+  `getExec('accounts')` action `saveVendorOpeningBalance` (a small additive Apps
+  Script handler is still needed in that project to append the row).
 - **Running Balance** = Opening ± Σ(Credit − Debit) = outstanding payable. (Tax &
   Additional Charges are shown as columns and are *not* currently folded into
   the balance.)
