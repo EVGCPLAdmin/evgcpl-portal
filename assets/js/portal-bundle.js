@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.13.6';
-const PORTAL_BUILD    = 598;
-const PORTAL_BUILD_AT = '2026-06-22T11:00:36Z';
+const PORTAL_VERSION  = '4.13.7';
+const PORTAL_BUILD    = 599;
+const PORTAL_BUILD_AT = '2026-06-22T11:26:10Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4873,15 +4873,12 @@ function _vplpRcptHtml(rcpts, esc) {
     else { pendN++; if (!pend) pend = rc; }
   });
   const link = (label, idx) => `<a onclick="event.stopPropagation();_siOpenDetail(${idx})" title="Open StockIN receipt" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(label)}</a>`;
-  const cap = 6;
-  const parts = named.slice(0, cap).map(rc => link(rc.no, rc.idx));
-  const extra = named.length > cap ? named.length - cap : 0;
+  const parts = named.map(rc => link(rc.no, rc.idx));   // show ALL receipts — wrap, don't collapse into "+N"
   if (pend) parts.push(link('Pending' + (pendN > 1 ? ` (${pendN})` : ''), pend.idx));
   const invs = Array.from(new Set(rcpts.map(r => r.inv).filter(Boolean)));
-  const invTxt = invs.length ? ` &middot; <span style="color:var(--txt3)">Inv:</span> ${invs.slice(0, 5).map(esc).join(', ')}${invs.length > 5 ? ` +${invs.length - 5}` : ''}` : '';
-  const more = extra ? ` <span style="color:var(--txt3)">+${extra}</span>` : '';
+  const invTxt = invs.length ? ` &middot; <span style="color:var(--txt3)">Inv:</span> ${invs.map(esc).join(', ')}` : '';
   if (!parts.length && !invs.length) return '';
-  return `<div style="font-size:.68rem;margin-top:2px;line-height:1.5"><span style="color:var(--txt3)">GRN:</span> ${parts.join(', ') || '—'}${more}${invTxt}</div>`;
+  return `<div style="font-size:.68rem;margin-top:2px;line-height:1.5;white-space:normal;overflow-wrap:break-word;word-break:break-word"><span style="color:var(--txt3)">GRN:</span> ${parts.join(', ') || '—'}${invTxt}</div>`;
 }
 function _vplpRenderBody() {
   const c = document.getElementById('vplp-body'); if (!c) return;
