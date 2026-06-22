@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.16.1';
-const PORTAL_BUILD    = 611;
-const PORTAL_BUILD_AT = '2026-06-22T19:35:48Z';
+const PORTAL_VERSION  = '4.16.2';
+const PORTAL_BUILD    = 612;
+const PORTAL_BUILD_AT = '2026-06-22T19:39:28Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5059,9 +5059,12 @@ function _vplpFlatList(toggle) {
   const shown = _vplpFlatStatus ? rows.filter(r => r.status === _vplpFlatStatus) : rows;
   window._vplpFlatRows = shown;
   if (!rows.length) return (toggle || '') + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No vendor activity yet.</div>';
-  const T = shown.reduce((s, r) => { ['mat', 'addl', 'taxA', 'taxB', 'credit', 'debit'].forEach(k => s[k] += r[k]); return s; }, { mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0 });
+  const T = shown.reduce((s, r) => { ['mat', 'addl', 'taxA', 'taxB', 'credit', 'debit', 'opCredit', 'opDebit'].forEach(k => s[k] += r[k]); return s; }, { mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, opCredit: 0, opDebit: 0 });
   const bal = T.credit - T.debit;
+  // Opening = net carried forward · post-opening movement = totals minus opening.
+  const Topen = T.opCredit - T.opDebit, TpostCr = T.credit - T.opCredit, TpostDr = T.debit - T.opDebit;
   const m = x => x ? inr(x) : '—';
+  const dc = n => n ? drcr(n) : '—';
   const statChip = st => { const c = _VPLP_STATUS_META[st]; return `<span style="display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;font-weight:700;background:${c.bg};color:${c.color};padding:2px 9px;border-radius:20px;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:${c.dot}"></span>${c.label}</span>`; };
   const statBtn = (val, label, n) => `<button onclick="_vplpSetFlatStatus('${val}')" class="btn btn-sm ${_vplpFlatStatus === val ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 9px;font-size:.72rem">${label}${n != null ? ` (${n})` : ''}</button>`;
   const stat = (val, lbl, col) => `<div style="display:flex;flex-direction:column;line-height:1.1"><span style="font-size:.92rem;font-weight:800;${col ? `color:${col}` : ''}">${val}</span><span style="font-size:.58rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap">${lbl}</span></div>`;
@@ -5079,34 +5082,38 @@ function _vplpFlatList(toggle) {
     <div style="display:flex;gap:1.1rem;align-items:center;flex-wrap:wrap">
       ${stat(drcr(bal), 'Net Outstanding', bal >= 0 ? '#ea580c' : '#1d4ed8')}
       ${stat(shown.length, 'Vendors' + (_vplpFlatStatus ? ' · ' + _vplpFlatStatus : ''))}
-      ${stat(inr(T.credit), 'Billed (Cr)', '#15803d')}
-      ${stat(inr(T.debit), 'Paid (Dr)', '#16a34a')}
+      ${stat(dc(Topen), 'Carried Fwd', '#4f46e5')}
+      ${stat(inr(TpostCr), 'Billed (Cr)', '#15803d')}
+      ${stat(inr(TpostDr), 'Paid (Dr)', '#16a34a')}
     </div>
   </div>`;
   const body = shown.map((r, i) => `<tr style="cursor:pointer" onclick="_vplpFlatOpen(${i})" title="Open detailed ledger">
     <td style="padding:6px 9px">${esc(r.v.name)}${r.v.vid ? ` <span style="color:var(--txt3);font-size:.72rem">[${esc(r.v.vid)}]</span>` : ''}${r.v.unmapped ? ' <span style="color:#c2410c;font-size:.66rem">·Unmapped</span>' : ''}</td>
     <td style="padding:6px 9px">${statChip(r.status)}</td>
+    <td style="padding:6px 9px;text-align:right;color:#4f46e5;font-weight:600">${dc(r.opCredit - r.opDebit)}</td>
     <td style="padding:6px 9px;text-align:right;color:#b45309">${m(r.mat)}</td>
     <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(r.addl)}</td>
     <td style="padding:6px 9px;text-align:right;color:#2563eb">${m(r.taxA + r.taxB)}</td>
-    <td style="padding:6px 9px;text-align:right;color:#15803d;font-weight:600">${m(r.credit)}</td>
-    <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${m(r.debit)}</td>
+    <td style="padding:6px 9px;text-align:right;color:#15803d;font-weight:600">${m(r.credit - r.opCredit)}</td>
+    <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${m(r.debit - r.opDebit)}</td>
     <td style="padding:6px 9px;text-align:right;font-weight:700;color:var(--g8)">${drcr(r.bal)}</td></tr>`).join('');
   const tfoot = `<tr style="background:var(--surface2);font-weight:700">
     <td style="padding:7px 9px" colspan="2">Totals &middot; ${shown.length}</td>
+    <td style="padding:7px 9px;text-align:right;color:#4f46e5">${dc(Topen)}</td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(T.mat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(T.addl)}</td>
     <td style="padding:7px 9px;text-align:right;color:#2563eb">${m(T.taxA + T.taxB)}</td>
-    <td style="padding:7px 9px;text-align:right;color:#15803d">${m(T.credit)}</td>
-    <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(T.debit)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#15803d">${m(TpostCr)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(TpostDr)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td></tr>`;
   return header + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Vendor</th><th style="padding:8px 9px">Balance Status</th>
+        <th style="padding:8px 9px;text-align:right" title="Net opening balance carried forward (before the opening date)">Opening (B/F)</th>
         <th style="padding:8px 9px;text-align:right">Material</th><th style="padding:8px 9px;text-align:right">Add'l</th>
-        <th style="padding:8px 9px;text-align:right">Tax</th><th style="padding:8px 9px;text-align:right">Billed (Cr)</th>
-        <th style="padding:8px 9px;text-align:right">Paid (Dr)</th><th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th>
+        <th style="padding:8px 9px;text-align:right">Tax</th><th style="padding:8px 9px;text-align:right" title="Billed after the opening date">Billed (Cr)</th>
+        <th style="padding:8px 9px;text-align:right" title="Paid after the opening date">Paid (Dr)</th><th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th>
       </tr></thead><tbody>${body}</tbody><tfoot>${tfoot}</tfoot></table></div></div>`;
 }
 // Indian FY runs Apr→Mar; the FY "start year" identifies it (2026 → FY 2026-27).
