@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.16.0';
-const PORTAL_BUILD    = 610;
-const PORTAL_BUILD_AT = '2026-06-22T19:34:37Z';
+const PORTAL_VERSION  = '4.16.1';
+const PORTAL_BUILD    = 611;
+const PORTAL_BUILD_AT = '2026-06-22T19:35:48Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5425,16 +5425,35 @@ async function _regEnsure(force) {
 function _regCloseModal() { const o = document.getElementById('regModalOverlay'); if (o) o.remove(); document.removeEventListener('keydown', _regEsc); }
 function _regEsc(e) { if (e.key === 'Escape') _regCloseModal(); }
 window._regCloseModal = _regCloseModal;
+window._regToggleFullscreen = function() {
+  const ov  = document.getElementById('regModalOverlay');
+  const box = document.getElementById('regModalBox');
+  const btn = document.getElementById('regModalFsBtn');
+  if (!ov || !box) return;
+  const fs = box.getAttribute('data-fs') === '1';
+  if (!fs) {
+    ov.style.padding = '0';
+    box.style.cssText = 'background:var(--surface);border-radius:0;width:100%;height:100%;max-width:100%;max-height:100%;display:flex;flex-direction:column;box-shadow:none';
+    box.setAttribute('data-fs', '1');
+    if (btn) { btn.innerHTML = '&#10697;'; btn.title = 'Exit full screen'; }
+  } else {
+    ov.style.padding = '1rem';
+    box.style.cssText = 'background:var(--surface);border-radius:14px;max-width:920px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.4)';
+    box.removeAttribute('data-fs');
+    if (btn) { btn.innerHTML = '&#9974;'; btn.title = 'Expand to full screen'; }
+  }
+};
 function _regOpenModal(title, bodyHtml, headerExtra) {
   _regCloseModal();
   const ov = document.createElement('div');
   ov.id = 'regModalOverlay';
   ov.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
   ov.addEventListener('click', e => { if (e.target === ov) _regCloseModal(); });
-  ov.innerHTML = `<div style="background:var(--surface);border-radius:14px;max-width:920px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.4)">
+  ov.innerHTML = `<div id="regModalBox" style="background:var(--surface);border-radius:14px;max-width:920px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.4)">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.2rem;border-bottom:1px solid var(--border);flex-shrink:0">
       <h3 style="font-size:.95rem;font-weight:700;color:var(--g9);margin:0">${title}</h3>
       <div style="display:flex;align-items:center;gap:.5rem">${headerExtra || ''}
+        <button id="regModalFsBtn" onclick="_regToggleFullscreen()" title="Expand to full screen" style="border:none;background:none;font-size:1.15rem;cursor:pointer;color:var(--txt3);line-height:1;padding:0 .25rem">&#9974;</button>
         <button onclick="_regCloseModal()" style="border:none;background:none;font-size:1.4rem;cursor:pointer;color:var(--txt3);line-height:1">&times;</button>
       </div>
     </div>
