@@ -5461,12 +5461,16 @@ function _regFileIcon(mime, name) { const n = (name || '').toLowerCase(); mime =
 function _regFmtSize(b) { b = +b || 0; if (!b) return ''; if (b < 1024) return b + ' B'; if (b < 1048576) return (b / 1024).toFixed(0) + ' KB'; return (b / 1048576).toFixed(1) + ' MB'; }
 function _regAttCard(url, name, matchedOn, mime, size) {
   const esc = _mdpEsc, sz = size ? _regFmtSize(size) : '';
-  return `<a href="${esc(url)}" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:.6rem;padding:.5rem .7rem;border:1px solid var(--border);border-radius:9px;background:var(--surface1);text-decoration:none;color:var(--txt);margin-bottom:.4rem">
+  const previewUrl = _regDrivePreview(url);
+  const btnStyle = 'font-size:.72rem;font-weight:700;white-space:nowrap;text-decoration:none;padding:2px 8px;border-radius:6px;border:1px solid var(--border)';
+  return `<div style="display:flex;align-items:center;gap:.6rem;padding:.5rem .7rem;border:1px solid var(--border);border-radius:9px;background:var(--surface1);margin-bottom:.4rem">
     <span style="font-size:1.1rem">${_regFileIcon(mime, name)}</span>
     <span style="flex:1;min-width:0;font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name || 'Attachment')}</span>
     ${matchedOn ? `<span style="font-size:.62rem;color:var(--txt3);background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1px 6px;white-space:nowrap">${esc(matchedOn)}</span>` : ''}
     ${sz ? `<span style="font-size:.68rem;color:var(--txt3);white-space:nowrap">${sz}</span>` : ''}
-    <span style="font-size:.72rem;color:var(--g7);font-weight:700;white-space:nowrap">Open &#8599;</span></a>`;
+    <a href="${esc(url)}" target="_blank" rel="noopener" style="${btnStyle};color:var(--g7)">Open &#8599;</a>
+    ${previewUrl ? `<a href="${esc(previewUrl)}" target="_blank" rel="noopener" title="Full screen preview (Drive viewer)" style="${btnStyle};color:var(--txt3)">&#9974;</a>` : ''}
+  </div>`;
 }
 
 // ── PO Register (route 'po-register') ────────────────────────────────────
@@ -5718,8 +5722,7 @@ window._poLoadAttachments = async function(uuid, poNo) {
     box.innerHTML = `<div style="color:var(--txt3);font-size:.78rem;padding:.5rem">No documents found for this PO. <span style="font-size:.7rem">(searched Drive for &ldquo;${esc(poKey || uuid || '—')}&rdquo;)</span></div>`;
     return;
   }
-  const pv = _regDrivePreview(files[0] && files[0].url);
-  box.innerHTML = cards.join('') + (pv ? `<iframe src="${esc(pv)}" style="width:100%;height:520px;border:1px solid var(--border);border-radius:9px;margin-top:.6rem;background:#fff"></iframe>` : '');
+  box.innerHTML = cards.join('');
 };
 
 // ── StockIN Register (route 'stockin-register') ──────────────────────────
@@ -5839,9 +5842,7 @@ window._siLoadAttachments = async function(checksum, directUrls) {
   if (!document.getElementById('siAttBox')) return;            // modal closed / switched
   files.forEach(f => cards.push(_regAttCard(f.url, f.name, f.matchedOn || 'Drive', f.mimeType, f.size)));
   if (!cards.length) { box.innerHTML = `<div style="color:var(--txt3);font-size:.78rem;padding:.5rem">No invoice attachments found. <span style="font-size:.7rem">(searched Drive by CheckSum ${esc(checksum || '—')})</span></div>`; return; }
-  const firstUrl = (directUrls && directUrls[0] && directUrls[0].url) || (files[0] && files[0].url) || '';
-  const pv = _regDrivePreview(firstUrl);
-  box.innerHTML = cards.join('') + (pv ? `<iframe src="${esc(pv)}" style="width:100%;height:520px;border:1px solid var(--border);border-radius:9px;margin-top:.6rem;background:#fff"></iframe>` : '');
+  box.innerHTML = cards.join('');
 };
 
 function renderMDCommand() {
