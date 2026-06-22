@@ -101,6 +101,7 @@ function doPost(e) {
     // ── Accounts (AccountsHandlers.gs) ─────────────────────────
     if (action === 'saveNewPaymentRequest')    return _wrap(saveNewPaymentRequest(body));
     if (action === 'saveAccountsUpdate')       return _wrap(saveAccountsUpdate(body));
+    if (action === 'saveVendorOpeningBalance') return _wrap(saveVendorOpeningBalance(body));
     if (action === 'createPRFolder')           return _wrap(createPRFolder(body));
     if (action === 'uploadPRAttachment')       return _wrap(uploadPRAttachment(body));
     if (action === 'listPRAttachments')        return _wrap(listPRAttachments(body));

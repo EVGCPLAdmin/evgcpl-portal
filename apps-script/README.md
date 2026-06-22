@@ -20,6 +20,10 @@ and can be overridden per-environment from **Config → 🔗 Apps Script Endpoin
 |---|---|---|
 | `Router.gs` | `doPost` / `doGet` entry points and the action → handler dispatch table | **Required.** Every other file's functions are routed from here. |
 | `SafetyHandlers.gs` | `appendRow`, `updateCell`, `batchUpdate`, plus Safety incident close | Generic write API used by DPR, Reports, Onboarding, Safety |
+| `AccountsHandlers.gs` | `saveNewPaymentRequest`, `saveAccountsUpdate`, `saveVendorOpeningBalance`, `createPRFolder`, `uploadPRAttachment`, `listPRAttachments` | Header-mapped appends to the Payment / Vendor Master sheets + PR attachment Drive ops |
+| `RecruitmentHandlers.gs` | MRF / Offer / Joining recruitment actions | Backed by the Recruitment sheet |
+| `PortalConfigBackend.gs` | `savePortalConfig`, `getPortalConfig` | PortalConfig tab read/write |
+| `EmployeeProfileHandlers.gs` | Employee profile writes | HR profile module |
 | `ScheduledReports.gs` | Time-driven email triggers; `saveScheduledReport`, `runReportNow` | Owns the daily/weekly/monthly trigger runner |
 | `AIChat.gs` | `aiChat` action — Groq chat with system prompt assembly | Reads `GROQ_API_KEY` from Script Properties |
 | `AiProxy.gs` | `aiProxy` — generic LLM proxy with Gemini fallback | Reads `GROQ_API_KEY` then `GEMINI_API_KEY` |
@@ -99,6 +103,8 @@ These are the actions the Router knows about, by category. If the portal posts a
 | AI | `aiChat`, `aiProxy` |
 | Sheet | `diagnoseSheet`, `listShares` |
 | PCC | `saveProjectSetup`, `saveBOQ`, `saveWBS`, `saveWorkplan`, `saveManpower`, `saveMachinery`, `saveMaterials`, `saveOverheads`, `saveVariations`, `submitBudgetApproval` |
+| Accounts | `saveNewPaymentRequest`, `saveAccountsUpdate`, `saveVendorOpeningBalance`, `createPRFolder`, `uploadPRAttachment`, `listPRAttachments` |
+| Portal config | `savePortalConfig`, `getPortalConfig` |
 | PIN | `verifyPin`, `resetPin` |
 
 Adding a new action:
