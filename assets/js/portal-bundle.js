@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.13.3';
-const PORTAL_BUILD    = 595;
-const PORTAL_BUILD_AT = '2026-06-22T10:02:09Z';
+const PORTAL_VERSION  = '4.13.4';
+const PORTAL_BUILD    = 596;
+const PORTAL_BUILD_AT = '2026-06-22T10:17:49Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -7282,7 +7282,30 @@ function _pvDetailBody(r) {
 
   const inWords = G(['Amount in Words']);
 
+  // ── Documents: PO PDF + Quote attachments
+  const poPdfUrl   = G(['PO PDF', 'PO PDF Link', 'PO Document', 'PO Doc Link', 'PO Link', 'Document Link', 'PO File']);
+  const quoteRef   = G(['Quote Ref', 'Quote Reference', 'Quote No']);
+  const quoteDate  = G(['Quote Date']);
+  const quoteUrls  = ['Quote(Attachment)', 'Quote(Attachment 2)', 'Quote(Attachment 3)', 'Quote(Attachment 4)', 'Quote(Attachment 5)']
+    .map((c, i) => ({ url: G([c]), label: i === 0 ? 'Quote' : 'Quote ' + (i + 1) })).filter(o => o.url);
+  const _docBtn = (url, label) => {
+    const id = _regDriveId(url);
+    const href = id ? ('https://drive.google.com/file/d/' + id + '/view') : url;
+    return `<a href="${esc(href)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:.25rem;padding:.25rem .6rem;border-radius:6px;background:var(--surface2);border:1px solid var(--border);font-size:.74rem;color:var(--txt);text-decoration:none;white-space:nowrap">&#128196; ${esc(label)} &#8599;</a>`;
+  };
+  const hasDocuments = poPdfUrl || quoteUrls.length;
+  const docSection = hasDocuments ? `
+    ${H('Documents')}
+    <div style="padding:0 1rem .5rem">
+      ${quoteRef || quoteDate ? `<div style="font-size:.76rem;color:var(--txt2);margin-bottom:.4rem">Quote: <b>${esc(quoteRef) || '—'}</b>${quoteDate ? ' &nbsp;&middot;&nbsp; ' + _mdpFmtDate(quoteDate) : ''}</div>` : ''}
+      <div style="display:flex;flex-wrap:wrap;gap:.4rem">
+        ${poPdfUrl ? _docBtn(poPdfUrl, 'PO PDF') : ''}
+        ${quoteUrls.map(o => _docBtn(o.url, o.label)).join('')}
+      </div>
+    </div>` : '';
+
   return `<div>
+    ${docSection}
     ${H('Items &amp; Rates')}
     <div style="padding:0 1rem .25rem">
       ${items.length
