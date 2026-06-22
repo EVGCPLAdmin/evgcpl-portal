@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.11.4';
-const PORTAL_BUILD    = 588;
-const PORTAL_BUILD_AT = '2026-06-20T14:44:33Z';
+const PORTAL_VERSION  = '4.13.6';
+const PORTAL_BUILD    = 598;
+const PORTAL_BUILD_AT = '2026-06-22T11:00:36Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -467,6 +467,13 @@ window.portalHardRefresh = function() {
     window.location.replace(u.toString());
   } catch (e) { window.location.reload(); }
 };
+// Win+Shift+R (Meta+Shift+R) hard-refresh shortcut — works on all pages.
+document.addEventListener('keydown', function(e) {
+  if (e.metaKey && e.shiftKey && e.key === 'R') {
+    e.preventDefault();
+    portalHardRefresh();
+  }
+});
 // Inject the Hard-Refresh button into the (per-page, hand-coded) header so it
 // appears on every page without editing each HTML file. Idempotent.
 function _headerEnsureHardRefresh() {
@@ -3101,6 +3108,7 @@ function renderPage(page) {
     'stores-openpo':  () => { window._pstPendingTab = 'openpo';  renderProcurementStores(); },
     'stores-levels':  () => { window._pstPendingTab = 'levels';  renderProcurementStores(); },
     'purchase':       renderPurchaseDashboard,
+    'purchase-view':  renderPurchaseView,
     'vendor':         renderVendorPortalInternal,
     'subcontractor':  renderSubcontractorPortal,
     'po-register':    renderPORegister,
@@ -4547,7 +4555,7 @@ function _plLedgerBuild(lid) {
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.7rem">${esc(r.utr) || '—'}</td>
     </tr>`;
   }).join('');
-  return fyBar + kpi + `
+  return fyBar + (opts.noKpi ? '' : kpi) + `
     <div class="card"><div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:.78rem">
         <thead><tr style="background:var(--g9);color:#fff;text-align:left">
@@ -6962,6 +6970,437 @@ function renderPurchaseDashboard() {
   };
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PURCHASE VIEW — card-based PO verification (route 'purchase-view')
+//  Each card shows PO summary; expand to see items + rates, historical
+//  rate comparison (Part × Site), additional charges, and vendor bill
+//  status summary from the PaymentRequest ledger.
+// ═══════════════════════════════════════════════════════════════════════
+
+let _pvAllRows    = [];
+let _pvFilter     = 'all';
+let _pvSearch     = '';
+let _pvSite       = '';
+let _pvLastDocUUID = '', _pvLastDirectUrls = [];
+function renderPurchaseView() {
+  const el = document.getElementById('mainContent');
+  _pvFilter = 'all'; _pvSearch = ''; _pvSite = '';
+  el.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-row">
+        <div><h1>Purchase View</h1><p>PO verification &middot; items &amp; rates &middot; vendor ledger &middot; additional charges</p></div>
+        <button class="btn btn-secondary btn-sm" onclick="_pvLoad(true)">&#8635; Refresh</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
+      <div style="display:flex;gap:.35rem">
+        <button id="pv-tab-all"      onclick="_pvSetFilter('all')"      class="btn btn-sm btn-primary">All</button>
+        <button id="pv-tab-pending"  onclick="_pvSetFilter('pending')"  class="btn btn-sm btn-secondary">&#9203; Pending</button>
+        <button id="pv-tab-approved" onclick="_pvSetFilter('approved')" class="btn btn-sm btn-secondary">&#10003; Approved</button>
+        <button id="pv-tab-rejected" onclick="_pvSetFilter('rejected')" class="btn btn-sm btn-secondary">&#10007; Rejected</button>
+      </div>
+      <input id="pv-search" type="text" placeholder="Search PO, vendor, site&#8230;" oninput="_pvOnSearch(this.value)"
+        style="flex:1;min-width:180px;padding:.38rem .65rem;border:1.5px solid var(--border);border-radius:8px;font-size:.82rem;font-family:inherit;outline:none;background:var(--surface2)">
+      <select id="pv-site" onchange="_pvSetSite(this.value)"
+        style="padding:.38rem .65rem;border:1.5px solid var(--border);border-radius:8px;font-size:.82rem;font-family:inherit;background:var(--surface2)">
+        <option value="">All Sites</option>
+      </select>
+    </div>
+    <div class="kpi-grid" style="margin-bottom:1.2rem">
+      <div class="kpi-card"      style="padding:.75rem 1rem"><div class="kpi-value" id="pv-kpi-total">—</div><div class="kpi-label">Total POs</div></div>
+      <div class="kpi-card warn" style="padding:.75rem 1rem"><div class="kpi-value" id="pv-kpi-pending">—</div><div class="kpi-label">Pending</div></div>
+      <div class="kpi-card info" style="padding:.75rem 1rem"><div class="kpi-value" id="pv-kpi-approved">—</div><div class="kpi-label">Approved</div></div>
+      <div class="kpi-card"      style="padding:.75rem 1rem"><div class="kpi-value" id="pv-kpi-rejected">—</div><div class="kpi-label">Rejected</div></div>
+    </div>
+    <div id="pv-cards">
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:3rem;color:var(--txt3)">
+        <div style="width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite"></div>
+        Loading POs&hellip;
+      </div>
+    </div>`;
+  _pvLoad();
+}
+
+async function _pvLoad(force) {
+  const cardsEl = document.getElementById('pv-cards');
+  try {
+    await Promise.all([_regEnsure(force), _mdpLoad(force)]);
+  } catch (e) {
+    if (cardsEl) cardsEl.innerHTML = '<div class="card card-pad" style="color:var(--danger)">Could not load PO data. Check sheet sharing.</div>';
+    return;
+  }
+  _pvAllRows = _pvBuildRows();
+  _pvFillSiteDropdown();
+  _pvFillKPIs();
+  _pvRenderCards();
+}
+
+function _pvBuildRows() {
+  const HC = _opColMap(_openPOHeaders);
+  return _openPOHeaders
+    .filter(r => {
+      const p = (_opGet(r, HC, ['PO No']) || '').trim();
+      return p && p.toLowerCase() !== 'dummy';
+    })
+    .map(r => {
+      const G = cands => _opGet(r, HC, cands);
+      const statusRaw = G(['PO Approval Status']) || '';
+      const lock = G(['Lock']) || '';
+      const isPending  = statusRaw.toUpperCase() !== 'REJECTED' && lock === 'Released for Approval';
+      const isApproved = statusRaw.toUpperCase().includes('APPROVED');
+      const isRejected = statusRaw.toUpperCase().includes('REJECT');
+      return {
+        raw: r,
+        poNo:     G(['PO No']),
+        date:     G(['PO Date']),
+        vendor:   G(['Vendor Name', 'Vendor', 'Supplier Name', 'Supplier', 'Party Name']),
+        site:     G(['Site Name']),
+        status:   statusRaw,
+        lock,
+        isPending, isApproved, isRejected,
+        uuid:     G(['UUID']) || '',
+        net:      _opNum(G(['Net Amount', 'Grand Total'])),
+        approver: G(['Approver Name']),
+      };
+    })
+    .sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date));
+}
+
+function _pvFillSiteDropdown() {
+  const sel = document.getElementById('pv-site'); if (!sel) return;
+  const sites = [...new Set(_pvAllRows.map(r => r.site).filter(Boolean))].sort();
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All Sites</option>' +
+    sites.map(s => `<option value="${_mdpEsc(s)}" ${s === cur ? 'selected' : ''}>${_mdpEsc(s)}</option>`).join('');
+}
+
+function _pvFillKPIs() {
+  const tot  = _pvAllRows.length;
+  const pend = _pvAllRows.filter(r => r.isPending).length;
+  const appr = _pvAllRows.filter(r => r.isApproved).length;
+  const rej  = _pvAllRows.filter(r => r.isRejected).length;
+  const s = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  s('pv-kpi-total', tot); s('pv-kpi-pending', pend); s('pv-kpi-approved', appr); s('pv-kpi-rejected', rej);
+}
+
+function _pvFilteredRows() {
+  let rows = _pvAllRows;
+  if (_pvFilter === 'pending')  rows = rows.filter(r => r.isPending);
+  if (_pvFilter === 'approved') rows = rows.filter(r => r.isApproved);
+  if (_pvFilter === 'rejected') rows = rows.filter(r => r.isRejected);
+  if (_pvSite)   rows = rows.filter(r => r.site === _pvSite);
+  if (_pvSearch) { const q = _pvSearch.toLowerCase(); rows = rows.filter(r => (r.poNo + ' ' + r.vendor + ' ' + r.site).toLowerCase().includes(q)); }
+  return rows;
+}
+
+function _pvRenderCards() {
+  const el = document.getElementById('pv-cards'); if (!el) return;
+  const rows = _pvFilteredRows();
+  if (!rows.length) {
+    el.innerHTML = '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No POs found.</div>';
+    return;
+  }
+  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:1rem">${rows.map(r => _pvSummaryCard(r)).join('')}</div>`;
+}
+
+function _pvStatusStyle(r) {
+  if (r.isApproved) return { color:'#2e7d32', bg:'#e8f5e9', label:'Approved',         accent:'#2e7d32' };
+  if (r.isRejected) return { color:'#c62828', bg:'#ffebee', label:'Rejected',         accent:'#c62828' };
+  if (r.isPending)  return { color:'#b07000', bg:'#fff8e1', label:'Pending Approval', accent:'#f59e0b' };
+  return               { color:'var(--txt2)', bg:'var(--surface2)', label:r.status || 'Draft', accent:'var(--g5)' };
+}
+
+function _pvSummaryCard(r) {
+  const esc = _mdpEsc;
+  const st = _pvStatusStyle(r);
+  const appLink = r.uuid
+    ? `${APPSHEET_SCM_URL}?tblName=PO&rowKey=${encodeURIComponent(r.uuid)}`
+    : AS.purchase();
+  return `<div class="card" style="border-left:4px solid ${st.accent}">
+    <div style="padding:.85rem 1rem">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.3rem">
+        <span style="font-weight:700;font-size:.95rem;color:var(--g9);font-family:monospace">${esc(r.poNo)}</span>
+        <span style="background:${st.bg};color:${st.color};padding:.15rem .5rem;border-radius:20px;font-size:.68rem;font-weight:700;white-space:nowrap;flex-shrink:0;margin-left:.5rem">${st.label}</span>
+      </div>
+      <div style="font-size:.83rem;color:var(--txt2);margin-bottom:.2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.vendor) || '—'}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:.72rem;color:var(--txt3)">${esc(r.site)} &middot; ${_mdpFmtDate(r.date)}</span>
+        <span style="font-weight:700;color:var(--g8);font-size:.9rem">${r.net ? '&#8377;' + r.net.toLocaleString('en-IN') : '—'}</span>
+      </div>
+      <div style="display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap">
+        <button onclick="_pvToggle('${esc(r.poNo)}')" class="btn btn-sm btn-secondary" style="font-size:.72rem">&#128269; Verify PO</button>
+        <a href="${esc(appLink)}" target="_blank" class="btn btn-sm btn-secondary" style="font-size:.72rem;text-decoration:none">&#128279; AppSheet</a>
+      </div>
+    </div>
+  </div>`;
+}
+
+window._pvToggle = function(poNo) {
+  const r = _pvAllRows.find(x => x.poNo === poNo); if (!r) return;
+  const st = _pvStatusStyle(r);
+  const appLink = r.uuid
+    ? `${APPSHEET_SCM_URL}?tblName=PO&rowKey=${encodeURIComponent(r.uuid)}`
+    : AS.purchase();
+  const headerExtra = `<a href="${_mdpEsc(appLink)}" target="_blank" class="btn btn-sm btn-secondary" style="font-size:.72rem;text-decoration:none">&#128279; AppSheet</a>`;
+  const titleHtml = `${_mdpEsc(poNo)} <span style="background:${st.bg};color:${st.color};padding:.12rem .45rem;border-radius:20px;font-size:.68rem;font-weight:700;margin-left:.4rem">${st.label}</span>`;
+  _regOpenModal(titleHtml, _pvDetailBody(r), headerExtra);
+  _poLoadAttachments(_pvLastDocUUID, _pvLastDirectUrls);
+};
+
+function _pvDetailBody(r) {
+  const esc = _mdpEsc;
+  const inr = v => '&#8377;' + Number(v || 0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
+  const HC = _opColMap(_openPOHeaders);
+  const IC = _opColMap(_openPOItems);
+  const AC = _opColMap(_openPOAddlCharges);
+  const K  = _opPO(r.poNo);
+  const G  = cands => _opGet(r.raw, HC, cands);
+
+  // Items for this PO
+  const items = _openPOItems.filter(x => _opPO(_opGet(x, IC, ['PO No', 'Order No'])) === K);
+
+  // Additional Charges rows for this PO
+  const addlRows = _openPOAddlCharges.filter(x => _opPO(_opGet(x, AC, ['PO No', 'PO No (Key)', 'Order No'])) === K);
+
+  // Build historical rate map (Part × Site) from all other approved POs
+  const hdrByPO = {};
+  _openPOHeaders.forEach(h => { const k = _opPO(_opGet(h, HC, ['PO No'])); if (k) hdrByPO[k] = h; });
+  const rateMap = {};
+  const _matMap = _opMatMap();
+  const currentPOItems = new Set(items); // exclude by object identity — immune to PO No format drift
+  _openPOItems.forEach(x => {
+    if (currentPOItems.has(x)) return;
+    const xPoNo = _opPO(_opGet(x, IC, ['PO No', 'Order No']));
+    if (xPoNo === K) return;
+    const ph = hdrByPO[xPoNo]; if (!ph) return;
+    const site = _opNorm(_opGet(ph, HC, ['Site Name']));
+    const rawDesc = _opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name']) ||
+                    _opGet(x, IC, ['Description', 'Item Description', 'Particulars', 'Item']) ||
+                    _opGet(x, IC, ['Part Details', 'Part Description']);
+    const part = _opNorm(_opPartReadable(rawDesc, _matMap).text || rawDesc);
+    const rate = _opNum(_opGet(x, IC, ['Unit Rate', 'Rate', 'Unit Price', 'Price', 'Basic Rate']));
+    if (!part || !rate) return;
+    const key = part + '||' + site;
+    (rateMap[key] = rateMap[key] || []).push({ rate, poNo: _opGet(ph, HC, ['PO No']), date: _opGet(ph, HC, ['PO Date']), vendor: _opGet(ph, HC, ['Vendor Name', 'Vendor', 'Supplier Name', 'Supplier', 'Party Name']), site: _opGet(ph, HC, ['Site Name', 'Site', 'Project Site']) });
+  });
+
+  // ── Line items table (PDF columns: MR ID | Description | UOM | Qty | Unit Rate | Tax % | Tax Amt | Total)
+  let calcSubA = 0, calcTaxA = 0;
+  const rateHistoryItems = []; // collect per-item history for the Rate History section
+  const itemRows = items.map(x => {
+    const g = c => _opGet(x, IC, c);
+    const mrId    = g(['MR ID', 'MR No', 'MRS', 'MR']);
+    const partKey = g(['Part Details', 'Part Description']);
+    const rawDesc = g(['Material Description', 'Material Desc', 'Material Name', 'Material']) ||
+                    g(['Description', 'Item Description', 'Particulars', 'Item']) || partKey;
+    const pr    = _opPartReadable(rawDesc, _matMap);
+    const qty   = _opNum(g(['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
+    const rate  = _opNum(g(['Unit Rate', 'Rate', 'Unit Price', 'Price', 'Basic Rate']));
+    const uom   = g(['UOM', 'Unit', 'Units']);
+    const taxP  = g(['Tax (%)', 'Tax %', 'Tax Percentage', 'GST %', 'Tax Percent']);
+    const taxA  = _opNum(g(['Tax. Amount', 'Tax Amount', 'Tax Amt', 'Total Tax']));
+    const tot   = _opNum(g(['Total Amount', 'Amount', 'Line Total'])) || qty * rate;
+    calcSubA += tot; calcTaxA += taxA;
+
+    // Rate badge vs Part × Site history
+    const partNorm = _opNorm(pr.text || rawDesc);
+    const siteNorm = _opNorm(r.site);
+    const hist = (rateMap[partNorm + '||' + siteNorm] || []);
+    let rateBadge = '';
+    if (rate && hist.length) {
+      const sorted = hist.slice().sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date));
+      const avg  = hist.reduce((s, e) => s + e.rate, 0) / hist.length;
+      const diff = (rate - avg) / avg;
+      const tipLines = sorted.map(h => `${esc(h.poNo)} (${_mdpFmtDate(h.date)}) &#8377;${Math.round(h.rate).toLocaleString('en-IN')}`).join('&#10;');
+      const tip  = `Avg &#8377;${Math.round(avg).toLocaleString('en-IN')} across ${hist.length} PO${hist.length>1?'s':''}:&#10;${tipLines}`;
+      if (diff > 0.1)       rateBadge = `<span title="${tip}" style="background:#ffebee;color:#c62828;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#9650; +${Math.round(diff*100)}%</span>`;
+      else if (diff < -0.1) rateBadge = `<span title="${tip}" style="background:#e8f5e9;color:#2e7d32;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#9660; ${Math.round(diff*100)}%</span>`;
+      else                  rateBadge = `<span title="${tip}" style="background:#e3f2fd;color:#1565c0;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#61;</span>`;
+      rateHistoryItems.push({ desc: pr.partDesc || rawDesc || partKey || '—', thisRate: rate, avg, diff, sorted });
+    }
+    const descHtml = (pr.partNo ? `<span style="font-family:monospace;font-size:.68rem;color:var(--g7)">${esc(pr.partNo)}</span> &middot; ` : '') + esc(pr.partDesc || '—');
+    const td = 'padding:5px 8px;font-size:.77rem';
+    return `<tr>
+      <td style="${td};color:var(--txt3);font-size:.7rem;white-space:nowrap">${esc(mrId) || '—'}</td>
+      <td style="${td}">${descHtml}</td>
+      <td style="${td};white-space:nowrap">${esc(uom) || '—'}</td>
+      <td style="${td};text-align:right">${qty || '—'}</td>
+      <td style="${td};text-align:right;white-space:nowrap">${rate ? inr(rate) : '—'}${rateBadge}</td>
+      <td style="${td};color:var(--txt3)">${esc(taxP) || '—'}</td>
+      <td style="${td};text-align:right;color:var(--txt2)">${taxA ? inr(taxA) : '—'}</td>
+      <td style="${td};text-align:right;font-weight:600">${tot ? inr(tot) : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  // ── Additional Charges table (from separate sheet tab)
+  let calcSubB = 0, calcTaxB = 0;
+  const addlChargeRows = addlRows.map(x => {
+    const g = c => _opGet(x, AC, c);
+    const desc  = g(['Description', 'Charge Description', 'Charge Type', 'Particulars', 'Type']);
+    const amt   = _opNum(g(['Amount', 'Base Amount', 'Charge Amount']));
+    const taxP  = g(['Tax (%)', 'Tax %', 'GST %', 'Tax Percentage', 'Tax']);
+    const taxA  = _opNum(g(['Tax Amount', 'Tax Amt', 'Tax. Amount']));
+    const tot   = _opNum(g(['Total', 'Total Amount', 'Net Amount'])) || amt + taxA;
+    calcSubB += (amt || tot); calcTaxB += taxA;
+    const td = 'padding:5px 8px;font-size:.77rem';
+    return `<tr>
+      <td style="${td}">${esc(desc) || '—'}</td>
+      <td style="${td};text-align:right">${amt ? inr(amt) : '—'}</td>
+      <td style="${td};color:var(--txt3)">${esc(taxP) || '—'}</td>
+      <td style="${td};text-align:right;color:var(--txt2)">${taxA ? inr(taxA) : '—'}</td>
+      <td style="${td};text-align:right;font-weight:600">${tot ? inr(tot) : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  // ── Totals — prefer header values, fall back to calculated sums
+  const subA = _opNum(G(['Sub Total (a)'])) || calcSubA;
+  const taxA_h = _opNum(G(['Tax (a)'])) || calcTaxA;
+  const subB = _opNum(G(['Sub Total (b)'])) || calcSubB;
+  const taxB_h = _opNum(G(['Tax (b)'])) || calcTaxB;
+  const rnd  = _opNum(G(['Round', 'Round off', 'Roundoff']));
+  const net  = _opNum(G(['Net Amount', 'Grand Total'])) || (subA + taxA_h + subB + taxB_h + (rnd||0));
+
+  const tRowFn = (l, v, bold, accent) => {
+    if (!v && v !== 0) return '';
+    const color = accent || (bold ? 'var(--txt)' : 'var(--txt3)');
+    const border = bold ? 'border-top:2px solid var(--border);padding-top:7px;' : '';
+    return `<tr>
+      <td style="padding:3px 16px 3px 0;font-size:.8rem;${border}color:${color};${bold?'font-weight:700':''}">${l}</td>
+      <td style="text-align:right;padding:3px 0;font-size:.8rem;${border}color:${color};${bold?'font-weight:700':''}">${inr(v)}</td>
+    </tr>`;
+  };
+
+  const totalsHtml = `<div style="display:flex;justify-content:flex-end;margin:.5rem 0 .5rem">
+    <table style="min-width:260px"><tbody>
+      ${tRowFn('Sub Total (a)', subA)}
+      ${tRowFn('Tax (a)', taxA_h)}
+      ${subB ? tRowFn('Sub Total (b)', subB) : ''}
+      ${taxB_h ? tRowFn('Tax (b)', taxB_h) : ''}
+      ${rnd ? tRowFn('Round off (\xb1)', rnd) : ''}
+      ${tRowFn('Grand Total', net, true, '#1a6634')}
+    </tbody></table>
+  </div>`;
+
+  const H = t => `<div style="font-size:.72rem;font-weight:700;color:var(--g9);margin:1rem 0 .4rem;text-transform:uppercase;letter-spacing:.05em;padding:0 1rem;border-left:3px solid var(--g5)">${t}</div>`;
+
+  const inWords = G(['Amount in Words']);
+
+  // ── Documents: PO PDF + Quote attachments — loaded async by _poLoadAttachments
+  const quoteRef  = G(['Quote Ref', 'Quote Reference', 'Quote No']);
+  const quoteDate = G(['Quote Date']);
+  const poPdfUrl  = G(['PO PDF', 'PO PDF Link', 'PO Document', 'PO Doc Link', 'PO Link', 'Document Link', 'PO File']);
+  _pvLastDirectUrls = ['Quote(Attachment)', 'Quote(Attachment 2)', 'Quote(Attachment 3)', 'Quote(Attachment 4)', 'Quote(Attachment 5)']
+    .map((c, i) => ({ url: G([c]), label: i === 0 ? 'Quote' : 'Quote ' + (i + 1) })).filter(o => o.url);
+  if (poPdfUrl) _pvLastDirectUrls.unshift({ url: poPdfUrl, label: 'PO PDF' });
+  _pvLastDocUUID = G(['UUID']) || '';
+  const docSection = `
+    ${H('Documents')}
+    <div style="padding:0 1rem .5rem">
+      ${quoteRef || quoteDate ? `<div style="font-size:.76rem;color:var(--txt2);margin-bottom:.4rem">Quote: <b>${esc(quoteRef) || '—'}</b>${quoteDate ? ' &nbsp;&middot;&nbsp; ' + _mdpFmtDate(quoteDate) : ''}</div>` : ''}
+      <div id="poAttBox" style="color:var(--txt3);font-size:.78rem;padding:.3rem 0">&#9203; Loading documents&hellip;</div>
+    </div>`;
+
+  // ── Vendor payment ledger (full running-balance view)
+  const _vn = _opNorm(r.vendor || '');
+  const vendorPayRows = _mdpRows
+    ? _mdpRows.filter(pr => pr.payTo === 'Vendor' && (
+        _opNorm(pr.vendor) === _vn ||
+        _opNorm(_mdpStrip(pr.paidTo)) === _vn ||
+        _opNorm(pr.paidTo) === _vn
+      ))
+    : [];
+  const vendorLedger = vendorPayRows.length
+    ? partyLedgerRender(vendorPayRows, { onRowClick: '_accOpenPRDetail', noKpi: true })
+    : `<div style="font-size:.78rem;color:var(--txt3);padding:.5rem 0">No payment records found for <b>${esc(r.vendor || '—')}</b>.</div>`;
+
+  return `<div>
+    ${docSection}
+    ${H('Items &amp; Rates')}
+    <div style="padding:0 1rem .25rem">
+      ${items.length
+        ? `<div style="overflow-x:auto"><table class="data-table" style="font-size:.77rem;margin:0">
+            <thead><tr><th>MR ID</th><th>Description</th><th>UOM</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit Rate</th><th>Tax %</th><th style="text-align:right">Tax Amt</th><th style="text-align:right">Total</th></tr></thead>
+            <tbody>${itemRows}</tbody>
+           </table></div>`
+        : '<div style="color:var(--txt3);font-size:.78rem;padding:.25rem 0">No line items found.</div>'}
+    </div>
+
+    ${H('Additional Charges')}
+    <div style="padding:0 1rem .25rem">
+      ${addlRows.length
+        ? `<div style="overflow-x:auto"><table class="data-table" style="font-size:.77rem;margin:0">
+            <thead><tr><th>Description</th><th style="text-align:right">Amount</th><th>Tax %</th><th style="text-align:right">Tax Amt</th><th style="text-align:right">Total</th></tr></thead>
+            <tbody>${addlChargeRows}</tbody>
+           </table></div>`
+        : '<div style="color:var(--txt3);font-size:.78rem;padding:.25rem 0">No additional charges for this PO.</div>'}
+    </div>
+
+    <div style="padding:0 1rem">
+      ${totalsHtml}
+      ${inWords ? `<div style="font-size:.76rem;color:var(--txt2);margin-bottom:.75rem"><b>In words:</b> ${esc(inWords)}</div>` : ''}
+    </div>
+
+    ${rateHistoryItems.length ? `
+    ${H('Rate Comparison History')}
+    <div style="padding:0 1rem .25rem">
+      <div style="overflow-x:auto"><table class="data-table" style="font-size:.75rem;margin:0">
+        <thead><tr>
+          <th>Material</th>
+          <th style="text-align:right">This Rate</th>
+          <th style="text-align:right">Past Avg</th>
+          <th style="text-align:center">&#916;</th>
+          <th>Past PO</th>
+          <th>Vendor</th>
+          <th>Site</th>
+          <th>Date</th>
+          <th style="text-align:right">Past Rate</th>
+        </tr></thead>
+        <tbody>${rateHistoryItems.map(h => {
+          const diffPct = Math.round(h.diff * 100);
+          const diffLabel = h.diff > 0.1
+            ? `<span style="color:#c62828;font-weight:700">&#9650; +${diffPct}%</span>`
+            : h.diff < -0.1
+            ? `<span style="color:#2e7d32;font-weight:700">&#9660; ${diffPct}%</span>`
+            : `<span style="color:#1565c0;font-weight:700">&#61;</span>`;
+          const td = 'padding:4px 8px';
+          return h.sorted.map((p, i) => `<tr>
+            ${i === 0 ? `<td rowspan="${h.sorted.length}" style="${td}">${esc(h.desc)}</td>
+              <td rowspan="${h.sorted.length}" style="${td};text-align:right;font-weight:600">${inr(h.thisRate)}</td>
+              <td rowspan="${h.sorted.length}" style="${td};text-align:right;color:var(--txt2)">${inr(Math.round(h.avg))}</td>
+              <td rowspan="${h.sorted.length}" style="${td};text-align:center">${diffLabel}</td>` : ''}
+            <td style="${td};font-family:monospace;font-size:.7rem">${esc(p.poNo) || '—'}</td>
+            <td style="${td};font-size:.72rem">${esc(p.vendor) || '—'}</td>
+            <td style="${td};font-size:.72rem;color:var(--txt2)">${esc(p.site) || '—'}</td>
+            <td style="${td};white-space:nowrap;color:var(--txt2)">${_mdpFmtDate(p.date)}</td>
+            <td style="${td};text-align:right">${inr(p.rate)}</td>
+          </tr>`).join('');
+        }).join('')}</tbody>
+      </table></div>
+    </div>` : ''}
+
+    ${H('Vendor Ledger — ' + _mdpEsc(r.vendor || '—'))}
+    <div style="padding:0 1rem 1rem">${vendorLedger}</div>
+  </div>`;
+}
+
+window._pvSetFilter = function(f) {
+  _pvFilter = f;
+  ['all','pending','approved','rejected'].forEach(k => {
+    const b = document.getElementById('pv-tab-' + k);
+    if (b) b.className = 'btn btn-sm ' + (k === f ? 'btn-primary' : 'btn-secondary');
+  });
+  _pvRenderCards();
+};
+window._pvOnSearch = function(v) {
+  clearTimeout(window._pvSearchT);
+  window._pvSearchT = setTimeout(() => {
+    _pvSearch = v.trim(); _pvRenderCards();
+    const e = document.getElementById('pv-search');
+    if (e) { e.focus(); const n = e.value.length; try { e.setSelectionRange(n,n); } catch (_) {} }
+  }, 250);
+};
+window._pvSetSite = function(v) { _pvSite = v; _pvRenderCards(); };
 
 // ── ACCOUNTS STATUS MASTER ──────────────────────────────
 // STATUS MAP: keys = exact AG column values (Col D of Status Master), labels = Col G display values
@@ -10096,6 +10535,7 @@ const MODULE_REGISTRY = [
   { route:'subcontractor',     label:'Subcontractor Portal',   section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
   { route:'po-register',       label:'Purchase Orders',        section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
   { route:'stockin-register',  label:'StockIN Register',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
+  { route:'purchase-view',     label:'Purchase View',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'tendering',         label:'Tendering',              section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
 
   // ── Accounts ──────────────────────────────────────────────────
@@ -11915,7 +12355,7 @@ function renderSCMDashboard() {
     </div>
     <!-- Level-3 sub-pages -->
     <div class="evg-dash-grid" style="margin-bottom:1.4rem">
-      ${[['scm-pending','⏳','Pending Approval'],['scm-site','🏗️','Spend by Site'],['scm-vendor','🏢','Top Vendors'],['stores-openpo','🔓','Open POs']]
+      ${[['scm-pending','⏳','Pending Approval'],['scm-site','🏗️','Spend by Site'],['scm-vendor','🏢','Top Vendors'],['stores-openpo','🔓','Open POs'],['purchase-view','🔍','Purchase View']]
         .map(([r,i,l]) => `<div class="evg-kpi" data-click="1" onclick="navigate('${r}')"><div style="font-size:1.3rem">${i}</div><div class="evg-kpi-lbl" style="font-weight:700;color:var(--g9);font-size:.9rem">${l}</div><div class="evg-kpi-lbl">Open as its own page →</div></div>`).join('')}
     </div>
 
@@ -11925,7 +12365,7 @@ function renderSCMDashboard() {
         <div class="kpi-top"><div class="kpi-icon green">📋</div><div class="kpi-trend flat" style="font-size:.65rem">view all ↓</div></div>
         <div class="kpi-value" id="scm-kpi-total">—</div>
         <div class="kpi-label">Total POs</div>
-        <div style="margin-top:.35rem"><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')">🚀 Purchase View</button></div>
+        <div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();navigate('purchase-view')" style="font-size:.68rem;padding:.2rem .55rem">&#128269; Portal View</button><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')" style="font-size:.68rem">&#128640; AppSheet</button></div>
       </div>
       <div class="kpi-card warn" style="cursor:pointer" onclick="window.scmJumpTo('pending')">
         <div class="kpi-top"><div class="kpi-icon orange">⏳</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
@@ -11937,13 +12377,13 @@ function renderSCMDashboard() {
         <div class="kpi-top"><div class="kpi-icon blue">✅</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="scm-kpi-approved">—</div>
         <div class="kpi-label">Approved</div>
-        <div style="margin-top:.35rem"><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')">🚀 Purchase View</button></div>
+        <div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();navigate('purchase-view')" style="font-size:.68rem;padding:.2rem .55rem">&#128269; Portal View</button><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')" style="font-size:.68rem">&#128640; AppSheet</button></div>
       </div>
       <div class="kpi-card" style="cursor:pointer" onclick="window.scmJumpTo('rejected')">
         <div class="kpi-top"><div class="kpi-icon red">❌</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="scm-kpi-rejected">—</div>
         <div class="kpi-label">Rejected</div>
-        <div style="margin-top:.35rem"><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')">🚀 Purchase View</button></div>
+        <div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();navigate('purchase-view')" style="font-size:.68rem;padding:.2rem .55rem">&#128269; Portal View</button><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')" style="font-size:.68rem">&#128640; AppSheet</button></div>
       </div>
       <div class="kpi-card" style="cursor:pointer;border-left:3px solid #c62828" onclick="window.scmOpenPOs()">
         <div class="kpi-top"><div class="kpi-icon red">🔓</div><div class="kpi-trend flat" style="font-size:.65rem">view report ↓</div></div>
@@ -16262,11 +16702,12 @@ function pstRenderStockINRaw(c) {
 
    Both source files (v2_Purchase: PO_Actual + PO_Items_Actual, and v2_Stores:
    StockIN) are fetched fresh by _openPOEnsure; the tab's Reload button forces it. */
-let _openPOLoaded   = false;
-let _openPOHeaders  = [];
-let _openPOItems    = [];
-let _openPOStock    = [];
-let _openPOPayments = [];   // raw PaymentRequest rows, joined to POs by Order No
+let _openPOLoaded      = false;
+let _openPOHeaders     = [];
+let _openPOItems       = [];
+let _openPOStock       = [];
+let _openPOPayments    = [];   // raw PaymentRequest rows, joined to POs by Order No
+let _openPOAddlCharges = [];   // Additional Charges tab rows (one row per charge per PO)
 
 const _opNorm = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const _opPO   = s => String(s == null ? '' : s).trim().toUpperCase();
@@ -16343,6 +16784,10 @@ async function _openPOEnsure(force) {
     if (!pay || !pay.length) { await new Promise(z => setTimeout(z, 600)); pay = await fetchSheet(payTab, null, paySid); }
   } catch (e) { pay = []; }
   _openPOPayments = pay || [];
+  // Additional Charges tab — one row per additional charge per PO (freight, loading, etc.)
+  let addlCharges = [];
+  try { addlCharges = await grab('Additional Charges', PO_SHEET_ID, null) || []; } catch (e) { addlCharges = []; }
+  _openPOAddlCharges = addlCharges;
   _openPOLoaded  = true;
 }
 
@@ -18137,7 +18582,7 @@ function renderVendorPOTracker() {
         <div class="kpi-top"><div class="kpi-icon green">${typeIcon}</div><div class="kpi-trend flat" style="font-size:.65rem">view all ↓</div></div>
         <div class="kpi-value" id="vpo-kpi-total">—</div>
         <div class="kpi-label">Total POs</div>
-        <div style="margin-top:.35rem"><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')">🚀 Purchase View</button></div>
+        <div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();navigate('purchase-view')" style="font-size:.68rem;padding:.2rem .55rem">&#128269; Portal View</button><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')" style="font-size:.68rem">&#128640; AppSheet</button></div>
       </div>
       <div class="kpi-card warn" style="cursor:pointer" onclick="window.vpoSetFilter('pending');document.getElementById('vpo-table')?.scrollIntoView({behavior:'smooth',block:'start'})">
         <div class="kpi-top"><div class="kpi-icon orange">⏳</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
@@ -18149,7 +18594,7 @@ function renderVendorPOTracker() {
         <div class="kpi-top"><div class="kpi-icon blue">✅</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="vpo-kpi-approved">—</div>
         <div class="kpi-label">Approved</div>
-        <div style="margin-top:.35rem"><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')">🚀 Purchase View</button></div>
+        <div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();navigate('purchase-view')" style="font-size:.68rem;padding:.2rem .55rem">&#128269; Portal View</button><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')" style="font-size:.68rem">&#128640; AppSheet</button></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-top"><div class="kpi-icon green">₹</div></div>
