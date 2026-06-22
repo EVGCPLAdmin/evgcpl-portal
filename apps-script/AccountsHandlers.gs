@@ -9,7 +9,8 @@
  * formula-driven sheets.
  *
  * Dispatched from Router.gs:
- *   saveNewPaymentRequest, saveAccountsUpdate, createPRFolder, uploadPRAttachment
+ *   saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance,
+ *   createPRFolder, uploadPRAttachment, listPRAttachments
  *
  * IMPORTANT: after editing this file the Apps Script /exec MUST be
  * redeployed (Deploy -> Manage deployments -> New version) before the
@@ -40,6 +41,29 @@ function saveAccountsUpdate(body) {
     var res = _accAppendByHeader(body.sheetId, body.tab || 'AccountsUpdate', body.row || {});
     if (!res.success) return res;
     return { success: true, uuid: (body.row && body.row['UUID']) || '', rowsAfter: res.rowsAfter, unmatched: res.unmatched };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ACTION: saveVendorOpeningBalance
+//  body: { sheetId, tab:'OpeningBalance', row:{ <header>:<value>, ... } }
+//  Records a vendor's carried-forward opening balance (Vendor Ledger).
+//  Header-mapped append, identical to the writes above. `Opening Balance`
+//  is a SIGNED amount (+ = Cr / payable b/f, − = Dr / advance); the tab has
+//  no separate Dr/Cr column. Writes to the Vendor Master workbook's
+//  OpeningBalance tab — the web app must have EDIT access to that file.
+// ─────────────────────────────────────────────────────────────
+function saveVendorOpeningBalance(body) {
+  try {
+    var row = body.row || {};
+    if (!row['Vendor ID'] && !row['VendorKey(UUID)']) {
+      return { success: false, message: 'Missing Vendor ID / Vendor Key' };
+    }
+    var res = _accAppendByHeader(body.sheetId, body.tab || 'OpeningBalance', row);
+    if (!res.success) return res;
+    return { success: true, uuid: row['UUID'] || '', rowsAfter: res.rowsAfter, unmatched: res.unmatched };
   } catch (e) {
     return { success: false, message: e.message };
   }
