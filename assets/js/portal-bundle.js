@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.15.4';
-const PORTAL_BUILD    = 605;
-const PORTAL_BUILD_AT = '2026-06-22T19:02:10Z';
+const PORTAL_VERSION  = '4.15.5';
+const PORTAL_BUILD    = 606;
+const PORTAL_BUILD_AT = '2026-06-22T19:05:56Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4769,7 +4769,8 @@ async function _vplpEnsure(force) {
     // the placeholder sheet/tab; until VENDOR_OPENING_BAL_SHEET_ID is set this
     // stays an empty list and the ledger simply opens at zero.
     if (VENDOR_OPENING_BAL_SHEET_ID) {
-      try { _vplpOBRows = await fetchSheet(VENDOR_OPENING_BAL_TAB, null, VENDOR_OPENING_BAL_SHEET_ID, { rawId: true }) || []; }
+      // No rawId → honours the runtime Sheet-Linking override (VENDOR key).
+      try { _vplpOBRows = await fetchSheet(VENDOR_OPENING_BAL_TAB, null, VENDOR_OPENING_BAL_SHEET_ID) || []; }
       catch (e) { _vplpOBRows = []; }
     } else { _vplpOBRows = []; }
   }
@@ -5329,7 +5330,11 @@ window._vplpOBSubmit = async function() {
   }
   const btn = document.getElementById('vplp-ob-submit');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-  const resp = await _accPostAwait({ action: 'saveVendorOpeningBalance', sheetId: VENDOR_OPENING_BAL_SHEET_ID, tab: VENDOR_OPENING_BAL_TAB, row });
+  // Resolve through the Sheet-Linking override so the write targets the same
+  // (possibly re-pointed) sheet the reads use — configurable at runtime from
+  // Config → Sheet Links (VENDOR key).
+  const obSheetId = (typeof _resolveSheetId === 'function') ? _resolveSheetId(VENDOR_OPENING_BAL_SHEET_ID) : VENDOR_OPENING_BAL_SHEET_ID;
+  const resp = await _accPostAwait({ action: 'saveVendorOpeningBalance', sheetId: obSheetId, tab: VENDOR_OPENING_BAL_TAB, row });
   if (resp && resp.success !== false) {
     _accToast('✅ Opening balance saved');
     window._vplpCloseOB();
