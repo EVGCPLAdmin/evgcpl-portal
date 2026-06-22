@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.15.9';
+const PORTAL_VERSION  = '4.16.0';
 const PORTAL_BUILD    = 610;
-const PORTAL_BUILD_AT = '2026-06-22T19:34:59Z';
+const PORTAL_BUILD_AT = '2026-06-22T19:34:37Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4708,6 +4708,7 @@ function _scLedRenderBody() {
 // (PaymentRequest row with Payment To = Vendor and a non-empty Order No).
 let _vplpVendor = '';
 let _vplpView   = 'vendor';   // 'vendor' = per-vendor ledger · 'flat' = all-vendor flat list
+let _vplpLedgerMode = 'active'; // per-vendor ledger: 'active' (opening + post-opening) | 'closed' (pre-opening)
 let _vplpFlatStatus = '';     // flat-list balance-status filter: '' | Payable | Settled | Advance
 // Vendor balance status (AP / creditors-ledger convention):
 //   Cr balance (we owe)  → Payable (Outstanding)
@@ -4738,11 +4739,12 @@ function renderVendorLedgerPO() {
   });
 }
 window._vplpReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _vplpEnsure(true).then(() => _vplpRenderBody()).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
-window._vplpSetVendor = function(v) { _vplpVendor = v; _vplpFY = ''; _vplpRenderBody(); };
+window._vplpSetVendor = function(v) { _vplpVendor = v; _vplpFY = ''; _vplpLedgerMode = 'active'; _vplpRenderBody(); };
 window._vplpSetFY     = function(v) { _vplpFY = v; _vplpRenderBody(); };
 window._vplpSetView   = function(v) { _vplpView = v; _vplpRenderBody(); };
 window._vplpSetFlatStatus = function(v) { _vplpFlatStatus = v; _vplpRenderBody(); };
-window._vplpFlatOpen  = function(i) { const r = (window._vplpFlatRows || [])[i]; if (!r) return; _vplpVendor = r.v.key; _vplpFY = ''; _vplpView = 'vendor'; _vplpRenderBody(); };
+window._vplpSetLedgerMode = function(v) { _vplpLedgerMode = v; _vplpRenderBody(); };
+window._vplpFlatOpen  = function(i) { const r = (window._vplpFlatRows || [])[i]; if (!r) return; _vplpVendor = r.v.key; _vplpFY = ''; _vplpLedgerMode = 'active'; _vplpView = 'vendor'; _vplpRenderBody(); };
 // Jump straight to a vendor's PO ledger (used by the Vendor master / portal).
 // Vendors are keyed in the ledger by their Vendor-ID token (e.g. EGVE001);
 // renderVendorLedgerPO() doesn't reset _vplpVendor, so set it before navigating.
@@ -4978,25 +4980,37 @@ function _vplpRenderBody() {
 // Per-vendor Dr/Cr rows: credit = received goods (material + tax + charges),
 // debit = completed vendor payments, bal = credit − debit, status by sign.
 // Shared by the flat list and by PR bill-status lookups.
+// Opening-balance "as on" date value for a vendor (0 = none).
+function _vplpOBDateVal(v) { return (v && v.opening && v.opening.date) ? _mdpDateVal(v.opening.date) : 0; }
 function _vplpVendorRows() {
   const d = _vplpData;
   if (!d) return [];
-  const debitByKey = {};
+  // Payments per vendor with their dates — so each vendor's debit can exclude
+  // anything dated on/before its own opening-balance date (already in the OB).
+  const payByKey = {};
   (_mdpRows || []).forEach(r => {
     if (r.payTo !== 'Vendor') return;
     if (!(r.status && r.status.cat === 'completed')) return;
     const vid = _vplpResolveVid(r);
     const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
-    debitByKey[key] = (debitByKey[key] || 0) + r.amount;
+    (payByKey[key] = payByKey[key] || []).push({ dv: _mdpDateVal(r.date), amt: r.amount });
   });
   return d.vendors.map(v => {
+    // Opening balance rolls up everything up to its date; count only what's
+    // posted AFTER it (older rows are "closed" — see the per-vendor ledger).
+    const obDv = _vplpOBDateVal(v);
+    const after = dv => !obDv || dv > obDv;
     let mat = 0, addl = 0, taxA = 0, taxB = 0;
     Object.keys(v.poKeys).forEach(k => {
       const i = d.poInfo[k] || {}; const m = d.poRecv[k] || 0, ta = d.poTaxA[k] || 0, tb = i.taxB || 0, ad = i.addl || 0;
-      if (m + ad + ta + tb <= 0) return; mat += m; addl += ad; taxA += ta; taxB += tb;
+      if (m + ad + ta + tb <= 0) return;
+      if (!after(_mdpDateVal(i.date))) return;   // pre-opening → closed, excluded
+      mat += m; addl += ad; taxA += ta; taxB += tb;
     });
+    let payDebit = 0;
+    (payByKey[v.key] || []).forEach(p => { if (after(p.dv)) payDebit += p.amt; });
     const ob = v.opening || { credit: 0, debit: 0 };
-    const credit = mat + addl + taxA + taxB + ob.credit, debit = (debitByKey[v.key] || 0) + ob.debit, bal = credit - debit;
+    const credit = mat + addl + taxA + taxB + ob.credit, debit = payDebit + ob.debit, bal = credit - debit;
     return { v, mat, addl, taxA, taxB, opCredit: ob.credit, opDebit: ob.debit, credit, debit, bal, status: _vplpBalStatus(bal) };
   });
 }
@@ -5143,16 +5157,32 @@ function _vplpLedger(v, embedOpts) {
     all.push({ date: r.date, ref: r.requestId || r.uuid, type: 'Payment' + (r.orderNo ? ' · ' + esc(r.orderNo) : ''), payRaw: r.raw || null, kind: 'dr', mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
   });
   if (!all.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No approved-PO receipts or completed payments for this vendor.</div>';
+  // Active vs Closed split. An opening balance already rolls up everything up to
+  // its "as on" date, so the live ("Active") ledger = the opening row + entries
+  // posted AFTER it; entries on/before it are "Closed" (already in the opening)
+  // and viewable separately so the running balance isn't double-counted.
+  const _obDv = (ob && ob.date) ? _mdpDateVal(ob.date) : 0;
+  const closedAll = _obDv ? all.filter(e => !e.opening && _mdpDateVal(e.date) <= _obDv) : [];
+  const activeAll = _obDv ? all.filter(e => e.opening || _mdpDateVal(e.date) > _obDv) : all;
+  const hasClosed = closedAll.length > 0;
+  const showClosed = !embedOpts && hasClosed && _vplpLedgerMode === 'closed';
+  const scope = showClosed ? closedAll : activeAll;
+  const modeBar = (!embedOpts && hasClosed) ? `<div style="display:flex;gap:.5rem;margin-bottom:.8rem;align-items:center;flex-wrap:wrap">
+      <button onclick="_vplpSetLedgerMode('active')" class="btn btn-sm ${!showClosed ? 'btn-primary' : 'btn-secondary'}">&#128210; Active Ledger</button>
+      <button onclick="_vplpSetLedgerMode('closed')" class="btn btn-sm ${showClosed ? 'btn-primary' : 'btn-secondary'}">&#128452; Closed Ledger (${closedAll.length})</button>
+      <span style="font-size:.7rem;color:var(--txt3)">${showClosed ? 'Entries on/before ' + _mdpFmtDate(ob.date) + ' &mdash; already rolled into the opening balance' : 'Opening balance as on ' + _mdpFmtDate(ob.date) + ' + entries posted after'}</span>
+    </div>` : '';
+  if (!scope.length) return modeBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No entries in this view.</div>';
   // Financial-year filter.
-  const fySet = Array.from(new Set(all.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
+  const fySet = Array.from(new Set(scope.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
   const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _fy ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
   const fyBar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
     <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">FINANCIAL YEAR</label>
     <select onchange="${_onChangeFY}(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2)">${fyOpts}</select>
     <span style="font-size:.7rem;color:var(--txt3)">${_fy ? _vplpFYLabel(_fy) + ' · Apr–Mar' : 'All transactions'}</span>
   </div>`;
-  const entries = _fy ? all.filter(e => _vplpFYof(e.date) === _fy) : all;
-  if (!entries.length) return fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
+  const entries = _fy ? scope.filter(e => _vplpFYof(e.date) === _fy) : scope;
+  if (!entries.length) return modeBar + fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   // Opening balance always first; then chronological, same-day credits (receipt) before debits (payment).
   entries.sort((a, b) => ((b.opening ? 1 : 0) - (a.opening ? 1 : 0)) || (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
   let running = 0;
@@ -5224,7 +5254,7 @@ function _vplpLedger(v, embedOpts) {
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td></tr>`;
-  return fyBar + kpi + `<div class="card"><div style="overflow-x:auto">
+  return modeBar + fyBar + kpi + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
