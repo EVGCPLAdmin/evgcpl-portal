@@ -4873,15 +4873,12 @@ function _vplpRcptHtml(rcpts, esc) {
     else { pendN++; if (!pend) pend = rc; }
   });
   const link = (label, idx) => `<a onclick="event.stopPropagation();_siOpenDetail(${idx})" title="Open StockIN receipt" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(label)}</a>`;
-  const cap = 6;
-  const parts = named.slice(0, cap).map(rc => link(rc.no, rc.idx));
-  const extra = named.length > cap ? named.length - cap : 0;
+  const parts = named.map(rc => link(rc.no, rc.idx));   // show ALL receipts — wrap, don't collapse into "+N"
   if (pend) parts.push(link('Pending' + (pendN > 1 ? ` (${pendN})` : ''), pend.idx));
   const invs = Array.from(new Set(rcpts.map(r => r.inv).filter(Boolean)));
-  const invTxt = invs.length ? ` &middot; <span style="color:var(--txt3)">Inv:</span> ${invs.slice(0, 5).map(esc).join(', ')}${invs.length > 5 ? ` +${invs.length - 5}` : ''}` : '';
-  const more = extra ? ` <span style="color:var(--txt3)">+${extra}</span>` : '';
+  const invTxt = invs.length ? ` &middot; <span style="color:var(--txt3)">Inv:</span> ${invs.map(esc).join(', ')}` : '';
   if (!parts.length && !invs.length) return '';
-  return `<div style="font-size:.68rem;margin-top:2px;line-height:1.5"><span style="color:var(--txt3)">GRN:</span> ${parts.join(', ') || '—'}${more}${invTxt}</div>`;
+  return `<div style="font-size:.68rem;margin-top:2px;line-height:1.5;white-space:normal;overflow-wrap:break-word;word-break:break-word"><span style="color:var(--txt3)">GRN:</span> ${parts.join(', ') || '—'}${invTxt}</div>`;
 }
 function _vplpRenderBody() {
   const c = document.getElementById('vplp-body'); if (!c) return;
