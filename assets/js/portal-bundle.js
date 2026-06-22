@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.13.4';
-const PORTAL_BUILD    = 596;
-const PORTAL_BUILD_AT = '2026-06-22T10:17:49Z';
+const PORTAL_VERSION  = '4.13.5';
+const PORTAL_BUILD    = 597;
+const PORTAL_BUILD_AT = '2026-06-22T10:51:54Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -6982,6 +6982,7 @@ let _pvAllRows    = [];
 let _pvFilter     = 'all';
 let _pvSearch     = '';
 let _pvSite       = '';
+let _pvLastDocUUID = '', _pvLastDirectUrls = [];
 function renderPurchaseView() {
   const el = document.getElementById('mainContent');
   _pvFilter = 'all'; _pvSearch = ''; _pvSite = '';
@@ -7144,6 +7145,7 @@ window._pvToggle = function(poNo) {
   const headerExtra = `<a href="${_mdpEsc(appLink)}" target="_blank" class="btn btn-sm btn-secondary" style="font-size:.72rem;text-decoration:none">&#128279; AppSheet</a>`;
   const titleHtml = `${_mdpEsc(poNo)} <span style="background:${st.bg};color:${st.color};padding:.12rem .45rem;border-radius:20px;font-size:.68rem;font-weight:700;margin-left:.4rem">${st.label}</span>`;
   _regOpenModal(titleHtml, _pvDetailBody(r), headerExtra);
+  _poLoadAttachments(_pvLastDocUUID, _pvLastDirectUrls);
 };
 
 function _pvDetailBody(r) {
@@ -7282,27 +7284,33 @@ function _pvDetailBody(r) {
 
   const inWords = G(['Amount in Words']);
 
-  // ── Documents: PO PDF + Quote attachments
-  const poPdfUrl   = G(['PO PDF', 'PO PDF Link', 'PO Document', 'PO Doc Link', 'PO Link', 'Document Link', 'PO File']);
-  const quoteRef   = G(['Quote Ref', 'Quote Reference', 'Quote No']);
-  const quoteDate  = G(['Quote Date']);
-  const quoteUrls  = ['Quote(Attachment)', 'Quote(Attachment 2)', 'Quote(Attachment 3)', 'Quote(Attachment 4)', 'Quote(Attachment 5)']
+  // ── Documents: PO PDF + Quote attachments — loaded async by _poLoadAttachments
+  const quoteRef  = G(['Quote Ref', 'Quote Reference', 'Quote No']);
+  const quoteDate = G(['Quote Date']);
+  const poPdfUrl  = G(['PO PDF', 'PO PDF Link', 'PO Document', 'PO Doc Link', 'PO Link', 'Document Link', 'PO File']);
+  _pvLastDirectUrls = ['Quote(Attachment)', 'Quote(Attachment 2)', 'Quote(Attachment 3)', 'Quote(Attachment 4)', 'Quote(Attachment 5)']
     .map((c, i) => ({ url: G([c]), label: i === 0 ? 'Quote' : 'Quote ' + (i + 1) })).filter(o => o.url);
-  const _docBtn = (url, label) => {
-    const id = _regDriveId(url);
-    const href = id ? ('https://drive.google.com/file/d/' + id + '/view') : url;
-    return `<a href="${esc(href)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:.25rem;padding:.25rem .6rem;border-radius:6px;background:var(--surface2);border:1px solid var(--border);font-size:.74rem;color:var(--txt);text-decoration:none;white-space:nowrap">&#128196; ${esc(label)} &#8599;</a>`;
-  };
-  const hasDocuments = poPdfUrl || quoteUrls.length;
-  const docSection = hasDocuments ? `
+  if (poPdfUrl) _pvLastDirectUrls.unshift({ url: poPdfUrl, label: 'PO PDF' });
+  _pvLastDocUUID = G(['UUID']) || '';
+  const docSection = `
     ${H('Documents')}
     <div style="padding:0 1rem .5rem">
       ${quoteRef || quoteDate ? `<div style="font-size:.76rem;color:var(--txt2);margin-bottom:.4rem">Quote: <b>${esc(quoteRef) || '—'}</b>${quoteDate ? ' &nbsp;&middot;&nbsp; ' + _mdpFmtDate(quoteDate) : ''}</div>` : ''}
-      <div style="display:flex;flex-wrap:wrap;gap:.4rem">
-        ${poPdfUrl ? _docBtn(poPdfUrl, 'PO PDF') : ''}
-        ${quoteUrls.map(o => _docBtn(o.url, o.label)).join('')}
-      </div>
-    </div>` : '';
+      <div id="poAttBox" style="color:var(--txt3);font-size:.78rem;padding:.3rem 0">&#9203; Loading documents&hellip;</div>
+    </div>`;
+
+  // ── Vendor payment ledger (full running-balance view)
+  const _vn = _opNorm(r.vendor || '');
+  const vendorPayRows = _mdpRows
+    ? _mdpRows.filter(pr => pr.payTo === 'Vendor' && (
+        _opNorm(pr.vendor) === _vn ||
+        _opNorm(_mdpStrip(pr.paidTo)) === _vn ||
+        _opNorm(pr.paidTo) === _vn
+      ))
+    : [];
+  const vendorLedger = vendorPayRows.length
+    ? partyLedgerRender(vendorPayRows, { onRowClick: '_accOpenPRDetail' })
+    : `<div style="font-size:.78rem;color:var(--txt3);padding:.5rem 0">No payment records found for <b>${esc(r.vendor || '—')}</b>.</div>`;
 
   return `<div>
     ${docSection}
@@ -7369,57 +7377,9 @@ function _pvDetailBody(r) {
       </table></div>
     </div>` : ''}
 
-    ${H('Vendor Bill Status — ' + _mdpEsc(r.vendor || '—'))}
-    <div style="padding:0 1rem 1rem">${_pvVendorLedgerSummary(r.vendor)}</div>
+    ${H('Vendor Ledger — ' + _mdpEsc(r.vendor || '—'))}
+    <div style="padding:0 1rem 1rem">${vendorLedger}</div>
   </div>`;
-}
-
-function _pvVendorLedgerSummary(vendorName) {
-  if (!vendorName || !_mdpRows) return '<div style="font-size:.78rem;color:var(--txt3)">Payment ledger not loaded.</div>';
-  const vn = _opNorm(vendorName);
-  const rows = _mdpRows.filter(r =>
-    r.payTo === 'Vendor' && (
-      _opNorm(r.vendor) === vn ||
-      _opNorm(_mdpStrip(r.paidTo)) === vn ||
-      _opNorm(r.paidTo) === vn
-    )
-  );
-  if (!rows.length) return `<div style="font-size:.78rem;color:var(--txt3)">No payment records for <b>${_mdpEsc(vendorName)}</b>.</div>`;
-  const esc = _mdpEsc;
-  const inr = v => '&#8377;' + Number(v || 0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
-  const totalBilled  = rows.reduce((s, r) => s + (r.amount || 0), 0);
-  const totalPaid    = rows.filter(r => r.status && r.status.cat === 'completed').reduce((s, r) => s + (r.paidVal || r.amount || 0), 0);
-  const totalPending = Math.max(0, totalBilled - totalPaid);
-  const recentRows   = rows.slice(0, 5);
-  const recentHtml   = recentRows.map(r => {
-    const st  = r.status || {};
-    const stBg = st.cat === 'completed' ? '#e8f5e9' : st.cat === 'rejected' ? '#ffebee' : '#fff8e1';
-    const stCl = st.cat === 'completed' ? '#2e7d32' : st.cat === 'rejected' ? '#c62828' : '#b07000';
-    return `<tr>
-      <td style="padding:4px 8px;font-size:.74rem">${esc(r.requestId) || '—'}</td>
-      <td style="padding:4px 8px;font-size:.74rem;white-space:nowrap">${_mdpFmtDate(r.date)}</td>
-      <td style="padding:4px 8px;font-size:.74rem;text-align:right">${inr(r.amount)}</td>
-      <td style="padding:4px 8px"><span style="background:${stBg};color:${stCl};font-size:.66rem;font-weight:700;padding:.1rem .4rem;border-radius:12px">${esc(st.label) || '—'}</span></td>
-    </tr>`;
-  }).join('');
-  return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-bottom:.6rem">
-    <div style="background:var(--surface2);border-radius:8px;padding:.5rem .7rem;text-align:center">
-      <div style="font-size:.68rem;color:var(--txt3)">Total Billed</div>
-      <div style="font-weight:700;font-size:.82rem">${inr(totalBilled)}</div>
-    </div>
-    <div style="background:#e8f5e9;border-radius:8px;padding:.5rem .7rem;text-align:center">
-      <div style="font-size:.68rem;color:#2e7d32">Paid</div>
-      <div style="font-weight:700;font-size:.82rem;color:#2e7d32">${inr(totalPaid)}</div>
-    </div>
-    <div style="background:${totalPending > 0 ? '#fff8e1' : 'var(--surface2)'};border-radius:8px;padding:.5rem .7rem;text-align:center">
-      <div style="font-size:.68rem;color:${totalPending > 0 ? '#b07000' : 'var(--txt3)'}">Pending</div>
-      <div style="font-weight:700;font-size:.82rem;color:${totalPending > 0 ? '#b07000' : 'var(--txt2)'}">${inr(totalPending)}</div>
-    </div>
-  </div>
-  ${recentHtml ? `<div style="overflow-x:auto"><table class="data-table" style="font-size:.76rem;margin:0">
-    <thead><tr><th>Request ID</th><th>Date</th><th style="text-align:right">Amount</th><th>Status</th></tr></thead>
-    <tbody>${recentHtml}</tbody>
-  </table></div>` : ''}`;
 }
 
 window._pvSetFilter = function(f) {
