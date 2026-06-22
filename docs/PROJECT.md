@@ -272,7 +272,16 @@ A vendor account statement scoped to PO purchases (not the billed-amount model):
   (`PO_Actual`).
 - **Additional Charges** = `Sub Total (b)` (`PO_Actual`).
 - **Debit (Paid)** = the vendor's paid PO payments.
-- **Running Balance** = Σ(Credit − Debit) = outstanding payable. (Tax &
+- **Opening Balance** = a vendor's carried-forward Dr/Cr balance, recorded via a
+  side-pull form (⊕ Opening Balance) capturing **Vendor Key, Vendor Code,
+  Opening Balance + Dr/Cr, Details, and an "as-of" date**. It folds into the
+  ledger as the first entry (Cr → payable b/f, Dr → advance) and seeds the
+  running balance. Stored in a dedicated sheet — `VENDOR_OPENING_BAL_SHEET_ID` /
+  `VENDOR_OPENING_BAL_TAB` (**placeholders** in `portal-bundle.js`; set them once
+  the sheet is provided). Write posts via `getExec('accounts')` action
+  `saveVendorOpeningBalance`; until the sheet ID is set the ledger opens at zero
+  and the form explains it isn't wired yet.
+- **Running Balance** = Opening ± Σ(Credit − Debit) = outstanding payable. (Tax &
   Additional Charges are shown as columns and are *not* currently folded into
   the balance.)
 

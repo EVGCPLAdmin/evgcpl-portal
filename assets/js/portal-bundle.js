@@ -4764,7 +4764,48 @@ async function _vplpEnsure(force) {
     try { _vplpVMRows = await fetchSheet('7-VendorMaster', null, SHEET_ID) || []; }
     catch (e) { _vplpVMRows = []; }
   }
+  if (force || !_vplpOBRows) {
+    // Vendor opening balances (carried-forward Dr/Cr as of a date). Reads from
+    // the placeholder sheet/tab; until VENDOR_OPENING_BAL_SHEET_ID is set this
+    // stays an empty list and the ledger simply opens at zero.
+    if (VENDOR_OPENING_BAL_SHEET_ID) {
+      try { _vplpOBRows = await fetchSheet(VENDOR_OPENING_BAL_TAB, null, VENDOR_OPENING_BAL_SHEET_ID, { rawId: true }) || []; }
+      catch (e) { _vplpOBRows = []; }
+    } else { _vplpOBRows = []; }
+  }
   _vplpData = _vplpCompute();
+}
+// Opening-balance rows keyed by vendor key (Vendor ID / ledger key). Each row:
+// Vendor Key, Vendor Code, Opening Balance, Dr/Cr, As Of Date, Details.
+let _vplpOBRows = null;
+function _vplpOBVal(r, names) { for (const n of names) { const v = r[n]; if (v != null && String(v).trim() !== '') return String(v).trim(); } return ''; }
+// Normalise an opening-balance row → { key, code, name, amount, drcr, credit,
+// debit, date, details }. A "Cr" opening (payable carried forward) lands on the
+// credit side; "Dr" (advance/recoverable) on the debit side.
+function _vplpOBNorm(r) {
+  const key  = (_vplpOBVal(r, ['Vendor Key', 'Vendor ID', 'VendorID', 'Key', 'Vendor Code', 'Code']) || '').toUpperCase();
+  if (!key) return null;
+  const code = _vplpOBVal(r, ['Vendor Code', 'Code', 'Vendor ID', 'VendorID']);
+  const name = _vplpOBVal(r, ['Vendor Name', 'Name']);
+  const amount = _opNum(_vplpOBVal(r, ['Opening Balance', 'Amount', 'Opening Bal', 'Balance', 'Value']));
+  let drcr = (_vplpOBVal(r, ['Dr/Cr', 'DrCr', 'Type', 'Side']) || '').toLowerCase();
+  drcr = /dr|debit|adv/.test(drcr) ? 'Dr' : 'Cr';   // default Cr (payable)
+  const date = _vplpOBVal(r, ['As Of Date', 'As Of', 'Date', 'Opening Balance As Of', 'As On']);
+  const details = _vplpOBVal(r, ['Details', 'Remarks', 'Narration', 'Note', 'Description']);
+  return { key, code, name, amount, drcr, credit: drcr === 'Cr' ? amount : 0, debit: drcr === 'Dr' ? amount : 0, date, details };
+}
+// vendor key → merged opening balance (multiple rows per vendor sum together).
+function _vplpOBByKey() {
+  const m = {};
+  (_vplpOBRows || []).forEach(raw => {
+    const o = _vplpOBNorm(raw); if (!o) return;
+    const e = m[o.key] = m[o.key] || { key: o.key, code: o.code, name: o.name, credit: 0, debit: 0, date: o.date, details: o.details };
+    e.credit += o.credit; e.debit += o.debit;
+    if (!e.code && o.code) e.code = o.code;
+    if (!e.date && o.date) e.date = o.date;
+    if (o.details) e.details = e.details ? (e.details + '; ' + o.details) : o.details;
+  });
+  return m;
 }
 function _vplpVendorToken(s) {
   const m = String(s == null ? '' : s).toUpperCase().match(/[A-Z]{1,4}\d+/);
@@ -4860,8 +4901,16 @@ function _vplpCompute() {
     if (!(r.status && r.status.cat === 'completed')) return;
     getV(_vplpResolveVid(r, bridge), r.paidTo || r.vendor, r.acNumber).payCount++;
   });
+  // Opening balances: ensure a vendor entry exists for each (so an OB-only
+  // vendor with no PO/payment activity still shows), and tag it with its OB.
+  const obByKey = _vplpOBByKey();
+  Object.keys(obByKey).forEach(key => {
+    const o = obByKey[key];
+    const v = getV(key, o.name || vendorById[key] || o.code, '');
+    v.opening = o;
+  });
   const list = Object.values(vendors).sort((a, b) => (a.unmapped - b.unmapped) || (a.name || '').localeCompare(b.name || ''));
-  return { vendors: list, poInfo, poRecv, poTaxA, poRcpt, bridge };
+  return { vendors: list, poInfo, poRecv, poTaxA, poRcpt, bridge, obByKey };
 }
 // GRN + invoice sub-line for a credit (material-received) row. Each receipt's
 // GRN No links to its StockIN detail; invoice numbers are shown after.
@@ -4884,9 +4933,10 @@ function _vplpRenderBody() {
   const c = document.getElementById('vplp-body'); if (!c) return;
   const d = _vplpData; if (!d) return;
   const esc = _mdpEsc;
-  const toggle = `<div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap">
+  const toggle = `<div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
     <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
     <button onclick="_vplpSetView('flat')" class="btn btn-sm ${_vplpView === 'flat' ? 'btn-primary' : 'btn-secondary'}">&#128203; Flat List (all vendors)</button>
+    <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="margin-left:auto" title="Record a vendor's carried-forward opening balance">&#10133; Opening Balance</button>
   </div>`;
   if (_vplpView === 'flat') { c.innerHTML = _vplpFlatList(toggle); return; }
   const opts = `<option value="">Select vendor&hellip;</option>` + d.vendors.map(v =>
@@ -4900,9 +4950,11 @@ function _vplpRenderBody() {
   if (!_vplpVendor) { c.innerHTML = toggle + selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
   const v = d.vendors.find(x => x.key === _vplpVendor);
   if (!v) { c.innerHTML = toggle + selector; return; }
+  const obTag = v.opening ? ` &middot; <span style="color:#3730a3">Opening ${'₹' + Math.round((v.opening.credit || 0) - (v.opening.debit || 0)).toLocaleString('en-IN')} ${(v.opening.credit >= v.opening.debit) ? 'Cr' : 'Dr'}</span>` : '';
   const head = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem">
     <div><div style="font-weight:700;font-size:1rem">${esc(v.name)}${v.vid ? ` <span style="font-size:.72rem;color:var(--txt3)">[${esc(v.vid)}]</span>` : ''}</div>
-    <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) received &middot; ${v.payCount} payment(s)</div></div>
+    <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) received &middot; ${v.payCount} payment(s)${obTag}</div></div>
+    <button onclick="_vplpOpenOB('${esc(v.key)}')" class="btn btn-sm btn-secondary" title="Record / update this vendor's opening balance">&#10133; Opening Balance</button>
   </div>`;
   c.innerHTML = toggle + selector + head + _vplpLedger(v);
 }
@@ -4926,8 +4978,9 @@ function _vplpVendorRows() {
       const i = d.poInfo[k] || {}; const m = d.poRecv[k] || 0, ta = d.poTaxA[k] || 0, tb = i.taxB || 0, ad = i.addl || 0;
       if (m + ad + ta + tb <= 0) return; mat += m; addl += ad; taxA += ta; taxB += tb;
     });
-    const credit = mat + addl + taxA + taxB, debit = debitByKey[v.key] || 0, bal = credit - debit;
-    return { v, mat, addl, taxA, taxB, credit, debit, bal, status: _vplpBalStatus(bal) };
+    const ob = v.opening || { credit: 0, debit: 0 };
+    const credit = mat + addl + taxA + taxB + ob.credit, debit = (debitByKey[v.key] || 0) + ob.debit, bal = credit - debit;
+    return { v, mat, addl, taxA, taxB, opCredit: ob.credit, opDebit: ob.debit, credit, debit, bal, status: _vplpBalStatus(bal) };
   });
 }
 // vendor key → {credit,debit,bal,status}, cached against the current ledger data.
@@ -4987,6 +5040,7 @@ function _vplpFlatList(toggle) {
   const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.5rem 1.1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
     <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
       ${viewBtn('vendor', '&#128100; Per Vendor')}${viewBtn('flat', '&#128203; Flat List')}
+      <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem" title="Record a vendor's opening balance">&#10133; Opening Bal</button>
       ${sep}
       <span style="font-size:.64rem;font-weight:700;color:var(--txt3)">STATUS</span>
       ${statBtn('', 'All', rows.length)}${statBtn('Payable', 'Payable', counts.Payable || 0)}${statBtn('Settled', 'Settled', counts.Settled || 0)}${statBtn('Advance', 'Advance', counts.Advance || 0)}
@@ -5045,6 +5099,12 @@ function _vplpLedger(v) {
   const drcr = n => inr(Math.abs(n)) + (n >= 0 ? ' Cr' : ' Dr');
   _vplpEnsureLedgerStyle();
   const all = [];
+  // Opening balance (carried-forward Dr/Cr) — first entry of the ledger, dated
+  // "as of". Cr opens on the credit side (payable b/f), Dr on the debit side.
+  const ob = v.opening;
+  if (ob && (ob.credit > 0 || ob.debit > 0)) {
+    all.push({ date: ob.date || '', ref: 'Opening', type: 'Opening Balance' + (ob.details ? ' · ' + esc(ob.details) : ''), kind: ob.credit >= ob.debit ? 'cr' : 'dr', opening: true, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: ob.credit, debit: ob.debit, status: null, utr: '', uuid: '' });
+  }
   // Credit (goods received) — approved POs of this vendor with receipts. Credit =
   // Material(a) + Additional(b) + Tax(a) + Tax(b).
   Object.keys(v.poKeys).forEach(k => {
@@ -5074,8 +5134,8 @@ function _vplpLedger(v) {
   </div>`;
   const entries = _vplpFY ? all.filter(e => _vplpFYof(e.date) === _vplpFY) : all;
   if (!entries.length) return fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
-  // Chronological; same-day credits (receipt) before debits (payment).
-  entries.sort((a, b) => (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
+  // Opening balance always first; then chronological, same-day credits (receipt) before debits (payment).
+  entries.sort((a, b) => ((b.opening ? 1 : 0) - (a.opening ? 1 : 0)) || (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
   let running = 0;
   entries.forEach(e => { running += e.credit - e.debit; e.balance = running; });
   const sum = key => entries.reduce((s, e) => s + e[key], 0);
@@ -5119,7 +5179,9 @@ function _vplpLedger(v) {
     const click = e.uuid ? ` style="cursor:pointer" onclick="_accOpenPRDetail('${e.uuid}')"` : '';
     const statusCell = s
       ? `<span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span>`
-      : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
+      : e.opening
+        ? `<span style="font-size:.66rem;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:9px;font-weight:600">Opening</span>`
+        : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
     return `<tr${click}>
       <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(e.date)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(e.ref)}</td>
@@ -5153,6 +5215,110 @@ function _vplpLedger(v) {
         <th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th><th style="padding:8px 9px">Status</th>${extraHead}
       </tr></thead><tbody>${body}</tbody><tfoot>${tfoot}</tfoot></table></div></div>`;
 }
+
+// ── Opening Balance — side-pull form (record a vendor's carried-forward bal) ──
+// Records: Vendor Key, Vendor Code, Opening Balance + Dr/Cr, Details, As-Of date.
+// Writes to the placeholder sheet (VENDOR_OPENING_BAL_SHEET_ID / _TAB) via
+// getExec('accounts') action 'saveVendorOpeningBalance'. Until the sheet ID is
+// configured, submit explains the form isn't wired to a sheet yet.
+window._vplpOpenOB = function(prefillKey) {
+  let dr = document.getElementById('vplpOBDrawer');
+  if (!dr) {
+    dr = document.createElement('div');
+    dr.id = 'vplpOBDrawer';
+    dr.style.cssText = 'position:fixed;top:var(--header-h);right:-560px;width:520px;max-width:96vw;height:calc(100vh - var(--header-h));background:#fff;border-left:1px solid var(--border);z-index:1100;transition:right .28s cubic-bezier(.4,0,.2,1);box-shadow:-4px 0 24px rgba(0,0,0,.1);display:flex;flex-direction:column';
+    document.body.appendChild(dr);
+  }
+  _vplpDrawOBForm(dr, prefillKey || _vplpVendor || '');
+  requestAnimationFrame(() => { dr.style.right = '0'; });
+};
+window._vplpCloseOB = function() { const dr = document.getElementById('vplpOBDrawer'); if (dr) dr.style.right = '-560px'; };
+// Dropdown → auto-fill the key + code + name fields.
+window._vplpOBPick = function(key) {
+  const d = _vplpData; if (!d) return;
+  const v = (d.vendors || []).find(x => x.key === key);
+  const set = (id, val) => { const e = document.getElementById(id); if (e && val != null) e.value = val; };
+  if (v) { set('vplp-ob-key', v.key); set('vplp-ob-code', v.vid || v.key); set('vplp-ob-name', v.name || ''); }
+};
+function _vplpDrawOBForm(dr, prefillKey) {
+  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
+  const d = _vplpData || { vendors: [] };
+  const today = new Date().toLocaleDateString('en-CA');
+  const cur = (d.vendors || []).find(x => x.key === prefillKey);
+  const vendorOpts = `<option value="">— pick a vendor —</option>` + (d.vendors || []).map(v =>
+    `<option value="${esc(v.key)}"${v.key === prefillKey ? ' selected' : ''}>${esc(v.name)}${v.vid ? ` [${esc(v.vid)}]` : ''}</option>`).join('');
+  const fld = (label, ctrl, req) => `
+    <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:.7rem">
+      <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">${label}${req ? ' <span style="color:var(--danger)">*</span>' : ''}</label>
+      ${ctrl}
+    </div>`;
+  const grid = (...items) => `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 1rem">${items.join('')}</div>`;
+  const notConfigured = !VENDOR_OPENING_BAL_SHEET_ID;
+  dr.innerHTML = `
+    <div style="padding:1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff">
+      <div>
+        <div style="font-size:.98rem;font-weight:700">&#10133; Opening Balance</div>
+        <div style="font-size:.72rem;opacity:.85;margin-top:2px">Vendor carried-forward balance &middot; fields marked * are required</div>
+      </div>
+      <button onclick="_vplpCloseOB()" style="background:rgba(255,255,255,.18);border:none;color:#fff;width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:1rem">&#10006;</button>
+    </div>
+    <div class="evg-form" style="flex:1;overflow-y:auto;padding:1.1rem 1.3rem">
+      ${notConfigured ? `<div style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:.6rem .8rem;font-size:.74rem;margin-bottom:1rem">&#9888; Opening-balance sheet not configured yet. Set <code>VENDOR_OPENING_BAL_SHEET_ID</code> + <code>VENDOR_OPENING_BAL_TAB</code> to enable saving. You can still fill the form to preview it.</div>` : ''}
+      ${fld('Vendor', `<select id="vplp-ob-vendor" onchange="_vplpOBPick(this.value)">${vendorOpts}</select>`, false)}
+      ${grid(
+        fld('Vendor Key', `<input id="vplp-ob-key" value="${esc(cur ? cur.key : prefillKey || '')}" placeholder="e.g. EGVE001">`, true),
+        fld('Vendor Code', `<input id="vplp-ob-code" value="${esc(cur ? (cur.vid || cur.key) : '')}" placeholder="accounting code">`)
+      )}
+      ${fld('Vendor Name', `<input id="vplp-ob-name" value="${esc(cur ? cur.name : '')}" placeholder="display name">`)}
+      ${grid(
+        fld('Opening Balance', `<input id="vplp-ob-amount" type="number" step="0.01" min="0" placeholder="0.00">`, true),
+        fld('Dr / Cr', `<select id="vplp-ob-drcr"><option value="Cr" selected>Cr — Payable (we owe)</option><option value="Dr">Dr — Advance (recoverable)</option></select>`, true)
+      )}
+      ${fld('Opening Balance As Of', `<input id="vplp-ob-date" type="date" value="${today}">`, true)}
+      ${fld('Details / Remarks', `<textarea id="vplp-ob-details" rows="3" style="resize:vertical" placeholder="e.g. Balance carried forward from FY 2025-26"></textarea>`)}
+    </div>
+    <div style="padding:.9rem 1.3rem;border-top:1px solid var(--border);display:flex;gap:.7rem;justify-content:flex-end;flex-shrink:0;background:var(--surface2)">
+      <button onclick="_vplpCloseOB()" class="btn btn-secondary btn-sm">Cancel</button>
+      <button id="vplp-ob-submit" onclick="_vplpOBSubmit()" class="btn btn-primary btn-sm">Save Opening Balance</button>
+    </div>`;
+}
+window._vplpOBSubmit = async function() {
+  const val = id => { const e = document.getElementById(id); return e ? String(e.value || '').trim() : ''; };
+  const key = val('vplp-ob-key').toUpperCase();
+  const amount = parseFloat(val('vplp-ob-amount'));
+  const dateRaw = val('vplp-ob-date');
+  if (!key) { _accToast('⚠ Vendor Key is required'); return; }
+  if (!(amount > 0)) { _accToast('⚠ Enter an opening balance amount'); return; }
+  if (!dateRaw) { _accToast('⚠ Pick the "as of" date'); return; }
+  const row = {
+    'UUID': 'VOB-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    'Vendor Key': key,
+    'Vendor Code': val('vplp-ob-code'),
+    'Vendor Name': val('vplp-ob-name'),
+    'Opening Balance': amount,
+    'Dr/Cr': val('vplp-ob-drcr') || 'Cr',
+    'As Of Date': _accFmtDate(new Date(dateRaw)),
+    'Details': val('vplp-ob-details'),
+    'Recorded By': (STATE.user && (STATE.user.email || STATE.user.name)) || '',
+    'Timestamp': _accFmtDateTime(new Date()),
+  };
+  if (!VENDOR_OPENING_BAL_SHEET_ID) {
+    _accToast('⚠ Opening-balance sheet not configured — set VENDOR_OPENING_BAL_SHEET_ID to save');
+    return;
+  }
+  const btn = document.getElementById('vplp-ob-submit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  const resp = await _accPostAwait({ action: 'saveVendorOpeningBalance', sheetId: VENDOR_OPENING_BAL_SHEET_ID, tab: VENDOR_OPENING_BAL_TAB, row });
+  if (resp && resp.success !== false) {
+    _accToast('✅ Opening balance saved');
+    window._vplpCloseOB();
+    _vplpOBRows = null;                       // force re-read on next ensure
+    _vplpEnsure(true).then(() => _vplpRenderBody()).catch(() => {});
+  } else {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Opening Balance'; }
+    _accToast('⚠ ' + ((resp && resp.message) || 'Could not save the opening balance'));
+  }
+};
 // ═══════════════════════════════════════════════════════════════════════
 //  PO & STOCKIN REGISTERS — consolidated data UIs with click-to-detail views.
 //  PO opens as a printable PO document (inspired by the AppSheet PO PDF) with
@@ -6004,6 +6170,13 @@ const PAYMENT_SHEET_ID = '1mLddxLRf719EaXE9XSET9gT8l0a8Cxns362yIbHo63g'; // Acco
 // the exec registry / PortalConfig sheet (exec_accounts), not hardcoded here.
 const STORES_SHEET_ID  = '1iMQxgqGilUh2_3NCZl5D-EMt-NC8FwugX83q2fWb8fE'; // v2_Stores – StockIN / GRN_No tabs
 const EXPENSE_SHEET_ID = '1v7oS-VGxOaistVIaKHoI2A5AYJly2QbFKhe-6oi8k7g'; // Cash/Mess expenses – CashExpenseMonth · Cash Expenses · Ledger · Individual Food Expenses
+// Vendor opening balances — the sheet/tab that records each vendor's opening
+// balance (carried-forward Dr/Cr) as of a date. PLACEHOLDERS: fill the sheet ID
+// + tab name once the sheet is provided (the read folds opening balances into
+// the Vendor Ledger as the first entry; the write posts via getExec('accounts')
+// → action 'saveVendorOpeningBalance'). Until set, the read no-ops gracefully.
+const VENDOR_OPENING_BAL_SHEET_ID = ''; // TODO: opening-balance sheet ID (placeholder)
+const VENDOR_OPENING_BAL_TAB      = 'VendorOpeningBalance'; // TODO: tab name (placeholder)
 
 // ══════════════════════════════════════════════════════════
 //  MRS DASHBOARD
