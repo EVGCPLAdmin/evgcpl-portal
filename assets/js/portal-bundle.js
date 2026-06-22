@@ -12269,7 +12269,7 @@ function renderSCMDashboard() {
         <div class="kpi-top"><div class="kpi-icon green">📋</div><div class="kpi-trend flat" style="font-size:.65rem">view all ↓</div></div>
         <div class="kpi-value" id="scm-kpi-total">—</div>
         <div class="kpi-label">Total POs</div>
-        <div style="margin-top:.35rem"><button class="as-btn" onclick="event.stopPropagation();navigate('purchase-view')">Purchase View</button></div>
+        <div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();navigate('purchase-view')" style="font-size:.68rem;padding:.2rem .55rem">&#128269; Portal View</button><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')" style="font-size:.68rem">&#128640; AppSheet</button></div>
       </div>
       <div class="kpi-card warn" style="cursor:pointer" onclick="window.scmJumpTo('pending')">
         <div class="kpi-top"><div class="kpi-icon orange">⏳</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
@@ -12281,13 +12281,13 @@ function renderSCMDashboard() {
         <div class="kpi-top"><div class="kpi-icon blue">✅</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="scm-kpi-approved">—</div>
         <div class="kpi-label">Approved</div>
-        <div style="margin-top:.35rem"><button class="as-btn" onclick="event.stopPropagation();navigate('purchase-view')">Purchase View</button></div>
+        <div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();navigate('purchase-view')" style="font-size:.68rem;padding:.2rem .55rem">&#128269; Portal View</button><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')" style="font-size:.68rem">&#128640; AppSheet</button></div>
       </div>
       <div class="kpi-card" style="cursor:pointer" onclick="window.scmJumpTo('rejected')">
         <div class="kpi-top"><div class="kpi-icon red">❌</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="scm-kpi-rejected">—</div>
         <div class="kpi-label">Rejected</div>
-        <div style="margin-top:.35rem"><button class="as-btn" onclick="event.stopPropagation();navigate('purchase-view')">Purchase View</button></div>
+        <div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();navigate('purchase-view')" style="font-size:.68rem;padding:.2rem .55rem">&#128269; Portal View</button><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')" style="font-size:.68rem">&#128640; AppSheet</button></div>
       </div>
       <div class="kpi-card" style="cursor:pointer;border-left:3px solid #c62828" onclick="window.scmOpenPOs()">
         <div class="kpi-top"><div class="kpi-icon red">🔓</div><div class="kpi-trend flat" style="font-size:.65rem">view report ↓</div></div>
@@ -18481,7 +18481,7 @@ function renderVendorPOTracker() {
         <div class="kpi-top"><div class="kpi-icon green">${typeIcon}</div><div class="kpi-trend flat" style="font-size:.65rem">view all ↓</div></div>
         <div class="kpi-value" id="vpo-kpi-total">—</div>
         <div class="kpi-label">Total POs</div>
-        <div style="margin-top:.35rem"><button class="as-btn" onclick="event.stopPropagation();navigate('purchase-view')">Purchase View</button></div>
+        <div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();navigate('purchase-view')" style="font-size:.68rem;padding:.2rem .55rem">&#128269; Portal View</button><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')" style="font-size:.68rem">&#128640; AppSheet</button></div>
       </div>
       <div class="kpi-card warn" style="cursor:pointer" onclick="window.vpoSetFilter('pending');document.getElementById('vpo-table')?.scrollIntoView({behavior:'smooth',block:'start'})">
         <div class="kpi-top"><div class="kpi-icon orange">⏳</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
@@ -18493,7 +18493,7 @@ function renderVendorPOTracker() {
         <div class="kpi-top"><div class="kpi-icon blue">✅</div><div class="kpi-trend flat" style="font-size:.65rem">view list ↓</div></div>
         <div class="kpi-value" id="vpo-kpi-approved">—</div>
         <div class="kpi-label">Approved</div>
-        <div style="margin-top:.35rem"><button class="as-btn" onclick="event.stopPropagation();navigate('purchase-view')">Purchase View</button></div>
+        <div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();navigate('purchase-view')" style="font-size:.68rem;padding:.2rem .55rem">&#128269; Portal View</button><button class="as-btn" onclick="event.stopPropagation();window.open(AS.purchase(),'_blank')" style="font-size:.68rem">&#128640; AppSheet</button></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-top"><div class="kpi-icon green">₹</div></div>
