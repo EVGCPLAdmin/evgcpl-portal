@@ -5702,15 +5702,20 @@ window._poOpenDetail = function(poNo) {
 window._poLoadAttachments = async function(uuid, poNo) {
   const box = document.getElementById('poAttBox'); if (!box) return;
   const esc = _mdpEsc;
+  // The PO PDF is named with the PO Number, slashes swapped for underscores
+  // (e.g. PO/EVGE/417/26-27 → PO_EVGE_417_26-27.pdf). We search on that form;
+  // the backend does a substring (name contains) match, so amendment-suffixed
+  // variants (PO_EVGE_417_26-27_AMD1.pdf, …) are picked up automatically too.
+  const poKey = String(poNo || '').trim().replace(/\//g, '_');
   let files = [];
   try {
-    const resp = await _accPostAwait({ action: 'listPRAttachments', link: uuid || '', orderNo: poNo || '' });
+    const resp = await _accPostAwait({ action: 'listPRAttachments', link: uuid || '', orderNo: poKey });
     if (resp && resp.success !== false) files = resp.files || [];
   } catch (e) {}
   if (!document.getElementById('poAttBox')) return;            // modal closed / switched
   const cards = files.map(f => _regAttCard(f.url, f.name, f.matchedOn || 'Drive', f.mimeType, f.size));
   if (!cards.length) {
-    box.innerHTML = `<div style="color:var(--txt3);font-size:.78rem;padding:.5rem">No documents found for this PO. <span style="font-size:.7rem">(searched Drive for &ldquo;${esc(poNo || uuid || '—')}&rdquo;)</span></div>`;
+    box.innerHTML = `<div style="color:var(--txt3);font-size:.78rem;padding:.5rem">No documents found for this PO. <span style="font-size:.7rem">(searched Drive for &ldquo;${esc(poKey || uuid || '—')}&rdquo;)</span></div>`;
     return;
   }
   const pv = _regDrivePreview(files[0] && files[0].url);
