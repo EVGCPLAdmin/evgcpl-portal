@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.15.0';
-const PORTAL_BUILD    = 601;
-const PORTAL_BUILD_AT = '2026-06-22T18:34:18Z';
+const PORTAL_VERSION  = '4.15.3';
+const PORTAL_BUILD    = 604;
+const PORTAL_BUILD_AT = '2026-06-22T18:57:31Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5099,7 +5099,9 @@ function _vplpEnsureLedgerStyle() {
     .evg-ledger-tbl tfoot td { position:sticky; bottom:0; background:#0e5a34 !important; color:#fff !important; font-weight:700; z-index:4; border-top:2px solid var(--gold,#d4a017); box-shadow:0 -2px 6px rgba(0,0,0,.18); }`;
   document.head.appendChild(st);
 }
-function _vplpLedger(v) {
+function _vplpLedger(v, embedOpts) {
+  const _fy = (embedOpts && embedOpts.fy !== undefined) ? embedOpts.fy : _vplpFY;
+  const _onChangeFY = (embedOpts && embedOpts.onChangeFY) || '_vplpSetFY';
   const esc = _mdpEsc, d = _vplpData;
   const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
   const drcr = n => inr(Math.abs(n)) + (n >= 0 ? ' Cr' : ' Dr');
@@ -5132,13 +5134,13 @@ function _vplpLedger(v) {
   if (!all.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No approved-PO receipts or completed payments for this vendor.</div>';
   // Financial-year filter.
   const fySet = Array.from(new Set(all.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
-  const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _vplpFY ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
+  const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _fy ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
   const fyBar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
     <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">FINANCIAL YEAR</label>
-    <select onchange="_vplpSetFY(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2)">${fyOpts}</select>
-    <span style="font-size:.7rem;color:var(--txt3)">${_vplpFY ? _vplpFYLabel(_vplpFY) + ' · Apr–Mar' : 'All transactions'}</span>
+    <select onchange="${_onChangeFY}(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2)">${fyOpts}</select>
+    <span style="font-size:.7rem;color:var(--txt3)">${_fy ? _vplpFYLabel(_fy) + ' · Apr–Mar' : 'All transactions'}</span>
   </div>`;
-  const entries = _vplpFY ? all.filter(e => _vplpFYof(e.date) === _vplpFY) : all;
+  const entries = _fy ? all.filter(e => _vplpFYof(e.date) === _fy) : all;
   if (!entries.length) return fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   // Opening balance always first; then chronological, same-day credits (receipt) before debits (payment).
   entries.sort((a, b) => ((b.opening ? 1 : 0) - (a.opening ? 1 : 0)) || (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
@@ -5660,8 +5662,6 @@ window._poOpenDetail = function(poNo) {
     ['Additional Terms', G(['Additional Terms'])], ['Purpose', G(['Purpose of Purchase'])],
   ].filter(([l, v]) => !dead(v));
 
-  const directUrls = ['Quote(Attachment)', 'Quote(Attachment 2)', 'Quote(Attachment 3)', 'Quote(Attachment 4)', 'Quote(Attachment 5)']
-    .map((c, i) => ({ url: G([c]), label: i === 0 ? 'Quote / Attachment' : 'Attachment ' + (i + 1) })).filter(o => o.url);
   const H = t => `<h4 style="font-size:.8rem;font-weight:700;color:var(--g9);margin:.2rem 0 .5rem">${t}</h4>`;
 
   const grnSection = grnRows.length ? (H('&#128230; Goods Received (GRN) &mdash; ' + grnRows.length) + _regTbl(
@@ -5688,26 +5688,37 @@ window._poOpenDetail = function(poNo) {
     + `<div id="poAttBox"><div style="color:var(--txt3);font-size:.78rem;padding:.5rem">&#9203; Loading attachments&hellip;</div></div>`;
 
   _regOpenModal('Purchase Order · ' + esc(poNo), body);
-  _poLoadAttachments(G(['UUID']), directUrls);
+  _poLoadAttachments(G(['UUID']), poNo);
  } catch (e) {
   console.error('PO detail render failed', e);
   _regOpenModal('Purchase Order · ' + _mdpEsc(String(poNo || '')),
     '<div style="color:var(--danger);padding:1rem;font-size:.85rem">Could not render this PO &mdash; ' + _mdpEsc(String((e && e.message) || e)) + '</div>');
  }
 };
-// Quote attachments are referenced by the PO_Actual UUID → search Drive by UUID.
-window._poLoadAttachments = async function(uuid, directUrls) {
+// PO documents live in the Shared Drive, NAMED by either the PO_Actual UUID
+// (quote attachments, e.g. "SCMv1-xxxx.Quote(Attachment).pdf") or the PO Number
+// (the generated PO PDF). Search Drive by BOTH and show whatever is found. We do
+// NOT render sheet-column URLs — those AppSheet refs 404 outside the app.
+window._poLoadAttachments = async function(uuid, poNo) {
   const box = document.getElementById('poAttBox'); if (!box) return;
   const esc = _mdpEsc;
-  const cards = [];
-  (directUrls || []).forEach(o => cards.push(_regAttCard(o.url, o.label, 'PO sheet')));
+  // The PO PDF is named with the PO Number, slashes swapped for underscores
+  // (e.g. PO/EVGE/417/26-27 → PO_EVGE_417_26-27.pdf). We search on that form;
+  // the backend does a substring (name contains) match, so amendment-suffixed
+  // variants (PO_EVGE_417_26-27_AMD1.pdf, …) are picked up automatically too.
+  const poKey = String(poNo || '').trim().replace(/\//g, '_');
   let files = [];
-  if (uuid) { try { const resp = await _accPostAwait({ action: 'listPRAttachments', link: uuid, orderNo: uuid }); if (resp && resp.success !== false) files = resp.files || []; } catch (e) {} }
+  try {
+    const resp = await _accPostAwait({ action: 'listPRAttachments', link: uuid || '', orderNo: poKey });
+    if (resp && resp.success !== false) files = resp.files || [];
+  } catch (e) {}
   if (!document.getElementById('poAttBox')) return;            // modal closed / switched
-  files.forEach(f => cards.push(_regAttCard(f.url, f.name, f.matchedOn || 'Drive', f.mimeType, f.size)));
-  if (!cards.length) { box.innerHTML = `<div style="color:var(--txt3);font-size:.78rem;padding:.5rem">No quote attachments found for this PO. <span style="font-size:.7rem">(searched Drive by PO UUID ${esc(uuid || '—')})</span></div>`; return; }
-  const firstUrl = (directUrls && directUrls[0] && directUrls[0].url) || (files[0] && files[0].url) || '';
-  const pv = _regDrivePreview(firstUrl);
+  const cards = files.map(f => _regAttCard(f.url, f.name, f.matchedOn || 'Drive', f.mimeType, f.size));
+  if (!cards.length) {
+    box.innerHTML = `<div style="color:var(--txt3);font-size:.78rem;padding:.5rem">No documents found for this PO. <span style="font-size:.7rem">(searched Drive for &ldquo;${esc(poKey || uuid || '—')}&rdquo;)</span></div>`;
+    return;
+  }
+  const pv = _regDrivePreview(files[0] && files[0].url);
   box.innerHTML = cards.join('') + (pv ? `<iframe src="${esc(pv)}" style="width:100%;height:520px;border:1px solid var(--border);border-radius:9px;margin-top:.6rem;background:#fff"></iframe>` : '');
 };
 
@@ -7172,7 +7183,45 @@ let _pvAllRows    = [];
 let _pvFilter     = 'all';
 let _pvSearch     = '';
 let _pvSite       = '';
-let _pvLastDocUUID = '', _pvLastDirectUrls = [];
+let _pvLastDocUUID = '', _pvLastPONo = '';
+let _pvLedgerFY = '';
+let _pvLedgerVendorKey = '';
+window._pvSetLedgerFY = function(fy) {
+  _pvLedgerFY = fy;
+  const box = document.getElementById('pvVendorLedgerBox');
+  if (!box || !_vplpData) return;
+  const v = _vplpData.vendors.find(x => x.key === _pvLedgerVendorKey);
+  if (!v) return;
+  box.innerHTML = _vplpLedger(v, { fy: _pvLedgerFY, onChangeFY: '_pvSetLedgerFY' });
+  applyTableFeatures(box);
+};
+async function _pvLoadVendorLedger(r) {
+  const box = document.getElementById('pvVendorLedgerBox');
+  if (!box) return;
+  try {
+    await _vplpEnsure();
+    const d = _vplpData;
+    if (!d) { box.innerHTML = '<div style="color:var(--txt3);font-size:.78rem">Ledger data unavailable.</div>'; return; }
+    // Resolve vendor key: prefer Vendor ID from the PO header, then name match
+    const HC = _opColMap(_openPOHeaders);
+    const ph = _openPOHeaders.find(h => _opPO(_opGet(h, HC, ['PO No'])) === _opPO(r.poNo));
+    let vendorKey = '';
+    if (ph) { const vid = String(_opGet(ph, HC, ['Vendor ID']) || '').toUpperCase().trim(); if (vid) vendorKey = vid; }
+    if (!vendorKey) {
+      const vn = _opNorm(r.vendor || '');
+      const hit = d.vendors.find(v => _opNorm(v.name) === vn);
+      if (hit) vendorKey = hit.key;
+    }
+    _pvLedgerVendorKey = vendorKey;
+    const v = vendorKey ? d.vendors.find(x => x.key === vendorKey) : null;
+    if (!v) { box.innerHTML = `<div style="font-size:.78rem;color:var(--txt3);padding:.5rem 0">No PO ledger activity found for <b>${_mdpEsc(r.vendor || '—')}</b>.</div>`; return; }
+    box.innerHTML = _vplpLedger(v, { fy: _pvLedgerFY, onChangeFY: '_pvSetLedgerFY' });
+    applyTableFeatures(box);
+  } catch (err) {
+    const b = document.getElementById('pvVendorLedgerBox');
+    if (b) b.innerHTML = '<div style="color:var(--danger);font-size:.78rem">Could not load vendor ledger.</div>';
+  }
+}
 function renderPurchaseView() {
   const el = document.getElementById('mainContent');
   _pvFilter = 'all'; _pvSearch = ''; _pvSite = '';
@@ -7334,10 +7383,26 @@ window._pvToggle = function(poNo) {
     : AS.purchase();
   const headerExtra = `<a href="${_mdpEsc(appLink)}" target="_blank" class="btn btn-sm btn-secondary" style="font-size:.72rem;text-decoration:none">&#128279; AppSheet</a>`;
   const titleHtml = `${_mdpEsc(poNo)} <span style="background:${st.bg};color:${st.color};padding:.12rem .45rem;border-radius:20px;font-size:.68rem;font-weight:700;margin-left:.4rem">${st.label}</span>`;
+  _pvLedgerFY = '';
   _regOpenModal(titleHtml, _pvDetailBody(r), headerExtra);
-  _poLoadAttachments(_pvLastDocUUID, _pvLastDirectUrls);
+  _poLoadAttachments(_pvLastDocUUID, _pvLastPONo);
+  _pvLoadVendorLedger(r);
 };
 
+// Rate verdict: this PO's rate vs the average of past rates for the same
+// material+site. A ±0.5% band counts as "same" (absorbs rounding/paise noise);
+// anything beyond ALWAYS shows its direction. Big swings (>=10%) are loud
+// (red/green); small drifts are muted (orange/olive) but still flagged — so a
+// 4% rise reads as "▲ +4%", never a misleading "=".
+function _pvRateDelta(rate, avg) {
+  const diff = avg ? (rate - avg) / avg : 0;   // signed fraction
+  const pct  = Math.round(diff * 100);          // integer % for display
+  if (diff >  0.10)  return { symbol: '&#9650;', text: '+' + pct + '%', bg: '#ffebee', color: '#c62828' }; // >=10% over — alarm
+  if (diff >  0.005) return { symbol: '&#9650;', text: '+' + pct + '%', bg: '#fff3e0', color: '#e65100' }; // mildly higher
+  if (diff < -0.10)  return { symbol: '&#9660;', text: pct + '%',       bg: '#e8f5e9', color: '#2e7d32' }; // >=10% under — good
+  if (diff < -0.005) return { symbol: '&#9660;', text: pct + '%',       bg: '#f1f8e9', color: '#558b2f' }; // mildly lower
+  return { symbol: '&#61;', text: '', bg: '#e3f2fd', color: '#1565c0' };                                   // within ±0.5% — same
+}
 function _pvDetailBody(r) {
   const esc = _mdpEsc;
   const inr = v => '&#8377;' + Number(v || 0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -7345,13 +7410,18 @@ function _pvDetailBody(r) {
   const IC = _opColMap(_openPOItems);
   const AC = _opColMap(_openPOAddlCharges);
   const K  = _opPO(r.poNo);
+  const KK = _opPOKey(r.poNo); // letter-sorted for EGVE/EVGE variants
   const G  = cands => _opGet(r.raw, HC, cands);
 
   // Items for this PO
   const items = _openPOItems.filter(x => _opPO(_opGet(x, IC, ['PO No', 'Order No'])) === K);
 
-  // Additional Charges rows for this PO
-  const addlRows = _openPOAddlCharges.filter(x => _opPO(_opGet(x, AC, ['PO No', 'PO No (Key)', 'Order No'])) === K);
+  // Additional Charges rows for this PO — try both simple and key-sorted PO number
+  const _addlPOCols = ['PO No', 'PO No (Key)', 'Order No', 'PO Number', 'PO No.', 'PO'];
+  const addlRows = _openPOAddlCharges.filter(x => {
+    const xpo = _opGet(x, AC, _addlPOCols);
+    return _opPO(xpo) === K || _opPOKey(xpo) === KK;
+  });
 
   // Build historical rate map (Part × Site) from all other approved POs
   const hdrByPO = {};
@@ -7402,11 +7472,10 @@ function _pvDetailBody(r) {
       const sorted = hist.slice().sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date));
       const avg  = hist.reduce((s, e) => s + e.rate, 0) / hist.length;
       const diff = (rate - avg) / avg;
-      const tipLines = sorted.map(h => `${esc(h.poNo)} (${_mdpFmtDate(h.date)}) &#8377;${Math.round(h.rate).toLocaleString('en-IN')}`).join('&#10;');
-      const tip  = `Avg &#8377;${Math.round(avg).toLocaleString('en-IN')} across ${hist.length} PO${hist.length>1?'s':''}:&#10;${tipLines}`;
-      if (diff > 0.1)       rateBadge = `<span title="${tip}" style="background:#ffebee;color:#c62828;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#9650; +${Math.round(diff*100)}%</span>`;
-      else if (diff < -0.1) rateBadge = `<span title="${tip}" style="background:#e8f5e9;color:#2e7d32;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#9660; ${Math.round(diff*100)}%</span>`;
-      else                  rateBadge = `<span title="${tip}" style="background:#e3f2fd;color:#1565c0;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#61;</span>`;
+      const tipLines = sorted.map(h => `${esc(h.poNo)} (${_mdpFmtDate(h.date)}) &#8377;${h.rate.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}`).join('&#10;');
+      const tip  = `Avg &#8377;${avg.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})} across ${hist.length} PO${hist.length>1?'s':''}:&#10;${tipLines}`;
+      const d = _pvRateDelta(rate, avg);
+      rateBadge = `<span title="${tip}" style="background:${d.bg};color:${d.color};font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">${d.symbol}${d.text ? ' ' + d.text : ''}</span>`;
       rateHistoryItems.push({ desc: pr.partDesc || rawDesc || partKey || '—', thisRate: rate, avg, diff, sorted });
     }
     const descHtml = (pr.partNo ? `<span style="font-family:monospace;font-size:.68rem;color:var(--g7)">${esc(pr.partNo)}</span> &middot; ` : '') + esc(pr.partDesc || '—');
@@ -7424,14 +7493,17 @@ function _pvDetailBody(r) {
   }).join('');
 
   // ── Additional Charges table (from separate sheet tab)
+  // Read header totals early so the fallback note can show them when tab rows are missing.
+  const _subBHdr = _opNum(G(['Sub Total (b)', 'Sub Total(b)', 'Sub Total B']));
+  const _taxBHdr = _opNum(G(['Tax (b)', 'Tax(b)', 'Tax B']));
   let calcSubB = 0, calcTaxB = 0;
   const addlChargeRows = addlRows.map(x => {
     const g = c => _opGet(x, AC, c);
-    const desc  = g(['Description', 'Charge Description', 'Charge Type', 'Particulars', 'Type']);
-    const amt   = _opNum(g(['Amount', 'Base Amount', 'Charge Amount']));
-    const taxP  = g(['Tax (%)', 'Tax %', 'GST %', 'Tax Percentage', 'Tax']);
-    const taxA  = _opNum(g(['Tax Amount', 'Tax Amt', 'Tax. Amount']));
-    const tot   = _opNum(g(['Total', 'Total Amount', 'Net Amount'])) || amt + taxA;
+    const desc  = g(['Description', 'Charge Description', 'Charge Type', 'Particulars', 'Type', 'Charge', 'Service Description', 'Item']);
+    const amt   = _opNum(g(['Amount', 'Base Amount', 'Charge Amount', 'Sub Total', 'Value', 'Net']));
+    const taxP  = g(['Tax (%)', 'Tax %', 'GST %', 'Tax Percentage', 'Tax Rate', 'Tax']);
+    const taxA  = _opNum(g(['Tax Amount', 'Tax Amt', 'Tax. Amount', 'GST Amount']));
+    const tot   = _opNum(g(['Total', 'Total Amount', 'Net Amount', 'Grand Total'])) || (amt + taxA);
     calcSubB += (amt || tot); calcTaxB += taxA;
     const td = 'padding:5px 8px;font-size:.77rem';
     return `<tr>
@@ -7476,14 +7548,13 @@ function _pvDetailBody(r) {
 
   const inWords = G(['Amount in Words']);
 
-  // ── Documents: PO PDF + Quote attachments — loaded async by _poLoadAttachments
+  // ── Documents: quote attachments (Drive files named by UUID) + the PO PDF
+  // (Drive file named by PO Number) — both fetched by _poLoadAttachments. Sheet-
+  // column URLs are intentionally NOT shown (AppSheet refs 404 outside the app).
   const quoteRef  = G(['Quote Ref', 'Quote Reference', 'Quote No']);
   const quoteDate = G(['Quote Date']);
-  const poPdfUrl  = G(['PO PDF', 'PO PDF Link', 'PO Document', 'PO Doc Link', 'PO Link', 'Document Link', 'PO File']);
-  _pvLastDirectUrls = ['Quote(Attachment)', 'Quote(Attachment 2)', 'Quote(Attachment 3)', 'Quote(Attachment 4)', 'Quote(Attachment 5)']
-    .map((c, i) => ({ url: G([c]), label: i === 0 ? 'Quote' : 'Quote ' + (i + 1) })).filter(o => o.url);
-  if (poPdfUrl) _pvLastDirectUrls.unshift({ url: poPdfUrl, label: 'PO PDF' });
   _pvLastDocUUID = G(['UUID']) || '';
+  _pvLastPONo    = r.poNo || '';
   const docSection = `
     ${H('Documents')}
     <div style="padding:0 1rem .5rem">
@@ -7491,18 +7562,6 @@ function _pvDetailBody(r) {
       <div id="poAttBox" style="color:var(--txt3);font-size:.78rem;padding:.3rem 0">&#9203; Loading documents&hellip;</div>
     </div>`;
 
-  // ── Vendor payment ledger (full running-balance view)
-  const _vn = _opNorm(r.vendor || '');
-  const vendorPayRows = _mdpRows
-    ? _mdpRows.filter(pr => pr.payTo === 'Vendor' && (
-        _opNorm(pr.vendor) === _vn ||
-        _opNorm(_mdpStrip(pr.paidTo)) === _vn ||
-        _opNorm(pr.paidTo) === _vn
-      ))
-    : [];
-  const vendorLedger = vendorPayRows.length
-    ? partyLedgerRender(vendorPayRows, { onRowClick: '_accOpenPRDetail', noKpi: true })
-    : `<div style="font-size:.78rem;color:var(--txt3);padding:.5rem 0">No payment records found for <b>${esc(r.vendor || '—')}</b>.</div>`;
 
   return `<div>
     ${docSection}
@@ -7523,7 +7582,19 @@ function _pvDetailBody(r) {
             <thead><tr><th>Description</th><th style="text-align:right">Amount</th><th>Tax %</th><th style="text-align:right">Tax Amt</th><th style="text-align:right">Total</th></tr></thead>
             <tbody>${addlChargeRows}</tbody>
            </table></div>`
-        : '<div style="color:var(--txt3);font-size:.78rem;padding:.25rem 0">No additional charges for this PO.</div>'}
+        : _subBHdr
+          ? `<div style="overflow-x:auto"><table class="data-table" style="font-size:.77rem;margin:0">
+               <thead><tr><th>Description</th><th style="text-align:right">Amount</th><th>Tax %</th><th style="text-align:right">Tax Amt</th><th style="text-align:right">Total</th></tr></thead>
+               <tbody><tr>
+                 <td style="padding:5px 8px">Additional Charges</td>
+                 <td style="padding:5px 8px;text-align:right">${inr(_subBHdr)}</td>
+                 <td style="padding:5px 8px;color:var(--txt3)">—</td>
+                 <td style="padding:5px 8px;text-align:right;color:var(--txt2)">${_taxBHdr ? inr(_taxBHdr) : '—'}</td>
+                 <td style="padding:5px 8px;text-align:right;font-weight:600">${inr(_subBHdr + (_taxBHdr || 0))}</td>
+               </tr></tbody>
+             </table></div>
+             <div style="font-size:.7rem;color:var(--txt3);margin-top:.3rem">&#9432; Breakup not available — total from PO header</div>`
+          : '<div style="color:var(--txt3);font-size:.78rem;padding:.25rem 0">No additional charges for this PO.</div>'}
     </div>
 
     <div style="padding:0 1rem">
@@ -7547,17 +7618,13 @@ function _pvDetailBody(r) {
           <th style="text-align:right">Past Rate</th>
         </tr></thead>
         <tbody>${rateHistoryItems.map(h => {
-          const diffPct = Math.round(h.diff * 100);
-          const diffLabel = h.diff > 0.1
-            ? `<span style="color:#c62828;font-weight:700">&#9650; +${diffPct}%</span>`
-            : h.diff < -0.1
-            ? `<span style="color:#2e7d32;font-weight:700">&#9660; ${diffPct}%</span>`
-            : `<span style="color:#1565c0;font-weight:700">&#61;</span>`;
+          const d = _pvRateDelta(h.thisRate, h.avg);
+          const diffLabel = `<span style="color:${d.color};font-weight:700">${d.symbol}${d.text ? ' ' + d.text : ''}</span>`;
           const td = 'padding:4px 8px';
           return h.sorted.map((p, i) => `<tr>
             ${i === 0 ? `<td rowspan="${h.sorted.length}" style="${td}">${esc(h.desc)}</td>
               <td rowspan="${h.sorted.length}" style="${td};text-align:right;font-weight:600">${inr(h.thisRate)}</td>
-              <td rowspan="${h.sorted.length}" style="${td};text-align:right;color:var(--txt2)">${inr(Math.round(h.avg))}</td>
+              <td rowspan="${h.sorted.length}" style="${td};text-align:right;color:var(--txt2)">${inr(h.avg)}</td>
               <td rowspan="${h.sorted.length}" style="${td};text-align:center">${diffLabel}</td>` : ''}
             <td style="${td};font-family:monospace;font-size:.7rem">${esc(p.poNo) || '—'}</td>
             <td style="${td};font-size:.72rem">${esc(p.vendor) || '—'}</td>
@@ -7570,7 +7637,7 @@ function _pvDetailBody(r) {
     </div>` : ''}
 
     ${H('Vendor Ledger — ' + _mdpEsc(r.vendor || '—'))}
-    <div style="padding:0 1rem 1rem">${vendorLedger}</div>
+    <div style="padding:0 1rem 1rem"><div id="pvVendorLedgerBox" style="color:var(--txt3);font-size:.78rem;padding:.3rem 0">&#9203; Loading vendor ledger&hellip;</div></div>
   </div>`;
 }
 
