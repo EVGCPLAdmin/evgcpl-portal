@@ -7187,6 +7187,20 @@ window._pvToggle = function(poNo) {
   _pvLoadVendorLedger(r);
 };
 
+// Rate verdict: this PO's rate vs the average of past rates for the same
+// material+site. A ±0.5% band counts as "same" (absorbs rounding/paise noise);
+// anything beyond ALWAYS shows its direction. Big swings (>=10%) are loud
+// (red/green); small drifts are muted (orange/olive) but still flagged — so a
+// 4% rise reads as "▲ +4%", never a misleading "=".
+function _pvRateDelta(rate, avg) {
+  const diff = avg ? (rate - avg) / avg : 0;   // signed fraction
+  const pct  = Math.round(diff * 100);          // integer % for display
+  if (diff >  0.10)  return { symbol: '&#9650;', text: '+' + pct + '%', bg: '#ffebee', color: '#c62828' }; // >=10% over — alarm
+  if (diff >  0.005) return { symbol: '&#9650;', text: '+' + pct + '%', bg: '#fff3e0', color: '#e65100' }; // mildly higher
+  if (diff < -0.10)  return { symbol: '&#9660;', text: pct + '%',       bg: '#e8f5e9', color: '#2e7d32' }; // >=10% under — good
+  if (diff < -0.005) return { symbol: '&#9660;', text: pct + '%',       bg: '#f1f8e9', color: '#558b2f' }; // mildly lower
+  return { symbol: '&#61;', text: '', bg: '#e3f2fd', color: '#1565c0' };                                   // within ±0.5% — same
+}
 function _pvDetailBody(r) {
   const esc = _mdpEsc;
   const inr = v => '&#8377;' + Number(v || 0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -7256,11 +7270,10 @@ function _pvDetailBody(r) {
       const sorted = hist.slice().sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date));
       const avg  = hist.reduce((s, e) => s + e.rate, 0) / hist.length;
       const diff = (rate - avg) / avg;
-      const tipLines = sorted.map(h => `${esc(h.poNo)} (${_mdpFmtDate(h.date)}) &#8377;${Math.round(h.rate).toLocaleString('en-IN')}`).join('&#10;');
-      const tip  = `Avg &#8377;${Math.round(avg).toLocaleString('en-IN')} across ${hist.length} PO${hist.length>1?'s':''}:&#10;${tipLines}`;
-      if (diff > 0.1)       rateBadge = `<span title="${tip}" style="background:#ffebee;color:#c62828;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#9650; +${Math.round(diff*100)}%</span>`;
-      else if (diff < -0.1) rateBadge = `<span title="${tip}" style="background:#e8f5e9;color:#2e7d32;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#9660; ${Math.round(diff*100)}%</span>`;
-      else                  rateBadge = `<span title="${tip}" style="background:#e3f2fd;color:#1565c0;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#61;</span>`;
+      const tipLines = sorted.map(h => `${esc(h.poNo)} (${_mdpFmtDate(h.date)}) &#8377;${h.rate.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}`).join('&#10;');
+      const tip  = `Avg &#8377;${avg.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})} across ${hist.length} PO${hist.length>1?'s':''}:&#10;${tipLines}`;
+      const d = _pvRateDelta(rate, avg);
+      rateBadge = `<span title="${tip}" style="background:${d.bg};color:${d.color};font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">${d.symbol}${d.text ? ' ' + d.text : ''}</span>`;
       rateHistoryItems.push({ desc: pr.partDesc || rawDesc || partKey || '—', thisRate: rate, avg, diff, sorted });
     }
     const descHtml = (pr.partNo ? `<span style="font-family:monospace;font-size:.68rem;color:var(--g7)">${esc(pr.partNo)}</span> &middot; ` : '') + esc(pr.partDesc || '—');
@@ -7404,17 +7417,13 @@ function _pvDetailBody(r) {
           <th style="text-align:right">Past Rate</th>
         </tr></thead>
         <tbody>${rateHistoryItems.map(h => {
-          const diffPct = Math.round(h.diff * 100);
-          const diffLabel = h.diff > 0.1
-            ? `<span style="color:#c62828;font-weight:700">&#9650; +${diffPct}%</span>`
-            : h.diff < -0.1
-            ? `<span style="color:#2e7d32;font-weight:700">&#9660; ${diffPct}%</span>`
-            : `<span style="color:#1565c0;font-weight:700">&#61;</span>`;
+          const d = _pvRateDelta(h.thisRate, h.avg);
+          const diffLabel = `<span style="color:${d.color};font-weight:700">${d.symbol}${d.text ? ' ' + d.text : ''}</span>`;
           const td = 'padding:4px 8px';
           return h.sorted.map((p, i) => `<tr>
             ${i === 0 ? `<td rowspan="${h.sorted.length}" style="${td}">${esc(h.desc)}</td>
               <td rowspan="${h.sorted.length}" style="${td};text-align:right;font-weight:600">${inr(h.thisRate)}</td>
-              <td rowspan="${h.sorted.length}" style="${td};text-align:right;color:var(--txt2)">${inr(Math.round(h.avg))}</td>
+              <td rowspan="${h.sorted.length}" style="${td};text-align:right;color:var(--txt2)">${inr(h.avg)}</td>
               <td rowspan="${h.sorted.length}" style="${td};text-align:center">${diffLabel}</td>` : ''}
             <td style="${td};font-family:monospace;font-size:.7rem">${esc(p.poNo) || '—'}</td>
             <td style="${td};font-size:.72rem">${esc(p.vendor) || '—'}</td>
