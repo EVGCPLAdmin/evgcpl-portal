@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.15.3';
-const PORTAL_BUILD    = 604;
-const PORTAL_BUILD_AT = '2026-06-22T18:57:31Z';
+const PORTAL_VERSION  = '4.15.6';
+const PORTAL_BUILD    = 607;
+const PORTAL_BUILD_AT = '2026-06-22T19:19:42Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -40,7 +40,7 @@ const EXEC_REGISTRY_DEFAULTS = {
   aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
   diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
   pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
-  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app (Router.gs + AccountsHandlers.gs in one project): saveNewPaymentRequest, saveAccountsUpdate, createPRFolder, uploadPRAttachment, listPRAttachments. Override via the exec_accounts row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbwa09wF755lPPCl47KXxxoftLyB54ZWAcYEMhYziqyqfhtoW3OiESP2RKbt974VClktTQ/exec' },
+  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app (Router.gs + AccountsHandlers.gs in one project): saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, createPRFolder, uploadPRAttachment, listPRAttachments. Override via the exec_accounts row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbxeCK-ysONuKVN7t8_i46IjLjHSnGi_dIrIMfr8qmEpsfWjcZqdmUwrAwPXRr4CHfXQvg/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
 
@@ -4769,7 +4769,8 @@ async function _vplpEnsure(force) {
     // the placeholder sheet/tab; until VENDOR_OPENING_BAL_SHEET_ID is set this
     // stays an empty list and the ledger simply opens at zero.
     if (VENDOR_OPENING_BAL_SHEET_ID) {
-      try { _vplpOBRows = await fetchSheet(VENDOR_OPENING_BAL_TAB, null, VENDOR_OPENING_BAL_SHEET_ID, { rawId: true }) || []; }
+      // No rawId → honours the runtime Sheet-Linking override (VENDOR key).
+      try { _vplpOBRows = await fetchSheet(VENDOR_OPENING_BAL_TAB, null, VENDOR_OPENING_BAL_SHEET_ID) || []; }
       catch (e) { _vplpOBRows = []; }
     } else { _vplpOBRows = []; }
   }
@@ -4782,9 +4783,12 @@ async function _vplpEnsure(force) {
 let _vplpOBRows = null;
 function _vplpOBVal(r, names) { for (const n of names) { const v = r[n]; if (v != null && String(v).trim() !== '') return String(v).trim(); } return ''; }
 // Normalise one row → { key, vid, uuid, name, detail, credit, debit, date,
-// details }. Opening Balance is a SIGNED amount: + = Cr (payable carried
-// forward), − = Dr (advance / recoverable).
+// details, ... }. Credit/Debit resolve from the explicit `Dr/Cr` column when
+// present, else from the SIGN of `Opening Balance` (+ = Cr / − = Dr). Rows
+// whose `Status` is superseded/inactive are dropped (so a correction replaces).
 function _vplpOBNorm(r) {
+  const status = _vplpOBVal(r, ['Status']);
+  if (/supersed|inactive|void|cancel|delete/i.test(status)) return null;
   const vid  = (_vplpOBVal(r, ['Vendor ID', 'VendorID', 'Vendor Code', 'Code']) || '').toUpperCase();
   const uuid = _vplpOBVal(r, ['VendorKey(UUID)', 'Vendor Key', 'Vendor Key (UUID)', 'VendorKey']);
   const key  = (vid || _vplpVendorToken(uuid) || uuid).toUpperCase();
@@ -4792,9 +4796,16 @@ function _vplpOBNorm(r) {
   const name = _vplpOBVal(r, ['Vendor Name', 'Name']);
   const detail = _vplpOBVal(r, ['Vendor Detail', 'Detail']);
   const amount = _opNum(_vplpOBVal(r, ['Opening Balance', 'Amount', 'Opening Bal', 'Balance', 'Value']));
+  const drcr = _vplpOBVal(r, ['Dr/Cr', 'DrCr', 'Dr / Cr', 'Type', 'Side']);
+  let credit, debit;
+  if (/^d|debit/i.test(drcr))      { credit = 0; debit = Math.abs(amount); }
+  else if (/^c|credit/i.test(drcr)){ credit = Math.abs(amount); debit = 0; }
+  else                             { credit = amount > 0 ? amount : 0; debit = amount < 0 ? -amount : 0; }
   const date = _vplpOBVal(r, ['As On (Date)', 'As Of Date', 'As On', 'As Of', 'Date', 'Opening Balance As Of']);
   const details = _vplpOBVal(r, ['Remarks (If Any)', 'Remarks', 'Details', 'Narration', 'Note', 'Description']);
-  return { key, vid, uuid, name, detail, credit: amount > 0 ? amount : 0, debit: amount < 0 ? -amount : 0, date, details };
+  const company = _vplpOBVal(r, ['Company', 'Entity']);
+  const fy = _vplpOBVal(r, ['Financial Year', 'FY']);
+  return { key, vid, uuid, name, detail, credit, debit, date, details, company, fy };
 }
 // vendor key → merged opening balance (multiple rows per vendor sum together).
 function _vplpOBByKey() {
@@ -5241,6 +5252,12 @@ window._vplpOpenOB = function(prefillKey) {
   requestAnimationFrame(() => { dr.style.right = '0'; });
 };
 window._vplpCloseOB = function() { const dr = document.getElementById('vplpOBDrawer'); if (dr) dr.style.right = '-560px'; };
+// Indian FY label "2025-26" from a date (Apr–Mar). Empty if undatable.
+function _vplpFYString(dateStr) { const sy = _vplpFYof(dateStr); return sy ? (sy + '-' + String((+sy + 1) % 100).padStart(2, '0')) : ''; }
+window._vplpOBSyncFY = function() {
+  const d = document.getElementById('vplp-ob-date'), fy = document.getElementById('vplp-ob-fy');
+  if (d && fy) fy.value = _vplpFYString(d.value);
+};
 // Dropdown → auto-fill UUID + Vendor ID + Name + Detail from the master.
 window._vplpOBPick = function(key) {
   const d = _vplpData; if (!d) return;
@@ -5288,7 +5305,14 @@ function _vplpDrawOBForm(dr, prefillKey) {
         fld('Opening Balance', `<input id="vplp-ob-amount" type="number" step="0.01" min="0" placeholder="0.00">`, true),
         fld('Dr / Cr', `<select id="vplp-ob-drcr"><option value="Cr" selected>Cr — Payable (we owe)</option><option value="Dr">Dr — Advance (recoverable)</option></select>`, true)
       )}
-      ${fld('As On (Date)', `<input id="vplp-ob-date" type="date" value="${today}">`, true)}
+      ${grid(
+        fld('As On (Date)', `<input id="vplp-ob-date" type="date" value="${today}" onchange="_vplpOBSyncFY()">`, true),
+        fld('Financial Year', `<input id="vplp-ob-fy" value="${esc(_vplpFYString(today))}" placeholder="2025-26">`)
+      )}
+      ${grid(
+        fld('Company', `<input id="vplp-ob-company" placeholder="entity (optional)">`),
+        fld('Currency', `<select id="vplp-ob-currency">${['Indian Rupee','US Dollar','Euro','GBP','AED','OMR','QAR'].map(c => `<option${c === 'Indian Rupee' ? ' selected' : ''}>${c}</option>`).join('')}</select>`)
+      )}
       ${fld('Remarks (If Any)', `<textarea id="vplp-ob-details" rows="2" style="resize:vertical" placeholder="e.g. Balance carried forward from FY 2025-26"></textarea>`)}
     </div>
     <div style="padding:.9rem 1.3rem;border-top:1px solid var(--border);display:flex;gap:.7rem;justify-content:flex-end;flex-shrink:0;background:var(--surface2)">
@@ -5307,8 +5331,9 @@ window._vplpOBSubmit = async function() {
   if (!(mag > 0)) { _accToast('⚠ Enter an opening balance amount'); return; }
   if (!dateRaw) { _accToast('⚠ Pick the "as on" date'); return; }
   // Sign encodes Dr/Cr: + = Cr (payable carried forward), − = Dr (advance).
+  // The explicit Dr/Cr column is written too (reader prefers it when present).
   const signed = drcr === 'Dr' ? -mag : mag;
-  const email = (STATE.user && STATE.user.email) || '';
+  const email = (STATE.user && (STATE.user.email)) || '';
   const row = {
     'UUID': 'VOB-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     'SystemEmail': email,
@@ -5322,6 +5347,14 @@ window._vplpOBSubmit = async function() {
     'Opening Balance': signed,
     'As On (Date)': _accFmtDate(new Date(dateRaw)),
     'Remarks (If Any)': val('vplp-ob-details'),
+    'Status': 'Active',
+    'Company': val('vplp-ob-company'),
+    'Financial Year': val('vplp-ob-fy') || _vplpFYString(dateRaw),
+    'Approved By': '',
+    'Approved On (Date)': '',
+    'Approval Status': 'Pending',
+    'Dr/Cr': drcr,
+    'Currency': val('vplp-ob-currency') || 'Indian Rupee',
   };
   if (!VENDOR_OPENING_BAL_SHEET_ID) {
     _accToast('⚠ Opening-balance sheet not configured — set VENDOR_OPENING_BAL_SHEET_ID to save');
@@ -5329,7 +5362,11 @@ window._vplpOBSubmit = async function() {
   }
   const btn = document.getElementById('vplp-ob-submit');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-  const resp = await _accPostAwait({ action: 'saveVendorOpeningBalance', sheetId: VENDOR_OPENING_BAL_SHEET_ID, tab: VENDOR_OPENING_BAL_TAB, row });
+  // Resolve through the Sheet-Linking override so the write targets the same
+  // (possibly re-pointed) sheet the reads use — configurable at runtime from
+  // Config → Sheet Links (VENDOR key).
+  const obSheetId = (typeof _resolveSheetId === 'function') ? _resolveSheetId(VENDOR_OPENING_BAL_SHEET_ID) : VENDOR_OPENING_BAL_SHEET_ID;
+  const resp = await _accPostAwait({ action: 'saveVendorOpeningBalance', sheetId: obSheetId, tab: VENDOR_OPENING_BAL_TAB, row });
   if (resp && resp.success !== false) {
     _accToast('✅ Opening balance saved');
     window._vplpCloseOB();
