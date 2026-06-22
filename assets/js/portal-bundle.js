@@ -6975,11 +6975,9 @@ let _pvAllRows    = [];
 let _pvFilter     = 'all';
 let _pvSearch     = '';
 let _pvSite       = '';
-let _pvExpandedPO = null;
-
 function renderPurchaseView() {
   const el = document.getElementById('mainContent');
-  _pvFilter = 'all'; _pvSearch = ''; _pvSite = ''; _pvExpandedPO = null;
+  _pvFilter = 'all'; _pvSearch = ''; _pvSite = '';
   el.innerHTML = `
     <div class="page-header">
       <div class="page-header-row">
@@ -7111,7 +7109,6 @@ function _pvSummaryCard(r) {
   const appLink = r.uuid
     ? `${APPSHEET_SCM_URL}?tblName=PO&rowKey=${encodeURIComponent(r.uuid)}`
     : AS.purchase();
-  const isExpanded = _pvExpandedPO === r.poNo;
   return `<div class="card" style="border-left:4px solid ${st.accent}">
     <div style="padding:.85rem 1rem">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.3rem">
@@ -7124,19 +7121,22 @@ function _pvSummaryCard(r) {
         <span style="font-weight:700;color:var(--g8);font-size:.9rem">${r.net ? '&#8377;' + r.net.toLocaleString('en-IN') : '—'}</span>
       </div>
       <div style="display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap">
-        <button onclick="_pvToggle('${esc(r.poNo)}')" class="btn btn-sm ${isExpanded ? 'btn-primary' : 'btn-secondary'}" style="font-size:.72rem">
-          ${isExpanded ? '&#9650; Collapse' : '&#128269; Verify PO'}
-        </button>
+        <button onclick="_pvToggle('${esc(r.poNo)}')" class="btn btn-sm btn-secondary" style="font-size:.72rem">&#128269; Verify PO</button>
         <a href="${esc(appLink)}" target="_blank" class="btn btn-sm btn-secondary" style="font-size:.72rem;text-decoration:none">&#128279; AppSheet</a>
       </div>
     </div>
-    ${isExpanded ? `<div style="border-top:1px solid var(--border)">${_pvDetailBody(r)}</div>` : ''}
   </div>`;
 }
 
 window._pvToggle = function(poNo) {
-  _pvExpandedPO = (_pvExpandedPO === poNo) ? null : poNo;
-  _pvRenderCards();
+  const r = _pvAllRows.find(x => x.poNo === poNo); if (!r) return;
+  const st = _pvStatusStyle(r);
+  const appLink = r.uuid
+    ? `${APPSHEET_SCM_URL}?tblName=PO&rowKey=${encodeURIComponent(r.uuid)}`
+    : AS.purchase();
+  const headerExtra = `<a href="${_mdpEsc(appLink)}" target="_blank" class="btn btn-sm btn-secondary" style="font-size:.72rem;text-decoration:none">&#128279; AppSheet</a>`;
+  const titleHtml = `${_mdpEsc(poNo)} <span style="background:${st.bg};color:${st.color};padding:.12rem .45rem;border-radius:20px;font-size:.68rem;font-weight:700;margin-left:.4rem">${st.label}</span>`;
+  _regOpenModal(titleHtml, _pvDetailBody(r), headerExtra);
 };
 
 function _pvDetailBody(r) {
