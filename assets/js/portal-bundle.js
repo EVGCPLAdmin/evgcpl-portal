@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.13.1';
-const PORTAL_BUILD    = 593;
-const PORTAL_BUILD_AT = '2026-06-22T09:24:29Z';
+const PORTAL_VERSION  = '4.13.2';
+const PORTAL_BUILD    = 594;
+const PORTAL_BUILD_AT = '2026-06-22T09:48:10Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -7178,7 +7178,7 @@ function _pvDetailBody(r) {
     const rate = _opNum(_opGet(x, IC, ['Unit Rate', 'Rate', 'Unit Price', 'Price', 'Basic Rate']));
     if (!part || !rate) return;
     const key = part + '||' + site;
-    (rateMap[key] = rateMap[key] || []).push({ rate, poNo: _opGet(ph, HC, ['PO No']), date: _opGet(ph, HC, ['PO Date']) });
+    (rateMap[key] = rateMap[key] || []).push({ rate, poNo: _opGet(ph, HC, ['PO No']), date: _opGet(ph, HC, ['PO Date']), vendor: _opGet(ph, HC, ['Vendor Name', 'Vendor', 'Supplier Name', 'Supplier', 'Party Name']), site: _opGet(ph, HC, ['Site Name', 'Site', 'Project Site']) });
   });
 
   // ── Line items table (PDF columns: MR ID | Description | UOM | Qty | Unit Rate | Tax % | Tax Amt | Total)
@@ -7208,7 +7208,7 @@ function _pvDetailBody(r) {
       const sorted = hist.slice().sort((a, b) => _mdpDateVal(b.date) - _mdpDateVal(a.date));
       const avg  = hist.reduce((s, e) => s + e.rate, 0) / hist.length;
       const diff = (rate - avg) / avg;
-      const tipLines = sorted.map(h => `${esc(h.poNo)} (${esc(h.date)}) &#8377;${Math.round(h.rate).toLocaleString('en-IN')}`).join('&#10;');
+      const tipLines = sorted.map(h => `${esc(h.poNo)} (${_mdpFmtDate(h.date)}) &#8377;${Math.round(h.rate).toLocaleString('en-IN')}`).join('&#10;');
       const tip  = `Avg &#8377;${Math.round(avg).toLocaleString('en-IN')} across ${hist.length} PO${hist.length>1?'s':''}:&#10;${tipLines}`;
       if (diff > 0.1)       rateBadge = `<span title="${tip}" style="background:#ffebee;color:#c62828;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#9650; +${Math.round(diff*100)}%</span>`;
       else if (diff < -0.1) rateBadge = `<span title="${tip}" style="background:#e8f5e9;color:#2e7d32;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#9660; ${Math.round(diff*100)}%</span>`;
@@ -7318,14 +7318,18 @@ function _pvDetailBody(r) {
           <th style="text-align:right">Past Avg</th>
           <th style="text-align:center">&#916;</th>
           <th>Past PO</th>
+          <th>Vendor</th>
+          <th>Site</th>
           <th>Date</th>
           <th style="text-align:right">Past Rate</th>
         </tr></thead>
         <tbody>${rateHistoryItems.map(h => {
           const diffPct = Math.round(h.diff * 100);
-          const symColor = h.diff > 0.1 ? '#c62828' : h.diff < -0.1 ? '#2e7d32' : '#1565c0';
-          const sym = h.diff > 0.1 ? '&#9650;' : h.diff < -0.1 ? '&#9660;' : '&#61;';
-          const diffLabel = `<span style="color:${symColor};font-weight:700">${sym} ${diffPct > 0 ? '+' : ''}${diffPct}%</span>`;
+          const diffLabel = h.diff > 0.1
+            ? `<span style="color:#c62828;font-weight:700">&#9650; +${diffPct}%</span>`
+            : h.diff < -0.1
+            ? `<span style="color:#2e7d32;font-weight:700">&#9660; ${diffPct}%</span>`
+            : `<span style="color:#1565c0;font-weight:700">&#61;</span>`;
           const td = 'padding:4px 8px';
           return h.sorted.map((p, i) => `<tr>
             ${i === 0 ? `<td rowspan="${h.sorted.length}" style="${td}">${esc(h.desc)}</td>
@@ -7333,7 +7337,9 @@ function _pvDetailBody(r) {
               <td rowspan="${h.sorted.length}" style="${td};text-align:right;color:var(--txt2)">${inr(Math.round(h.avg))}</td>
               <td rowspan="${h.sorted.length}" style="${td};text-align:center">${diffLabel}</td>` : ''}
             <td style="${td};font-family:monospace;font-size:.7rem">${esc(p.poNo) || '—'}</td>
-            <td style="${td};white-space:nowrap;color:var(--txt2)">${esc(p.date) || '—'}</td>
+            <td style="${td};font-size:.72rem">${esc(p.vendor) || '—'}</td>
+            <td style="${td};font-size:.72rem;color:var(--txt2)">${esc(p.site) || '—'}</td>
+            <td style="${td};white-space:nowrap;color:var(--txt2)">${_mdpFmtDate(p.date)}</td>
             <td style="${td};text-align:right">${inr(p.rate)}</td>
           </tr>`).join('');
         }).join('')}</tbody>
