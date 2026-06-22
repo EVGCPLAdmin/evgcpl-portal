@@ -4555,7 +4555,7 @@ function _plLedgerBuild(lid) {
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.7rem">${esc(r.utr) || '—'}</td>
     </tr>`;
   }).join('');
-  return fyBar + kpi + `
+  return fyBar + (opts.noKpi ? '' : kpi) + `
     <div class="card"><div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:.78rem">
         <thead><tr style="background:var(--g9);color:#fff;text-align:left">
@@ -7168,7 +7168,9 @@ function _pvDetailBody(r) {
   _openPOHeaders.forEach(h => { const k = _opPO(_opGet(h, HC, ['PO No'])); if (k) hdrByPO[k] = h; });
   const rateMap = {};
   const _matMap = _opMatMap();
+  const currentPOItems = new Set(items); // exclude by object identity — immune to PO No format drift
   _openPOItems.forEach(x => {
+    if (currentPOItems.has(x)) return;
     const xPoNo = _opPO(_opGet(x, IC, ['PO No', 'Order No']));
     if (xPoNo === K) return;
     const ph = hdrByPO[xPoNo]; if (!ph) return;
@@ -7309,7 +7311,7 @@ function _pvDetailBody(r) {
       ))
     : [];
   const vendorLedger = vendorPayRows.length
-    ? partyLedgerRender(vendorPayRows, { onRowClick: '_accOpenPRDetail' })
+    ? partyLedgerRender(vendorPayRows, { onRowClick: '_accOpenPRDetail', noKpi: true })
     : `<div style="font-size:.78rem;color:var(--txt3);padding:.5rem 0">No payment records found for <b>${esc(r.vendor || '—')}</b>.</div>`;
 
   return `<div>
