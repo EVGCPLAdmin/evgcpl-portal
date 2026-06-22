@@ -467,6 +467,13 @@ window.portalHardRefresh = function() {
     window.location.replace(u.toString());
   } catch (e) { window.location.reload(); }
 };
+// Win+Shift+R (Meta+Shift+R) hard-refresh shortcut — works on all pages.
+document.addEventListener('keydown', function(e) {
+  if (e.metaKey && e.shiftKey && e.key === 'R') {
+    e.preventDefault();
+    portalHardRefresh();
+  }
+});
 // Inject the Hard-Refresh button into the (per-page, hand-coded) header so it
 // appears on every page without editing each HTML file. Idempotent.
 function _headerEnsureHardRefresh() {
