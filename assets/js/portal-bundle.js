@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.20.0';
-const PORTAL_BUILD    = 620;
-const PORTAL_BUILD_AT = '2026-06-23T18:46:04Z';
+const PORTAL_VERSION  = '4.20.1';
+const PORTAL_BUILD    = 621;
+const PORTAL_BUILD_AT = '2026-06-23T18:48:19Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -3180,6 +3180,7 @@ function renderPage(page) {
     'asset-verification':() => renderPlantMachineryPage('verification'),
     'asset-maintenance': () => renderPlantMachineryPage('maintenance'),
     'dev-mode':       renderDevModePage,
+    'access-pages':   renderAccessPages,
     'settings':       renderSettingsPage,
     'schema':         renderSchemaPage,
     'reports':        renderReportsModule,
@@ -11065,6 +11066,7 @@ const MODULE_REGISTRY = [
 
   // ── Admin ─────────────────────────────────────────────────────
   { route:'dev-mode',          label:'Configuration',          section:'Admin',            defStatus:'live', defRoles:['md'] },
+  { route:'access-pages',      label:'Access & Pages',         section:'Admin',            defStatus:'live', defRoles:['md'] },
   { route:'settings',          label:'Settings',               section:'Admin',            defStatus:'live', defRoles:['md'] },
   { route:'schema',            label:'Schema Manager',         section:'Admin',            defStatus:'live', defRoles:['md'] },
 ];
@@ -12353,7 +12355,6 @@ function userCan(route, action) {
 // ── Tab bar + dispatcher ──────────────────────────────────────────────
 const CFG_TABS = [
   { id:'config',  icon:'&#9881;',   label:'Portal Config' },
-  { id:'access',  icon:'&#128101;', label:'Access &amp; Pages' },
   { id:'sheets',  icon:'&#128279;', label:'Sheet Linking' },
 ];
 function _cfgTabBar(active) {
@@ -12378,7 +12379,6 @@ function renderDevModePage(tab) {
   }
   window._cfgActiveTab = tab || window._cfgActiveTab || 'config';
   const t = window._cfgActiveTab;
-  if (t === 'access') return _cfgRenderAccess();
   if (t === 'sheets') return _cfgRenderSheets();
   // 'modules' (the old Modules & Roles tab) → Portal Config; its role matrix
   // is retired and its Live/Dev/Off status lives in Access & Pages.
@@ -12474,6 +12474,20 @@ function _cfgRenderSheets() {
 // ════════════════════════════════════════════════════════════════════
 //  TAB: ACCESS GROUPS
 // ════════════════════════════════════════════════════════════════════
+function renderAccessPages() {
+  const el = document.getElementById('mainContent');
+  if (!el) return;
+  const _superAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin());
+  let _restricted = false;
+  if (!_superAdmin) { try { _restricted = !!_accessRouteSetForCurrentUser(); } catch (e) {} }
+  const _isAdminRole = STATE.role === 'md' || (typeof _accIsAdmin === 'function' && _accIsAdmin());
+  if (!_superAdmin && (_restricted || !_isAdminRole)) {
+    el.innerHTML = `<div class="module-placeholder"><div style="font-size:2rem;margin-bottom:.6rem">&#128274;</div><p>Access &amp; Pages is restricted to Administrators.</p></div>`;
+    return;
+  }
+  _cfgRenderAccess();
+}
+
 function _cfgRenderAccess() {
   const el = document.getElementById('mainContent');
   const draft = uaGetDraft();
@@ -12489,7 +12503,7 @@ function _cfgRenderAccess() {
   const emps = (STATE && STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
   if (!emps.length && typeof loadAllMasters === 'function' && !window._uaEmpTried) {
     window._uaEmpTried = true;
-    loadAllMasters().then(() => { if (window._cfgActiveTab === 'access') _cfgRenderAccess(); }).catch(() => {});
+    loadAllMasters().then(() => { if (STATE.currentPage === 'access-pages') _cfgRenderAccess(); }).catch(() => {});
   }
   // Only CURRENT employees (status ACTIVE) with a Mail ID can be assigned —
   // the Mail ID is the key access control is enforced on.
@@ -12600,10 +12614,9 @@ function _cfgRenderAccess() {
     </div>`;
 
   el.innerHTML = `
-    ${_cfgTabBar('access')}
     <div class="page-header"><div class="page-header-row">
-      <div><h1>&#128101; Access Groups</h1>
-        <p>Groups &rarr; view + action permissions &rarr; users &middot; org-wide &middot; Admin only</p></div>
+      <div><h1 class="page-title">&#128101; Access &amp; Pages</h1>
+        <p class="page-subtitle">Groups &rarr; view + action permissions &rarr; users &middot; org-wide &middot; Admin only</p></div>
       <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
         <button onclick="uaResetDefaults()" class="btn btn-secondary btn-sm">&#8635; Reset to role defaults</button>
         <button onclick="uaSave()" class="btn btn-primary btn-sm" id="uaSaveBtn">&#10003; Save &amp; Apply</button>
