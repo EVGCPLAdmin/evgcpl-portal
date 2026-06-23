@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.19.0';
-const PORTAL_BUILD    = 618;
-const PORTAL_BUILD_AT = '2026-06-23T09:58:04Z';
+const PORTAL_VERSION  = '4.19.1';
+const PORTAL_BUILD    = 619;
+const PORTAL_BUILD_AT = '2026-06-23T18:36:48Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4785,6 +4785,22 @@ window._vplpSetFY     = function(v) { _vplpFY = v; _vplpRenderBody(); };
 window._vplpSetView   = function(v) { _vplpView = v; _vplpRenderBody(); };
 window._vplpSetFlatStatus = function(v) { _vplpFlatStatus = v; _vplpRenderBody(); };
 window._vplpSetLedgerMode = function(v) { _vplpLedgerMode = v; _vplpRenderBody(); };
+// Type-and-search vendor picker: filter the suggestion list by name / Vendor ID.
+window._vplpVendorFilter = function(q) {
+  const box = document.getElementById('vplp-vendor-suggest'); if (!box) return;
+  const d = _vplpData; if (!d) { box.style.display = 'none'; return; }
+  const esc = _mdpEsc, s = String(q || '').trim().toLowerCase();
+  let list = d.vendors;
+  if (s) list = list.filter(v => (v.name || '').toLowerCase().includes(s) || (v.vid || '').toLowerCase().includes(s) || (v.key || '').toLowerCase().includes(s));
+  list = list.slice(0, 40);
+  if (!list.length) { box.innerHTML = `<div style="padding:.6rem .8rem;color:var(--txt3);font-size:.78rem">No match</div>`; box.style.display = 'block'; return; }
+  box.innerHTML = list.map(v => `<div onmousedown="_vplpPickVendor('${esc(v.key).replace(/'/g, "\\'")}')" style="padding:.5rem .8rem;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:.6rem;align-items:center" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <span style="font-size:.82rem;font-weight:600">${esc(v.name)}${v.vid ? ` <span style="color:var(--txt3);font-weight:400;font-size:.72rem">[${esc(v.vid)}]</span>` : ''}${v.unmapped ? ' <span style="color:#c2410c;font-size:.66rem">·Unmapped</span>' : ''}</span>
+      <span style="font-size:.68rem;color:var(--txt3);white-space:nowrap">${Object.keys(v.poKeys).length} PO &middot; ${v.payCount} pay</span>
+    </div>`).join('');
+  box.style.display = 'block';
+};
+window._vplpPickVendor = function(key) { const b = document.getElementById('vplp-vendor-suggest'); if (b) b.style.display = 'none'; _vplpSetVendor(key); };
 window._vplpFlatOpen  = function(i) { const r = (window._vplpFlatRows || [])[i]; if (!r) return; _vplpVendor = r.v.key; _vplpFY = ''; _vplpLedgerMode = 'active'; _vplpView = 'vendor'; _vplpRenderBody(); };
 // Jump straight to a vendor's PO ledger (used by the Vendor master / portal).
 // Vendors are keyed in the ledger by their Vendor-ID token (e.g. EGVE001);
@@ -5003,12 +5019,17 @@ function _vplpRenderBody() {
   </div>`;
   if (_vplpView === 'flat') { c.innerHTML = _vplpFlatList(toggle); return; }
   if (_vplpView === 'openings') { c.innerHTML = toggle + _vplpOBListView(); return; }
-  const opts = `<option value="">Select vendor&hellip;</option>` + d.vendors.map(v =>
-    `<option value="${esc(v.key)}"${v.key === _vplpVendor ? ' selected' : ''}>${esc(v.name)}${v.vid ? ` [${esc(v.vid)}]` : ''}${v.unmapped ? ' · Unmapped' : ''} (${Object.keys(v.poKeys).length} PO &middot; ${v.payCount} pay)</option>`).join('');
+  // Type-and-search vendor picker (347+ vendors → a combobox beats a native select).
+  const selV = d.vendors.find(x => x.key === _vplpVendor);
+  const selLabel = selV ? `${selV.name}${selV.vid ? ` [${selV.vid}]` : ''}` : '';
   const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
-    <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:280px">
+    <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:280px;position:relative">
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR</label>
-      <select onchange="_vplpSetVendor(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${opts}</select>
+      <input id="vplp-vendor-search" autocomplete="off" placeholder="Type a vendor name or ID&hellip;" value="${esc(selLabel)}"
+        oninput="_vplpVendorFilter(this.value)" onfocus="this.select();_vplpVendorFilter('')"
+        onblur="setTimeout(function(){var b=document.getElementById('vplp-vendor-suggest');if(b)b.style.display='none'},150)"
+        style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+      <div id="vplp-vendor-suggest" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;max-height:340px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.14)"></div>
     </div>
     <div style="font-size:.72rem;color:var(--txt3)">${d.vendors.length} vendor(s)</div></div></div>`;
   if (!_vplpVendor) { c.innerHTML = toggle + selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
