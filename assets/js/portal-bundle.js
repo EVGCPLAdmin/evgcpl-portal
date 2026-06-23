@@ -4610,20 +4610,61 @@ function _plLedgerBuild(lid) {
     </div></div>`;
 }
 
+// ── Reusable type-and-search combobox ────────────────────────────────────
+// evgComboHtml({ id, items:[{v,label,sub}], value, placeholder, onPick }) →
+// an <input id> showing the chosen LABEL (so simple readers like _accV(id)
+// get the picked text) with a data-value attr holding the item's `v`. The
+// global fn named by `onPick` is called with (v, item) after a selection.
+window._evgComboData = window._evgComboData || {};
+window._evgComboPickFn = window._evgComboPickFn || {};
+function evgComboHtml(cfg) {
+  const esc = _mdpEsc, id = cfg.id, sid = id + '-sug';
+  window._evgComboData[id] = cfg.items || [];
+  window._evgComboPickFn[id] = cfg.onPick || '';
+  return `<div style="position:relative">
+    <input id="${esc(id)}" autocomplete="off" placeholder="${esc(cfg.placeholder || 'Type to search…')}" value="${esc(cfg.value || '')}"
+      oninput="_evgComboFilter('${esc(id)}',this.value)" onfocus="this.select();_evgComboFilter('${esc(id)}','')"
+      onblur="setTimeout(function(){var b=document.getElementById('${esc(sid)}');if(b)b.style.display='none'},150)"
+      style="width:100%;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+    <div id="${esc(sid)}" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;max-height:300px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.14)"></div>
+  </div>`;
+}
+window._evgComboFilter = function(id, q) {
+  const box = document.getElementById(id + '-sug'); if (!box) return;
+  const items = window._evgComboData[id] || [];
+  const esc = _mdpEsc, s = String(q || '').trim().toLowerCase();
+  let list = s ? items.filter(it => (it.label || '').toLowerCase().includes(s) || (it.sub || '').toLowerCase().includes(s) || String(it.v || '').toLowerCase().includes(s)) : items;
+  list = list.slice(0, 40);
+  if (!list.length) { box.innerHTML = `<div style="padding:.6rem .8rem;color:var(--txt3);font-size:.78rem">No match</div>`; box.style.display = 'block'; return; }
+  box.innerHTML = list.map(it => `<div onmousedown="_evgComboPick('${esc(id)}',this.getAttribute('data-v'))" data-v="${esc(String(it.v))}" style="padding:.5rem .8rem;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:.6rem;align-items:center" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <span style="font-size:.82rem;font-weight:600">${esc(it.label)}</span>${it.sub ? `<span style="font-size:.68rem;color:var(--txt3);white-space:nowrap">${esc(it.sub)}</span>` : ''}
+    </div>`).join('');
+  box.style.display = 'block';
+};
+window._evgComboPick = function(id, v) {
+  const box = document.getElementById(id + '-sug'); if (box) box.style.display = 'none';
+  const inp = document.getElementById(id); if (!inp) return;
+  const it = (window._evgComboData[id] || []).find(x => String(x.v) === String(v));
+  inp.value = it ? it.label : v;
+  inp.setAttribute('data-value', it ? String(it.v) : v);
+  const fn = window._evgComboPickFn[id];
+  if (fn && typeof window[fn] === 'function') window[fn](v, it);
+};
+
 function _mdpLedgerHtml() {
   const esc = _mdpEsc;
   const typeBtns = PARTY_TYPES.map(t =>
     `<button onclick="_mdpSetType('${t}')" class="btn btn-sm ${t === _plType ? 'btn-primary' : 'btn-secondary'}">${esc(t)}</button>`).join('');
   const parties = _plParties(_plType, _mdpCompany);
-  const partyOpts = `<option value="">Select ${esc(_plType)}…</option>` +
-    parties.map(p => `<option value="${esc(p.key)}"${p.key === _plParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` · A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
+  const _selP = parties.find(p => p.key === _plParty);
+  const partyItems = parties.map(p => ({ v: p.key, label: `${p.name}${p.acc ? ` · A/C ${p.acc}` : ''}`, sub: String(p.count) }));
   const selector = `
     <div class="card card-pad" style="margin-bottom:1rem">
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.7rem">${typeBtns}</div>
       <div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
           <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">${esc(_plType.toUpperCase())}</label>
-          <select id="mdp-party" onchange="_mdpSetParty(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${partyOpts}</select>
+          ${evgComboHtml({ id: 'mdp-party', items: partyItems, value: _selP ? `${_selP.name}${_selP.acc ? ` · A/C ${_selP.acc}` : ''}` : '', placeholder: `Type a ${_plType.toLowerCase()} name…`, onPick: '_mdpSetParty' })}
         </div>
         <div style="font-size:.72rem;color:var(--txt3)">${parties.length} record(s)${_mdpCompany ? ` · ${esc(_mdpCompany)}` : ''}</div>
       </div>
@@ -4674,14 +4715,14 @@ function _ledRenderBody() {
   const c = document.getElementById('ledger-body'); if (!c) return;
   const esc = _mdpEsc;
   const parties = _plParties(_ledType);
-  const partyOpts = `<option value="">Select ${esc(_ledType)}&hellip;</option>` +
-    parties.map(p => `<option value="${esc(p.key)}"${p.key === _ledParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` &middot; A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
+  const _selP = parties.find(p => p.key === _ledParty);
+  const partyItems = parties.map(p => ({ v: p.key, label: `${p.name}${p.acc ? ` · A/C ${p.acc}` : ''}`, sub: String(p.count) }));
   const selector = `
     <div class="card card-pad" style="margin-bottom:1rem">
       <div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
           <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">${esc(_ledType.toUpperCase())}</label>
-          <select id="led-party" onchange="_ledSetParty(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${partyOpts}</select>
+          ${evgComboHtml({ id: 'led-party', items: partyItems, value: _selP ? `${_selP.name}${_selP.acc ? ` · A/C ${_selP.acc}` : ''}` : '', placeholder: `Type a ${_ledType.toLowerCase()} name…`, onPick: '_ledSetParty' })}
         </div>
         <div style="font-size:.72rem;color:var(--txt3)">${parties.length} ${esc(_ledType.toLowerCase())}(s)</div>
       </div>
@@ -4719,12 +4760,12 @@ function _scLedRenderBody() {
   const c = document.getElementById('sc-ledger-body'); if (!c) return;
   const esc = _mdpEsc;
   const parties = _plParties('Sub Contractor');
-  const partyOpts = `<option value="">Select Sub Contractor&hellip;</option>` +
-    parties.map(p => `<option value="${esc(p.key)}"${p.key === _scLedParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` &middot; A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
+  const _selP = parties.find(p => p.key === _scLedParty);
+  const partyItems = parties.map(p => ({ v: p.key, label: `${p.name}${p.acc ? ` · A/C ${p.acc}` : ''}`, sub: String(p.count) }));
   const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
     <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">SUB CONTRACTOR</label>
-      <select onchange="_scLedSetParty(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${partyOpts}</select>
+      ${evgComboHtml({ id: 'sc-party', items: partyItems, value: _selP ? `${_selP.name}${_selP.acc ? ` · A/C ${_selP.acc}` : ''}` : '', placeholder: 'Type a sub contractor name…', onPick: '_scLedSetParty' })}
     </div>
     <div style="font-size:.72rem;color:var(--txt3)">${parties.length} sub contractor(s)</div></div></div>`;
   if (!_scLedParty) { c.innerHTML = selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a sub contractor to view their ledger.</div>`; return; }
@@ -4785,22 +4826,6 @@ window._vplpSetFY     = function(v) { _vplpFY = v; _vplpRenderBody(); };
 window._vplpSetView   = function(v) { _vplpView = v; _vplpRenderBody(); };
 window._vplpSetFlatStatus = function(v) { _vplpFlatStatus = v; _vplpRenderBody(); };
 window._vplpSetLedgerMode = function(v) { _vplpLedgerMode = v; _vplpRenderBody(); };
-// Type-and-search vendor picker: filter the suggestion list by name / Vendor ID.
-window._vplpVendorFilter = function(q) {
-  const box = document.getElementById('vplp-vendor-suggest'); if (!box) return;
-  const d = _vplpData; if (!d) { box.style.display = 'none'; return; }
-  const esc = _mdpEsc, s = String(q || '').trim().toLowerCase();
-  let list = d.vendors;
-  if (s) list = list.filter(v => (v.name || '').toLowerCase().includes(s) || (v.vid || '').toLowerCase().includes(s) || (v.key || '').toLowerCase().includes(s));
-  list = list.slice(0, 40);
-  if (!list.length) { box.innerHTML = `<div style="padding:.6rem .8rem;color:var(--txt3);font-size:.78rem">No match</div>`; box.style.display = 'block'; return; }
-  box.innerHTML = list.map(v => `<div onmousedown="_vplpPickVendor('${esc(v.key).replace(/'/g, "\\'")}')" style="padding:.5rem .8rem;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:.6rem;align-items:center" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
-      <span style="font-size:.82rem;font-weight:600">${esc(v.name)}${v.vid ? ` <span style="color:var(--txt3);font-weight:400;font-size:.72rem">[${esc(v.vid)}]</span>` : ''}${v.unmapped ? ' <span style="color:#c2410c;font-size:.66rem">·Unmapped</span>' : ''}</span>
-      <span style="font-size:.68rem;color:var(--txt3);white-space:nowrap">${Object.keys(v.poKeys).length} PO &middot; ${v.payCount} pay</span>
-    </div>`).join('');
-  box.style.display = 'block';
-};
-window._vplpPickVendor = function(key) { const b = document.getElementById('vplp-vendor-suggest'); if (b) b.style.display = 'none'; _vplpSetVendor(key); };
 window._vplpFlatOpen  = function(i) { const r = (window._vplpFlatRows || [])[i]; if (!r) return; _vplpVendor = r.v.key; _vplpFY = ''; _vplpLedgerMode = 'active'; _vplpView = 'vendor'; _vplpRenderBody(); };
 // Jump straight to a vendor's PO ledger (used by the Vendor master / portal).
 // Vendors are keyed in the ledger by their Vendor-ID token (e.g. EGVE001);
@@ -5022,14 +5047,11 @@ function _vplpRenderBody() {
   // Type-and-search vendor picker (347+ vendors → a combobox beats a native select).
   const selV = d.vendors.find(x => x.key === _vplpVendor);
   const selLabel = selV ? `${selV.name}${selV.vid ? ` [${selV.vid}]` : ''}` : '';
+  const vendorItems = d.vendors.map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}${v.unmapped ? ' ·Unmapped' : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
   const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
-    <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:280px;position:relative">
+    <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:280px">
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR</label>
-      <input id="vplp-vendor-search" autocomplete="off" placeholder="Type a vendor name or ID&hellip;" value="${esc(selLabel)}"
-        oninput="_vplpVendorFilter(this.value)" onfocus="this.select();_vplpVendorFilter('')"
-        onblur="setTimeout(function(){var b=document.getElementById('vplp-vendor-suggest');if(b)b.style.display='none'},150)"
-        style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
-      <div id="vplp-vendor-suggest" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;max-height:340px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.14)"></div>
+      ${evgComboHtml({ id: 'vplp-vendor-search', items: vendorItems, value: selLabel, placeholder: 'Type a vendor name or ID…', onPick: '_vplpSetVendor' })}
     </div>
     <div style="font-size:.72rem;color:var(--txt3)">${d.vendors.length} vendor(s)</div></div></div>`;
   if (!_vplpVendor) { c.innerHTML = toggle + selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
@@ -5434,8 +5456,7 @@ function _vplpDrawOBForm(dr, prefillKey) {
   const d = _vplpData || { vendors: [] };
   const today = new Date().toLocaleDateString('en-CA');
   const cur = (d.vendors || []).find(x => x.key === prefillKey);
-  const vendorOpts = `<option value="">— pick a vendor —</option>` + (d.vendors || []).map(v =>
-    `<option value="${esc(v.key)}"${v.key === prefillKey ? ' selected' : ''}>${esc(v.name)}${v.vid ? ` [${esc(v.vid)}]` : ''}</option>`).join('');
+  const obVendorItems = (d.vendors || []).map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
   const fld = (label, ctrl, req) => `
     <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:.7rem">
       <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">${label}${req ? ' <span style="color:var(--danger)">*</span>' : ''}</label>
@@ -5453,7 +5474,7 @@ function _vplpDrawOBForm(dr, prefillKey) {
     </div>
     <div class="evg-form" style="flex:1;overflow-y:auto;padding:1.1rem 1.3rem">
       ${notConfigured ? `<div style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:.6rem .8rem;font-size:.74rem;margin-bottom:1rem">&#9888; Opening-balance sheet not configured yet. Set <code>VENDOR_OPENING_BAL_SHEET_ID</code> + <code>VENDOR_OPENING_BAL_TAB</code> to enable saving. You can still fill the form to preview it.</div>` : ''}
-      ${fld('Vendor', `<select id="vplp-ob-vendor" onchange="_vplpOBPick(this.value)">${vendorOpts}</select>`, false)}
+      ${fld('Vendor', evgComboHtml({ id: 'vplp-ob-vendor', items: obVendorItems, value: cur ? `${cur.name}${cur.vid ? ` [${cur.vid}]` : ''}` : '', placeholder: 'Type a vendor name or ID…', onPick: '_vplpOBPick' }), false)}
       ${grid(
         fld('Vendor ID', `<input id="vplp-ob-vid" value="${esc(cur ? (cur.vid || cur.key) : prefillKey || '')}" placeholder="e.g. MV300">`, true),
         fld('Vendor Key (UUID)', `<input id="vplp-ob-uuid" value="${esc(cur ? (cur.uuid || '') : '')}" placeholder="auto from master">`)
@@ -9208,9 +9229,9 @@ function _accDrawNewPRForm(dr) {
 
       ${sec('2 &middot; Payment To', `
         ${fld('Payment To', `<select id="acc-pr-paymentTo" onchange="_accPROnPaymentToChange()">${opt(['Employee', 'Vendor', 'Sub Contractor', 'Others'])}</select>`, true)}
-        <div id="acc-pr-paidto-employee" style="display:none">${fld('Paid To (Employee)', `<select id="acc-pr-paidToEmployee" onchange="_accPRAutoFillBankDetails()">${opt(empNames)}</select>`)}</div>
-        <div id="acc-pr-paidto-vendor" style="display:none">${fld('Paid To (Vendor)', `<select id="acc-pr-paidToVendor" onchange="_accPRAutoFillBankDetails()">${opt(vendorNames)}</select>`)}</div>
-        <div id="acc-pr-paidto-sc" style="display:none">${fld('Paid To (Sub Contractor)', `<select id="acc-pr-paidToSC" onchange="_accPRAutoFillBankDetails()">${opt(scNames)}</select>`)}</div>
+        <div id="acc-pr-paidto-employee" style="display:none">${fld('Paid To (Employee)', evgComboHtml({ id: 'acc-pr-paidToEmployee', items: [...new Set((empNames || []).filter(Boolean))].sort().map(n => ({ v: n, label: n })), placeholder: 'Type an employee name…', onPick: '_accPRAutoFillBankDetails' }))}</div>
+        <div id="acc-pr-paidto-vendor" style="display:none">${fld('Paid To (Vendor)', evgComboHtml({ id: 'acc-pr-paidToVendor', items: [...new Set((vendorNames || []).filter(Boolean))].sort().map(n => ({ v: n, label: n })), placeholder: 'Type a vendor name…', onPick: '_accPRAutoFillBankDetails' }))}</div>
+        <div id="acc-pr-paidto-sc" style="display:none">${fld('Paid To (Sub Contractor)', evgComboHtml({ id: 'acc-pr-paidToSC', items: [...new Set((scNames || []).filter(Boolean))].sort().map(n => ({ v: n, label: n })), placeholder: 'Type a sub contractor name…', onPick: '_accPRAutoFillBankDetails' }))}</div>
         <div id="acc-pr-paidto-others" style="display:none">${fld('Paid To (Others)', `<input id="acc-pr-paidToOthers" placeholder="Name of payee">`)}</div>
       `)}
 
