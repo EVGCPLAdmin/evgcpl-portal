@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.18.0';
-const PORTAL_BUILD    = 617;
-const PORTAL_BUILD_AT = '2026-06-23T05:16:52Z';
+const PORTAL_VERSION  = '4.20.0';
+const PORTAL_BUILD    = 620;
+const PORTAL_BUILD_AT = '2026-06-23T18:46:04Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4611,20 +4611,61 @@ function _plLedgerBuild(lid) {
     </div></div>`;
 }
 
+// ── Reusable type-and-search combobox ────────────────────────────────────
+// evgComboHtml({ id, items:[{v,label,sub}], value, placeholder, onPick }) →
+// an <input id> showing the chosen LABEL (so simple readers like _accV(id)
+// get the picked text) with a data-value attr holding the item's `v`. The
+// global fn named by `onPick` is called with (v, item) after a selection.
+window._evgComboData = window._evgComboData || {};
+window._evgComboPickFn = window._evgComboPickFn || {};
+function evgComboHtml(cfg) {
+  const esc = _mdpEsc, id = cfg.id, sid = id + '-sug';
+  window._evgComboData[id] = cfg.items || [];
+  window._evgComboPickFn[id] = cfg.onPick || '';
+  return `<div style="position:relative">
+    <input id="${esc(id)}" autocomplete="off" placeholder="${esc(cfg.placeholder || 'Type to search…')}" value="${esc(cfg.value || '')}"
+      oninput="_evgComboFilter('${esc(id)}',this.value)" onfocus="this.select();_evgComboFilter('${esc(id)}','')"
+      onblur="setTimeout(function(){var b=document.getElementById('${esc(sid)}');if(b)b.style.display='none'},150)"
+      style="width:100%;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+    <div id="${esc(sid)}" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;max-height:300px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.14)"></div>
+  </div>`;
+}
+window._evgComboFilter = function(id, q) {
+  const box = document.getElementById(id + '-sug'); if (!box) return;
+  const items = window._evgComboData[id] || [];
+  const esc = _mdpEsc, s = String(q || '').trim().toLowerCase();
+  let list = s ? items.filter(it => (it.label || '').toLowerCase().includes(s) || (it.sub || '').toLowerCase().includes(s) || String(it.v || '').toLowerCase().includes(s)) : items;
+  list = list.slice(0, 40);
+  if (!list.length) { box.innerHTML = `<div style="padding:.6rem .8rem;color:var(--txt3);font-size:.78rem">No match</div>`; box.style.display = 'block'; return; }
+  box.innerHTML = list.map(it => `<div onmousedown="_evgComboPick('${esc(id)}',this.getAttribute('data-v'))" data-v="${esc(String(it.v))}" style="padding:.5rem .8rem;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:.6rem;align-items:center" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <span style="font-size:.82rem;font-weight:600">${esc(it.label)}</span>${it.sub ? `<span style="font-size:.68rem;color:var(--txt3);white-space:nowrap">${esc(it.sub)}</span>` : ''}
+    </div>`).join('');
+  box.style.display = 'block';
+};
+window._evgComboPick = function(id, v) {
+  const box = document.getElementById(id + '-sug'); if (box) box.style.display = 'none';
+  const inp = document.getElementById(id); if (!inp) return;
+  const it = (window._evgComboData[id] || []).find(x => String(x.v) === String(v));
+  inp.value = it ? it.label : v;
+  inp.setAttribute('data-value', it ? String(it.v) : v);
+  const fn = window._evgComboPickFn[id];
+  if (fn && typeof window[fn] === 'function') window[fn](v, it);
+};
+
 function _mdpLedgerHtml() {
   const esc = _mdpEsc;
   const typeBtns = PARTY_TYPES.map(t =>
     `<button onclick="_mdpSetType('${t}')" class="btn btn-sm ${t === _plType ? 'btn-primary' : 'btn-secondary'}">${esc(t)}</button>`).join('');
   const parties = _plParties(_plType, _mdpCompany);
-  const partyOpts = `<option value="">Select ${esc(_plType)}…</option>` +
-    parties.map(p => `<option value="${esc(p.key)}"${p.key === _plParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` · A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
+  const _selP = parties.find(p => p.key === _plParty);
+  const partyItems = parties.map(p => ({ v: p.key, label: `${p.name}${p.acc ? ` · A/C ${p.acc}` : ''}`, sub: String(p.count) }));
   const selector = `
     <div class="card card-pad" style="margin-bottom:1rem">
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.7rem">${typeBtns}</div>
       <div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
           <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">${esc(_plType.toUpperCase())}</label>
-          <select id="mdp-party" onchange="_mdpSetParty(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${partyOpts}</select>
+          ${evgComboHtml({ id: 'mdp-party', items: partyItems, value: _selP ? `${_selP.name}${_selP.acc ? ` · A/C ${_selP.acc}` : ''}` : '', placeholder: `Type a ${_plType.toLowerCase()} name…`, onPick: '_mdpSetParty' })}
         </div>
         <div style="font-size:.72rem;color:var(--txt3)">${parties.length} record(s)${_mdpCompany ? ` · ${esc(_mdpCompany)}` : ''}</div>
       </div>
@@ -4675,14 +4716,14 @@ function _ledRenderBody() {
   const c = document.getElementById('ledger-body'); if (!c) return;
   const esc = _mdpEsc;
   const parties = _plParties(_ledType);
-  const partyOpts = `<option value="">Select ${esc(_ledType)}&hellip;</option>` +
-    parties.map(p => `<option value="${esc(p.key)}"${p.key === _ledParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` &middot; A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
+  const _selP = parties.find(p => p.key === _ledParty);
+  const partyItems = parties.map(p => ({ v: p.key, label: `${p.name}${p.acc ? ` · A/C ${p.acc}` : ''}`, sub: String(p.count) }));
   const selector = `
     <div class="card card-pad" style="margin-bottom:1rem">
       <div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
           <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">${esc(_ledType.toUpperCase())}</label>
-          <select id="led-party" onchange="_ledSetParty(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${partyOpts}</select>
+          ${evgComboHtml({ id: 'led-party', items: partyItems, value: _selP ? `${_selP.name}${_selP.acc ? ` · A/C ${_selP.acc}` : ''}` : '', placeholder: `Type a ${_ledType.toLowerCase()} name…`, onPick: '_ledSetParty' })}
         </div>
         <div style="font-size:.72rem;color:var(--txt3)">${parties.length} ${esc(_ledType.toLowerCase())}(s)</div>
       </div>
@@ -4720,12 +4761,12 @@ function _scLedRenderBody() {
   const c = document.getElementById('sc-ledger-body'); if (!c) return;
   const esc = _mdpEsc;
   const parties = _plParties('Sub Contractor');
-  const partyOpts = `<option value="">Select Sub Contractor&hellip;</option>` +
-    parties.map(p => `<option value="${esc(p.key)}"${p.key === _scLedParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` &middot; A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
+  const _selP = parties.find(p => p.key === _scLedParty);
+  const partyItems = parties.map(p => ({ v: p.key, label: `${p.name}${p.acc ? ` · A/C ${p.acc}` : ''}`, sub: String(p.count) }));
   const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
     <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">SUB CONTRACTOR</label>
-      <select onchange="_scLedSetParty(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${partyOpts}</select>
+      ${evgComboHtml({ id: 'sc-party', items: partyItems, value: _selP ? `${_selP.name}${_selP.acc ? ` · A/C ${_selP.acc}` : ''}` : '', placeholder: 'Type a sub contractor name…', onPick: '_scLedSetParty' })}
     </div>
     <div style="font-size:.72rem;color:var(--txt3)">${parties.length} sub contractor(s)</div></div></div>`;
   if (!_scLedParty) { c.innerHTML = selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a sub contractor to view their ledger.</div>`; return; }
@@ -4791,6 +4832,8 @@ window._vplpFlatOpen  = function(i) { const r = (window._vplpFlatRows || [])[i];
 // Vendors are keyed in the ledger by their Vendor-ID token (e.g. EGVE001);
 // renderVendorLedgerPO() doesn't reset _vplpVendor, so set it before navigating.
 window._vplpOpenVendor = function(vid) { _vplpVendor = String(vid || '').toUpperCase(); _vplpFY = ''; _vplpView = 'vendor'; navigate('vendor-ledger-po'); };
+// In-page: switch to a vendor's ledger (already on the route — no navigate).
+window._vplpOpenVendorView = function(vid) { _vplpVendor = String(vid || '').toUpperCase(); _vplpFY = ''; _vplpLedgerMode = 'active'; _vplpView = 'vendor'; _vplpRenderBody(); };
 
 let _vplpGRNRows = null;
 async function _vplpEnsure(force) {
@@ -4997,15 +5040,19 @@ function _vplpRenderBody() {
   const toggle = `<div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
     <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
     <button onclick="_vplpSetView('flat')" class="btn btn-sm ${_vplpView === 'flat' ? 'btn-primary' : 'btn-secondary'}">&#128203; Flat List (all vendors)</button>
+    <button onclick="_vplpSetView('openings')" class="btn btn-sm ${_vplpView === 'openings' ? 'btn-primary' : 'btn-secondary'}">&#128209; Opening Balances</button>
     <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="margin-left:auto" title="Record a vendor's carried-forward opening balance">&#10133; Opening Balance</button>
   </div>`;
   if (_vplpView === 'flat') { c.innerHTML = _vplpFlatList(toggle); return; }
-  const opts = `<option value="">Select vendor&hellip;</option>` + d.vendors.map(v =>
-    `<option value="${esc(v.key)}"${v.key === _vplpVendor ? ' selected' : ''}>${esc(v.name)}${v.vid ? ` [${esc(v.vid)}]` : ''}${v.unmapped ? ' · Unmapped' : ''} (${Object.keys(v.poKeys).length} PO &middot; ${v.payCount} pay)</option>`).join('');
+  if (_vplpView === 'openings') { c.innerHTML = toggle + _vplpOBListView(); return; }
+  // Type-and-search vendor picker (347+ vendors → a combobox beats a native select).
+  const selV = d.vendors.find(x => x.key === _vplpVendor);
+  const selLabel = selV ? `${selV.name}${selV.vid ? ` [${selV.vid}]` : ''}` : '';
+  const vendorItems = d.vendors.map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}${v.unmapped ? ' ·Unmapped' : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
   const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
     <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:280px">
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR</label>
-      <select onchange="_vplpSetVendor(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${opts}</select>
+      ${evgComboHtml({ id: 'vplp-vendor-search', items: vendorItems, value: selLabel, placeholder: 'Type a vendor name or ID…', onPick: '_vplpSetVendor' })}
     </div>
     <div style="font-size:.72rem;color:var(--txt3)">${d.vendors.length} vendor(s)</div></div></div>`;
   if (!_vplpVendor) { c.innerHTML = toggle + selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
@@ -5115,7 +5162,7 @@ function _vplpFlatList(toggle) {
   // One compact header bar: view toggle + status filter on the left, totals on the right (wraps to 2 rows on narrow screens).
   const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.5rem 1.1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
     <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
-      ${viewBtn('vendor', '&#128100; Per Vendor')}${viewBtn('flat', '&#128203; Flat List')}
+      ${viewBtn('vendor', '&#128100; Per Vendor')}${viewBtn('flat', '&#128203; Flat List')}${viewBtn('openings', '&#128209; Opening Bals')}
       <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem" title="Record a vendor's opening balance">&#10133; Opening Bal</button>
       ${sep}
       <span style="font-size:.64rem;font-weight:700;color:var(--txt3)">STATUS</span>
@@ -5157,6 +5204,62 @@ function _vplpFlatList(toggle) {
         <th style="padding:8px 9px;text-align:right">Tax</th><th style="padding:8px 9px;text-align:right" title="Billed after the opening date">Billed (Cr)</th>
         <th style="padding:8px 9px;text-align:right" title="Paid after the opening date">Paid (Dr)</th><th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th>
       </tr></thead><tbody>${body}</tbody><tfoot>${tfoot}</tfoot></table></div></div>`;
+}
+// Opening Balances view — the raw OpeningBalance sheet entries (every row,
+// including superseded), newest first. Click a row to open that vendor's
+// ledger. Net Opening (Active) sums non-superseded rows (Cr +, Dr −).
+function _vplpOBListView() {
+  _vplpEnsureLedgerStyle();
+  const esc = _mdpEsc;
+  const inr = n => '₹' + Math.round(Math.abs(n)).toLocaleString('en-IN');
+  const val = (r, names) => _vplpOBVal(r, names);
+  const rows = (_vplpOBRows || []).slice();
+  if (!rows.length) return `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; No opening balances recorded yet. Use <b>&#10133; Opening Balance</b> to add one.</div>`;
+  const amtOf  = r => _opNum(val(r, ['Opening Balance', 'Amount', 'Balance', 'Value']));
+  const sideOf = r => { const dc = val(r, ['Dr/Cr', 'DrCr', 'Dr / Cr', 'Type', 'Side']); return /^d|debit/i.test(dc) ? 'Dr' : /^c|credit/i.test(dc) ? 'Cr' : (amtOf(r) < 0 ? 'Dr' : 'Cr'); };
+  const isClosed = r => /supersed|inactive|void|cancel|delete/i.test(val(r, ['Status']));
+  rows.sort((a, b) => (_mdpDateVal(val(b, ['Timestamp'])) || 0) - (_mdpDateVal(val(a, ['Timestamp'])) || 0));
+  let netCr = 0, active = 0;
+  rows.forEach(r => { if (isClosed(r)) return; active++; netCr += (sideOf(r) === 'Dr' ? -Math.abs(amtOf(r)) : Math.abs(amtOf(r))); });
+  const chip = (txt, bg, col) => `<span style="font-size:.66rem;font-weight:700;background:${bg};color:${col};padding:2px 8px;border-radius:9px;white-space:nowrap">${esc(txt)}</span>`;
+  const stat = (val2, lbl, col) => `<div style="display:flex;flex-direction:column;line-height:1.1"><span style="font-size:.92rem;font-weight:800;${col ? `color:${col}` : ''}">${val2}</span><span style="font-size:.58rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap">${lbl}</span></div>`;
+  const body = rows.map(r => {
+    const vid = (val(r, ['Vendor ID', 'VendorID']) || '').toUpperCase();
+    const side = sideOf(r), closed = isClosed(r);
+    const appr = val(r, ['Approval Status']) || 'Pending';
+    const click = vid ? ` style="cursor:pointer" onclick="_vplpOpenVendorView('${esc(vid)}')" title="Open this vendor's ledger"` : '';
+    return `<tr${click}${closed ? ' style="opacity:.55"' : ''}>
+      <td style="padding:6px 9px;white-space:nowrap;font-family:monospace;font-size:.72rem">${esc(vid) || '—'}</td>
+      <td style="padding:6px 9px">${esc(val(r, ['Vendor Name', 'Name']) || val(r, ['Vendor Detail']) || '—')}</td>
+      <td style="padding:6px 9px;text-align:right;font-weight:700;color:${side === 'Cr' ? '#15803d' : '#1d4ed8'}">${inr(amtOf(r))} ${side}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${esc(_mdpFmtDate(val(r, ['As On (Date)', 'As On', 'Date'])))}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${esc(val(r, ['Financial Year', 'FY']) || '—')}</td>
+      <td style="padding:6px 9px">${esc(val(r, ['Company']) || '—')}</td>
+      <td style="padding:6px 9px">${closed ? chip('Superseded', '#f1f5f9', '#64748b') : chip(val(r, ['Status']) || 'Active', '#dcfce7', '#15803d')}</td>
+      <td style="padding:6px 9px">${/approved/i.test(appr) ? chip('Approved', '#dcfce7', '#15803d') : /reject/i.test(appr) ? chip('Rejected', '#fee2e2', '#b91c1c') : chip('Pending', '#fef3c7', '#92400e')}</td>
+      <td style="padding:6px 9px;font-size:.72rem;color:var(--txt2)">${esc(val(r, ['Remarks (If Any)', 'Remarks']) || '')}</td>
+      <td style="padding:6px 9px;font-size:.72rem;color:var(--txt3);white-space:nowrap">${esc(val(r, ['Updated By']) || val(r, ['UserEmail']) || '')}</td>
+    </tr>`;
+  }).join('');
+  const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.6rem 1.1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
+    <div style="font-size:.8rem;font-weight:700;color:var(--g8)">&#128209; Recorded Opening Balances</div>
+    <div style="display:flex;gap:1.1rem;align-items:center;flex-wrap:wrap">
+      ${stat(rows.length, 'Entries')}
+      ${stat(active, 'Active')}
+      ${stat(inr(netCr) + (netCr >= 0 ? ' Cr' : ' Dr'), 'Net Opening (Active)', netCr >= 0 ? '#ea580c' : '#1d4ed8')}
+      <button onclick="_vplpOpenOB()" class="btn btn-sm btn-primary" style="padding:3px 9px;font-size:.72rem">&#10133; Opening Balance</button>
+      <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
+    </div>
+  </div>`;
+  return header + `<div class="card"><div style="overflow-x:auto">
+    <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
+      <thead><tr style="background:var(--g9);color:#fff;text-align:left">
+        <th style="padding:8px 9px">Vendor ID</th><th style="padding:8px 9px">Vendor</th>
+        <th style="padding:8px 9px;text-align:right">Opening Balance</th><th style="padding:8px 9px">As On</th>
+        <th style="padding:8px 9px">FY</th><th style="padding:8px 9px">Company</th>
+        <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Approval</th>
+        <th style="padding:8px 9px">Remarks</th><th style="padding:8px 9px">Updated By</th>
+      </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 // Indian FY runs Apr→Mar; the FY "start year" identifies it (2026 → FY 2026-27).
 function _vplpFYof(v) { const t = _mdpDateVal(v); if (!t) return ''; const d = new Date(t); return String(d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1); }
@@ -5354,8 +5457,7 @@ function _vplpDrawOBForm(dr, prefillKey) {
   const d = _vplpData || { vendors: [] };
   const today = new Date().toLocaleDateString('en-CA');
   const cur = (d.vendors || []).find(x => x.key === prefillKey);
-  const vendorOpts = `<option value="">— pick a vendor —</option>` + (d.vendors || []).map(v =>
-    `<option value="${esc(v.key)}"${v.key === prefillKey ? ' selected' : ''}>${esc(v.name)}${v.vid ? ` [${esc(v.vid)}]` : ''}</option>`).join('');
+  const obVendorItems = (d.vendors || []).map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
   const fld = (label, ctrl, req) => `
     <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:.7rem">
       <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">${label}${req ? ' <span style="color:var(--danger)">*</span>' : ''}</label>
@@ -5373,7 +5475,7 @@ function _vplpDrawOBForm(dr, prefillKey) {
     </div>
     <div class="evg-form" style="flex:1;overflow-y:auto;padding:1.1rem 1.3rem">
       ${notConfigured ? `<div style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:.6rem .8rem;font-size:.74rem;margin-bottom:1rem">&#9888; Opening-balance sheet not configured yet. Set <code>VENDOR_OPENING_BAL_SHEET_ID</code> + <code>VENDOR_OPENING_BAL_TAB</code> to enable saving. You can still fill the form to preview it.</div>` : ''}
-      ${fld('Vendor', `<select id="vplp-ob-vendor" onchange="_vplpOBPick(this.value)">${vendorOpts}</select>`, false)}
+      ${fld('Vendor', evgComboHtml({ id: 'vplp-ob-vendor', items: obVendorItems, value: cur ? `${cur.name}${cur.vid ? ` [${cur.vid}]` : ''}` : '', placeholder: 'Type a vendor name or ID…', onPick: '_vplpOBPick' }), false)}
       ${grid(
         fld('Vendor ID', `<input id="vplp-ob-vid" value="${esc(cur ? (cur.vid || cur.key) : prefillKey || '')}" placeholder="e.g. MV300">`, true),
         fld('Vendor Key (UUID)', `<input id="vplp-ob-uuid" value="${esc(cur ? (cur.uuid || '') : '')}" placeholder="auto from master">`)
@@ -9128,9 +9230,9 @@ function _accDrawNewPRForm(dr) {
 
       ${sec('2 &middot; Payment To', `
         ${fld('Payment To', `<select id="acc-pr-paymentTo" onchange="_accPROnPaymentToChange()">${opt(['Employee', 'Vendor', 'Sub Contractor', 'Others'])}</select>`, true)}
-        <div id="acc-pr-paidto-employee" style="display:none">${fld('Paid To (Employee)', `<select id="acc-pr-paidToEmployee" onchange="_accPRAutoFillBankDetails()">${opt(empNames)}</select>`)}</div>
-        <div id="acc-pr-paidto-vendor" style="display:none">${fld('Paid To (Vendor)', `<select id="acc-pr-paidToVendor" onchange="_accPRAutoFillBankDetails()">${opt(vendorNames)}</select>`)}</div>
-        <div id="acc-pr-paidto-sc" style="display:none">${fld('Paid To (Sub Contractor)', `<select id="acc-pr-paidToSC" onchange="_accPRAutoFillBankDetails()">${opt(scNames)}</select>`)}</div>
+        <div id="acc-pr-paidto-employee" style="display:none">${fld('Paid To (Employee)', evgComboHtml({ id: 'acc-pr-paidToEmployee', items: [...new Set((empNames || []).filter(Boolean))].sort().map(n => ({ v: n, label: n })), placeholder: 'Type an employee name…', onPick: '_accPRAutoFillBankDetails' }))}</div>
+        <div id="acc-pr-paidto-vendor" style="display:none">${fld('Paid To (Vendor)', evgComboHtml({ id: 'acc-pr-paidToVendor', items: [...new Set((vendorNames || []).filter(Boolean))].sort().map(n => ({ v: n, label: n })), placeholder: 'Type a vendor name…', onPick: '_accPRAutoFillBankDetails' }))}</div>
+        <div id="acc-pr-paidto-sc" style="display:none">${fld('Paid To (Sub Contractor)', evgComboHtml({ id: 'acc-pr-paidToSC', items: [...new Set((scNames || []).filter(Boolean))].sort().map(n => ({ v: n, label: n })), placeholder: 'Type a sub contractor name…', onPick: '_accPRAutoFillBankDetails' }))}</div>
         <div id="acc-pr-paidto-others" style="display:none">${fld('Paid To (Others)', `<input id="acc-pr-paidToOthers" placeholder="Name of payee">`)}</div>
       `)}
 
