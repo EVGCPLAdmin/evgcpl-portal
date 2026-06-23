@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.17.2';
-const PORTAL_BUILD    = 615;
-const PORTAL_BUILD_AT = '2026-06-23T04:36:42Z';
+const PORTAL_VERSION  = '4.17.3';
+const PORTAL_BUILD    = 616;
+const PORTAL_BUILD_AT = '2026-06-23T04:42:54Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -427,8 +427,9 @@ function toggleDevMode() {
   STATE.isDevMode = !STATE.isDevMode;
   document.body.classList.toggle('dev-mode', STATE.isDevMode);
   applyRoleNavRestrictions(STATE.role);
-  const btn = document.getElementById('devModeToggleBtn');
-  if (btn) btn.title = STATE.isDevMode ? 'Dev Mode ON — click to exit' : 'Toggle Dev Mode';
+  // Highlight the Admin-dropdown toggle item to reflect the active state.
+  const tog = document.getElementById('tnavDevToggle');
+  if (tog) tog.style.background = STATE.isDevMode ? 'rgba(240,165,0,.12)' : '';
   // Show a brief toast
   const toast = document.createElement('div');
   toast.textContent = STATE.isDevMode ? '⚙ Dev Mode ON — WIP items visible' : '✓ Dev Mode OFF — Live items only';
@@ -442,12 +443,10 @@ function toggleDevMode() {
 }
 
 function applyDevModeUI() {
-  // Show Dev Mode toggle for md role OR AT00xx employee ref (admin accounts)
+  // The Dev Mode toggle now lives in the Admin top-nav dropdown (#tnavDevToggle),
+  // not the header. Keep the legacy floating header button hidden everywhere.
   const btn = document.getElementById('devModeToggleBtn');
-  const isMdRole  = STATE.role === 'md';
-  const isAdminEmail = (STATE.user?.email || '').toLowerCase().includes('admin@evgcpl') ||
-                       (STATE.user?.email || '').toLowerCase().includes('neurolooom');
-  if (btn) btn.style.display = (isMdRole || isAdminEmail) ? '' : 'none';
+  if (btn) btn.style.display = 'none';
   document.body.classList.toggle('dev-mode', STATE.isDevMode);
   // Re-apply nav restrictions with current dev mode state
   applyRoleNavRestrictions(STATE.role);
@@ -2695,6 +2694,8 @@ function applyRoleNavRestrictions(role) {
   if (tnavDev) tnavDev.style.display = isMd ? '' : 'none';
   const tnavDevBadge = document.getElementById('tnavDevBadge');
   if (tnavDevBadge) tnavDevBadge.textContent = STATE.isDevMode ? 'ON' : 'OFF';
+  const tnavDevTog = document.getElementById('tnavDevToggle');
+  if (tnavDevTog) tnavDevTog.style.background = STATE.isDevMode ? 'rgba(240,165,0,.12)' : '';
 
   // Per-item visibility in dropdowns
   topNav.querySelectorAll('.tnav-item[data-route]').forEach(el => {
