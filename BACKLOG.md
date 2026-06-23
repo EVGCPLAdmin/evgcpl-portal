@@ -19,3 +19,15 @@ Tracked follow-ups that are scaffolded but not yet fully built.
 
 ## HR restructure (Recruitment / Day-to-Day / Other Operations)
 Pending inputs from product owner: Recruitment sub-page list; sheet IDs/tabs/columns for Attendance, Leave, OD, Attendance Review, Advance & Loans. Expense + Individual-Mess data already provided (EXPENSE_SHEET_ID).
+
+## Vendor Opening Balance — approval workflow
+**Status:** parked (product decision — hold for now). The data columns already exist and are written.
+
+**Already in place:** the Opening Balance entry form (Vendor Ledger PO) writes `Approval Status = Pending` with blank `Approved By` / `Approved On (Date)`; the `Status` column (`Active` / `Superseded`) already lets a corrected entry replace an old one in the ledger reader.
+
+**To build later:**
+- An **approve / reject** action (who can approve = role/access-group rule, e.g. md / accounts), stamping `Approved By`, `Approved On (Date)`, and flipping `Approval Status` → `Approved` / `Rejected` (via the `accounts` backend, header-mapped update).
+- Decide whether an **un-approved** opening balance should still fold into the running ledger or be excluded until approved (reader currently includes all non-`Superseded` rows regardless of `Approval Status`).
+- Surface pending opening-balance approvals (candidate row for the **My Tasks** inbox above).
+- Optional: a small "pending approval" badge on the vendor row / Opening (B/F) cell.
+

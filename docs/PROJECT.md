@@ -359,6 +359,7 @@ cache-busts `?v=<build>` on every HTML asset ref, syncs the top nav from
 | **Expense Ledger** — per-bill drill detail; remove the temporary load-diagnostic counter once verified | open | Loader already pulls the `Ledger` line items. |
 | Salary / **Pay Slip** | ⏸️ parked | Monthly Pay Slip from a **separate salary sheet** — needs sheet ID + column headers. |
 | Vendor Ledger — include Tax/Additional in Outstanding; match POs by vendor name | open | small changes if desired |
+| **Vendor Opening Balance — approval workflow** | ⏸️ parked | Columns written (`Approval Status=Pending`, `Approved By/On`); approve/reject action + access rule + "fold un-approved into ledger?" decision pending. Spec in `BACKLOG.md`. |
 | Tendering module | dev | "Coming" |
 
 ---
