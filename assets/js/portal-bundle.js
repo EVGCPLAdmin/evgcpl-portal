@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.18.0';
-const PORTAL_BUILD    = 617;
-const PORTAL_BUILD_AT = '2026-06-23T05:16:52Z';
+const PORTAL_VERSION  = '4.19.0';
+const PORTAL_BUILD    = 618;
+const PORTAL_BUILD_AT = '2026-06-23T09:58:04Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4790,6 +4790,8 @@ window._vplpFlatOpen  = function(i) { const r = (window._vplpFlatRows || [])[i];
 // Vendors are keyed in the ledger by their Vendor-ID token (e.g. EGVE001);
 // renderVendorLedgerPO() doesn't reset _vplpVendor, so set it before navigating.
 window._vplpOpenVendor = function(vid) { _vplpVendor = String(vid || '').toUpperCase(); _vplpFY = ''; _vplpView = 'vendor'; navigate('vendor-ledger-po'); };
+// In-page: switch to a vendor's ledger (already on the route — no navigate).
+window._vplpOpenVendorView = function(vid) { _vplpVendor = String(vid || '').toUpperCase(); _vplpFY = ''; _vplpLedgerMode = 'active'; _vplpView = 'vendor'; _vplpRenderBody(); };
 
 let _vplpGRNRows = null;
 async function _vplpEnsure(force) {
@@ -4996,9 +4998,11 @@ function _vplpRenderBody() {
   const toggle = `<div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
     <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
     <button onclick="_vplpSetView('flat')" class="btn btn-sm ${_vplpView === 'flat' ? 'btn-primary' : 'btn-secondary'}">&#128203; Flat List (all vendors)</button>
+    <button onclick="_vplpSetView('openings')" class="btn btn-sm ${_vplpView === 'openings' ? 'btn-primary' : 'btn-secondary'}">&#128209; Opening Balances</button>
     <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="margin-left:auto" title="Record a vendor's carried-forward opening balance">&#10133; Opening Balance</button>
   </div>`;
   if (_vplpView === 'flat') { c.innerHTML = _vplpFlatList(toggle); return; }
+  if (_vplpView === 'openings') { c.innerHTML = toggle + _vplpOBListView(); return; }
   const opts = `<option value="">Select vendor&hellip;</option>` + d.vendors.map(v =>
     `<option value="${esc(v.key)}"${v.key === _vplpVendor ? ' selected' : ''}>${esc(v.name)}${v.vid ? ` [${esc(v.vid)}]` : ''}${v.unmapped ? ' · Unmapped' : ''} (${Object.keys(v.poKeys).length} PO &middot; ${v.payCount} pay)</option>`).join('');
   const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
@@ -5114,7 +5118,7 @@ function _vplpFlatList(toggle) {
   // One compact header bar: view toggle + status filter on the left, totals on the right (wraps to 2 rows on narrow screens).
   const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.5rem 1.1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
     <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
-      ${viewBtn('vendor', '&#128100; Per Vendor')}${viewBtn('flat', '&#128203; Flat List')}
+      ${viewBtn('vendor', '&#128100; Per Vendor')}${viewBtn('flat', '&#128203; Flat List')}${viewBtn('openings', '&#128209; Opening Bals')}
       <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem" title="Record a vendor's opening balance">&#10133; Opening Bal</button>
       ${sep}
       <span style="font-size:.64rem;font-weight:700;color:var(--txt3)">STATUS</span>
@@ -5156,6 +5160,62 @@ function _vplpFlatList(toggle) {
         <th style="padding:8px 9px;text-align:right">Tax</th><th style="padding:8px 9px;text-align:right" title="Billed after the opening date">Billed (Cr)</th>
         <th style="padding:8px 9px;text-align:right" title="Paid after the opening date">Paid (Dr)</th><th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th>
       </tr></thead><tbody>${body}</tbody><tfoot>${tfoot}</tfoot></table></div></div>`;
+}
+// Opening Balances view — the raw OpeningBalance sheet entries (every row,
+// including superseded), newest first. Click a row to open that vendor's
+// ledger. Net Opening (Active) sums non-superseded rows (Cr +, Dr −).
+function _vplpOBListView() {
+  _vplpEnsureLedgerStyle();
+  const esc = _mdpEsc;
+  const inr = n => '₹' + Math.round(Math.abs(n)).toLocaleString('en-IN');
+  const val = (r, names) => _vplpOBVal(r, names);
+  const rows = (_vplpOBRows || []).slice();
+  if (!rows.length) return `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; No opening balances recorded yet. Use <b>&#10133; Opening Balance</b> to add one.</div>`;
+  const amtOf  = r => _opNum(val(r, ['Opening Balance', 'Amount', 'Balance', 'Value']));
+  const sideOf = r => { const dc = val(r, ['Dr/Cr', 'DrCr', 'Dr / Cr', 'Type', 'Side']); return /^d|debit/i.test(dc) ? 'Dr' : /^c|credit/i.test(dc) ? 'Cr' : (amtOf(r) < 0 ? 'Dr' : 'Cr'); };
+  const isClosed = r => /supersed|inactive|void|cancel|delete/i.test(val(r, ['Status']));
+  rows.sort((a, b) => (_mdpDateVal(val(b, ['Timestamp'])) || 0) - (_mdpDateVal(val(a, ['Timestamp'])) || 0));
+  let netCr = 0, active = 0;
+  rows.forEach(r => { if (isClosed(r)) return; active++; netCr += (sideOf(r) === 'Dr' ? -Math.abs(amtOf(r)) : Math.abs(amtOf(r))); });
+  const chip = (txt, bg, col) => `<span style="font-size:.66rem;font-weight:700;background:${bg};color:${col};padding:2px 8px;border-radius:9px;white-space:nowrap">${esc(txt)}</span>`;
+  const stat = (val2, lbl, col) => `<div style="display:flex;flex-direction:column;line-height:1.1"><span style="font-size:.92rem;font-weight:800;${col ? `color:${col}` : ''}">${val2}</span><span style="font-size:.58rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap">${lbl}</span></div>`;
+  const body = rows.map(r => {
+    const vid = (val(r, ['Vendor ID', 'VendorID']) || '').toUpperCase();
+    const side = sideOf(r), closed = isClosed(r);
+    const appr = val(r, ['Approval Status']) || 'Pending';
+    const click = vid ? ` style="cursor:pointer" onclick="_vplpOpenVendorView('${esc(vid)}')" title="Open this vendor's ledger"` : '';
+    return `<tr${click}${closed ? ' style="opacity:.55"' : ''}>
+      <td style="padding:6px 9px;white-space:nowrap;font-family:monospace;font-size:.72rem">${esc(vid) || '—'}</td>
+      <td style="padding:6px 9px">${esc(val(r, ['Vendor Name', 'Name']) || val(r, ['Vendor Detail']) || '—')}</td>
+      <td style="padding:6px 9px;text-align:right;font-weight:700;color:${side === 'Cr' ? '#15803d' : '#1d4ed8'}">${inr(amtOf(r))} ${side}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${esc(_mdpFmtDate(val(r, ['As On (Date)', 'As On', 'Date'])))}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${esc(val(r, ['Financial Year', 'FY']) || '—')}</td>
+      <td style="padding:6px 9px">${esc(val(r, ['Company']) || '—')}</td>
+      <td style="padding:6px 9px">${closed ? chip('Superseded', '#f1f5f9', '#64748b') : chip(val(r, ['Status']) || 'Active', '#dcfce7', '#15803d')}</td>
+      <td style="padding:6px 9px">${/approved/i.test(appr) ? chip('Approved', '#dcfce7', '#15803d') : /reject/i.test(appr) ? chip('Rejected', '#fee2e2', '#b91c1c') : chip('Pending', '#fef3c7', '#92400e')}</td>
+      <td style="padding:6px 9px;font-size:.72rem;color:var(--txt2)">${esc(val(r, ['Remarks (If Any)', 'Remarks']) || '')}</td>
+      <td style="padding:6px 9px;font-size:.72rem;color:var(--txt3);white-space:nowrap">${esc(val(r, ['Updated By']) || val(r, ['UserEmail']) || '')}</td>
+    </tr>`;
+  }).join('');
+  const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.6rem 1.1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
+    <div style="font-size:.8rem;font-weight:700;color:var(--g8)">&#128209; Recorded Opening Balances</div>
+    <div style="display:flex;gap:1.1rem;align-items:center;flex-wrap:wrap">
+      ${stat(rows.length, 'Entries')}
+      ${stat(active, 'Active')}
+      ${stat(inr(netCr) + (netCr >= 0 ? ' Cr' : ' Dr'), 'Net Opening (Active)', netCr >= 0 ? '#ea580c' : '#1d4ed8')}
+      <button onclick="_vplpOpenOB()" class="btn btn-sm btn-primary" style="padding:3px 9px;font-size:.72rem">&#10133; Opening Balance</button>
+      <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
+    </div>
+  </div>`;
+  return header + `<div class="card"><div style="overflow-x:auto">
+    <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
+      <thead><tr style="background:var(--g9);color:#fff;text-align:left">
+        <th style="padding:8px 9px">Vendor ID</th><th style="padding:8px 9px">Vendor</th>
+        <th style="padding:8px 9px;text-align:right">Opening Balance</th><th style="padding:8px 9px">As On</th>
+        <th style="padding:8px 9px">FY</th><th style="padding:8px 9px">Company</th>
+        <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Approval</th>
+        <th style="padding:8px 9px">Remarks</th><th style="padding:8px 9px">Updated By</th>
+      </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 // Indian FY runs Apr→Mar; the FY "start year" identifies it (2026 → FY 2026-27).
 function _vplpFYof(v) { const t = _mdpDateVal(v); if (!t) return ''; const d = new Date(t); return String(d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1); }
