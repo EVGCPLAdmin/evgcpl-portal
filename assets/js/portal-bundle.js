@@ -4650,6 +4650,13 @@ window._evgComboPick = function(id, v) {
   const fn = window._evgComboPickFn[id];
   if (fn && typeof window[fn] === 'function') window[fn](v, it);
 };
+// Swap a combo's option list at runtime (cascading pickers, e.g. Dept→Process).
+// clearValue empties the input (the old pick may not exist in the new list).
+window.evgComboSetItems = function(id, items, clearValue) {
+  window._evgComboData[id] = items || [];
+  if (clearValue) { const inp = document.getElementById(id); if (inp) { inp.value = ''; inp.removeAttribute('data-value'); } }
+  const box = document.getElementById(id + '-sug'); if (box) box.style.display = 'none';
+};
 
 function _mdpLedgerHtml() {
   const esc = _mdpEsc;
@@ -9222,8 +9229,8 @@ function _accDrawNewPRForm(dr) {
       ${sec('1 &middot; Initiator', grid(
         fld('Date of Request', `<input id="acc-pr-dateOfRequest" type="date" value="${today}">`, true),
         fld('Payment Requested By', `<input id="acc-pr-initiator" value="${esc(initiatorDefault)}" ${initiatorLocked ? 'readonly title="Auto-filled from your profile"' : ''} style="${initiatorLocked ? ro : ''}">`, true),
-        fld('Department', `<select id="acc-pr-department" onchange="_accPROnDeptChange()">${opt(depts)}</select>`),
-        fld('From Which Process', `<select id="acc-pr-fromWhichProcess" onchange="_accPROnProcessChange()">${opt(procs)}</select>`),
+        fld('Department', evgComboHtml({ id: 'acc-pr-department', items: depts.map(x => ({ v: x, label: x })), placeholder: 'Type a department…', onPick: '_accPROnDeptChange' })),
+        fld('From Which Process', evgComboHtml({ id: 'acc-pr-fromWhichProcess', items: procs.map(x => ({ v: x, label: x })), placeholder: 'Type a process…', onPick: '_accPROnProcessChange' })),
         fld('Manual / Auto', `<select id="acc-pr-manualAuto"><option value="Manual" selected>Manual</option><option value="Auto">Auto</option></select>`)
       ))}
 
@@ -9236,7 +9243,7 @@ function _accDrawNewPRForm(dr) {
       `)}
 
       ${sec('3 &middot; Site &amp; Company', grid(
-        fld('Site Name', `<select id="acc-pr-siteName" onchange="_accPROnSiteChange()">${opt(siteNames)}</select>`),
+        fld('Site Name', evgComboHtml({ id: 'acc-pr-siteName', items: [...new Set((siteNames || []).filter(Boolean))].sort().map(x => ({ v: x, label: x })), placeholder: 'Type a site name…', onPick: '_accPROnSiteChange' })),
         fld('Company', `<input id="acc-pr-company" placeholder="Auto-fills from site">`)
       ))}
 
@@ -9257,8 +9264,8 @@ function _accDrawNewPRForm(dr) {
       ${sec('5 &middot; Financial', grid(
         fld('Currency', `<select id="acc-pr-currency">${opt(currencies, 'Indian Rupee')}</select>`),
         fld('Amount', `<input id="acc-pr-amount" type="number" step="0.01">`, true),
-        fld('Nature of Expenses', `<select id="acc-pr-natureOfExpenses" onchange="_accPROnNatureChange()">${opt(natures)}</select>`),
-        fld('Account Code Description', `<select id="acc-pr-accountCodeDesc" onchange="_accPROnAccCodeChange()">${opt(accDescs)}</select>`),
+        fld('Nature of Expenses', evgComboHtml({ id: 'acc-pr-natureOfExpenses', items: natures.map(x => ({ v: x, label: x })), placeholder: 'Type a nature of expense…', onPick: '_accPROnNatureChange' })),
+        fld('Account Code Description', evgComboHtml({ id: 'acc-pr-accountCodeDesc', items: accDescs.map(x => ({ v: x, label: x })), placeholder: 'Type an account code…', onPick: '_accPROnAccCodeChange' })),
         fld('GST', `<input id="acc-pr-gst" type="number" step="0.01">`),
         fld('TDS', `<input id="acc-pr-tds" type="number" step="0.01">`)
       ) + `<input id="acc-pr-costCode" type="hidden">`)}
@@ -9287,11 +9294,8 @@ function _accDrawNewPRForm(dr) {
 function _accPROnDeptChange() {
   const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
   const dept = _accV('acc-pr-department');
-  const sel = document.getElementById('acc-pr-fromWhichProcess');
-  if (sel) {
-    const procs = [...new Set((_accPayMaster || []).filter(p => !dept || p.department === dept).map(p => p.process).filter(Boolean))].sort();
-    sel.innerHTML = '<option value=""></option>' + procs.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
-  }
+  const procs = [...new Set((_accPayMaster || []).filter(p => !dept || p.department === dept).map(p => p.process).filter(Boolean))].sort();
+  if (typeof evgComboSetItems === 'function') evgComboSetItems('acc-pr-fromWhichProcess', procs.map(p => ({ v: p, label: p })), true);
   const isPurchase = /purchase/i.test(dept);
   const pt = document.getElementById('acc-pr-paymentTerms-wrap'); if (pt) pt.style.display = isPurchase ? '' : 'none';
   const po = document.getElementById('acc-pr-po-wrap');           if (po) po.style.display = isPurchase ? '' : 'none';
@@ -9324,13 +9328,9 @@ function _accPROnSiteChange() {
 }
 
 function _accPROnNatureChange() {
-  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
   const nature = _accV('acc-pr-natureOfExpenses');
-  const sel = document.getElementById('acc-pr-accountCodeDesc');
-  if (sel) {
-    const descs = [...new Set((_accCostCenter || []).filter(c => !nature || c.nature === nature).map(c => c.accCodeDesc).filter(Boolean))].sort();
-    sel.innerHTML = '<option value=""></option>' + descs.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
-  }
+  const descs = [...new Set((_accCostCenter || []).filter(c => !nature || c.nature === nature).map(c => c.accCodeDesc).filter(Boolean))].sort();
+  if (typeof evgComboSetItems === 'function') evgComboSetItems('acc-pr-accountCodeDesc', descs.map(d => ({ v: d, label: d })), true);
   _accPROnAccCodeChange();
 }
 
