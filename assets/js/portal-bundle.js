@@ -325,7 +325,9 @@ async function handlePINLogin() {
   try {
     // ── Step 1: Load UserSecrets directly via gviz — check Modified PIN (col E) ──
     if (btnEl) btnEl.textContent = 'Checking…';
-    const pinRows = await fetchSheet('UserSecrets', null, PIN_SHEET_ID);
+    // rawId: true bypasses sheet-link overrides so a misconfigured Settings override
+    // can never break login — the hardcoded PIN_SHEET_ID is always used here.
+    const pinRows = await fetchSheet('UserSecrets', null, PIN_SHEET_ID, { rawId: true });
 
     if (!pinRows.length) {
       return showErr('Could not reach the PIN database. Please check your internet and try again.');
@@ -474,6 +476,19 @@ document.addEventListener('keydown', function(e) {
     portalHardRefresh();
   }
 });
+
+// Hard Reset — wipes all portal localStorage (sheet overrides, table prefs,
+// design customisations) then reloads fresh. Distinct from Hard Refresh which
+// only busts the HTTP cache without touching stored data.
+window.portalHardReset = function() {
+  if (!confirm('Hard Reset: clear all local overrides and cached preferences?\n\nThis removes: sheet ID overrides, table column settings, design customisations, and all other portal data stored in this browser.\n\nThe page will reload.')) return;
+  const keys = Object.keys(localStorage).filter(k =>
+    k.startsWith('evg') || k.startsWith('evgcpl') || k.startsWith('pc_evg')
+  );
+  keys.forEach(k => localStorage.removeItem(k));
+  try { sessionStorage.clear(); } catch (e) {}
+  window.location.reload();
+};
 // Inject the Hard-Refresh button into the (per-page, hand-coded) header so it
 // appears on every page without editing each HTML file. Idempotent.
 function _headerEnsureHardRefresh() {
@@ -483,14 +498,28 @@ function _headerEnsureHardRefresh() {
     if (u.searchParams.has('_hr')) { u.searchParams.delete('_hr'); history.replaceState(null, '', u.pathname + (u.search || '') + (u.hash || '')); }
   } catch (e) {}
   const right = document.querySelector('.header-right');
-  if (!right || document.getElementById('hardRefreshBtn')) return;
-  const btn = document.createElement('button');
-  btn.id = 'hardRefreshBtn';
-  btn.className = 'h-icon-btn';
-  btn.title = 'Hard Refresh — reload the latest version (bypass cache)';
-  btn.setAttribute('onclick', 'portalHardRefresh()');
-  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
-  right.insertBefore(btn, right.firstChild); // leftmost icon in the header cluster
+  if (!right) return;
+  // Hard Reset button — clears all local overrides/prefs then reloads.
+  if (!document.getElementById('hardResetBtn')) {
+    const rst = document.createElement('button');
+    rst.id = 'hardResetBtn';
+    rst.className = 'h-icon-btn';
+    rst.title = 'Hard Reset — clear all local overrides & cached preferences, then reload';
+    rst.setAttribute('onclick', 'portalHardReset()');
+    rst.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
+    right.insertBefore(rst, right.firstChild);
+  }
+  // Hard Refresh button — bypasses HTTP cache without touching stored data.
+  if (!document.getElementById('hardRefreshBtn')) {
+    const btn = document.createElement('button');
+    btn.id = 'hardRefreshBtn';
+    btn.className = 'h-icon-btn';
+    btn.title = 'Hard Refresh — reload the latest version (bypass cache)';
+    btn.setAttribute('onclick', 'portalHardRefresh()');
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+    const rst = document.getElementById('hardResetBtn');
+    right.insertBefore(btn, rst ? rst.nextSibling : right.firstChild);
+  }
 }
 
 function getDefaultPage(role) {
