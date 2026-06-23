@@ -8,7 +8,7 @@
 <title>Plant & Machinery · EVGCPL Portal</title>
 <link rel="icon" type="image/jpeg" href="assets/img/EG.jpg"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=DM+Mono:wght@500&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="assets/css/portal.css?v=615"/>
+<link rel="stylesheet" href="assets/css/portal.css?v=616"/>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body data-page="plant">
@@ -272,10 +272,14 @@
         <svg class="tnav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="tnav-dropdown">
-        <div class="tnav-item" data-status="live" data-route="dev-mode" onclick="navigate('dev-mode')">
+        <div class="tnav-item" data-status="live" id="tnavDevToggle" onclick="toggleDevMode()" title="Toggle Dev Mode — show/hide work-in-progress pages for this session">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-          Config
+          Dev Mode
           <span id="tnavDevBadge" style="font-size:.6rem;padding:1px 6px;border-radius:4px;background:rgba(240,165,0,.2);color:var(--gold);font-weight:700;margin-left:auto">OFF</span>
+        </div>
+        <div class="tnav-item" data-status="live" data-route="dev-mode" onclick="navigate('dev-mode')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+          Config
         </div>
         <div class="tnav-item" data-status="live" data-route="settings" onclick="navigate('settings')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -620,7 +624,7 @@
   <!-- AI CHAT PANEL -->
 </div><!-- /app -->
 
-<script src="assets/js/portal-bundle.js?v=615"></script>
-<script src="assets/js/multi-page-bootstrap.js?v=615"></script>
+<script src="assets/js/portal-bundle.js?v=616"></script>
+<script src="assets/js/multi-page-bootstrap.js?v=616"></script>
 </body>
 </html>
