@@ -184,6 +184,7 @@
     'md-command':        'dashboard.html',
     'dev-mode':          'dashboard.html',
     'settings':          'dashboard.html',
+    'schema':            'dashboard.html',
 
     // HR group
     'hr-dashboard':      'hr.html',

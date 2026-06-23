@@ -430,6 +430,10 @@ function toggleDevMode() {
   // Highlight the Admin-dropdown toggle item to reflect the active state.
   const tog = document.getElementById('tnavDevToggle');
   if (tog) tog.style.background = STATE.isDevMode ? 'rgba(240,165,0,.12)' : '';
+  const sidebarTog = document.getElementById('sidebarDevToggle');
+  if (sidebarTog) sidebarTog.style.background = STATE.isDevMode ? 'rgba(240,165,0,.12)' : '';
+  const sidebarBadge = document.getElementById('sidebarDevBadge');
+  if (sidebarBadge) sidebarBadge.textContent = STATE.isDevMode ? 'ON' : 'OFF';
   // Show a brief toast
   const toast = document.createElement('div');
   toast.textContent = STATE.isDevMode ? '⚙ Dev Mode ON — WIP items visible' : '✓ Dev Mode OFF — Live items only';
@@ -2677,6 +2681,10 @@ function applyRoleNavRestrictions(role) {
   if (devSec) devSec.style.display = isMd ? '' : 'none';
   const devBadge = document.getElementById('devModeSidebarBadge');
   if (devBadge) { devBadge.textContent = STATE.isDevMode ? 'ON' : 'OFF'; devBadge.style.background = STATE.isDevMode ? 'rgba(240,165,0,.35)' : 'rgba(240,165,0,.15)'; }
+  const sidebarDevBadge = document.getElementById('sidebarDevBadge');
+  if (sidebarDevBadge) sidebarDevBadge.textContent = STATE.isDevMode ? 'ON' : 'OFF';
+  const sidebarDevTog = document.getElementById('sidebarDevToggle');
+  if (sidebarDevTog) sidebarDevTog.style.background = STATE.isDevMode ? 'rgba(240,165,0,.12)' : '';
 
   // Rebuild the mobile sidebar as a progressive drill-down (replaces the legacy
   // flat list). Runs for every role, including external, before the returns below.
@@ -3173,6 +3181,7 @@ function renderPage(page) {
     'asset-maintenance': () => renderPlantMachineryPage('maintenance'),
     'dev-mode':       renderDevModePage,
     'settings':       renderSettingsPage,
+    'schema':         renderSchemaPage,
     'reports':        renderReportsModule,
     'data-hub':       renderDataHub,
     // Vendor / SC external portal routes
@@ -10955,6 +10964,7 @@ const MODULE_REGISTRY = [
   // ── Admin ─────────────────────────────────────────────────────
   { route:'dev-mode',          label:'Configuration',          section:'Admin',            defStatus:'live', defRoles:['md'] },
   { route:'settings',          label:'Settings',               section:'Admin',            defStatus:'live', defRoles:['md'] },
+  { route:'schema',            label:'Schema Manager',         section:'Admin',            defStatus:'live', defRoles:['md'] },
 ];
 
 
@@ -11416,6 +11426,241 @@ window.settingsRunDoctor = function() {
   });
 };
 
+
+// ════════════════════════════════════════════════════════════════════
+//  SCHEMA MANAGER — admin page for defining field types per sheet/tab
+//  Route: 'schema'  ·  Visible to: md only
+//  Saves to PortalConfig under key  field_schema_<KEY>_<TAB>
+// ════════════════════════════════════════════════════════════════════
+async function renderSchemaPage() {
+  const el = document.getElementById('mainContent');
+  if (!el) return;
+
+  if (STATE.role !== 'md') {
+    el.innerHTML = `<div class="page-header"><div class="page-header-row"><div>
+      <h1 class="page-title">Schema Manager</h1></div></div></div>
+      <div style="padding:2rem;text-align:center;color:var(--txt3)">
+        <div style="font-size:2rem">🔒</div>
+        <div style="margin-top:.5rem">Admin access required.</div>
+      </div>`;
+    return;
+  }
+
+  // State for the current selection
+  let selSheet = null, selTab = null, fieldSchema = {}, loading = false;
+
+  const FIELD_TYPES = ['Text','Number','Date','Currency','Email','Phone','Boolean','Select'];
+
+  function schemaKey(sk, tab) { return 'field_schema_' + sk + '_' + tab; }
+
+  function renderShell() {
+    el.innerHTML = `
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1 class="page-title">Schema / Field-Type Manager</h1>
+            <p class="page-subtitle" style="margin:.15rem 0 0;color:var(--txt3);font-size:.82rem">
+              Select a sheet and tab to define field types, labels, and required flags.
+              Saved to PortalConfig — consumed by forms and exports.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:240px 1fr;gap:1rem;padding:0 1rem 2rem;align-items:start">
+
+        <!-- LEFT PANEL: sheet list -->
+        <div id="schemaSheetList" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+          <div style="padding:.55rem .85rem;background:var(--g9);color:#fff;font-size:.78rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase">
+            Sheets Directory
+          </div>
+          <div id="schemaSheetItems">
+            ${SHEETS_DIRECTORY.map((s, i) => `
+              <div id="schemaSheet_${i}"
+                   onclick="schemaSelectSheet(${i})"
+                   style="padding:.6rem .85rem;cursor:pointer;border-bottom:1px solid var(--border);
+                          font-size:.82rem;color:var(--txt1);transition:background .15s"
+                   onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+              >
+                <div style="font-weight:600">${s.label}</div>
+                <div style="font-size:.7rem;color:var(--txt3);margin-top:.1rem">${s.key}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- RIGHT PANEL: tabs + fields -->
+        <div>
+          <div id="schemaTabBar" style="display:none;margin-bottom:.75rem;display:flex;gap:.4rem;flex-wrap:wrap"></div>
+          <div id="schemaFieldArea" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;min-height:180px">
+            <div style="padding:2rem;text-align:center;color:var(--txt3);font-size:.85rem">
+              ← Select a sheet to begin
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function highlightSheet(idx) {
+    document.querySelectorAll('[id^="schemaSheet_"]').forEach((el2, i) => {
+      el2.style.background = (i === idx) ? 'var(--primary-light, rgba(var(--primary-rgb,59,130,246),.1))' : '';
+      el2.style.fontWeight  = (i === idx) ? '700' : '';
+    });
+  }
+
+  function renderTabBar(sheetDef) {
+    const bar = document.getElementById('schemaTabBar');
+    if (!bar) return;
+    bar.style.display = 'flex';
+    bar.innerHTML = sheetDef.tabs.map(t => `
+      <button id="schemaTab_${t}"
+              onclick="schemaSelectTab('${t}')"
+              style="padding:.35rem .8rem;border-radius:999px;border:1.5px solid var(--border);
+                     background:var(--bg2);color:var(--txt2);cursor:pointer;font-size:.8rem;
+                     font-family:inherit;transition:all .15s">
+        ${t}
+      </button>
+    `).join('');
+  }
+
+  function highlightTab(tab) {
+    document.querySelectorAll('[id^="schemaTab_"]').forEach(btn => {
+      const active = btn.id === 'schemaTab_' + tab;
+      btn.style.background   = active ? 'var(--g9)' : 'var(--bg2)';
+      btn.style.color        = active ? '#fff' : 'var(--txt2)';
+      btn.style.borderColor  = active ? 'var(--g9)' : 'var(--border)';
+      btn.style.fontWeight   = active ? '700' : '';
+    });
+  }
+
+  function renderFieldTable(columns) {
+    const area = document.getElementById('schemaFieldArea');
+    if (!area) return;
+
+    if (!columns.length) {
+      area.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3)">No columns found — sheet may be empty.</div>`;
+      return;
+    }
+
+    area.innerHTML = `
+      <div style="padding:.6rem .9rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:.8rem;font-weight:600;color:var(--txt2)">${columns.length} fields · ${selSheet} / ${selTab}</span>
+        <button onclick="schemaSaveFields()"
+                style="padding:.35rem .9rem;background:var(--g9);color:#fff;border:none;border-radius:6px;
+                       cursor:pointer;font-size:.8rem;font-weight:600">
+          💾 Save Schema
+        </button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+          <thead>
+            <tr style="background:var(--bg3);color:var(--txt2)">
+              <th style="padding:8px 10px;text-align:left;font-weight:600">Column</th>
+              <th style="padding:8px 10px;text-align:left;font-weight:600">Display Label</th>
+              <th style="padding:8px 10px;text-align:left;font-weight:600">Type</th>
+              <th style="padding:8px 10px;text-align:center;font-weight:600">Required</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${columns.map(col => {
+              const existing = fieldSchema[col] || {};
+              const typeOpts = FIELD_TYPES.map(t =>
+                `<option value="${t}" ${(existing.type||'Text')===t?'selected':''}>${t}</option>`
+              ).join('');
+              return `<tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:8px 10px;font-family:monospace;color:var(--txt1);white-space:nowrap">${col}</td>
+                <td style="padding:8px 10px">
+                  <input id="schemaLabel_${col}" type="text"
+                         value="${(existing.label||'').replace(/"/g,'&quot;')}"
+                         placeholder="${col}"
+                         style="width:100%;padding:.3rem .5rem;border:1px solid var(--border);
+                                border-radius:5px;background:var(--bg1);color:var(--txt1);
+                                font-size:.8rem;font-family:inherit;box-sizing:border-box">
+                </td>
+                <td style="padding:8px 10px">
+                  <select id="schemaType_${col}"
+                          style="padding:.3rem .5rem;border:1px solid var(--border);border-radius:5px;
+                                 background:var(--bg1);color:var(--txt1);font-size:.8rem;font-family:inherit">
+                    ${typeOpts}
+                  </select>
+                </td>
+                <td style="padding:8px 10px;text-align:center">
+                  <input id="schemaReq_${col}" type="checkbox" ${existing.required?'checked':''}>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div id="schemaSaveStatus" style="padding:.5rem .9rem;font-size:.78rem;color:var(--txt3);min-height:1.6rem"></div>`;
+  }
+
+  window.schemaSelectSheet = function(idx) {
+    const def = SHEETS_DIRECTORY[idx];
+    if (!def) return;
+    selSheet = def.key;
+    selTab   = null;
+    highlightSheet(idx);
+    renderTabBar(def);
+
+    const area = document.getElementById('schemaFieldArea');
+    if (area) area.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3);font-size:.85rem">← Select a tab</div>`;
+  };
+
+  window.schemaSelectTab = async function(tab) {
+    if (!selSheet) return;
+    selTab = tab;
+    highlightTab(tab);
+
+    const def = SHEETS_DIRECTORY.find(s => s.key === selSheet);
+    if (!def) return;
+
+    // Load existing schema first
+    const sk = schemaKey(selSheet, tab);
+    fieldSchema = pcReadJSON(sk, {});
+
+    const area = document.getElementById('schemaFieldArea');
+    if (area) area.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3)">
+      <div style="font-size:1.4rem">⏳</div>Loading columns…</div>`;
+
+    try {
+      const rows = await fetchSheet(tab, 'SELECT * LIMIT 1', def.defaultId, { rawId: true });
+      const columns = (rows && rows.length > 0) ? Object.keys(rows[0]) : [];
+      renderFieldTable(columns);
+    } catch (e) {
+      if (area) area.innerHTML = `<div style="padding:2rem;text-align:center;color:#dc2626;font-size:.82rem">
+        Failed to load columns: ${e.message}</div>`;
+    }
+  };
+
+  window.schemaSaveFields = async function() {
+    if (!selSheet || !selTab) return;
+    const sk = schemaKey(selSheet, selTab);
+    const cols = document.querySelectorAll('[id^="schemaType_"]');
+    const map  = {};
+    cols.forEach(sel => {
+      const col  = sel.id.replace('schemaType_', '');
+      const lab  = document.getElementById('schemaLabel_' + col);
+      const req  = document.getElementById('schemaReq_'   + col);
+      map[col] = {
+        type:     sel.value,
+        label:    lab ? lab.value.trim() : col,
+        required: req ? req.checked      : false,
+      };
+    });
+    const status = document.getElementById('schemaSaveStatus');
+    if (status) { status.textContent = 'Saving…'; status.style.color = '#92400e'; }
+    const res = await pcWriteJSON(sk, map);
+    if (res.ok) {
+      fieldSchema = map;
+      if (status) { status.textContent = '✓ Saved to PortalConfig'; status.style.color = '#16a34a'; }
+    } else {
+      if (status) { status.textContent = '✗ ' + (res.message || 'Save failed'); status.style.color = '#dc2626'; }
+    }
+  };
+
+  renderShell();
+}
 
 // ── Apps Script Endpoints sub-page ─────────────────────────────
 // Renders the card inline inside Configuration. Saves overrides via
