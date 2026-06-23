@@ -504,9 +504,10 @@ function _headerEnsureHardRefresh() {
     const rst = document.createElement('button');
     rst.id = 'hardResetBtn';
     rst.className = 'h-icon-btn';
+    rst.style.cssText = 'width:auto;padding:0 10px;gap:5px;font-size:.72rem;font-weight:600;color:var(--danger,#e53935);border:1.5px solid rgba(229,57,53,.25);border-radius:8px';
     rst.title = 'Hard Reset — clear all local overrides & cached preferences, then reload';
     rst.setAttribute('onclick', 'portalHardReset()');
-    rst.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
+    rst.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;flex-shrink:0"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>Reset';
     right.insertBefore(rst, right.firstChild);
   }
   // Hard Refresh button — bypasses HTTP cache without touching stored data.
@@ -514,9 +515,10 @@ function _headerEnsureHardRefresh() {
     const btn = document.createElement('button');
     btn.id = 'hardRefreshBtn';
     btn.className = 'h-icon-btn';
+    btn.style.cssText = 'width:auto;padding:0 10px;gap:5px;font-size:.72rem;font-weight:600;border:1.5px solid var(--border);border-radius:8px';
     btn.title = 'Hard Refresh — reload the latest version (bypass cache)';
     btn.setAttribute('onclick', 'portalHardRefresh()');
-    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;flex-shrink:0"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Refresh';
     const rst = document.getElementById('hardResetBtn');
     right.insertBefore(btn, rst ? rst.nextSibling : right.firstChild);
   }
