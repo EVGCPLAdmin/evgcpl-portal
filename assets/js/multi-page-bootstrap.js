@@ -142,6 +142,11 @@
       if (typeof applyPortalConfig === 'function') applyPortalConfig();
       if (typeof applyRoleNavRestrictions === 'function') applyRoleNavRestrictions(STATE.role);
       if (typeof applyDevModeUI === 'function') applyDevModeUI();
+      // Inject the Hard Reset / Hard Refresh header buttons. launchApp() does
+      // this on the login→redirect path, but direct/full page loads come
+      // through here instead — without this call the buttons never appear on
+      // any page the user actually browses to. (This was the bug.)
+      if (typeof _headerEnsureHardRefresh === 'function') _headerEnsureHardRefresh();
 
       // Show the app shell
       const appEl = document.getElementById('app');
