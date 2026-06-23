@@ -159,6 +159,52 @@ console.log(`✓ Cache-busted HTML asset refs → ?v=${v.build}`);
   console.log(`✓ Top nav synced from partials/topnav.html → ${count} page(s) updated`);
 })();
 
+// ── Sync the mobile sidebar from the single source (partials/sidebar.html) ──
+(function syncSidebar() {
+  const partial = path.join(ROOT, 'partials', 'sidebar.html');
+  if (!fs.existsSync(partial)) { console.log('• sidebar.html partial not found — skipping sidebar sync'); return; }
+  const nav = fs.readFileSync(partial, 'utf8').trim();
+  const re = /<nav class="sidebar" id="sidebar">[\s\S]*?<\/nav>/;
+  let count = 0;
+  (function walk(dir) {
+    for (const name of fs.readdirSync(dir)) {
+      if (name === '.git' || name === 'node_modules' || name === 'portal_v3' || name === 'partials') continue;
+      const full = path.join(dir, name);
+      const st = fs.statSync(full);
+      if (st.isDirectory()) { walk(full); continue; }
+      if (!name.endsWith('.html')) continue;
+      const before = fs.readFileSync(full, 'utf8');
+      if (!re.test(before)) continue;
+      const after = before.replace(re, nav);
+      if (after !== before) { fs.writeFileSync(full, after); count++; }
+    }
+  })(ROOT);
+  console.log(`✓ Sidebar synced from partials/sidebar.html → ${count} page(s) updated`);
+})();
+
+// ── Sync the page header from the single source (partials/header.html) ──
+(function syncHeader() {
+  const partial = path.join(ROOT, 'partials', 'header.html');
+  if (!fs.existsSync(partial)) { console.log('• header.html partial not found — skipping header sync'); return; }
+  const hdr = fs.readFileSync(partial, 'utf8').trim();
+  const re = /<!-- HEADER -->\s*\n\s*<header class="header">[\s\S]*?<\/header>/;
+  let count = 0;
+  (function walk(dir) {
+    for (const name of fs.readdirSync(dir)) {
+      if (name === '.git' || name === 'node_modules' || name === 'portal_v3' || name === 'partials') continue;
+      const full = path.join(dir, name);
+      const st = fs.statSync(full);
+      if (st.isDirectory()) { walk(full); continue; }
+      if (!name.endsWith('.html')) continue;
+      const before = fs.readFileSync(full, 'utf8');
+      if (!re.test(before)) continue;
+      const after = before.replace(re, hdr);
+      if (after !== before) { fs.writeFileSync(full, after); count++; }
+    }
+  })(ROOT);
+  console.log(`✓ Header synced from partials/header.html → ${count} page(s) updated`);
+})();
+
 // ── Validate JS ──
 try {
   execSync(`node --check "${BUNDLE}"`, { stdio: 'pipe' });

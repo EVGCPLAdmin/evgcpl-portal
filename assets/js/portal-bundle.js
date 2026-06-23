@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.16.2';
-const PORTAL_BUILD    = 612;
-const PORTAL_BUILD_AT = '2026-06-22T19:39:28Z';
+const PORTAL_VERSION  = '4.18.0';
+const PORTAL_BUILD    = 617;
+const PORTAL_BUILD_AT = '2026-06-23T05:16:52Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -325,7 +325,9 @@ async function handlePINLogin() {
   try {
     // ── Step 1: Load UserSecrets directly via gviz — check Modified PIN (col E) ──
     if (btnEl) btnEl.textContent = 'Checking…';
-    const pinRows = await fetchSheet('UserSecrets', null, PIN_SHEET_ID);
+    // rawId: true bypasses sheet-link overrides so a misconfigured Settings override
+    // can never break login — the hardcoded PIN_SHEET_ID is always used here.
+    const pinRows = await fetchSheet('UserSecrets', null, PIN_SHEET_ID, { rawId: true });
 
     if (!pinRows.length) {
       return showErr('Could not reach the PIN database. Please check your internet and try again.');
@@ -425,8 +427,13 @@ function toggleDevMode() {
   STATE.isDevMode = !STATE.isDevMode;
   document.body.classList.toggle('dev-mode', STATE.isDevMode);
   applyRoleNavRestrictions(STATE.role);
-  const btn = document.getElementById('devModeToggleBtn');
-  if (btn) btn.title = STATE.isDevMode ? 'Dev Mode ON — click to exit' : 'Toggle Dev Mode';
+  // Highlight the Admin-dropdown toggle item to reflect the active state.
+  const tog = document.getElementById('tnavDevToggle');
+  if (tog) tog.style.background = STATE.isDevMode ? 'rgba(240,165,0,.12)' : '';
+  const sidebarTog = document.getElementById('sidebarDevToggle');
+  if (sidebarTog) sidebarTog.style.background = STATE.isDevMode ? 'rgba(240,165,0,.12)' : '';
+  const sidebarBadge = document.getElementById('sidebarDevBadge');
+  if (sidebarBadge) sidebarBadge.textContent = STATE.isDevMode ? 'ON' : 'OFF';
   // Show a brief toast
   const toast = document.createElement('div');
   toast.textContent = STATE.isDevMode ? '⚙ Dev Mode ON — WIP items visible' : '✓ Dev Mode OFF — Live items only';
@@ -440,12 +447,10 @@ function toggleDevMode() {
 }
 
 function applyDevModeUI() {
-  // Show Dev Mode toggle for md role OR AT00xx employee ref (admin accounts)
+  // The Dev Mode toggle now lives in the Admin top-nav dropdown (#tnavDevToggle),
+  // not the header. Keep the legacy floating header button hidden everywhere.
   const btn = document.getElementById('devModeToggleBtn');
-  const isMdRole  = STATE.role === 'md';
-  const isAdminEmail = (STATE.user?.email || '').toLowerCase().includes('admin@evgcpl') ||
-                       (STATE.user?.email || '').toLowerCase().includes('neurolooom');
-  if (btn) btn.style.display = (isMdRole || isAdminEmail) ? '' : 'none';
+  if (btn) btn.style.display = 'none';
   document.body.classList.toggle('dev-mode', STATE.isDevMode);
   // Re-apply nav restrictions with current dev mode state
   applyRoleNavRestrictions(STATE.role);
@@ -474,6 +479,19 @@ document.addEventListener('keydown', function(e) {
     portalHardRefresh();
   }
 });
+
+// Hard Reset — wipes all portal localStorage (sheet overrides, table prefs,
+// design customisations) then reloads fresh. Distinct from Hard Refresh which
+// only busts the HTTP cache without touching stored data.
+window.portalHardReset = function() {
+  if (!confirm('Hard Reset: clear all local overrides and cached preferences?\n\nThis removes: sheet ID overrides, table column settings, design customisations, and all other portal data stored in this browser.\n\nThe page will reload.')) return;
+  const keys = Object.keys(localStorage).filter(k =>
+    k.startsWith('evg') || k.startsWith('evgcpl') || k.startsWith('pc_evg')
+  );
+  keys.forEach(k => localStorage.removeItem(k));
+  try { sessionStorage.clear(); } catch (e) {}
+  window.location.reload();
+};
 // Inject the Hard-Refresh button into the (per-page, hand-coded) header so it
 // appears on every page without editing each HTML file. Idempotent.
 function _headerEnsureHardRefresh() {
@@ -483,14 +501,30 @@ function _headerEnsureHardRefresh() {
     if (u.searchParams.has('_hr')) { u.searchParams.delete('_hr'); history.replaceState(null, '', u.pathname + (u.search || '') + (u.hash || '')); }
   } catch (e) {}
   const right = document.querySelector('.header-right');
-  if (!right || document.getElementById('hardRefreshBtn')) return;
-  const btn = document.createElement('button');
-  btn.id = 'hardRefreshBtn';
-  btn.className = 'h-icon-btn';
-  btn.title = 'Hard Refresh — reload the latest version (bypass cache)';
-  btn.setAttribute('onclick', 'portalHardRefresh()');
-  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
-  right.insertBefore(btn, right.firstChild); // leftmost icon in the header cluster
+  if (!right) return;
+  // Hard Reset button — clears all local overrides/prefs then reloads.
+  if (!document.getElementById('hardResetBtn')) {
+    const rst = document.createElement('button');
+    rst.id = 'hardResetBtn';
+    rst.className = 'h-icon-btn';
+    rst.style.cssText = 'width:auto;padding:0 10px;gap:5px;font-size:.72rem;font-weight:600;color:var(--danger,#e53935);border:1.5px solid rgba(229,57,53,.25);border-radius:8px';
+    rst.title = 'Hard Reset — clear all local overrides & cached preferences, then reload';
+    rst.setAttribute('onclick', 'portalHardReset()');
+    rst.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;flex-shrink:0"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>Reset';
+    right.insertBefore(rst, right.firstChild);
+  }
+  // Hard Refresh button — bypasses HTTP cache without touching stored data.
+  if (!document.getElementById('hardRefreshBtn')) {
+    const btn = document.createElement('button');
+    btn.id = 'hardRefreshBtn';
+    btn.className = 'h-icon-btn';
+    btn.style.cssText = 'width:auto;padding:0 10px;gap:5px;font-size:.72rem;font-weight:600;border:1.5px solid var(--border);border-radius:8px';
+    btn.title = 'Hard Refresh — reload the latest version (bypass cache)';
+    btn.setAttribute('onclick', 'portalHardRefresh()');
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;flex-shrink:0"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Refresh';
+    const rst = document.getElementById('hardResetBtn');
+    right.insertBefore(btn, rst ? rst.nextSibling : right.firstChild);
+  }
 }
 
 function getDefaultPage(role) {
@@ -2647,6 +2681,10 @@ function applyRoleNavRestrictions(role) {
   if (devSec) devSec.style.display = isMd ? '' : 'none';
   const devBadge = document.getElementById('devModeSidebarBadge');
   if (devBadge) { devBadge.textContent = STATE.isDevMode ? 'ON' : 'OFF'; devBadge.style.background = STATE.isDevMode ? 'rgba(240,165,0,.35)' : 'rgba(240,165,0,.15)'; }
+  const sidebarDevBadge = document.getElementById('sidebarDevBadge');
+  if (sidebarDevBadge) sidebarDevBadge.textContent = STATE.isDevMode ? 'ON' : 'OFF';
+  const sidebarDevTog = document.getElementById('sidebarDevToggle');
+  if (sidebarDevTog) sidebarDevTog.style.background = STATE.isDevMode ? 'rgba(240,165,0,.12)' : '';
 
   // Rebuild the mobile sidebar as a progressive drill-down (replaces the legacy
   // flat list). Runs for every role, including external, before the returns below.
@@ -2664,6 +2702,8 @@ function applyRoleNavRestrictions(role) {
   if (tnavDev) tnavDev.style.display = isMd ? '' : 'none';
   const tnavDevBadge = document.getElementById('tnavDevBadge');
   if (tnavDevBadge) tnavDevBadge.textContent = STATE.isDevMode ? 'ON' : 'OFF';
+  const tnavDevTog = document.getElementById('tnavDevToggle');
+  if (tnavDevTog) tnavDevTog.style.background = STATE.isDevMode ? 'rgba(240,165,0,.12)' : '';
 
   // Per-item visibility in dropdowns
   topNav.querySelectorAll('.tnav-item[data-route]').forEach(el => {
@@ -3141,6 +3181,7 @@ function renderPage(page) {
     'asset-maintenance': () => renderPlantMachineryPage('maintenance'),
     'dev-mode':       renderDevModePage,
     'settings':       renderSettingsPage,
+    'schema':         renderSchemaPage,
     'reports':        renderReportsModule,
     'data-hub':       renderDataHub,
     // Vendor / SC external portal routes
@@ -10983,6 +11024,7 @@ const MODULE_REGISTRY = [
   // ── Admin ─────────────────────────────────────────────────────
   { route:'dev-mode',          label:'Configuration',          section:'Admin',            defStatus:'live', defRoles:['md'] },
   { route:'settings',          label:'Settings',               section:'Admin',            defStatus:'live', defRoles:['md'] },
+  { route:'schema',            label:'Schema Manager',         section:'Admin',            defStatus:'live', defRoles:['md'] },
 ];
 
 
@@ -11444,6 +11486,241 @@ window.settingsRunDoctor = function() {
   });
 };
 
+
+// ════════════════════════════════════════════════════════════════════
+//  SCHEMA MANAGER — admin page for defining field types per sheet/tab
+//  Route: 'schema'  ·  Visible to: md only
+//  Saves to PortalConfig under key  field_schema_<KEY>_<TAB>
+// ════════════════════════════════════════════════════════════════════
+async function renderSchemaPage() {
+  const el = document.getElementById('mainContent');
+  if (!el) return;
+
+  if (STATE.role !== 'md') {
+    el.innerHTML = `<div class="page-header"><div class="page-header-row"><div>
+      <h1 class="page-title">Schema Manager</h1></div></div></div>
+      <div style="padding:2rem;text-align:center;color:var(--txt3)">
+        <div style="font-size:2rem">🔒</div>
+        <div style="margin-top:.5rem">Admin access required.</div>
+      </div>`;
+    return;
+  }
+
+  // State for the current selection
+  let selSheet = null, selTab = null, fieldSchema = {}, loading = false;
+
+  const FIELD_TYPES = ['Text','Number','Date','Currency','Email','Phone','Boolean','Select'];
+
+  function schemaKey(sk, tab) { return 'field_schema_' + sk + '_' + tab; }
+
+  function renderShell() {
+    el.innerHTML = `
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1 class="page-title">Schema / Field-Type Manager</h1>
+            <p class="page-subtitle" style="margin:.15rem 0 0;color:var(--txt3);font-size:.82rem">
+              Select a sheet and tab to define field types, labels, and required flags.
+              Saved to PortalConfig — consumed by forms and exports.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:240px 1fr;gap:1rem;padding:0 1rem 2rem;align-items:start">
+
+        <!-- LEFT PANEL: sheet list -->
+        <div id="schemaSheetList" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+          <div style="padding:.55rem .85rem;background:var(--g9);color:#fff;font-size:.78rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase">
+            Sheets Directory
+          </div>
+          <div id="schemaSheetItems">
+            ${SHEETS_DIRECTORY.map((s, i) => `
+              <div id="schemaSheet_${i}"
+                   onclick="schemaSelectSheet(${i})"
+                   style="padding:.6rem .85rem;cursor:pointer;border-bottom:1px solid var(--border);
+                          font-size:.82rem;color:var(--txt1);transition:background .15s"
+                   onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+              >
+                <div style="font-weight:600">${s.label}</div>
+                <div style="font-size:.7rem;color:var(--txt3);margin-top:.1rem">${s.key}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- RIGHT PANEL: tabs + fields -->
+        <div>
+          <div id="schemaTabBar" style="display:none;margin-bottom:.75rem;display:flex;gap:.4rem;flex-wrap:wrap"></div>
+          <div id="schemaFieldArea" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;min-height:180px">
+            <div style="padding:2rem;text-align:center;color:var(--txt3);font-size:.85rem">
+              ← Select a sheet to begin
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function highlightSheet(idx) {
+    document.querySelectorAll('[id^="schemaSheet_"]').forEach((el2, i) => {
+      el2.style.background = (i === idx) ? 'var(--primary-light, rgba(var(--primary-rgb,59,130,246),.1))' : '';
+      el2.style.fontWeight  = (i === idx) ? '700' : '';
+    });
+  }
+
+  function renderTabBar(sheetDef) {
+    const bar = document.getElementById('schemaTabBar');
+    if (!bar) return;
+    bar.style.display = 'flex';
+    bar.innerHTML = sheetDef.tabs.map(t => `
+      <button id="schemaTab_${t}"
+              onclick="schemaSelectTab('${t}')"
+              style="padding:.35rem .8rem;border-radius:999px;border:1.5px solid var(--border);
+                     background:var(--bg2);color:var(--txt2);cursor:pointer;font-size:.8rem;
+                     font-family:inherit;transition:all .15s">
+        ${t}
+      </button>
+    `).join('');
+  }
+
+  function highlightTab(tab) {
+    document.querySelectorAll('[id^="schemaTab_"]').forEach(btn => {
+      const active = btn.id === 'schemaTab_' + tab;
+      btn.style.background   = active ? 'var(--g9)' : 'var(--bg2)';
+      btn.style.color        = active ? '#fff' : 'var(--txt2)';
+      btn.style.borderColor  = active ? 'var(--g9)' : 'var(--border)';
+      btn.style.fontWeight   = active ? '700' : '';
+    });
+  }
+
+  function renderFieldTable(columns) {
+    const area = document.getElementById('schemaFieldArea');
+    if (!area) return;
+
+    if (!columns.length) {
+      area.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3)">No columns found — sheet may be empty.</div>`;
+      return;
+    }
+
+    area.innerHTML = `
+      <div style="padding:.6rem .9rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:.8rem;font-weight:600;color:var(--txt2)">${columns.length} fields · ${selSheet} / ${selTab}</span>
+        <button onclick="schemaSaveFields()"
+                style="padding:.35rem .9rem;background:var(--g9);color:#fff;border:none;border-radius:6px;
+                       cursor:pointer;font-size:.8rem;font-weight:600">
+          💾 Save Schema
+        </button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+          <thead>
+            <tr style="background:var(--bg3);color:var(--txt2)">
+              <th style="padding:8px 10px;text-align:left;font-weight:600">Column</th>
+              <th style="padding:8px 10px;text-align:left;font-weight:600">Display Label</th>
+              <th style="padding:8px 10px;text-align:left;font-weight:600">Type</th>
+              <th style="padding:8px 10px;text-align:center;font-weight:600">Required</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${columns.map(col => {
+              const existing = fieldSchema[col] || {};
+              const typeOpts = FIELD_TYPES.map(t =>
+                `<option value="${t}" ${(existing.type||'Text')===t?'selected':''}>${t}</option>`
+              ).join('');
+              return `<tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:8px 10px;font-family:monospace;color:var(--txt1);white-space:nowrap">${col}</td>
+                <td style="padding:8px 10px">
+                  <input id="schemaLabel_${col}" type="text"
+                         value="${(existing.label||'').replace(/"/g,'&quot;')}"
+                         placeholder="${col}"
+                         style="width:100%;padding:.3rem .5rem;border:1px solid var(--border);
+                                border-radius:5px;background:var(--bg1);color:var(--txt1);
+                                font-size:.8rem;font-family:inherit;box-sizing:border-box">
+                </td>
+                <td style="padding:8px 10px">
+                  <select id="schemaType_${col}"
+                          style="padding:.3rem .5rem;border:1px solid var(--border);border-radius:5px;
+                                 background:var(--bg1);color:var(--txt1);font-size:.8rem;font-family:inherit">
+                    ${typeOpts}
+                  </select>
+                </td>
+                <td style="padding:8px 10px;text-align:center">
+                  <input id="schemaReq_${col}" type="checkbox" ${existing.required?'checked':''}>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div id="schemaSaveStatus" style="padding:.5rem .9rem;font-size:.78rem;color:var(--txt3);min-height:1.6rem"></div>`;
+  }
+
+  window.schemaSelectSheet = function(idx) {
+    const def = SHEETS_DIRECTORY[idx];
+    if (!def) return;
+    selSheet = def.key;
+    selTab   = null;
+    highlightSheet(idx);
+    renderTabBar(def);
+
+    const area = document.getElementById('schemaFieldArea');
+    if (area) area.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3);font-size:.85rem">← Select a tab</div>`;
+  };
+
+  window.schemaSelectTab = async function(tab) {
+    if (!selSheet) return;
+    selTab = tab;
+    highlightTab(tab);
+
+    const def = SHEETS_DIRECTORY.find(s => s.key === selSheet);
+    if (!def) return;
+
+    // Load existing schema first
+    const sk = schemaKey(selSheet, tab);
+    fieldSchema = pcReadJSON(sk, {});
+
+    const area = document.getElementById('schemaFieldArea');
+    if (area) area.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3)">
+      <div style="font-size:1.4rem">⏳</div>Loading columns…</div>`;
+
+    try {
+      const rows = await fetchSheet(tab, 'SELECT * LIMIT 1', def.defaultId, { rawId: true });
+      const columns = (rows && rows.length > 0) ? Object.keys(rows[0]) : [];
+      renderFieldTable(columns);
+    } catch (e) {
+      if (area) area.innerHTML = `<div style="padding:2rem;text-align:center;color:#dc2626;font-size:.82rem">
+        Failed to load columns: ${e.message}</div>`;
+    }
+  };
+
+  window.schemaSaveFields = async function() {
+    if (!selSheet || !selTab) return;
+    const sk = schemaKey(selSheet, selTab);
+    const cols = document.querySelectorAll('[id^="schemaType_"]');
+    const map  = {};
+    cols.forEach(sel => {
+      const col  = sel.id.replace('schemaType_', '');
+      const lab  = document.getElementById('schemaLabel_' + col);
+      const req  = document.getElementById('schemaReq_'   + col);
+      map[col] = {
+        type:     sel.value,
+        label:    lab ? lab.value.trim() : col,
+        required: req ? req.checked      : false,
+      };
+    });
+    const status = document.getElementById('schemaSaveStatus');
+    if (status) { status.textContent = 'Saving…'; status.style.color = '#92400e'; }
+    const res = await pcWriteJSON(sk, map);
+    if (res.ok) {
+      fieldSchema = map;
+      if (status) { status.textContent = '✓ Saved to PortalConfig'; status.style.color = '#16a34a'; }
+    } else {
+      if (status) { status.textContent = '✗ ' + (res.message || 'Save failed'); status.style.color = '#dc2626'; }
+    }
+  };
+
+  renderShell();
+}
 
 // ── Apps Script Endpoints sub-page ─────────────────────────────
 // Renders the card inline inside Configuration. Saves overrides via

@@ -77,6 +77,14 @@ step 4 overwrites them all consistently.
 - `version.json` `build` is **strictly greater** than `origin/main`'s build.
 - `node --check assets/js/portal-bundle.js` passes (the build does this too).
 
+## Instruction-set docs
+
+Detailed how-to references live in `docs/`:
+- [`docs/ADDING_A_PAGE.md`](docs/ADDING_A_PAGE.md) — four-step checklist for adding any new route
+- [`docs/TABLE_SETTINGS.md`](docs/TABLE_SETTINGS.md) — EVG table defaults, column manager, Schema Manager types
+- [`docs/FORM_SETTINGS.md`](docs/FORM_SETTINGS.md) — EVG form defaults, field types from Schema Manager, validation
+- [`docs/DEFAULTS.md`](docs/DEFAULTS.md) — full priority chain for every configurable value (localStorage → PortalConfig → compiled)
+
 ## Git / PR workflow
 - Develop on the assigned feature branch; never push to `main` directly.
 - Push with `git push -u origin <branch>`; retry on network errors.
@@ -114,12 +122,14 @@ step 4 overwrites them all consistently.
   into md's set as a backstop — but registering the module is the real fix.
   Level-3 sub-pages (`NAV_SUBMENUS` children) render inside their parent page
   and are intentionally NOT registered.
-- **Both navs are hand-coded and duplicated per page file** — the desktop top
-  nav (`.tnav-group`/`.tnav-item` in `<nav id="topNav">`) AND the mobile
-  `<nav class="sidebar">` (`.sidebar-section`/`.nav-item`). The build only syncs
-  the top nav from `partials/topnav.html`; the sidebar is per-file. New menu
-  items added at runtime go through `_navEnsureInjected()` (which injects into
-  **both**). `MODULE_REGISTRY` does not generate either nav.
+- **Both navs are single-sourced via build-time partials.** Desktop top nav
+  (`partials/topnav.html`) and mobile sidebar (`partials/sidebar.html`) are each
+  the single source of truth. `build-portal.js` syncs them into every root HTML
+  page at build time (`syncTopNav()` / `syncSidebar()`). The page header is
+  likewise single-sourced via `partials/header.html` and synced by `syncHeader()`.
+  Edit the partial, run the build — all pages update. New menu items added at
+  runtime also go through `_navEnsureInjected()` (which injects into both).
+  `MODULE_REGISTRY` does not generate either nav.
 - **Access control = one tab.** "Access & Pages" (`_cfgRenderAccess`) holds both
   the per-page Live/Dev/Off status (`uaSetModuleStatus`) and the Access-Groups
   route/action grants. The old "Modules & Roles" tab (`_cfgRenderModules`) was
