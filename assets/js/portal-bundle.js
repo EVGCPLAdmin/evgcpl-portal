@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.17.3';
-const PORTAL_BUILD    = 616;
-const PORTAL_BUILD_AT = '2026-06-23T04:42:54Z';
+const PORTAL_VERSION  = '4.21.0';
+const PORTAL_BUILD    = 623;
+const PORTAL_BUILD_AT = '2026-06-24T12:11:55Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -430,6 +430,10 @@ function toggleDevMode() {
   // Highlight the Admin-dropdown toggle item to reflect the active state.
   const tog = document.getElementById('tnavDevToggle');
   if (tog) tog.style.background = STATE.isDevMode ? 'rgba(240,165,0,.12)' : '';
+  const sidebarTog = document.getElementById('sidebarDevToggle');
+  if (sidebarTog) sidebarTog.style.background = STATE.isDevMode ? 'rgba(240,165,0,.12)' : '';
+  const sidebarBadge = document.getElementById('sidebarDevBadge');
+  if (sidebarBadge) sidebarBadge.textContent = STATE.isDevMode ? 'ON' : 'OFF';
   // Show a brief toast
   const toast = document.createElement('div');
   toast.textContent = STATE.isDevMode ? '⚙ Dev Mode ON — WIP items visible' : '✓ Dev Mode OFF — Live items only';
@@ -994,6 +998,7 @@ function _evgOptedOut(el) { return !!(el && el.closest && el.closest('[data-evg-
 function applyTableFeatures() {
   _tblEngineEnsureStyles();
   _tblObserveMainContent();
+  try { evgEnhanceSelects(); } catch (e) {}   // make large selects searchable
   const mc = document.getElementById('mainContent');
   if (!mc) return;
   // Standard data-table classes, PLUS any un-classed real data table (proper
@@ -1043,6 +1048,9 @@ function _tblObserveMainContent() {
   if (!mc || typeof MutationObserver === 'undefined') return;
   _tblFeatObserved = true;
   const obs = new MutationObserver(muts => {
+    // Make any newly-rendered large <select> searchable (debounced, app-wide).
+    clearTimeout(_evgEnhTimer);
+    _evgEnhTimer = setTimeout(() => { try { evgEnhanceSelects(); } catch (e) {} }, 250);
     let relevant = false;
     for (const m of muts) {
       for (const n of m.addedNodes) {
@@ -2677,6 +2685,10 @@ function applyRoleNavRestrictions(role) {
   if (devSec) devSec.style.display = isMd ? '' : 'none';
   const devBadge = document.getElementById('devModeSidebarBadge');
   if (devBadge) { devBadge.textContent = STATE.isDevMode ? 'ON' : 'OFF'; devBadge.style.background = STATE.isDevMode ? 'rgba(240,165,0,.35)' : 'rgba(240,165,0,.15)'; }
+  const sidebarDevBadge = document.getElementById('sidebarDevBadge');
+  if (sidebarDevBadge) sidebarDevBadge.textContent = STATE.isDevMode ? 'ON' : 'OFF';
+  const sidebarDevTog = document.getElementById('sidebarDevToggle');
+  if (sidebarDevTog) sidebarDevTog.style.background = STATE.isDevMode ? 'rgba(240,165,0,.12)' : '';
 
   // Rebuild the mobile sidebar as a progressive drill-down (replaces the legacy
   // flat list). Runs for every role, including external, before the returns below.
@@ -3173,7 +3185,9 @@ function renderPage(page) {
     'asset-verification':() => renderPlantMachineryPage('verification'),
     'asset-maintenance': () => renderPlantMachineryPage('maintenance'),
     'dev-mode':       renderDevModePage,
+    'access-pages':   renderAccessPages,
     'settings':       renderSettingsPage,
+    'schema':         renderSchemaPage,
     'reports':        renderReportsModule,
     'data-hub':       renderDataHub,
     // Vendor / SC external portal routes
@@ -4602,20 +4616,132 @@ function _plLedgerBuild(lid) {
     </div></div>`;
 }
 
+// ── Reusable type-and-search combobox ────────────────────────────────────
+// evgComboHtml({ id, items:[{v,label,sub}], value, placeholder, onPick }) →
+// an <input id> showing the chosen LABEL (so simple readers like _accV(id)
+// get the picked text) with a data-value attr holding the item's `v`. The
+// global fn named by `onPick` is called with (v, item) after a selection.
+window._evgComboData = window._evgComboData || {};
+window._evgComboPickFn = window._evgComboPickFn || {};
+function evgComboHtml(cfg) {
+  const esc = _mdpEsc, id = cfg.id, sid = id + '-sug';
+  window._evgComboData[id] = cfg.items || [];
+  window._evgComboPickFn[id] = cfg.onPick || '';
+  return `<div style="position:relative">
+    <input id="${esc(id)}" autocomplete="off" placeholder="${esc(cfg.placeholder || 'Type to search…')}" value="${esc(cfg.value || '')}"
+      oninput="_evgComboFilter('${esc(id)}',this.value)" onfocus="this.select();_evgComboFilter('${esc(id)}','')"
+      onblur="setTimeout(function(){var b=document.getElementById('${esc(sid)}');if(b)b.style.display='none'},150)"
+      style="width:100%;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+    <div id="${esc(sid)}" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;max-height:300px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.14)"></div>
+  </div>`;
+}
+window._evgComboFilter = function(id, q) {
+  const box = document.getElementById(id + '-sug'); if (!box) return;
+  const items = window._evgComboData[id] || [];
+  const esc = _mdpEsc, s = String(q || '').trim().toLowerCase();
+  let list = s ? items.filter(it => (it.label || '').toLowerCase().includes(s) || (it.sub || '').toLowerCase().includes(s) || String(it.v || '').toLowerCase().includes(s)) : items;
+  list = list.slice(0, 40);
+  if (!list.length) { box.innerHTML = `<div style="padding:.6rem .8rem;color:var(--txt3);font-size:.78rem">No match</div>`; box.style.display = 'block'; return; }
+  box.innerHTML = list.map(it => `<div onmousedown="_evgComboPick('${esc(id)}',this.getAttribute('data-v'))" data-v="${esc(String(it.v))}" style="padding:.5rem .8rem;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:.6rem;align-items:center" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <span style="font-size:.82rem;font-weight:600">${esc(it.label)}</span>${it.sub ? `<span style="font-size:.68rem;color:var(--txt3);white-space:nowrap">${esc(it.sub)}</span>` : ''}
+    </div>`).join('');
+  box.style.display = 'block';
+};
+window._evgComboPick = function(id, v) {
+  const box = document.getElementById(id + '-sug'); if (box) box.style.display = 'none';
+  const inp = document.getElementById(id); if (!inp) return;
+  const it = (window._evgComboData[id] || []).find(x => String(x.v) === String(v));
+  inp.value = it ? it.label : v;
+  inp.setAttribute('data-value', it ? String(it.v) : v);
+  const fn = window._evgComboPickFn[id];
+  if (fn && typeof window[fn] === 'function') window[fn](v, it);
+};
+// Swap a combo's option list at runtime (cascading pickers, e.g. Dept→Process).
+// clearValue empties the input (the old pick may not exist in the new list).
+window.evgComboSetItems = function(id, items, clearValue) {
+  window._evgComboData[id] = items || [];
+  if (clearValue) { const inp = document.getElementById(id); if (inp) { inp.value = ''; inp.removeAttribute('data-value'); } }
+  const box = document.getElementById(id + '-sug'); if (box) box.style.display = 'none';
+};
+
+// ── Progressive enhancement: make every LARGE native <select> searchable ──
+// Keeps the native <select> as the source of truth (all existing .value reads,
+// onchange handlers, cascades and prefills keep working) and overlays a
+// type-to-filter input. Auto-applied across the app to selects with ≥ the
+// threshold options. Opt out with data-evg-nosearch on the select (or an
+// ancestor). Selecting an option dispatches a native 'change' event so inline
+// onchange handlers fire exactly as before.
+let _evgEnhTimer = null;
+function evgEnhanceSelects(root) {
+  const scope = (root && root.querySelectorAll) ? root : document;
+  let sels;
+  try { sels = scope.querySelectorAll('select:not([data-evg-enh]):not([multiple]):not([data-evg-nosearch])'); }
+  catch (e) { return; }
+  sels.forEach(sel => {
+    try {
+      if (sel.options.length < 12) return;                 // only big lists need search
+      if (sel.closest('[data-evg-nosearch]')) return;
+      // Skip purely-numeric sequence pickers (day / hour / year) — a dropdown
+      // reads more naturally there than a search box.
+      const sample = Array.from(sel.options).slice(0, 8).map(o => (o.text || '').trim()).filter(Boolean);
+      if (sample.length && sample.filter(t => /^\d+$/.test(t)).length >= Math.ceil(sample.length * 0.8)) return;
+      sel.setAttribute('data-evg-enh', '1');
+      const esc = _mdpEsc;
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative';
+      sel.parentNode.insertBefore(wrap, sel);
+      const input = document.createElement('input');
+      input.type = 'text'; input.autocomplete = 'off';
+      input.className = sel.className;
+      input.setAttribute('style', sel.getAttribute('style') || '');
+      input.placeholder = 'Type to search…';
+      const list = document.createElement('div');
+      list.style.cssText = 'display:none;position:absolute;top:100%;left:0;right:0;z-index:300;background:var(--surface,#fff);border:1px solid var(--border,#ccc);border-top:none;border-radius:0 0 8px 8px;max-height:300px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.16)';
+      sel.style.display = 'none';
+      wrap.appendChild(input); wrap.appendChild(list); wrap.appendChild(sel);
+      const syncDisplay = () => { const o = sel.options[sel.selectedIndex]; input.value = o ? o.text : ''; };
+      const render = (q) => {
+        const s = String(q || '').trim().toLowerCase();
+        const opts = Array.from(sel.options);
+        const matched = s ? opts.filter(o => (o.text || '').toLowerCase().includes(s) || (o.value || '').toLowerCase().includes(s)) : opts;
+        const shown = matched.slice(0, 60);
+        if (!shown.length) { list.innerHTML = `<div style="padding:.5rem .8rem;color:var(--txt3);font-size:.8rem">No match</div>`; list.style.display = 'block'; return; }
+        list.innerHTML = shown.map(o => `<div data-i="${o.index}" style="padding:.45rem .8rem;cursor:pointer;font-size:.82rem;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">${esc(o.text) || '&nbsp;'}</div>`).join('');
+        list.style.display = 'block';
+      };
+      input.addEventListener('focus', () => { input.select(); render(''); });
+      input.addEventListener('input', () => render(input.value));
+      input.addEventListener('blur', () => setTimeout(() => { list.style.display = 'none'; syncDisplay(); }, 160));
+      list.addEventListener('mousedown', (e) => {
+        const row = e.target.closest('[data-i]'); if (!row) return;
+        e.preventDefault();
+        sel.selectedIndex = parseInt(row.getAttribute('data-i'), 10);
+        syncDisplay();
+        list.style.display = 'none';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      // Cascading selects rebuild their <option>s → re-sync the display text.
+      try { new MutationObserver(() => syncDisplay()).observe(sel, { childList: true }); } catch (e) {}
+      syncDisplay();
+    } catch (e) { /* never let one select break the page */ }
+  });
+}
+window.evgEnhanceSelects = evgEnhanceSelects;
+
 function _mdpLedgerHtml() {
   const esc = _mdpEsc;
   const typeBtns = PARTY_TYPES.map(t =>
     `<button onclick="_mdpSetType('${t}')" class="btn btn-sm ${t === _plType ? 'btn-primary' : 'btn-secondary'}">${esc(t)}</button>`).join('');
   const parties = _plParties(_plType, _mdpCompany);
-  const partyOpts = `<option value="">Select ${esc(_plType)}…</option>` +
-    parties.map(p => `<option value="${esc(p.key)}"${p.key === _plParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` · A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
+  const _selP = parties.find(p => p.key === _plParty);
+  const partyItems = parties.map(p => ({ v: p.key, label: `${p.name}${p.acc ? ` · A/C ${p.acc}` : ''}`, sub: String(p.count) }));
   const selector = `
     <div class="card card-pad" style="margin-bottom:1rem">
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.7rem">${typeBtns}</div>
       <div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
           <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">${esc(_plType.toUpperCase())}</label>
-          <select id="mdp-party" onchange="_mdpSetParty(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${partyOpts}</select>
+          ${evgComboHtml({ id: 'mdp-party', items: partyItems, value: _selP ? `${_selP.name}${_selP.acc ? ` · A/C ${_selP.acc}` : ''}` : '', placeholder: `Type a ${_plType.toLowerCase()} name…`, onPick: '_mdpSetParty' })}
         </div>
         <div style="font-size:.72rem;color:var(--txt3)">${parties.length} record(s)${_mdpCompany ? ` · ${esc(_mdpCompany)}` : ''}</div>
       </div>
@@ -4666,14 +4792,14 @@ function _ledRenderBody() {
   const c = document.getElementById('ledger-body'); if (!c) return;
   const esc = _mdpEsc;
   const parties = _plParties(_ledType);
-  const partyOpts = `<option value="">Select ${esc(_ledType)}&hellip;</option>` +
-    parties.map(p => `<option value="${esc(p.key)}"${p.key === _ledParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` &middot; A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
+  const _selP = parties.find(p => p.key === _ledParty);
+  const partyItems = parties.map(p => ({ v: p.key, label: `${p.name}${p.acc ? ` · A/C ${p.acc}` : ''}`, sub: String(p.count) }));
   const selector = `
     <div class="card card-pad" style="margin-bottom:1rem">
       <div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
           <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">${esc(_ledType.toUpperCase())}</label>
-          <select id="led-party" onchange="_ledSetParty(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${partyOpts}</select>
+          ${evgComboHtml({ id: 'led-party', items: partyItems, value: _selP ? `${_selP.name}${_selP.acc ? ` · A/C ${_selP.acc}` : ''}` : '', placeholder: `Type a ${_ledType.toLowerCase()} name…`, onPick: '_ledSetParty' })}
         </div>
         <div style="font-size:.72rem;color:var(--txt3)">${parties.length} ${esc(_ledType.toLowerCase())}(s)</div>
       </div>
@@ -4711,12 +4837,12 @@ function _scLedRenderBody() {
   const c = document.getElementById('sc-ledger-body'); if (!c) return;
   const esc = _mdpEsc;
   const parties = _plParties('Sub Contractor');
-  const partyOpts = `<option value="">Select Sub Contractor&hellip;</option>` +
-    parties.map(p => `<option value="${esc(p.key)}"${p.key === _scLedParty ? ' selected' : ''}>${esc(p.name)}${p.acc ? ` &middot; A/C ${esc(p.acc)}` : ''} (${p.count})</option>`).join('');
+  const _selP = parties.find(p => p.key === _scLedParty);
+  const partyItems = parties.map(p => ({ v: p.key, label: `${p.name}${p.acc ? ` · A/C ${p.acc}` : ''}`, sub: String(p.count) }));
   const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
     <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:260px">
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">SUB CONTRACTOR</label>
-      <select onchange="_scLedSetParty(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${partyOpts}</select>
+      ${evgComboHtml({ id: 'sc-party', items: partyItems, value: _selP ? `${_selP.name}${_selP.acc ? ` · A/C ${_selP.acc}` : ''}` : '', placeholder: 'Type a sub contractor name…', onPick: '_scLedSetParty' })}
     </div>
     <div style="font-size:.72rem;color:var(--txt3)">${parties.length} sub contractor(s)</div></div></div>`;
   if (!_scLedParty) { c.innerHTML = selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a sub contractor to view their ledger.</div>`; return; }
@@ -4782,6 +4908,8 @@ window._vplpFlatOpen  = function(i) { const r = (window._vplpFlatRows || [])[i];
 // Vendors are keyed in the ledger by their Vendor-ID token (e.g. EGVE001);
 // renderVendorLedgerPO() doesn't reset _vplpVendor, so set it before navigating.
 window._vplpOpenVendor = function(vid) { _vplpVendor = String(vid || '').toUpperCase(); _vplpFY = ''; _vplpView = 'vendor'; navigate('vendor-ledger-po'); };
+// In-page: switch to a vendor's ledger (already on the route — no navigate).
+window._vplpOpenVendorView = function(vid) { _vplpVendor = String(vid || '').toUpperCase(); _vplpFY = ''; _vplpLedgerMode = 'active'; _vplpView = 'vendor'; _vplpRenderBody(); };
 
 let _vplpGRNRows = null;
 async function _vplpEnsure(force) {
@@ -4988,15 +5116,19 @@ function _vplpRenderBody() {
   const toggle = `<div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
     <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
     <button onclick="_vplpSetView('flat')" class="btn btn-sm ${_vplpView === 'flat' ? 'btn-primary' : 'btn-secondary'}">&#128203; Flat List (all vendors)</button>
+    <button onclick="_vplpSetView('openings')" class="btn btn-sm ${_vplpView === 'openings' ? 'btn-primary' : 'btn-secondary'}">&#128209; Opening Balances</button>
     <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="margin-left:auto" title="Record a vendor's carried-forward opening balance">&#10133; Opening Balance</button>
   </div>`;
   if (_vplpView === 'flat') { c.innerHTML = _vplpFlatList(toggle); return; }
-  const opts = `<option value="">Select vendor&hellip;</option>` + d.vendors.map(v =>
-    `<option value="${esc(v.key)}"${v.key === _vplpVendor ? ' selected' : ''}>${esc(v.name)}${v.vid ? ` [${esc(v.vid)}]` : ''}${v.unmapped ? ' · Unmapped' : ''} (${Object.keys(v.poKeys).length} PO &middot; ${v.payCount} pay)</option>`).join('');
+  if (_vplpView === 'openings') { c.innerHTML = toggle + _vplpOBListView(); return; }
+  // Type-and-search vendor picker (347+ vendors → a combobox beats a native select).
+  const selV = d.vendors.find(x => x.key === _vplpVendor);
+  const selLabel = selV ? `${selV.name}${selV.vid ? ` [${selV.vid}]` : ''}` : '';
+  const vendorItems = d.vendors.map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}${v.unmapped ? ' ·Unmapped' : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
   const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
     <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:280px">
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR</label>
-      <select onchange="_vplpSetVendor(this.value)" style="font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${opts}</select>
+      ${evgComboHtml({ id: 'vplp-vendor-search', items: vendorItems, value: selLabel, placeholder: 'Type a vendor name or ID…', onPick: '_vplpSetVendor' })}
     </div>
     <div style="font-size:.72rem;color:var(--txt3)">${d.vendors.length} vendor(s)</div></div></div>`;
   if (!_vplpVendor) { c.innerHTML = toggle + selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
@@ -5106,7 +5238,7 @@ function _vplpFlatList(toggle) {
   // One compact header bar: view toggle + status filter on the left, totals on the right (wraps to 2 rows on narrow screens).
   const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.5rem 1.1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
     <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
-      ${viewBtn('vendor', '&#128100; Per Vendor')}${viewBtn('flat', '&#128203; Flat List')}
+      ${viewBtn('vendor', '&#128100; Per Vendor')}${viewBtn('flat', '&#128203; Flat List')}${viewBtn('openings', '&#128209; Opening Bals')}
       <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem" title="Record a vendor's opening balance">&#10133; Opening Bal</button>
       ${sep}
       <span style="font-size:.64rem;font-weight:700;color:var(--txt3)">STATUS</span>
@@ -5148,6 +5280,62 @@ function _vplpFlatList(toggle) {
         <th style="padding:8px 9px;text-align:right">Tax</th><th style="padding:8px 9px;text-align:right" title="Billed after the opening date">Billed (Cr)</th>
         <th style="padding:8px 9px;text-align:right" title="Paid after the opening date">Paid (Dr)</th><th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th>
       </tr></thead><tbody>${body}</tbody><tfoot>${tfoot}</tfoot></table></div></div>`;
+}
+// Opening Balances view — the raw OpeningBalance sheet entries (every row,
+// including superseded), newest first. Click a row to open that vendor's
+// ledger. Net Opening (Active) sums non-superseded rows (Cr +, Dr −).
+function _vplpOBListView() {
+  _vplpEnsureLedgerStyle();
+  const esc = _mdpEsc;
+  const inr = n => '₹' + Math.round(Math.abs(n)).toLocaleString('en-IN');
+  const val = (r, names) => _vplpOBVal(r, names);
+  const rows = (_vplpOBRows || []).slice();
+  if (!rows.length) return `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; No opening balances recorded yet. Use <b>&#10133; Opening Balance</b> to add one.</div>`;
+  const amtOf  = r => _opNum(val(r, ['Opening Balance', 'Amount', 'Balance', 'Value']));
+  const sideOf = r => { const dc = val(r, ['Dr/Cr', 'DrCr', 'Dr / Cr', 'Type', 'Side']); return /^d|debit/i.test(dc) ? 'Dr' : /^c|credit/i.test(dc) ? 'Cr' : (amtOf(r) < 0 ? 'Dr' : 'Cr'); };
+  const isClosed = r => /supersed|inactive|void|cancel|delete/i.test(val(r, ['Status']));
+  rows.sort((a, b) => (_mdpDateVal(val(b, ['Timestamp'])) || 0) - (_mdpDateVal(val(a, ['Timestamp'])) || 0));
+  let netCr = 0, active = 0;
+  rows.forEach(r => { if (isClosed(r)) return; active++; netCr += (sideOf(r) === 'Dr' ? -Math.abs(amtOf(r)) : Math.abs(amtOf(r))); });
+  const chip = (txt, bg, col) => `<span style="font-size:.66rem;font-weight:700;background:${bg};color:${col};padding:2px 8px;border-radius:9px;white-space:nowrap">${esc(txt)}</span>`;
+  const stat = (val2, lbl, col) => `<div style="display:flex;flex-direction:column;line-height:1.1"><span style="font-size:.92rem;font-weight:800;${col ? `color:${col}` : ''}">${val2}</span><span style="font-size:.58rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap">${lbl}</span></div>`;
+  const body = rows.map(r => {
+    const vid = (val(r, ['Vendor ID', 'VendorID']) || '').toUpperCase();
+    const side = sideOf(r), closed = isClosed(r);
+    const appr = val(r, ['Approval Status']) || 'Pending';
+    const click = vid ? ` style="cursor:pointer" onclick="_vplpOpenVendorView('${esc(vid)}')" title="Open this vendor's ledger"` : '';
+    return `<tr${click}${closed ? ' style="opacity:.55"' : ''}>
+      <td style="padding:6px 9px;white-space:nowrap;font-family:monospace;font-size:.72rem">${esc(vid) || '—'}</td>
+      <td style="padding:6px 9px">${esc(val(r, ['Vendor Name', 'Name']) || val(r, ['Vendor Detail']) || '—')}</td>
+      <td style="padding:6px 9px;text-align:right;font-weight:700;color:${side === 'Cr' ? '#15803d' : '#1d4ed8'}">${inr(amtOf(r))} ${side}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${esc(_mdpFmtDate(val(r, ['As On (Date)', 'As On', 'Date'])))}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${esc(val(r, ['Financial Year', 'FY']) || '—')}</td>
+      <td style="padding:6px 9px">${esc(val(r, ['Company']) || '—')}</td>
+      <td style="padding:6px 9px">${closed ? chip('Superseded', '#f1f5f9', '#64748b') : chip(val(r, ['Status']) || 'Active', '#dcfce7', '#15803d')}</td>
+      <td style="padding:6px 9px">${/approved/i.test(appr) ? chip('Approved', '#dcfce7', '#15803d') : /reject/i.test(appr) ? chip('Rejected', '#fee2e2', '#b91c1c') : chip('Pending', '#fef3c7', '#92400e')}</td>
+      <td style="padding:6px 9px;font-size:.72rem;color:var(--txt2)">${esc(val(r, ['Remarks (If Any)', 'Remarks']) || '')}</td>
+      <td style="padding:6px 9px;font-size:.72rem;color:var(--txt3);white-space:nowrap">${esc(val(r, ['Updated By']) || val(r, ['UserEmail']) || '')}</td>
+    </tr>`;
+  }).join('');
+  const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.6rem 1.1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
+    <div style="font-size:.8rem;font-weight:700;color:var(--g8)">&#128209; Recorded Opening Balances</div>
+    <div style="display:flex;gap:1.1rem;align-items:center;flex-wrap:wrap">
+      ${stat(rows.length, 'Entries')}
+      ${stat(active, 'Active')}
+      ${stat(inr(netCr) + (netCr >= 0 ? ' Cr' : ' Dr'), 'Net Opening (Active)', netCr >= 0 ? '#ea580c' : '#1d4ed8')}
+      <button onclick="_vplpOpenOB()" class="btn btn-sm btn-primary" style="padding:3px 9px;font-size:.72rem">&#10133; Opening Balance</button>
+      <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
+    </div>
+  </div>`;
+  return header + `<div class="card"><div style="overflow-x:auto">
+    <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
+      <thead><tr style="background:var(--g9);color:#fff;text-align:left">
+        <th style="padding:8px 9px">Vendor ID</th><th style="padding:8px 9px">Vendor</th>
+        <th style="padding:8px 9px;text-align:right">Opening Balance</th><th style="padding:8px 9px">As On</th>
+        <th style="padding:8px 9px">FY</th><th style="padding:8px 9px">Company</th>
+        <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Approval</th>
+        <th style="padding:8px 9px">Remarks</th><th style="padding:8px 9px">Updated By</th>
+      </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 // Indian FY runs Apr→Mar; the FY "start year" identifies it (2026 → FY 2026-27).
 function _vplpFYof(v) { const t = _mdpDateVal(v); if (!t) return ''; const d = new Date(t); return String(d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1); }
@@ -5345,8 +5533,7 @@ function _vplpDrawOBForm(dr, prefillKey) {
   const d = _vplpData || { vendors: [] };
   const today = new Date().toLocaleDateString('en-CA');
   const cur = (d.vendors || []).find(x => x.key === prefillKey);
-  const vendorOpts = `<option value="">— pick a vendor —</option>` + (d.vendors || []).map(v =>
-    `<option value="${esc(v.key)}"${v.key === prefillKey ? ' selected' : ''}>${esc(v.name)}${v.vid ? ` [${esc(v.vid)}]` : ''}</option>`).join('');
+  const obVendorItems = (d.vendors || []).map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
   const fld = (label, ctrl, req) => `
     <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:.7rem">
       <label style="font-size:.71rem;font-weight:600;color:var(--txt2)">${label}${req ? ' <span style="color:var(--danger)">*</span>' : ''}</label>
@@ -5364,7 +5551,7 @@ function _vplpDrawOBForm(dr, prefillKey) {
     </div>
     <div class="evg-form" style="flex:1;overflow-y:auto;padding:1.1rem 1.3rem">
       ${notConfigured ? `<div style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:.6rem .8rem;font-size:.74rem;margin-bottom:1rem">&#9888; Opening-balance sheet not configured yet. Set <code>VENDOR_OPENING_BAL_SHEET_ID</code> + <code>VENDOR_OPENING_BAL_TAB</code> to enable saving. You can still fill the form to preview it.</div>` : ''}
-      ${fld('Vendor', `<select id="vplp-ob-vendor" onchange="_vplpOBPick(this.value)">${vendorOpts}</select>`, false)}
+      ${fld('Vendor', evgComboHtml({ id: 'vplp-ob-vendor', items: obVendorItems, value: cur ? `${cur.name}${cur.vid ? ` [${cur.vid}]` : ''}` : '', placeholder: 'Type a vendor name or ID…', onPick: '_vplpOBPick' }), false)}
       ${grid(
         fld('Vendor ID', `<input id="vplp-ob-vid" value="${esc(cur ? (cur.vid || cur.key) : prefillKey || '')}" placeholder="e.g. MV300">`, true),
         fld('Vendor Key (UUID)', `<input id="vplp-ob-uuid" value="${esc(cur ? (cur.uuid || '') : '')}" placeholder="auto from master">`)
@@ -9423,21 +9610,21 @@ function _accDrawNewPRForm(dr) {
       ${sec('1 &middot; Initiator', grid(
         fld('Date of Request', `<input id="acc-pr-dateOfRequest" type="date" value="${today}">`, true),
         fld('Payment Requested By', `<input id="acc-pr-initiator" value="${esc(initiatorDefault)}" ${initiatorLocked ? 'readonly title="Auto-filled from your profile"' : ''} style="${initiatorLocked ? ro : ''}">`, true),
-        fld('Department', `<select id="acc-pr-department" onchange="_accPROnDeptChange()">${opt(depts)}</select>`),
-        fld('From Which Process', `<select id="acc-pr-fromWhichProcess" onchange="_accPROnProcessChange()">${opt(procs)}</select>`),
+        fld('Department', evgComboHtml({ id: 'acc-pr-department', items: depts.map(x => ({ v: x, label: x })), placeholder: 'Type a department…', onPick: '_accPROnDeptChange' })),
+        fld('From Which Process', evgComboHtml({ id: 'acc-pr-fromWhichProcess', items: procs.map(x => ({ v: x, label: x })), placeholder: 'Type a process…', onPick: '_accPROnProcessChange' })),
         fld('Manual / Auto', `<select id="acc-pr-manualAuto"><option value="Manual" selected>Manual</option><option value="Auto">Auto</option></select>`)
       ))}
 
       ${sec('2 &middot; Payment To', `
         ${fld('Payment To', `<select id="acc-pr-paymentTo" onchange="_accPROnPaymentToChange()">${opt(['Employee', 'Vendor', 'Sub Contractor', 'Others'])}</select>`, true)}
-        <div id="acc-pr-paidto-employee" style="display:none">${fld('Paid To (Employee)', `<select id="acc-pr-paidToEmployee" onchange="_accPRAutoFillBankDetails()">${opt(empNames)}</select>`)}</div>
-        <div id="acc-pr-paidto-vendor" style="display:none">${fld('Paid To (Vendor)', `<select id="acc-pr-paidToVendor" onchange="_accPRAutoFillBankDetails()">${opt(vendorNames)}</select>`)}</div>
-        <div id="acc-pr-paidto-sc" style="display:none">${fld('Paid To (Sub Contractor)', `<select id="acc-pr-paidToSC" onchange="_accPRAutoFillBankDetails()">${opt(scNames)}</select>`)}</div>
+        <div id="acc-pr-paidto-employee" style="display:none">${fld('Paid To (Employee)', evgComboHtml({ id: 'acc-pr-paidToEmployee', items: [...new Set((empNames || []).filter(Boolean))].sort().map(n => ({ v: n, label: n })), placeholder: 'Type an employee name…', onPick: '_accPRAutoFillBankDetails' }))}</div>
+        <div id="acc-pr-paidto-vendor" style="display:none">${fld('Paid To (Vendor)', evgComboHtml({ id: 'acc-pr-paidToVendor', items: [...new Set((vendorNames || []).filter(Boolean))].sort().map(n => ({ v: n, label: n })), placeholder: 'Type a vendor name…', onPick: '_accPRAutoFillBankDetails' }))}</div>
+        <div id="acc-pr-paidto-sc" style="display:none">${fld('Paid To (Sub Contractor)', evgComboHtml({ id: 'acc-pr-paidToSC', items: [...new Set((scNames || []).filter(Boolean))].sort().map(n => ({ v: n, label: n })), placeholder: 'Type a sub contractor name…', onPick: '_accPRAutoFillBankDetails' }))}</div>
         <div id="acc-pr-paidto-others" style="display:none">${fld('Paid To (Others)', `<input id="acc-pr-paidToOthers" placeholder="Name of payee">`)}</div>
       `)}
 
       ${sec('3 &middot; Site &amp; Company', grid(
-        fld('Site Name', `<select id="acc-pr-siteName" onchange="_accPROnSiteChange()">${opt(siteNames)}</select>`),
+        fld('Site Name', evgComboHtml({ id: 'acc-pr-siteName', items: [...new Set((siteNames || []).filter(Boolean))].sort().map(x => ({ v: x, label: x })), placeholder: 'Type a site name…', onPick: '_accPROnSiteChange' })),
         fld('Company', `<input id="acc-pr-company" placeholder="Auto-fills from site">`)
       ))}
 
@@ -9458,8 +9645,8 @@ function _accDrawNewPRForm(dr) {
       ${sec('5 &middot; Financial', grid(
         fld('Currency', `<select id="acc-pr-currency">${opt(currencies, 'Indian Rupee')}</select>`),
         fld('Amount', `<input id="acc-pr-amount" type="number" step="0.01">`, true),
-        fld('Nature of Expenses', `<select id="acc-pr-natureOfExpenses" onchange="_accPROnNatureChange()">${opt(natures)}</select>`),
-        fld('Account Code Description', `<select id="acc-pr-accountCodeDesc" onchange="_accPROnAccCodeChange()">${opt(accDescs)}</select>`),
+        fld('Nature of Expenses', evgComboHtml({ id: 'acc-pr-natureOfExpenses', items: natures.map(x => ({ v: x, label: x })), placeholder: 'Type a nature of expense…', onPick: '_accPROnNatureChange' })),
+        fld('Account Code Description', evgComboHtml({ id: 'acc-pr-accountCodeDesc', items: accDescs.map(x => ({ v: x, label: x })), placeholder: 'Type an account code…', onPick: '_accPROnAccCodeChange' })),
         fld('GST', `<input id="acc-pr-gst" type="number" step="0.01">`),
         fld('TDS', `<input id="acc-pr-tds" type="number" step="0.01">`)
       ) + `<input id="acc-pr-costCode" type="hidden">`)}
@@ -9488,11 +9675,8 @@ function _accDrawNewPRForm(dr) {
 function _accPROnDeptChange() {
   const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
   const dept = _accV('acc-pr-department');
-  const sel = document.getElementById('acc-pr-fromWhichProcess');
-  if (sel) {
-    const procs = [...new Set((_accPayMaster || []).filter(p => !dept || p.department === dept).map(p => p.process).filter(Boolean))].sort();
-    sel.innerHTML = '<option value=""></option>' + procs.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
-  }
+  const procs = [...new Set((_accPayMaster || []).filter(p => !dept || p.department === dept).map(p => p.process).filter(Boolean))].sort();
+  if (typeof evgComboSetItems === 'function') evgComboSetItems('acc-pr-fromWhichProcess', procs.map(p => ({ v: p, label: p })), true);
   const isPurchase = /purchase/i.test(dept);
   const pt = document.getElementById('acc-pr-paymentTerms-wrap'); if (pt) pt.style.display = isPurchase ? '' : 'none';
   const po = document.getElementById('acc-pr-po-wrap');           if (po) po.style.display = isPurchase ? '' : 'none';
@@ -9525,13 +9709,9 @@ function _accPROnSiteChange() {
 }
 
 function _accPROnNatureChange() {
-  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
   const nature = _accV('acc-pr-natureOfExpenses');
-  const sel = document.getElementById('acc-pr-accountCodeDesc');
-  if (sel) {
-    const descs = [...new Set((_accCostCenter || []).filter(c => !nature || c.nature === nature).map(c => c.accCodeDesc).filter(Boolean))].sort();
-    sel.innerHTML = '<option value=""></option>' + descs.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
-  }
+  const descs = [...new Set((_accCostCenter || []).filter(c => !nature || c.nature === nature).map(c => c.accCodeDesc).filter(Boolean))].sort();
+  if (typeof evgComboSetItems === 'function') evgComboSetItems('acc-pr-accountCodeDesc', descs.map(d => ({ v: d, label: d })), true);
   _accPROnAccCodeChange();
 }
 
@@ -11267,7 +11447,9 @@ const MODULE_REGISTRY = [
 
   // ── Admin ─────────────────────────────────────────────────────
   { route:'dev-mode',          label:'Configuration',          section:'Admin',            defStatus:'live', defRoles:['md'] },
+  { route:'access-pages',      label:'Access & Pages',         section:'Admin',            defStatus:'live', defRoles:['md'] },
   { route:'settings',          label:'Settings',               section:'Admin',            defStatus:'live', defRoles:['md'] },
+  { route:'schema',            label:'Schema Manager',         section:'Admin',            defStatus:'live', defRoles:['md'] },
 ];
 
 
@@ -11729,6 +11911,241 @@ window.settingsRunDoctor = function() {
   });
 };
 
+
+// ════════════════════════════════════════════════════════════════════
+//  SCHEMA MANAGER — admin page for defining field types per sheet/tab
+//  Route: 'schema'  ·  Visible to: md only
+//  Saves to PortalConfig under key  field_schema_<KEY>_<TAB>
+// ════════════════════════════════════════════════════════════════════
+async function renderSchemaPage() {
+  const el = document.getElementById('mainContent');
+  if (!el) return;
+
+  if (STATE.role !== 'md') {
+    el.innerHTML = `<div class="page-header"><div class="page-header-row"><div>
+      <h1 class="page-title">Schema Manager</h1></div></div></div>
+      <div style="padding:2rem;text-align:center;color:var(--txt3)">
+        <div style="font-size:2rem">🔒</div>
+        <div style="margin-top:.5rem">Admin access required.</div>
+      </div>`;
+    return;
+  }
+
+  // State for the current selection
+  let selSheet = null, selTab = null, fieldSchema = {}, loading = false;
+
+  const FIELD_TYPES = ['Text','Number','Date','Currency','Email','Phone','Boolean','Select'];
+
+  function schemaKey(sk, tab) { return 'field_schema_' + sk + '_' + tab; }
+
+  function renderShell() {
+    el.innerHTML = `
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1 class="page-title">Schema / Field-Type Manager</h1>
+            <p class="page-subtitle" style="margin:.15rem 0 0;color:var(--txt3);font-size:.82rem">
+              Select a sheet and tab to define field types, labels, and required flags.
+              Saved to PortalConfig — consumed by forms and exports.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:240px 1fr;gap:1rem;padding:0 1rem 2rem;align-items:start">
+
+        <!-- LEFT PANEL: sheet list -->
+        <div id="schemaSheetList" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+          <div style="padding:.55rem .85rem;background:var(--g9);color:#fff;font-size:.78rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase">
+            Sheets Directory
+          </div>
+          <div id="schemaSheetItems">
+            ${SHEETS_DIRECTORY.map((s, i) => `
+              <div id="schemaSheet_${i}"
+                   onclick="schemaSelectSheet(${i})"
+                   style="padding:.6rem .85rem;cursor:pointer;border-bottom:1px solid var(--border);
+                          font-size:.82rem;color:var(--txt1);transition:background .15s"
+                   onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+              >
+                <div style="font-weight:600">${s.label}</div>
+                <div style="font-size:.7rem;color:var(--txt3);margin-top:.1rem">${s.key}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- RIGHT PANEL: tabs + fields -->
+        <div>
+          <div id="schemaTabBar" style="display:none;margin-bottom:.75rem;display:flex;gap:.4rem;flex-wrap:wrap"></div>
+          <div id="schemaFieldArea" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;min-height:180px">
+            <div style="padding:2rem;text-align:center;color:var(--txt3);font-size:.85rem">
+              ← Select a sheet to begin
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function highlightSheet(idx) {
+    document.querySelectorAll('[id^="schemaSheet_"]').forEach((el2, i) => {
+      el2.style.background = (i === idx) ? 'var(--primary-light, rgba(var(--primary-rgb,59,130,246),.1))' : '';
+      el2.style.fontWeight  = (i === idx) ? '700' : '';
+    });
+  }
+
+  function renderTabBar(sheetDef) {
+    const bar = document.getElementById('schemaTabBar');
+    if (!bar) return;
+    bar.style.display = 'flex';
+    bar.innerHTML = sheetDef.tabs.map(t => `
+      <button id="schemaTab_${t}"
+              onclick="schemaSelectTab('${t}')"
+              style="padding:.35rem .8rem;border-radius:999px;border:1.5px solid var(--border);
+                     background:var(--bg2);color:var(--txt2);cursor:pointer;font-size:.8rem;
+                     font-family:inherit;transition:all .15s">
+        ${t}
+      </button>
+    `).join('');
+  }
+
+  function highlightTab(tab) {
+    document.querySelectorAll('[id^="schemaTab_"]').forEach(btn => {
+      const active = btn.id === 'schemaTab_' + tab;
+      btn.style.background   = active ? 'var(--g9)' : 'var(--bg2)';
+      btn.style.color        = active ? '#fff' : 'var(--txt2)';
+      btn.style.borderColor  = active ? 'var(--g9)' : 'var(--border)';
+      btn.style.fontWeight   = active ? '700' : '';
+    });
+  }
+
+  function renderFieldTable(columns) {
+    const area = document.getElementById('schemaFieldArea');
+    if (!area) return;
+
+    if (!columns.length) {
+      area.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3)">No columns found — sheet may be empty.</div>`;
+      return;
+    }
+
+    area.innerHTML = `
+      <div style="padding:.6rem .9rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:.8rem;font-weight:600;color:var(--txt2)">${columns.length} fields · ${selSheet} / ${selTab}</span>
+        <button onclick="schemaSaveFields()"
+                style="padding:.35rem .9rem;background:var(--g9);color:#fff;border:none;border-radius:6px;
+                       cursor:pointer;font-size:.8rem;font-weight:600">
+          💾 Save Schema
+        </button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+          <thead>
+            <tr style="background:var(--bg3);color:var(--txt2)">
+              <th style="padding:8px 10px;text-align:left;font-weight:600">Column</th>
+              <th style="padding:8px 10px;text-align:left;font-weight:600">Display Label</th>
+              <th style="padding:8px 10px;text-align:left;font-weight:600">Type</th>
+              <th style="padding:8px 10px;text-align:center;font-weight:600">Required</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${columns.map(col => {
+              const existing = fieldSchema[col] || {};
+              const typeOpts = FIELD_TYPES.map(t =>
+                `<option value="${t}" ${(existing.type||'Text')===t?'selected':''}>${t}</option>`
+              ).join('');
+              return `<tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:8px 10px;font-family:monospace;color:var(--txt1);white-space:nowrap">${col}</td>
+                <td style="padding:8px 10px">
+                  <input id="schemaLabel_${col}" type="text"
+                         value="${(existing.label||'').replace(/"/g,'&quot;')}"
+                         placeholder="${col}"
+                         style="width:100%;padding:.3rem .5rem;border:1px solid var(--border);
+                                border-radius:5px;background:var(--bg1);color:var(--txt1);
+                                font-size:.8rem;font-family:inherit;box-sizing:border-box">
+                </td>
+                <td style="padding:8px 10px">
+                  <select id="schemaType_${col}"
+                          style="padding:.3rem .5rem;border:1px solid var(--border);border-radius:5px;
+                                 background:var(--bg1);color:var(--txt1);font-size:.8rem;font-family:inherit">
+                    ${typeOpts}
+                  </select>
+                </td>
+                <td style="padding:8px 10px;text-align:center">
+                  <input id="schemaReq_${col}" type="checkbox" ${existing.required?'checked':''}>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div id="schemaSaveStatus" style="padding:.5rem .9rem;font-size:.78rem;color:var(--txt3);min-height:1.6rem"></div>`;
+  }
+
+  window.schemaSelectSheet = function(idx) {
+    const def = SHEETS_DIRECTORY[idx];
+    if (!def) return;
+    selSheet = def.key;
+    selTab   = null;
+    highlightSheet(idx);
+    renderTabBar(def);
+
+    const area = document.getElementById('schemaFieldArea');
+    if (area) area.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3);font-size:.85rem">← Select a tab</div>`;
+  };
+
+  window.schemaSelectTab = async function(tab) {
+    if (!selSheet) return;
+    selTab = tab;
+    highlightTab(tab);
+
+    const def = SHEETS_DIRECTORY.find(s => s.key === selSheet);
+    if (!def) return;
+
+    // Load existing schema first
+    const sk = schemaKey(selSheet, tab);
+    fieldSchema = pcReadJSON(sk, {});
+
+    const area = document.getElementById('schemaFieldArea');
+    if (area) area.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--txt3)">
+      <div style="font-size:1.4rem">⏳</div>Loading columns…</div>`;
+
+    try {
+      const rows = await fetchSheet(tab, 'SELECT * LIMIT 1', def.defaultId, { rawId: true });
+      const columns = (rows && rows.length > 0) ? Object.keys(rows[0]) : [];
+      renderFieldTable(columns);
+    } catch (e) {
+      if (area) area.innerHTML = `<div style="padding:2rem;text-align:center;color:#dc2626;font-size:.82rem">
+        Failed to load columns: ${e.message}</div>`;
+    }
+  };
+
+  window.schemaSaveFields = async function() {
+    if (!selSheet || !selTab) return;
+    const sk = schemaKey(selSheet, selTab);
+    const cols = document.querySelectorAll('[id^="schemaType_"]');
+    const map  = {};
+    cols.forEach(sel => {
+      const col  = sel.id.replace('schemaType_', '');
+      const lab  = document.getElementById('schemaLabel_' + col);
+      const req  = document.getElementById('schemaReq_'   + col);
+      map[col] = {
+        type:     sel.value,
+        label:    lab ? lab.value.trim() : col,
+        required: req ? req.checked      : false,
+      };
+    });
+    const status = document.getElementById('schemaSaveStatus');
+    if (status) { status.textContent = 'Saving…'; status.style.color = '#92400e'; }
+    const res = await pcWriteJSON(sk, map);
+    if (res.ok) {
+      fieldSchema = map;
+      if (status) { status.textContent = '✓ Saved to PortalConfig'; status.style.color = '#16a34a'; }
+    } else {
+      if (status) { status.textContent = '✗ ' + (res.message || 'Save failed'); status.style.color = '#dc2626'; }
+    }
+  };
+
+  renderShell();
+}
 
 // ── Apps Script Endpoints sub-page ─────────────────────────────
 // Renders the card inline inside Configuration. Saves overrides via
@@ -12320,7 +12737,6 @@ function userCan(route, action) {
 // ── Tab bar + dispatcher ──────────────────────────────────────────────
 const CFG_TABS = [
   { id:'config',  icon:'&#9881;',   label:'Portal Config' },
-  { id:'access',  icon:'&#128101;', label:'Access &amp; Pages' },
   { id:'sheets',  icon:'&#128279;', label:'Sheet Linking' },
 ];
 function _cfgTabBar(active) {
@@ -12345,7 +12761,6 @@ function renderDevModePage(tab) {
   }
   window._cfgActiveTab = tab || window._cfgActiveTab || 'config';
   const t = window._cfgActiveTab;
-  if (t === 'access') return _cfgRenderAccess();
   if (t === 'sheets') return _cfgRenderSheets();
   // 'modules' (the old Modules & Roles tab) → Portal Config; its role matrix
   // is retired and its Live/Dev/Off status lives in Access & Pages.
@@ -12441,6 +12856,20 @@ function _cfgRenderSheets() {
 // ════════════════════════════════════════════════════════════════════
 //  TAB: ACCESS GROUPS
 // ════════════════════════════════════════════════════════════════════
+function renderAccessPages() {
+  const el = document.getElementById('mainContent');
+  if (!el) return;
+  const _superAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin());
+  let _restricted = false;
+  if (!_superAdmin) { try { _restricted = !!_accessRouteSetForCurrentUser(); } catch (e) {} }
+  const _isAdminRole = STATE.role === 'md' || (typeof _accIsAdmin === 'function' && _accIsAdmin());
+  if (!_superAdmin && (_restricted || !_isAdminRole)) {
+    el.innerHTML = `<div class="module-placeholder"><div style="font-size:2rem;margin-bottom:.6rem">&#128274;</div><p>Access &amp; Pages is restricted to Administrators.</p></div>`;
+    return;
+  }
+  _cfgRenderAccess();
+}
+
 function _cfgRenderAccess() {
   const el = document.getElementById('mainContent');
   const draft = uaGetDraft();
@@ -12456,7 +12885,7 @@ function _cfgRenderAccess() {
   const emps = (STATE && STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
   if (!emps.length && typeof loadAllMasters === 'function' && !window._uaEmpTried) {
     window._uaEmpTried = true;
-    loadAllMasters().then(() => { if (window._cfgActiveTab === 'access') _cfgRenderAccess(); }).catch(() => {});
+    loadAllMasters().then(() => { if (STATE.currentPage === 'access-pages') _cfgRenderAccess(); }).catch(() => {});
   }
   // Only CURRENT employees (status ACTIVE) with a Mail ID can be assigned —
   // the Mail ID is the key access control is enforced on.
@@ -12567,10 +12996,9 @@ function _cfgRenderAccess() {
     </div>`;
 
   el.innerHTML = `
-    ${_cfgTabBar('access')}
     <div class="page-header"><div class="page-header-row">
-      <div><h1>&#128101; Access Groups</h1>
-        <p>Groups &rarr; view + action permissions &rarr; users &middot; org-wide &middot; Admin only</p></div>
+      <div><h1 class="page-title">&#128101; Access &amp; Pages</h1>
+        <p class="page-subtitle">Groups &rarr; view + action permissions &rarr; users &middot; org-wide &middot; Admin only</p></div>
       <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
         <button onclick="uaResetDefaults()" class="btn btn-secondary btn-sm">&#8635; Reset to role defaults</button>
         <button onclick="uaSave()" class="btn btn-primary btn-sm" id="uaSaveBtn">&#10003; Save &amp; Apply</button>
