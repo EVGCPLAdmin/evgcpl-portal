@@ -998,6 +998,7 @@ function _evgOptedOut(el) { return !!(el && el.closest && el.closest('[data-evg-
 function applyTableFeatures() {
   _tblEngineEnsureStyles();
   _tblObserveMainContent();
+  try { evgEnhanceSelects(); } catch (e) {}   // make large selects searchable
   const mc = document.getElementById('mainContent');
   if (!mc) return;
   // Standard data-table classes, PLUS any un-classed real data table (proper
@@ -1047,6 +1048,9 @@ function _tblObserveMainContent() {
   if (!mc || typeof MutationObserver === 'undefined') return;
   _tblFeatObserved = true;
   const obs = new MutationObserver(muts => {
+    // Make any newly-rendered large <select> searchable (debounced, app-wide).
+    clearTimeout(_evgEnhTimer);
+    _evgEnhTimer = setTimeout(() => { try { evgEnhanceSelects(); } catch (e) {} }, 250);
     let relevant = false;
     for (const m of muts) {
       for (const n of m.addedNodes) {
@@ -4658,6 +4662,70 @@ window.evgComboSetItems = function(id, items, clearValue) {
   if (clearValue) { const inp = document.getElementById(id); if (inp) { inp.value = ''; inp.removeAttribute('data-value'); } }
   const box = document.getElementById(id + '-sug'); if (box) box.style.display = 'none';
 };
+
+// ── Progressive enhancement: make every LARGE native <select> searchable ──
+// Keeps the native <select> as the source of truth (all existing .value reads,
+// onchange handlers, cascades and prefills keep working) and overlays a
+// type-to-filter input. Auto-applied across the app to selects with ≥ the
+// threshold options. Opt out with data-evg-nosearch on the select (or an
+// ancestor). Selecting an option dispatches a native 'change' event so inline
+// onchange handlers fire exactly as before.
+let _evgEnhTimer = null;
+function evgEnhanceSelects(root) {
+  const scope = (root && root.querySelectorAll) ? root : document;
+  let sels;
+  try { sels = scope.querySelectorAll('select:not([data-evg-enh]):not([multiple]):not([data-evg-nosearch])'); }
+  catch (e) { return; }
+  sels.forEach(sel => {
+    try {
+      if (sel.options.length < 12) return;                 // only big lists need search
+      if (sel.closest('[data-evg-nosearch]')) return;
+      // Skip purely-numeric sequence pickers (day / hour / year) — a dropdown
+      // reads more naturally there than a search box.
+      const sample = Array.from(sel.options).slice(0, 8).map(o => (o.text || '').trim()).filter(Boolean);
+      if (sample.length && sample.filter(t => /^\d+$/.test(t)).length >= Math.ceil(sample.length * 0.8)) return;
+      sel.setAttribute('data-evg-enh', '1');
+      const esc = _mdpEsc;
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative';
+      sel.parentNode.insertBefore(wrap, sel);
+      const input = document.createElement('input');
+      input.type = 'text'; input.autocomplete = 'off';
+      input.className = sel.className;
+      input.setAttribute('style', sel.getAttribute('style') || '');
+      input.placeholder = 'Type to search…';
+      const list = document.createElement('div');
+      list.style.cssText = 'display:none;position:absolute;top:100%;left:0;right:0;z-index:300;background:var(--surface,#fff);border:1px solid var(--border,#ccc);border-top:none;border-radius:0 0 8px 8px;max-height:300px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.16)';
+      sel.style.display = 'none';
+      wrap.appendChild(input); wrap.appendChild(list); wrap.appendChild(sel);
+      const syncDisplay = () => { const o = sel.options[sel.selectedIndex]; input.value = o ? o.text : ''; };
+      const render = (q) => {
+        const s = String(q || '').trim().toLowerCase();
+        const opts = Array.from(sel.options);
+        const matched = s ? opts.filter(o => (o.text || '').toLowerCase().includes(s) || (o.value || '').toLowerCase().includes(s)) : opts;
+        const shown = matched.slice(0, 60);
+        if (!shown.length) { list.innerHTML = `<div style="padding:.5rem .8rem;color:var(--txt3);font-size:.8rem">No match</div>`; list.style.display = 'block'; return; }
+        list.innerHTML = shown.map(o => `<div data-i="${o.index}" style="padding:.45rem .8rem;cursor:pointer;font-size:.82rem;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">${esc(o.text) || '&nbsp;'}</div>`).join('');
+        list.style.display = 'block';
+      };
+      input.addEventListener('focus', () => { input.select(); render(''); });
+      input.addEventListener('input', () => render(input.value));
+      input.addEventListener('blur', () => setTimeout(() => { list.style.display = 'none'; syncDisplay(); }, 160));
+      list.addEventListener('mousedown', (e) => {
+        const row = e.target.closest('[data-i]'); if (!row) return;
+        e.preventDefault();
+        sel.selectedIndex = parseInt(row.getAttribute('data-i'), 10);
+        syncDisplay();
+        list.style.display = 'none';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      // Cascading selects rebuild their <option>s → re-sync the display text.
+      try { new MutationObserver(() => syncDisplay()).observe(sel, { childList: true }); } catch (e) {}
+      syncDisplay();
+    } catch (e) { /* never let one select break the page */ }
+  });
+}
+window.evgEnhanceSelects = evgEnhanceSelects;
 
 function _mdpLedgerHtml() {
   const esc = _mdpEsc;
