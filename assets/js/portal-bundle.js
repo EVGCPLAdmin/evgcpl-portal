@@ -7975,9 +7975,8 @@ window._pvSetSite = function(v) { _pvSite = v; _pvRenderCards(); };
 
 // ── ITEM RATE MASTER ────────────────────────────────────────────────────────
 // Route: item-rate-master | Section: Procurement
-// Min / max / avg purchase rate per item from received GRN line items.
-// Source: _openPOItems (rate, UOM) joined to _openPOStock (via CheckSum → SI ID)
-// and _openPOHeaders (vendor, site, PO date).
+// Min / max / avg purchase rate per item, sourced from the
+// 4-GRNMaster_Actual tab of the Master spreadsheet (SHEET_ID).
 // Type 1 groups by Item + UOM + Site; Type 2 groups by Item + UOM.
 // Period filter: financial year. Export gated by Access Settings 'export' action.
 
@@ -7986,16 +7985,26 @@ let _irmType    = 1;
 let _irmSearch  = '';
 let _irmAllRows = [];
 let _irmGrouped = null;
+let _irmGRNRows = null;   // raw rows from 4-GRNMaster_Actual
+
+async function _irmEnsure(force) {
+  if (!force && _irmGRNRows) return;
+  try {
+    _irmGRNRows = await fetchSheet('4-GRNMaster_Actual', null, SHEET_ID, { rawId: true }) || [];
+  } catch (e) {
+    _irmGRNRows = [];
+  }
+}
 
 async function renderItemRateMaster() {
   const el = document.getElementById('mainContent'); if (!el) return;
   el.innerHTML = `<div class="page-header"><div class="page-header-row">
-    <div><h1>&#128200; Item Rate Master</h1><p>Min / Max / Average purchase rates per item &middot; sourced from GRN receipts</p></div>
+    <div><h1>&#128200; Item Rate Master</h1><p>Min / Max / Average purchase rates per item &middot; sourced from GRN Master</p></div>
     <button class="btn btn-secondary btn-sm" onclick="_irmReload(this)">&#8635; Refresh</button>
   </div></div>
   <div id="irm-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading data&hellip;</div></div>`;
   try {
-    await _regEnsure();
+    await _irmEnsure();
     _irmAllRows = _irmBuildRows();
     _irmGrouped = null;
     _irmFY      = _irmDefaultFY();
@@ -8015,58 +8024,28 @@ function _irmDefaultFY() {
 }
 
 function _irmBuildRows() {
-  const HC = _opColMap(_openPOHeaders);
-  const IC = _opColMap(_openPOItems);
-  const SC = _opColMap(_openPOStock);
-  const matMap = _opMatMap();
-  const grnMap = _siGRNMapBuild();
-
-  const hdrMap = {};
-  _openPOHeaders.forEach(r => {
-    const k = _opPO(_opGet(r, HC, ['PO No']));
-    if (k && !hdrMap[k]) hdrMap[k] = {
-      vendor:   _opGet(r, HC, ['Vendor Name', 'Vendor', 'Supplier Name']) || '',
-      vendorId: _opGet(r, HC, ['Vendor ID']) || '',
-      site:     _opGet(r, HC, ['Site Name', 'Site']) || '',
-      date:     _opGet(r, HC, ['PO Date']) || '',
-    };
-  });
-
-  const siMap = {};
-  _openPOStock.forEach(r => {
-    const cs = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID']) || '').trim();
-    if (cs) siMap[cs] = r;
-  });
-
+  const raw = _irmGRNRows || [];
   const rows = [];
-  _openPOItems.forEach(x => {
-    const cs = String(_opGet(x, IC, ['CheckSum', 'Check Sum']) || '').trim();
-    if (!cs) return;
-    const si = siMap[cs]; if (!si) return;
+  raw.forEach(r => {
+    const g = (...cands) => String(cands.reduce((v, c) => v != null && v !== '' ? v : (r[c] != null ? r[c] : ''), '') || '').trim();
 
-    const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
-    if (!rate) return;
-
-    const rawPart = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']) || '';
-    const pr   = _opPartReadable(rawPart, matMap);
-    const part = pr.text || rawPart.trim();
+    const part = g('Material Description','Material Desc','Material Name','Part Description','Part Name','Part Details','Item Name','Item Description','Description','Particulars','Material');
     if (!part) return;
 
-    const uom        = String(_opGet(x, IC, ['UOM', 'Unit', 'Units']) || '').trim();
-    const grnQty     = _opNum(_opGet(si, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
-    const ordQty     = _opNum(_opGet(x, IC, ['Qty', 'Quantity', 'Order Qty']));
-    const qty        = grnQty || ordQty;
-    const poKey      = _opPO(_opGet(si, SC, ['PO No', 'PO No (Key)']) || _opGet(x, IC, ['PO No']) || '');
-    const hdr        = hdrMap[poKey] || {};
-    const site       = String(_opGet(si, SC, ['Site Name']) || hdr.site || '').trim();
-    const vendor     = String(_opGet(si, SC, ['Vendor Name']) || hdr.vendor || '').trim();
-    const vendorId   = String(hdr.vendorId || '').trim();
-    const poDate     = hdr.date || '';
-    const receivedOn = String(_opGet(si, SC, ['Received On (At)']) || '').trim();
-    const grnNo      = _siGRNResolve(si, SC, grnMap);
-    const invNo      = String(_opGet(si, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim();
+    const uom        = g('UOM','Unit','Unit of Measure','Units');
+    const rateRaw    = g('Unit Rate','Rate','Basic Rate','Unit Price','Price','Quoted Rate');
+    const rate       = _opNum(rateRaw);
+    if (!rate) return;
 
-    rows.push({ part, uom, rate, qty, site, vendor, vendorId, poNo: poKey, poDate, receivedOn, grnNo, invNo, amount: rate * qty });
+    const qty        = _opNum(g('GRN Qty','Qty','Quantity','Received Qty','GRN Quantity'));
+    const site       = g('Site Name','Site','Project Site','Project','Location');
+    const vendor     = g('Vendor Name','Vendor','Supplier Name','Supplier','Party Name');
+    const poNo       = g('PO No','PO Number','Order No','PO No.','Purchase Order No');
+    const grnNo      = g('GRN No','GRN Number','GRN No (Goods Receipt)','GRN No.','GRN');
+    const receivedOn = g('GRN Date','Received On','Received On (At)','Date','Receipt Date','Invoice Date');
+    const invNo      = g('Invoice No','Invoice No / ST No','Invoice Number','Invoice No/ST');
+
+    rows.push({ part, uom, rate, qty, site, vendor, poNo, poDate: receivedOn, receivedOn, grnNo, invNo, amount: rate * qty });
   });
   return rows;
 }
@@ -8176,7 +8155,7 @@ function _irmFill(groups) {
   const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
 }
 
-window._irmReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _irmAllRows = _irmBuildRows(); _irmGrouped = null; _irmRender(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._irmReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _irmEnsure(true).then(() => { _irmAllRows = _irmBuildRows(); _irmGrouped = null; _irmRender(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
 window._irmSetFY     = function(v) { _irmFY = v; _irmGrouped = null; _irmRender(); };
 window._irmSetType   = function(v) { _irmType = +v; _irmGrouped = null; _irmRender(); };
 window._irmSetSearch = function(v) { _irmSearch = v; _irmFill(_irmGrouped || []); };
