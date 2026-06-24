@@ -42,6 +42,27 @@ function _appendRow({ sheetId, tab, row }) {
 }
 
 /**
+ * Append a row by HEADER NAME — robust to column reordering.
+ * payload: { action:'appendRowMapped', sheetId, tab, row: { "Header A": v, ... } }
+ * Reads the tab's row-1 headers and places each row value under its matching
+ * header; unknown headers are ignored, unmapped columns left blank. Used by the
+ * HR Attendance & Leave module (router exposes this as `appendRowMapped`).
+ */
+function appendRowMapped({ sheetId, tab, row }) {
+  if (!sheetId) return _json({ success:false, message:'Missing sheetId' });
+  const ss = SpreadsheetApp.openById(sheetId);
+  const sh = ss.getSheetByName(tab);
+  if (!sh) return _json({ success:false, message:`Tab "${tab}" not found` });
+  const lastCol = sh.getLastColumn();
+  if (lastCol < 1) return _json({ success:false, message:`Tab "${tab}" has no columns` });
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+  const obj = row || {};
+  const out = headers.map(h => (h && Object.prototype.hasOwnProperty.call(obj, h)) ? obj[h] : '');
+  sh.appendRow(out);
+  return _json({ success:true, rowsAfter: sh.getLastRow() });
+}
+
+/**
  * Update a single cell, found by matching a value in another column.
  * payload: { action:'updateCell', sheetId, tab, matchCol:'B', matchVal:'INC-...', updateCol:'I', updateVal:'Closed' }
  */
