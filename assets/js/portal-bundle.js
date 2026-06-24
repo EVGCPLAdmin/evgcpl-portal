@@ -11209,7 +11209,7 @@ const SHEETS_DIRECTORY = [
   { key:'SAFETY',  label:'Safety',                    defaultId:'1B8P0PawV43ksazbzhKsil1X6-INOfxx9PFvGycNOvDY', tabs:['Incidents','Checklist'], notes:'Incidents & SHE checklist' },
   { key:'REWARDS', label:'Rewards & Recognition',     defaultId:'1vz8HLopjlSF8TF7rzYuVu5JjqukT929I7aSx7kdehlI', tabs:['Nomination','BlogPosts'], notes:'R&R + wall posts' },
   { key:'BUDGET',  label:'IC Budget Template',        defaultId:'', tabs:['BOQ_Items','Project_Master','Resources'], notes:'Pending — upload template to Drive first' },
-  { key:'ATTLEAVE', label:'Attendance & Leave',        defaultId:'', tabs:['Attendance-EG','Leave Request Form','Leave Approval'], notes:'HR Attendance + Leave (TimeOff) — set the workbook ID to enable' },
+  { key:'ATTLEAVE', label:'Attendance & Leave',        defaultId:'1rz_NBLAOHTLPraQPREY1HYtiR5XQHpTAsSL5O8gm-JQ', tabs:['Attendance-EG','Leave Request Form','Leave Approval'], notes:'HR Attendance + Leave (TimeOff)' },
   { key:'ATTREG',   label:'Attendance Register',       defaultId:'', tabs:['AttendanceRegister','LeaveRegister','02_Leave_New'], notes:'Consolidated attendance register + PL balances (read-only)' },
   { key:'MASTERHR', label:'Master-HR',                 defaultId:'', tabs:['M_LeaveTypes'], notes:'HR leave-type master' },
 ];
