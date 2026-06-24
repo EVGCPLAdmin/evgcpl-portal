@@ -11278,8 +11278,8 @@ const SHEETS_DIRECTORY = [
   { key:'REWARDS', label:'Rewards & Recognition',     defaultId:'1vz8HLopjlSF8TF7rzYuVu5JjqukT929I7aSx7kdehlI', tabs:['Nomination','BlogPosts'], notes:'R&R + wall posts' },
   { key:'BUDGET',  label:'IC Budget Template',        defaultId:'', tabs:['BOQ_Items','Project_Master','Resources'], notes:'Pending — upload template to Drive first' },
   { key:'ATTLEAVE', label:'Attendance & Leave',        defaultId:'1rz_NBLAOHTLPraQPREY1HYtiR5XQHpTAsSL5O8gm-JQ', tabs:['Attendance-EG','Leave Request Form','Leave Approval'], notes:'HR Attendance + Leave (TimeOff)' },
-  { key:'ATTREG',   label:'Attendance Register',       defaultId:'', tabs:['AttendanceRegister','LeaveRegister','02_Leave_New'], notes:'Consolidated attendance register + PL balances (read-only)' },
-  { key:'MASTERHR', label:'Master-HR',                 defaultId:'', tabs:['M_LeaveTypes'], notes:'HR leave-type master' },
+  { key:'ATTREG',   label:'Attendance Register',       defaultId:'1dATXE7toju1GdPb-jayQr-wuui68NFIww43y27ucvkE', tabs:['AttendanceRegister','LeaveRegister','02_Leave_New'], notes:'Consolidated attendance register + PL balances (read-only)' },
+  { key:'MASTERHR', label:'Master-HR',                 defaultId:'', tabs:['M_LeaveTypes'], notes:'HR leave-type master — parked in BACKLOG; set ID in Settings to enable Leave Types' },
 ];
 
 // Apps Scripts deployed for the portal. Same exec URL handles all

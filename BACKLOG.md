@@ -25,9 +25,13 @@ Attendance & Leave modules. Routes `attendance` (Mark / Register / Calendar) and
 (My Requests / Apply / Approvals / Leave Types), hosted on `hr.html`. Append-only leave
 approval log with a two-stage RM → HR workflow; a request's status is derived from the log
 (mirrors Accounts). Workbook IDs are runtime-configurable in **Settings → Sheet IDs**
-(`ATTLEAVE`, `ATTREG`, `MASTERHR`) — **set these to enable the pages**. Writes use the new
-`appendRowMapped` backend action (header-mapped append) — **redeploy the main Apps Script
-/exec** for writes to work. See `docs/HR_ATTENDANCE_LEAVE.md`.
+— `ATTLEAVE` and `ATTREG` now ship with **compiled default workbook IDs** (live out of
+the box). Writes use the new `appendRowMapped` backend action (header-mapped append) —
+**redeploy the main Apps Script /exec** for writes to work. See `docs/HR_ATTENDANCE_LEAVE.md`.
+- **Parked: `MASTERHR` (Leave Types master).** Workbook ID not yet provided, so the Leave
+  Types page stays gated behind a "configure this sheet" notice. To enable: get the Master-HR
+  workbook ID, set `MASTERHR` in **Settings → Sheet IDs** (or wire it as a compiled default
+  like `ATTLEAVE`/`ATTREG`).
 - **Still out of scope** (per the AppSheet spec selection): subcontractor attendance
   (`G2_2`, `HT_AttendanceRegister`), `AttendanceUpload`, Attendance Report exports, OD/TA.
 
