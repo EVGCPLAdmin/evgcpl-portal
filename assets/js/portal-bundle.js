@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.22.1';
-const PORTAL_BUILD    = 625;
-const PORTAL_BUILD_AT = '2026-06-24T12:29:42Z';
+const PORTAL_VERSION  = '4.22.2';
+const PORTAL_BUILD    = 626;
+const PORTAL_BUILD_AT = '2026-06-24T12:34:55Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -8010,6 +8010,16 @@ async function renderItemRateMaster() {
     _irmFY      = _irmDefaultFY();
     _irmSearch  = '';
     _irmType    = 1;
+    if (!_irmAllRows.length && _irmGRNRows && _irmGRNRows.length) {
+      const cols = _irmGRNRows[0] ? Object.keys(_irmGRNRows[0]) : [];
+      const b = document.getElementById('irm-body');
+      if (b) b.innerHTML = `<div class="card card-pad" style="color:var(--danger);padding:1.5rem">
+        <b>&#9888; 0 rows parsed from ${_irmGRNRows.length} raw rows.</b>
+        <div style="font-size:.78rem;margin-top:.5rem;color:var(--txt2)">Columns found in sheet: <code style="font-size:.74rem">${_mdpEsc(cols.join(' · '))}</code></div>
+        <div style="font-size:.74rem;color:var(--txt3);margin-top:.35rem">Open the browser console for the full column list, then share it so the parser can be updated.</div>
+      </div>`;
+      return;
+    }
     _irmRender();
   } catch (err) {
     const b = document.getElementById('irm-body');
@@ -8025,6 +8035,9 @@ function _irmDefaultFY() {
 
 function _irmBuildRows() {
   const raw = _irmGRNRows || [];
+  if (!raw.length) return [];
+  // Log actual column names on first parse so mismatches are visible in console.
+  try { console.log('[IRM] 4-GRNMaster_Actual columns:', Object.keys(raw[0])); } catch (e) {}
   const rows = [];
   raw.forEach(r => {
     const g = (...cands) => String(cands.reduce((v, c) => v != null && v !== '' ? v : (r[c] != null ? r[c] : ''), '') || '').trim();
