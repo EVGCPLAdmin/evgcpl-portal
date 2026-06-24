@@ -216,6 +216,7 @@
     'subcontractor':     'scm.html',
     'po-register':       'scm.html',
     'stockin-register':  'scm.html',
+    'item-rate-master':  'scm.html',
 
     // Site Ops
     'site-manager':      'site-ops.html',
