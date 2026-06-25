@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.23.2';
-const PORTAL_BUILD    = 629;
-const PORTAL_BUILD_AT = '2026-06-25T04:13:25Z';
+const PORTAL_VERSION  = '4.23.3';
+const PORTAL_BUILD    = 630;
+const PORTAL_BUILD_AT = '2026-06-25T04:22:20Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -8032,7 +8032,7 @@ async function renderItemRateMaster() {
 }
 
 function _irmDefaultFY() {
-  const fySet = Array.from(new Set(_irmAllRows.map(r => _vplpFYof(r.receivedOn || r.poDate)).filter(Boolean))).sort();
+  const fySet = Array.from(new Set(_irmAllRows.map(r => _vplpFYof(r.poDate)).filter(Boolean))).sort();
   const cur = _vplpFYof(new Date().toISOString());
   return fySet.includes(cur) ? cur : (fySet[fySet.length - 1] || '');
 }
@@ -8040,9 +8040,17 @@ function _irmDefaultFY() {
 function _irmBuildRows() {
   const raw = _irmGRNRows || [];
   if (!raw.length) return [];
-  try { console.log('[IRM] 4-GRNMaster_Actual columns:', Object.keys(raw[0])); } catch (e) {}
 
-  // Build PO header lookup: PO No → { vendor, site } from PO_Actual (reliable source)
+  // Step 1: collect UUID set from GRN Master (parts that have been actually received)
+  const grnUUIDs = new Set();
+  raw.forEach(r => {
+    const uuid = String(r['UUID'] || r['Row UUID'] || r['GRN UUID'] || r['Id'] || r['ID'] || '').trim();
+    if (uuid) grnUUIDs.add(uuid);
+  });
+  try { console.log('[IRM] GRN UUID count:', grnUUIDs.size, '| sample:', [...grnUUIDs].slice(0,3)); } catch (e) {}
+  if (!grnUUIDs.size) return [];
+
+  // Step 2: PO_Actual header lookup: PO No → { vendor, site, poDate }
   const HC = _opColMap(_openPOHeaders || []);
   const poHdrMap = {};
   (_openPOHeaders || []).forEach(h => {
@@ -8051,58 +8059,49 @@ function _irmBuildRows() {
     poHdrMap[poNo] = {
       vendor: String(_opGet(h, HC, ['Vendor Name', 'Vendor', 'Supplier Name', 'Supplier']) || '').trim(),
       site:   String(_opGet(h, HC, ['Site Name', 'Site', 'Project Site', 'Project', 'Location']) || '').trim(),
+      poDate: String(_opGet(h, HC, ['PO Date', 'Date', 'Order Date']) || '').trim(),
     };
   });
 
-  // Build lookup map: Part Details (Key) = UUID → { part, uom, rate, poNo }
+  // Step 3: filter PO_Items where Part Details (Key) ∈ grnUUIDs; each matched row = one purchase entry
   const IC = _opColMap(_openPOItems || []);
-  const poItemMap = {};
+  const rows = [];
   (_openPOItems || []).forEach(x => {
-    const key = String(_opGet(x, IC, ['Part Details (Key)', 'Part Details', 'CheckSum', 'Check Sum']) || '').trim();
-    if (!key) return;
-    const part = _opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name', 'Part Description', 'Part Name', 'Item Description', 'Item Name', 'Description', 'Particulars', 'Material']);
+    const uuid = String(_opGet(x, IC, ['Part Details (Key)', 'Part Details', 'CheckSum', 'Check Sum']) || '').trim();
+    if (!uuid || !grnUUIDs.has(uuid)) return;
+
+    const part = String(_opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name', 'Part Description', 'Part Name', 'Item Description', 'Item Name', 'Description', 'Particulars', 'Material']) || '').trim();
+    if (!part) return;
     const uom  = String(_opGet(x, IC, ['UOM', 'Unit', 'Unit of Measure', 'Units']) || '').trim();
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate', 'Quoted Rate']));
+    if (!rate) return;
+    const qty  = _opNum(_opGet(x, IC, ['PO Qty', 'Qty', 'Quantity', 'Order Qty', 'Ordered Qty']));
     const poNo = String(_opGet(x, IC, ['PO No', 'Order No', 'PO No.']) || '').trim();
-    if (part && !poItemMap[key]) poItemMap[key] = { part: String(part).trim(), uom, rate, poNo };
+
+    // Site: PO_Items first, then PO header
+    const itemSite = String(_opGet(x, IC, ['Site Name', 'Site', 'Project Site', 'Project', 'Location']) || '').trim();
+    const hdr    = (poNo && poHdrMap[poNo]) || {};
+    const site   = itemSite || hdr.site   || '';
+    const vendor = hdr.vendor || '';
+    const poDate = hdr.poDate  || '';
+
+    rows.push({ uuid, part, uom, rate, qty, site, vendor, poNo, poDate, receivedOn: poDate, grnNo: '', invNo: '', amount: rate * qty });
   });
-  try { console.log('[IRM] PO_Items_Actual keyed rows:', Object.keys(poItemMap).length, '| PO headers:', Object.keys(poHdrMap).length); } catch (e) {}
-
-  const rows = [];
-  raw.forEach(r => {
-    const g = (...cands) => String(cands.reduce((v, c) => v != null && v !== '' ? v : (r[c] != null ? r[c] : ''), '') || '').trim();
-
-    const uuid = g('UUID', 'Row UUID', 'GRN UUID', 'Id', 'ID');
-    if (!uuid) return;
-    const poi = poItemMap[uuid];
-    if (!poi || !poi.part || !poi.rate) return;
-
-    // Vendor and site: prefer PO_Actual header (reliable), fall back to GRN row columns
-    const hdr    = (poi.poNo && poHdrMap[poi.poNo]) || {};
-    const vendor = hdr.vendor || g('Vendor Name', 'Vendor', 'Supplier Name', 'Supplier', 'Party Name');
-    const site   = hdr.site   || g('Site Name', 'Site', 'Project Site', 'Project', 'Location');
-    const poNo   = poi.poNo   || g('PO No', 'PO Number', 'Order No', 'PO No.', 'Purchase Order No');
-
-    const qty        = _opNum(g('GRN Qty', 'Qty', 'Quantity', 'Received Qty', 'GRN Quantity', 'Accepted Qty'));
-    const grnNo      = g('GRN No', 'GRN Number', 'GRN No (Goods Receipt)', 'GRN No.', 'GRN');
-    const receivedOn = g('GRN Date', 'Received On', 'Received On (At)', 'Date', 'Receipt Date', 'Invoice Date');
-    const invNo      = g('Invoice No', 'Invoice No / ST No', 'Invoice Number', 'Invoice No/ST');
-
-    rows.push({ part: poi.part, uom: poi.uom, rate: poi.rate, qty, site, vendor, poNo, poDate: receivedOn, receivedOn, grnNo, invNo, amount: poi.rate * qty });
-  });
+  try { console.log('[IRM] PO_Items rows after GRN filter:', rows.length); } catch (e) {}
   return rows;
 }
 
 function _irmFilteredRows() {
   if (!_irmFY) return _irmAllRows;
-  return _irmAllRows.filter(r => _vplpFYof(r.receivedOn || r.poDate) === _irmFY);
+  return _irmAllRows.filter(r => _vplpFYof(r.poDate) === _irmFY);
 }
 
 function _irmGroupRows(rows, type) {
   const groups = {};
   rows.forEach(r => {
-    const key = _opNorm(r.part) + '|' + _opNorm(r.uom) + (type === 1 ? '|' + _opNorm(r.site) : '');
-    if (!groups[key]) groups[key] = { key, part: r.part, uom: r.uom, site: type === 1 ? r.site : '', items: [] };
+    // Group key: UUID + UOM + Site (T1) or UUID + UOM (T2) — all from PO_Items
+    const key = r.uuid + '|' + _opNorm(r.uom) + (type === 1 ? '|' + _opNorm(r.site) : '');
+    if (!groups[key]) groups[key] = { key, uuid: r.uuid, part: r.part, uom: r.uom, site: type === 1 ? r.site : '', items: [] };
     groups[key].items.push(r);
   });
   return Object.values(groups).map(g => {
@@ -8110,8 +8109,8 @@ function _irmGroupRows(rows, type) {
     const min  = rts[0] || 0;
     const max  = rts[rts.length - 1] || 0;
     const avg  = rts.length ? rts.reduce((s, v) => s + v, 0) / rts.length : 0;
-    const last = g.items.slice().sort((a, b) => (_mdpDateVal(b.receivedOn) || 0) - (_mdpDateVal(a.receivedOn) || 0))[0] || {};
-    return { ...g, min, max, avg, count: g.items.length, lastRate: last.rate || 0, lastDate: last.receivedOn || '', lastVendor: last.vendor || '' };
+    const last = g.items.slice().sort((a, b) => (_mdpDateVal(b.poDate) || 0) - (_mdpDateVal(a.poDate) || 0))[0] || {};
+    return { ...g, min, max, avg, count: g.items.length, lastRate: last.rate || 0, lastDate: last.poDate || '', lastVendor: last.vendor || '' };
   }).sort((a, b) => a.part.localeCompare(b.part));
 }
 
@@ -8122,7 +8121,7 @@ function _irmRender() {
   const groups = _irmGroupRows(rows, _irmType);
   _irmGrouped  = groups;
 
-  const allFYs = Array.from(new Set(_irmAllRows.map(r => _vplpFYof(r.receivedOn || r.poDate)).filter(Boolean))).sort().reverse();
+  const allFYs = Array.from(new Set(_irmAllRows.map(r => _vplpFYof(r.poDate)).filter(Boolean))).sort().reverse();
   const fyOpts = `<option value="">All financial years</option>` +
     allFYs.map(fy => `<option value="${esc(fy)}"${fy === _irmFY ? ' selected' : ''}>${_vplpFYLabel(fy)}</option>`).join('');
 
@@ -8158,7 +8157,7 @@ function _irmRender() {
         <th style="text-align:right">Avg Rate</th>
         <th style="text-align:right">Max Rate</th>
         <th style="text-align:right">Last Rate</th>
-        <th>Last Received</th>
+        <th>Latest PO</th>
         <th>Last Vendor</th>
       </tr></thead>
       <tbody id="irmTbody"></tbody>
@@ -8236,41 +8235,40 @@ window._irmOpenDetail = function(key) {
       <div style="font-size:.7rem;color:var(--txt3)">${detail || ''}</div>
     </div>`;
 
-  const detailRows = g.items.slice().sort((a, b) => (_mdpDateVal(b.receivedOn) || 0) - (_mdpDateVal(a.receivedOn) || 0));
-  const siteCols   = _irmType === 2;
+  const detailRows = g.items.slice().sort((a, b) => (_mdpDateVal(b.poDate) || 0) - (_mdpDateVal(a.poDate) || 0));
+  const showSite   = _irmType === 2; // T2 groups have mixed sites; T1 site is fixed in title
 
   const bodyHtml = `
     <div style="display:flex;gap:.45rem;flex-wrap:wrap;margin-bottom:.9rem">
       ${iCard('Min Rate',    inr(g.min),  cheapest ? esc(cheapest.vendor) : '', '#16a34a')}
-      ${iCard('Avg Rate',    inr(Math.round(g.avg * 100) / 100), g.count + ' purchases', '#1565c0')}
+      ${iCard('Avg Rate',    inr(Math.round(g.avg * 100) / 100), g.count + ' PO line(s)', '#1565c0')}
       ${iCard('Max Rate',    inr(g.max),  dearest  ? esc(dearest.vendor)  : '', '#c62828')}
       ${iCard('Rate Spread', spread + '%', 'max vs min', spreadClr)}
-      ${iCard('Total Qty',   totalQty.toLocaleString('en-IN'), esc(g.uom || ''), 'var(--g9)')}
+      ${iCard('Total PO Qty', totalQty.toLocaleString('en-IN'), esc(g.uom || ''), 'var(--g9)')}
       ${iCard('Total Value', inr(Math.round(totalVal)), '', 'var(--g9)')}
     </div>
     <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:.9rem">
-      ${srcCard('Cheapest Source',    cheapest ? esc(cheapest.vendor) : '', cheapest ? inr(cheapest.rate) + ' · ' + _mdpFmtDate(cheapest.receivedOn) : '')}
-      ${srcCard('Most Expensive',     dearest  ? esc(dearest.vendor)  : '', dearest  ? inr(dearest.rate)  + ' · ' + _mdpFmtDate(dearest.receivedOn)  : '')}
-      ${srcCard('Most Frequent Vendor', mostFreq ? esc(mostFreq.name) : '', mostFreq ? mostFreq.count + ' purchase(s)' : '')}
+      ${srcCard('Cheapest Source',      cheapest ? esc(cheapest.vendor) : '', cheapest ? inr(cheapest.rate) + ' · ' + _mdpFmtDate(cheapest.poDate) : '')}
+      ${srcCard('Most Expensive',       dearest  ? esc(dearest.vendor)  : '', dearest  ? inr(dearest.rate)  + ' · ' + _mdpFmtDate(dearest.poDate)  : '')}
+      ${srcCard('Most Frequent Vendor', mostFreq ? esc(mostFreq.name)   : '', mostFreq ? mostFreq.count + ' PO(s)' : '')}
     </div>
     <div style="max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:10px">
       <table class="data-table" data-evg-sig="irm-detail">
         <thead><tr>
-          <th>Received On</th><th>GRN No</th><th>PO No</th><th>Vendor</th>
-          <th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th>
-          ${siteCols ? '<th>Site</th>' : ''}
-          <th>Invoice No</th>
+          <th>PO Date</th><th>PO No</th><th>Vendor</th>
+          ${showSite ? '<th>Site</th>' : ''}
+          <th>UOM</th>
+          <th style="text-align:right">PO Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Value</th>
         </tr></thead>
         <tbody>${detailRows.map(r => `<tr>
-          <td style="white-space:nowrap;font-size:.78rem">${_mdpFmtDate(r.receivedOn) || '—'}</td>
-          <td style="font-size:.74rem;font-family:monospace">${esc(r.grnNo) || '—'}</td>
+          <td style="white-space:nowrap;font-size:.78rem">${_mdpFmtDate(r.poDate) || '—'}</td>
           <td style="font-size:.74rem;font-family:monospace">${esc(r.poNo) || '—'}</td>
           <td style="font-size:.78rem">${esc(r.vendor) || '—'}</td>
-          <td style="text-align:right;font-size:.78rem">${(r.qty || 0).toLocaleString('en-IN')} ${esc(r.uom || '')}</td>
+          ${showSite ? `<td style="font-size:.78rem">${esc(r.site) || '—'}</td>` : ''}
+          <td style="font-size:.74rem;color:var(--txt3)">${esc(r.uom || '') || '—'}</td>
+          <td style="text-align:right;font-size:.78rem">${(r.qty || 0).toLocaleString('en-IN')}</td>
           <td style="text-align:right;font-weight:600">${inr(r.rate)}</td>
           <td style="text-align:right;color:var(--txt2)">${inr(Math.round(r.amount || 0))}</td>
-          ${siteCols ? `<td style="font-size:.78rem">${esc(r.site) || '—'}</td>` : ''}
-          <td style="font-size:.74rem">${esc(r.invNo) || '—'}</td>
         </tr>`).join('')}</tbody>
       </table>
     </div>`;
@@ -8294,13 +8292,13 @@ window._irmExport = function() {
   const csvRows = vis.map(g => {
     const row = { 'Part Description': g.part, 'UOM': g.uom };
     if (_irmType === 1) row['Site'] = g.site;
-    row['Count']         = g.count;
-    row['Min Rate']      = g.min;
-    row['Avg Rate']      = Math.round(g.avg * 100) / 100;
-    row['Max Rate']      = g.max;
-    row['Last Rate']     = g.lastRate;
-    row['Last Received'] = g.lastDate;
-    row['Last Vendor']   = g.lastVendor;
+    row['Count']        = g.count;
+    row['Min Rate']     = g.min;
+    row['Avg Rate']     = Math.round(g.avg * 100) / 100;
+    row['Max Rate']     = g.max;
+    row['Last Rate']    = g.lastRate;
+    row['Latest PO']    = g.lastDate;
+    row['Last Vendor']  = g.lastVendor;
     return row;
   });
   downloadCSV(csvRows, `ItemRateMaster_T${_irmType}_${fy}_${new Date().toISOString().slice(0, 10)}.csv`);
