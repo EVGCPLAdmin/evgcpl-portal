@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.23.3';
-const PORTAL_BUILD    = 630;
-const PORTAL_BUILD_AT = '2026-06-25T04:22:20Z';
+const PORTAL_VERSION  = '4.23.4';
+const PORTAL_BUILD    = 631;
+const PORTAL_BUILD_AT = '2026-06-25T04:28:14Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -8076,6 +8076,7 @@ function _irmBuildRows() {
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate', 'Quoted Rate']));
     if (!rate) return;
     const qty  = _opNum(_opGet(x, IC, ['PO Qty', 'Qty', 'Quantity', 'Order Qty', 'Ordered Qty']));
+    if (!qty) return;
     const poNo = String(_opGet(x, IC, ['PO No', 'Order No', 'PO No.']) || '').trim();
 
     // Site: PO_Items first, then PO header
