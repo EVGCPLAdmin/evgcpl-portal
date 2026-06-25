@@ -8042,18 +8042,31 @@ function _irmBuildRows() {
   if (!raw.length) return [];
   try { console.log('[IRM] 4-GRNMaster_Actual columns:', Object.keys(raw[0])); } catch (e) {}
 
-  // Build lookup map: PO_Items_Actual["Part Details (Key)"] → { part, uom, rate }
+  // Build PO header lookup: PO No → { vendor, site } from PO_Actual (reliable source)
+  const HC = _opColMap(_openPOHeaders || []);
+  const poHdrMap = {};
+  (_openPOHeaders || []).forEach(h => {
+    const poNo = String(_opGet(h, HC, ['PO No', 'Order No', 'PO No.']) || '').trim();
+    if (!poNo) return;
+    poHdrMap[poNo] = {
+      vendor: String(_opGet(h, HC, ['Vendor Name', 'Vendor', 'Supplier Name', 'Supplier']) || '').trim(),
+      site:   String(_opGet(h, HC, ['Site Name', 'Site', 'Project Site', 'Project', 'Location']) || '').trim(),
+    };
+  });
+
+  // Build lookup map: Part Details (Key) = UUID → { part, uom, rate, poNo }
   const IC = _opColMap(_openPOItems || []);
   const poItemMap = {};
   (_openPOItems || []).forEach(x => {
     const key = String(_opGet(x, IC, ['Part Details (Key)', 'Part Details', 'CheckSum', 'Check Sum']) || '').trim();
     if (!key) return;
     const part = _opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name', 'Part Description', 'Part Name', 'Item Description', 'Item Name', 'Description', 'Particulars', 'Material']);
-    const uom  = _opGet(x, IC, ['UOM', 'Unit', 'Unit of Measure', 'Units']);
+    const uom  = String(_opGet(x, IC, ['UOM', 'Unit', 'Unit of Measure', 'Units']) || '').trim();
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate', 'Quoted Rate']));
-    if (part && !poItemMap[key]) poItemMap[key] = { part: String(part).trim(), uom: String(uom || '').trim(), rate };
+    const poNo = String(_opGet(x, IC, ['PO No', 'Order No', 'PO No.']) || '').trim();
+    if (part && !poItemMap[key]) poItemMap[key] = { part: String(part).trim(), uom, rate, poNo };
   });
-  try { console.log('[IRM] PO_Items_Actual keyed rows:', Object.keys(poItemMap).length); } catch (e) {}
+  try { console.log('[IRM] PO_Items_Actual keyed rows:', Object.keys(poItemMap).length, '| PO headers:', Object.keys(poHdrMap).length); } catch (e) {}
 
   const rows = [];
   raw.forEach(r => {
@@ -8064,10 +8077,13 @@ function _irmBuildRows() {
     const poi = poItemMap[uuid];
     if (!poi || !poi.part || !poi.rate) return;
 
+    // Vendor and site: prefer PO_Actual header (reliable), fall back to GRN row columns
+    const hdr    = (poi.poNo && poHdrMap[poi.poNo]) || {};
+    const vendor = hdr.vendor || g('Vendor Name', 'Vendor', 'Supplier Name', 'Supplier', 'Party Name');
+    const site   = hdr.site   || g('Site Name', 'Site', 'Project Site', 'Project', 'Location');
+    const poNo   = poi.poNo   || g('PO No', 'PO Number', 'Order No', 'PO No.', 'Purchase Order No');
+
     const qty        = _opNum(g('GRN Qty', 'Qty', 'Quantity', 'Received Qty', 'GRN Quantity', 'Accepted Qty'));
-    const site       = g('Site Name', 'Site', 'Project Site', 'Project', 'Location');
-    const vendor     = g('Vendor Name', 'Vendor', 'Supplier Name', 'Supplier', 'Party Name');
-    const poNo       = g('PO No', 'PO Number', 'Order No', 'PO No.', 'Purchase Order No');
     const grnNo      = g('GRN No', 'GRN Number', 'GRN No (Goods Receipt)', 'GRN No.', 'GRN');
     const receivedOn = g('GRN Date', 'Received On', 'Received On (At)', 'Date', 'Receipt Date', 'Invoice Date');
     const invNo      = g('Invoice No', 'Invoice No / ST No', 'Invoice Number', 'Invoice No/ST');
