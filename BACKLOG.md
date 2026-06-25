@@ -18,7 +18,22 @@ Tracked follow-ups that are scaffolded but not yet fully built.
 - Grouping (by source / by age) + a pending count surfaced in the nav badge.
 
 ## HR restructure (Recruitment / Day-to-Day / Other Operations)
-Pending inputs from product owner: Recruitment sub-page list; sheet IDs/tabs/columns for Attendance, Leave, OD, Attendance Review, Advance & Loans. Expense + Individual-Mess data already provided (EXPENSE_SHEET_ID).
+Pending inputs from product owner: Recruitment sub-page list; sheet IDs/tabs/columns for OD, Attendance Review, Advance & Loans. Expense + Individual-Mess data already provided (EXPENSE_SHEET_ID).
+
+**Attendance + Leave (TimeOff): SHIPPED** — portal-native rebuild of the AppSheet HR
+Attendance & Leave modules. Routes `attendance` (Mark / Register / Calendar) and `leave`
+(My Requests / Apply / Approvals / Leave Types), hosted on `hr.html`. Append-only leave
+approval log with a two-stage RM → HR workflow; a request's status is derived from the log
+(mirrors Accounts). Workbook IDs are runtime-configurable in **Settings → Sheet IDs**
+— `ATTLEAVE` and `ATTREG` now ship with **compiled default workbook IDs** (live out of
+the box). Writes use the new `appendRowMapped` backend action (header-mapped append) —
+**redeploy the main Apps Script /exec** for writes to work. See `docs/HR_ATTENDANCE_LEAVE.md`.
+- **Parked: `MASTERHR` (Leave Types master).** Workbook ID not yet provided, so the Leave
+  Types page stays gated behind a "configure this sheet" notice. To enable: get the Master-HR
+  workbook ID, set `MASTERHR` in **Settings → Sheet IDs** (or wire it as a compiled default
+  like `ATTLEAVE`/`ATTREG`).
+- **Still out of scope** (per the AppSheet spec selection): subcontractor attendance
+  (`G2_2`, `HT_AttendanceRegister`), `AttendanceUpload`, Attendance Report exports, OD/TA.
 
 ## Vendor Opening Balance — approval workflow
 **Status:** parked (product decision — hold for now). The data columns already exist and are written.
