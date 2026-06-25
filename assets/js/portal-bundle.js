@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.22.3';
+const PORTAL_VERSION  = '4.23.0';
 const PORTAL_BUILD    = 627;
-const PORTAL_BUILD_AT = '2026-06-24T12:52:35Z';
+const PORTAL_BUILD_AT = '2026-06-24T12:55:11Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -8014,6 +8014,7 @@ let _irmGRNRows = null;   // raw rows from 4-GRNMaster_Actual
 
 async function _irmEnsure(force) {
   if (!force && _irmGRNRows) return;
+  await _openPOEnsure(force);
   try {
     _irmGRNRows = await fetchSheet('4-GRNMaster_Actual', null, SHEET_ID, { rawId: true }) || [];
   } catch (e) {
@@ -8036,12 +8037,15 @@ async function renderItemRateMaster() {
     _irmSearch  = '';
     _irmType    = 1;
     if (!_irmAllRows.length && _irmGRNRows && _irmGRNRows.length) {
-      const cols = _irmGRNRows[0] ? Object.keys(_irmGRNRows[0]) : [];
+      const gCols = _irmGRNRows[0] ? Object.keys(_irmGRNRows[0]) : [];
+      const IC2 = _opColMap(_openPOItems || []);
+      const pCols = (_openPOItems && _openPOItems[0]) ? Object.keys(_openPOItems[0]) : [];
       const b = document.getElementById('irm-body');
       if (b) b.innerHTML = `<div class="card card-pad" style="color:var(--danger);padding:1.5rem">
-        <b>&#9888; 0 rows parsed from ${_irmGRNRows.length} raw rows.</b>
-        <div style="font-size:.78rem;margin-top:.5rem;color:var(--txt2)">Columns found in sheet: <code style="font-size:.74rem">${_mdpEsc(cols.join(' · '))}</code></div>
-        <div style="font-size:.74rem;color:var(--txt3);margin-top:.35rem">Open the browser console for the full column list, then share it so the parser can be updated.</div>
+        <b>&#9888; 0 rows parsed. GRN rows: ${_irmGRNRows.length}, PO Items: ${(_openPOItems||[]).length}.</b>
+        <div style="font-size:.78rem;margin-top:.5rem;color:var(--txt2)">GRN columns: <code style="font-size:.74rem">${_mdpEsc(gCols.join(' · '))}</code></div>
+        <div style="font-size:.78rem;margin-top:.35rem;color:var(--txt2)">PO Items columns: <code style="font-size:.74rem">${_mdpEsc(pCols.join(' · '))}</code></div>
+        <div style="font-size:.74rem;color:var(--txt3);margin-top:.35rem">Check browser console. GRN needs a UUID column; PO Items needs Part Details (Key) / Part Details / CheckSum.</div>
       </div>`;
       return;
     }
@@ -8061,29 +8065,39 @@ function _irmDefaultFY() {
 function _irmBuildRows() {
   const raw = _irmGRNRows || [];
   if (!raw.length) return [];
-  // Log actual column names on first parse so mismatches are visible in console.
   try { console.log('[IRM] 4-GRNMaster_Actual columns:', Object.keys(raw[0])); } catch (e) {}
+
+  // Build lookup map: PO_Items_Actual["Part Details (Key)"] → { part, uom, rate }
+  const IC = _opColMap(_openPOItems || []);
+  const poItemMap = {};
+  (_openPOItems || []).forEach(x => {
+    const key = String(_opGet(x, IC, ['Part Details (Key)', 'Part Details', 'CheckSum', 'Check Sum']) || '').trim();
+    if (!key) return;
+    const part = _opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name', 'Part Description', 'Part Name', 'Item Description', 'Item Name', 'Description', 'Particulars', 'Material']);
+    const uom  = _opGet(x, IC, ['UOM', 'Unit', 'Unit of Measure', 'Units']);
+    const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate', 'Quoted Rate']));
+    if (part && !poItemMap[key]) poItemMap[key] = { part: String(part).trim(), uom: String(uom || '').trim(), rate };
+  });
+  try { console.log('[IRM] PO_Items_Actual keyed rows:', Object.keys(poItemMap).length); } catch (e) {}
+
   const rows = [];
   raw.forEach(r => {
     const g = (...cands) => String(cands.reduce((v, c) => v != null && v !== '' ? v : (r[c] != null ? r[c] : ''), '') || '').trim();
 
-    const part = g('Material Description','Material Desc','Material Name','Part Description','Part Name','Part Details','Item Name','Item Description','Description','Particulars','Material');
-    if (!part) return;
+    const uuid = g('UUID', 'Row UUID', 'GRN UUID', 'Id', 'ID');
+    if (!uuid) return;
+    const poi = poItemMap[uuid];
+    if (!poi || !poi.part || !poi.rate) return;
 
-    const uom        = g('UOM','Unit','Unit of Measure','Units');
-    const rateRaw    = g('Unit Rate','Rate','Basic Rate','Unit Price','Price','Quoted Rate');
-    const rate       = _opNum(rateRaw);
-    if (!rate) return;
+    const qty        = _opNum(g('GRN Qty', 'Qty', 'Quantity', 'Received Qty', 'GRN Quantity', 'Accepted Qty'));
+    const site       = g('Site Name', 'Site', 'Project Site', 'Project', 'Location');
+    const vendor     = g('Vendor Name', 'Vendor', 'Supplier Name', 'Supplier', 'Party Name');
+    const poNo       = g('PO No', 'PO Number', 'Order No', 'PO No.', 'Purchase Order No');
+    const grnNo      = g('GRN No', 'GRN Number', 'GRN No (Goods Receipt)', 'GRN No.', 'GRN');
+    const receivedOn = g('GRN Date', 'Received On', 'Received On (At)', 'Date', 'Receipt Date', 'Invoice Date');
+    const invNo      = g('Invoice No', 'Invoice No / ST No', 'Invoice Number', 'Invoice No/ST');
 
-    const qty        = _opNum(g('GRN Qty','Qty','Quantity','Received Qty','GRN Quantity'));
-    const site       = g('Site Name','Site','Project Site','Project','Location');
-    const vendor     = g('Vendor Name','Vendor','Supplier Name','Supplier','Party Name');
-    const poNo       = g('PO No','PO Number','Order No','PO No.','Purchase Order No');
-    const grnNo      = g('GRN No','GRN Number','GRN No (Goods Receipt)','GRN No.','GRN');
-    const receivedOn = g('GRN Date','Received On','Received On (At)','Date','Receipt Date','Invoice Date');
-    const invNo      = g('Invoice No','Invoice No / ST No','Invoice Number','Invoice No/ST');
-
-    rows.push({ part, uom, rate, qty, site, vendor, poNo, poDate: receivedOn, receivedOn, grnNo, invNo, amount: rate * qty });
+    rows.push({ part: poi.part, uom: poi.uom, rate: poi.rate, qty, site, vendor, poNo, poDate: receivedOn, receivedOn, grnNo, invNo, amount: poi.rate * qty });
   });
   return rows;
 }
