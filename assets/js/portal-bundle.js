@@ -8076,6 +8076,7 @@ function _irmBuildRows() {
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate', 'Quoted Rate']));
     if (!rate) return;
     const qty  = _opNum(_opGet(x, IC, ['PO Qty', 'Qty', 'Quantity', 'Order Qty', 'Ordered Qty']));
+    if (!qty) return;
     const poNo = String(_opGet(x, IC, ['PO No', 'Order No', 'PO No.']) || '').trim();
 
     // Site: PO_Items first, then PO header
