@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.23.4';
-const PORTAL_BUILD    = 631;
-const PORTAL_BUILD_AT = '2026-06-25T04:28:14Z';
+const PORTAL_VERSION  = '4.24.0';
+const PORTAL_BUILD    = 632;
+const PORTAL_BUILD_AT = '2026-06-26T10:06:03Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
