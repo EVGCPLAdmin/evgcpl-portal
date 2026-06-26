@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.23.4';
-const PORTAL_BUILD    = 631;
-const PORTAL_BUILD_AT = '2026-06-25T04:28:14Z';
+const PORTAL_VERSION  = '4.24.0';
+const PORTAL_BUILD    = 632;
+const PORTAL_BUILD_AT = '2026-06-26T10:06:03Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -7986,6 +7986,7 @@ let _irmSearch  = '';
 let _irmAllRows = [];
 let _irmGrouped = null;
 let _irmGRNRows = null;   // raw rows from 4-GRNMaster_Actual
+let _irmExpanded = new Set();
 
 async function _irmEnsure(force) {
   if (!force && _irmGRNRows) return;
@@ -8145,11 +8146,16 @@ function _irmRender() {
         <button onclick="_irmSetType(1)" class="btn btn-sm ${_irmType===1?'btn-primary':'btn-secondary'}" title="Group by Item + UOM + Site">T1 &middot; Site</button>
         <button onclick="_irmSetType(2)" class="btn btn-sm ${_irmType===2?'btn-primary':'btn-secondary'}" title="Group by Item + UOM">T2 &middot; Overall</button>
       </div>
+      <div style="display:flex;gap:.25rem">
+        <button onclick="_irmExpandAll()" class="btn btn-sm btn-secondary" title="Expand all rows">&#9660; All</button>
+        <button onclick="_irmCollapseAll()" class="btn btn-sm btn-secondary" title="Collapse all rows">&#9650; All</button>
+      </div>
       ${canExport ? `<button onclick="_irmExport()" class="btn btn-sm btn-secondary" title="Download CSV">&#11015; CSV</button>` : ''}
       <span id="irmCount" style="font-size:.72rem;color:var(--txt3)"></span>
     </div>
     <div class="card"><table class="data-table" id="irmTable">
       <thead><tr>
+        <th style="width:28px"></th>
         <th>Part Description</th>
         <th>UOM</th>
         ${_irmType === 1 ? '<th>Site</th>' : ''}
@@ -8174,15 +8180,76 @@ function _irmFill(groups) {
   const q   = _irmSearch.trim().toLowerCase();
   const vis = q ? groups.filter(g => (g.part + ' ' + g.uom + ' ' + g.site + ' ' + g.lastVendor).toLowerCase().includes(q)) : groups;
   const cnt = document.getElementById('irmCount'); if (cnt) cnt.textContent = vis.length + ' item(s)';
+  const cols = _irmType === 1 ? 11 : 10;
   if (!vis.length) {
-    tb.innerHTML = `<tr><td colspan="${_irmType===1?10:9}" style="text-align:center;color:var(--txt3);padding:1.5rem">No items match.</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="${cols}" style="text-align:center;color:var(--txt3);padding:1.5rem">No items match.</td></tr>`;
     return;
   }
   tb.innerHTML = vis.map(g => {
-    const spread   = g.max && g.min ? ((g.max - g.min) / g.min * 100).toFixed(1) : 0;
-    const rowBg    = +spread > 20 ? ';background:#fff8f0' : '';
-    const keyAttr  = esc(g.key);
-    return `<tr style="cursor:pointer${rowBg}" data-irm-key="${keyAttr}" onclick="_irmOpenDetail('${keyAttr}')">
+    const spread     = g.max && g.min ? ((g.max - g.min) / g.min * 100).toFixed(1) : 0;
+    const spreadClr  = +spread > 20 ? '#c62828' : +spread > 10 ? '#e65100' : 'var(--g9)';
+    const rowBg      = +spread > 20 ? ';background:#fff8f0' : '';
+    const keyAttr    = esc(g.key);
+    const exp        = _irmExpanded.has(g.key);
+    const hide       = exp ? '' : 'display:none;';
+
+    // Pre-compute insights for child rows
+    const cheapest = g.items.reduce((a, b) => (!a || b.rate < a.rate) ? b : a, null);
+    const dearest  = g.items.reduce((a, b) => (!a || b.rate > a.rate) ? b : a, null);
+    const vCnt = {};
+    g.items.forEach(r => { const k = _opNorm(r.vendor); if (!k) return; if (!vCnt[k]) vCnt[k] = { name: r.vendor, n: 0 }; vCnt[k].n++; });
+    const mostFreq  = Object.values(vCnt).sort((a, b) => b.n - a.n)[0];
+    const totalQty  = g.items.reduce((s, r) => s + (r.qty  || 0), 0);
+    const totalVal  = g.items.reduce((s, r) => s + (r.amount || 0), 0);
+    const poLines   = g.items.slice().sort((a, b) => (_mdpDateVal(b.poDate) || 0) - (_mdpDateVal(a.poDate) || 0));
+    const showSite  = _irmType === 2;
+
+    const childStyle = `${hide}background:var(--surface2,#f9fafb);`;
+    const hdrStyle   = `${hide}background:var(--surface3,#f0f0f0);`;
+
+    const insightHdr = `<tr style="${hdrStyle}" data-irm-child="${keyAttr}">
+      <td colspan="${cols}" style="padding:3px 0 2px 2.8rem;font-size:.6rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.07em;border-bottom:none">Rate Insights</td>
+    </tr>`;
+
+    const insightRow = `<tr style="${childStyle}" data-irm-child="${keyAttr}">
+      <td colspan="${cols}" style="padding:.3rem .8rem .3rem 2.8rem">
+        <div style="display:flex;gap:1.6rem;flex-wrap:wrap;font-size:.78rem;align-items:baseline">
+          <span><b style="color:#16a34a">Min</b> ${inr(g.min)}${cheapest && cheapest.vendor ? ` <span style="color:var(--txt3);font-size:.72rem">· ${esc(cheapest.vendor)}</span>` : ''}</span>
+          <span><b style="color:#1565c0">Avg</b> ${inr(Math.round(g.avg * 100) / 100)}</span>
+          <span><b style="color:#c62828">Max</b> ${inr(g.max)}${dearest && dearest.vendor ? ` <span style="color:var(--txt3);font-size:.72rem">· ${esc(dearest.vendor)}</span>` : ''}</span>
+          <span><b style="color:${spreadClr}">Spread</b> ${spread}%</span>
+          <span><b>Total Qty</b> ${totalQty.toLocaleString('en-IN')} ${esc(g.uom||'')}</span>
+          <span><b>Total Value</b> ${inr(Math.round(totalVal))}</span>
+        </div>
+        <div style="display:flex;gap:1.6rem;flex-wrap:wrap;font-size:.76rem;margin-top:.25rem;color:var(--txt2)">
+          ${cheapest ? `<span>&#128994; Cheapest: <b>${esc(cheapest.vendor)||'—'}</b> ${inr(cheapest.rate)}${cheapest.poDate ? ' · ' + _mdpFmtDate(cheapest.poDate) : ''}</span>` : ''}
+          ${dearest  ? `<span>&#128308; Dearest: <b>${esc(dearest.vendor)||'—'}</b> ${inr(dearest.rate)}${dearest.poDate ? ' · ' + _mdpFmtDate(dearest.poDate) : ''}</span>` : ''}
+          ${mostFreq ? `<span>&#11088; Most Frequent: <b>${esc(mostFreq.name)}</b> (${mostFreq.n} PO${mostFreq.n>1?'s':''})</span>` : ''}
+        </div>
+      </td>
+    </tr>`;
+
+    const poHdr = `<tr style="${hdrStyle}" data-irm-child="${keyAttr}">
+      <td colspan="${cols}" style="padding:3px 0 2px 2.8rem;font-size:.6rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.07em;border-bottom:none">Purchase Lines (${poLines.length})</td>
+    </tr>`;
+
+    const poRows = poLines.map(r => `<tr style="${childStyle}" data-irm-child="${keyAttr}">
+      <td colspan="${cols}" style="padding:.25rem .8rem .25rem 2.8rem">
+        <div style="display:flex;gap:1.4rem;font-size:.76rem;flex-wrap:wrap;align-items:center">
+          <span style="color:var(--txt3);white-space:nowrap;min-width:75px">${_mdpFmtDate(r.poDate) || '—'}</span>
+          <span style="font-family:monospace;font-size:.72rem;color:var(--txt2)">${esc(r.poNo) || '—'}</span>
+          <span style="font-weight:500;min-width:120px">${esc(r.vendor) || '—'}</span>
+          ${showSite ? `<span style="color:var(--txt3)">${esc(r.site) || '—'}</span>` : ''}
+          <span style="color:var(--txt3)">${esc(r.uom) || ''}</span>
+          <span style="font-weight:700">${inr(r.rate)}</span>
+          <span style="color:var(--txt3)">Qty ${(r.qty||0).toLocaleString('en-IN')}</span>
+          <span style="color:var(--txt2)">${inr(Math.round(r.amount||0))}</span>
+        </div>
+      </td>
+    </tr>`).join('');
+
+    return `<tr style="cursor:pointer${rowBg}" data-irm-key="${keyAttr}" onclick="_irmToggle(event,'${keyAttr}')">
+      <td style="padding:0 4px;text-align:center"><span style="font-size:.65rem;color:var(--txt3)">${exp ? '▼' : '▶'}</span></td>
       <td style="font-weight:500">${esc(g.part)}</td>
       <td style="font-size:.78rem;color:var(--txt3)">${esc(g.uom) || '—'}</td>
       ${_irmType === 1 ? `<td style="font-size:.78rem">${esc(g.site) || '—'}</td>` : ''}
@@ -8193,94 +8260,44 @@ function _irmFill(groups) {
       <td style="text-align:right;color:var(--txt2)">${inr(g.lastRate)}</td>
       <td style="font-size:.78rem;white-space:nowrap">${_mdpFmtDate(g.lastDate) || '—'}</td>
       <td style="font-size:.78rem">${esc(g.lastVendor) || '—'}</td>
-    </tr>`;
+    </tr>${insightHdr}${insightRow}${poHdr}${poRows}`;
   }).join('');
   const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
 }
 
 window._irmReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _irmEnsure(true).then(() => { _irmAllRows = _irmBuildRows(); _irmGrouped = null; _irmRender(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
 window._irmSetFY     = function(v) { _irmFY = v; _irmGrouped = null; _irmRender(); };
-window._irmSetType   = function(v) { _irmType = +v; _irmGrouped = null; _irmRender(); };
+window._irmSetType   = function(v) { _irmType = +v; _irmGrouped = null; _irmExpanded.clear(); _irmRender(); };
 window._irmSetSearch = function(v) { _irmSearch = v; _irmFill(_irmGrouped || []); };
 
-window._irmOpenDetail = function(key) {
-  const groups = _irmGrouped; if (!groups) return;
-  const g = groups.find(x => x.key === key); if (!g) return;
-  const esc = _mdpEsc, inr = _regINR;
-
-  const cheapest = g.items.reduce((a, b) => (!a || b.rate < a.rate) ? b : a, null);
-  const dearest  = g.items.reduce((a, b) => (!a || b.rate > a.rate) ? b : a, null);
-  const vendCnt  = {};
-  g.items.forEach(r => {
-    const k = _opNorm(r.vendor); if (!k) return;
-    if (!vendCnt[k]) vendCnt[k] = { name: r.vendor, count: 0 };
-    vendCnt[k].count++;
-  });
-  const mostFreq  = Object.values(vendCnt).sort((a, b) => b.count - a.count)[0];
-  const totalQty  = g.items.reduce((s, r) => s + (r.qty || 0), 0);
-  const totalVal  = g.items.reduce((s, r) => s + (r.amount || 0), 0);
-  const spread    = g.max && g.min ? ((g.max - g.min) / g.min * 100).toFixed(1) : '0';
-  const spreadClr = +spread > 20 ? '#c62828' : +spread > 10 ? '#e65100' : 'var(--g9)';
-
-  const iCard = (label, val, sub, clr) =>
-    `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:.65rem .9rem;flex:1;min-width:100px">
-      <div style="font-size:.62rem;color:var(--txt3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">${label}</div>
-      <div style="font-size:1rem;font-weight:700;color:${clr || 'var(--g9)'}">${val}</div>
-      ${sub ? `<div style="font-size:.68rem;color:var(--txt3);margin-top:.1rem">${sub}</div>` : ''}
-    </div>`;
-
-  const srcCard = (label, name, detail) =>
-    `<div style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.55rem .8rem">
-      <div style="font-size:.62rem;color:var(--txt3);font-weight:600;text-transform:uppercase;margin-bottom:.2rem">${label}</div>
-      <div style="font-size:.82rem;font-weight:600">${name || '—'}</div>
-      <div style="font-size:.7rem;color:var(--txt3)">${detail || ''}</div>
-    </div>`;
-
-  const detailRows = g.items.slice().sort((a, b) => (_mdpDateVal(b.poDate) || 0) - (_mdpDateVal(a.poDate) || 0));
-  const showSite   = _irmType === 2; // T2 groups have mixed sites; T1 site is fixed in title
-
-  const bodyHtml = `
-    <div style="display:flex;gap:.45rem;flex-wrap:wrap;margin-bottom:.9rem">
-      ${iCard('Min Rate',    inr(g.min),  cheapest ? esc(cheapest.vendor) : '', '#16a34a')}
-      ${iCard('Avg Rate',    inr(Math.round(g.avg * 100) / 100), g.count + ' PO line(s)', '#1565c0')}
-      ${iCard('Max Rate',    inr(g.max),  dearest  ? esc(dearest.vendor)  : '', '#c62828')}
-      ${iCard('Rate Spread', spread + '%', 'max vs min', spreadClr)}
-      ${iCard('Total PO Qty', totalQty.toLocaleString('en-IN'), esc(g.uom || ''), 'var(--g9)')}
-      ${iCard('Total Value', inr(Math.round(totalVal)), '', 'var(--g9)')}
-    </div>
-    <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:.9rem">
-      ${srcCard('Cheapest Source',      cheapest ? esc(cheapest.vendor) : '', cheapest ? inr(cheapest.rate) + ' · ' + _mdpFmtDate(cheapest.poDate) : '')}
-      ${srcCard('Most Expensive',       dearest  ? esc(dearest.vendor)  : '', dearest  ? inr(dearest.rate)  + ' · ' + _mdpFmtDate(dearest.poDate)  : '')}
-      ${srcCard('Most Frequent Vendor', mostFreq ? esc(mostFreq.name)   : '', mostFreq ? mostFreq.count + ' PO(s)' : '')}
-    </div>
-    <div style="max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:10px">
-      <table class="data-table" data-evg-sig="irm-detail">
-        <thead><tr>
-          <th>PO Date</th><th>PO No</th><th>Vendor</th>
-          ${showSite ? '<th>Site</th>' : ''}
-          <th>UOM</th>
-          <th style="text-align:right">PO Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Value</th>
-        </tr></thead>
-        <tbody>${detailRows.map(r => `<tr>
-          <td style="white-space:nowrap;font-size:.78rem">${_mdpFmtDate(r.poDate) || '—'}</td>
-          <td style="font-size:.74rem;font-family:monospace">${esc(r.poNo) || '—'}</td>
-          <td style="font-size:.78rem">${esc(r.vendor) || '—'}</td>
-          ${showSite ? `<td style="font-size:.78rem">${esc(r.site) || '—'}</td>` : ''}
-          <td style="font-size:.74rem;color:var(--txt3)">${esc(r.uom || '') || '—'}</td>
-          <td style="text-align:right;font-size:.78rem">${(r.qty || 0).toLocaleString('en-IN')}</td>
-          <td style="text-align:right;font-weight:600">${inr(r.rate)}</td>
-          <td style="text-align:right;color:var(--txt2)">${inr(Math.round(r.amount || 0))}</td>
-        </tr>`).join('')}</tbody>
-      </table>
-    </div>`;
-
-  const title = esc(g.part)
-    + (g.uom  ? ` <span style="font-size:.75rem;color:var(--txt3);font-weight:400">${esc(g.uom)}</span>`  : '')
-    + (g.site && _irmType === 1 ? ` <span style="font-size:.75rem;color:var(--txt3);font-weight:400">&middot; ${esc(g.site)}</span>` : '');
-
-  _regOpenModal(title, bodyHtml);
-  try { const box = document.getElementById('regModalBox'); if (box) applyTableFeatures(box); } catch (e) {}
+window._irmToggle = function(e, key) {
+  if (e) e.stopPropagation();
+  const tb = document.getElementById('irmTbody'); if (!tb) return;
+  const exp = _irmExpanded.has(key);
+  if (exp) _irmExpanded.delete(key); else _irmExpanded.add(key);
+  tb.querySelectorAll(`[data-irm-child="${key}"]`).forEach(r => { r.style.display = exp ? 'none' : ''; });
+  const pRow = tb.querySelector(`[data-irm-key="${key}"]`);
+  if (pRow) { const icon = pRow.querySelector('span'); if (icon) icon.textContent = exp ? '▶' : '▼'; }
 };
+
+window._irmExpandAll = function() {
+  const tb = document.getElementById('irmTbody'); if (!tb) return;
+  tb.querySelectorAll('[data-irm-child]').forEach(r => { r.style.display = ''; });
+  tb.querySelectorAll('[data-irm-key]').forEach(r => {
+    const key = r.dataset.irmKey; if (key) _irmExpanded.add(key);
+    const icon = r.querySelector('span'); if (icon) icon.textContent = '▼';
+  });
+};
+
+window._irmCollapseAll = function() {
+  const tb = document.getElementById('irmTbody'); if (!tb) return;
+  tb.querySelectorAll('[data-irm-child]').forEach(r => { r.style.display = 'none'; });
+  tb.querySelectorAll('[data-irm-key]').forEach(r => {
+    const key = r.dataset.irmKey; if (key) _irmExpanded.delete(key);
+    const icon = r.querySelector('span'); if (icon) icon.textContent = '▶';
+  });
+};
+
 
 window._irmExport = function() {
   if (typeof userCan === 'function' && !userCan('item-rate-master', 'export')) {
@@ -8290,17 +8307,20 @@ window._irmExport = function() {
   const q   = _irmSearch.trim().toLowerCase();
   const vis = q ? groups.filter(g => (g.part + ' ' + g.uom + ' ' + g.site + ' ' + g.lastVendor).toLowerCase().includes(q)) : groups;
   const fy  = _irmFY ? _vplpFYLabel(_irmFY).replace(/\s/g, '_') : 'all';
-  const csvRows = vis.map(g => {
-    const row = { 'Part Description': g.part, 'UOM': g.uom };
-    if (_irmType === 1) row['Site'] = g.site;
-    row['Count']        = g.count;
-    row['Min Rate']     = g.min;
-    row['Avg Rate']     = Math.round(g.avg * 100) / 100;
-    row['Max Rate']     = g.max;
-    row['Last Rate']    = g.lastRate;
-    row['Latest PO']    = g.lastDate;
-    row['Last Vendor']  = g.lastVendor;
-    return row;
+  const csvRows = [];
+  vis.forEach(g => {
+    const base = { 'Part Description': g.part, 'UOM': g.uom };
+    if (_irmType === 1) base['Site'] = g.site;
+    // Summary row
+    csvRows.push({ ...base, 'Row Type': 'Summary', 'PO Date': '', 'PO No': '', 'Vendor': g.lastVendor,
+      'Count': g.count, 'Min Rate': g.min, 'Avg Rate': Math.round(g.avg * 100) / 100,
+      'Max Rate': g.max, 'Last Rate': g.lastRate, 'Latest PO': g.lastDate, 'PO Qty': '', 'Value': '' });
+    // One row per PO line with repeated Part details
+    g.items.slice().sort((a, b) => (_mdpDateVal(b.poDate)||0) - (_mdpDateVal(a.poDate)||0)).forEach(r => {
+      csvRows.push({ ...base, 'Row Type': 'PO Line', 'PO Date': r.poDate, 'PO No': r.poNo, 'Vendor': r.vendor,
+        'Count': '', 'Min Rate': '', 'Avg Rate': '', 'Max Rate': '', 'Last Rate': r.rate, 'Latest PO': r.poDate,
+        'PO Qty': r.qty, 'Value': Math.round(r.amount || 0) });
+    });
   });
   downloadCSV(csvRows, `ItemRateMaster_T${_irmType}_${fy}_${new Date().toISOString().slice(0, 10)}.csv`);
 };
