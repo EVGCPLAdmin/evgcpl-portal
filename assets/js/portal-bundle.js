@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.26.0';
-const PORTAL_BUILD    = 638;
-const PORTAL_BUILD_AT = '2026-06-27T14:28:37Z';
+const PORTAL_VERSION  = '4.26.1';
+const PORTAL_BUILD    = 639;
+const PORTAL_BUILD_AT = '2026-06-27T14:33:54Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -8372,8 +8372,8 @@ function _psiBuildPartMap(grnRows) {
     const uuid = _psiKey(_opGet(r, CM, ['UUID', 'Row UUID', 'GRN UUID', 'Id', 'ID']));
     if (!uuid || map[uuid]) return;
     map[uuid] = {
-      partNo:   String(_opGet(r, CM, ['Part No', 'Part No.', 'Part Number', 'Part Code', 'Material Code', 'Item Code', 'Material No']) || '').trim(),
-      partDesc: String(_opGet(r, CM, ['Part Description', 'Material Description', 'Material Desc', 'Material Name', 'Part Name', 'Item Description', 'Item Name', 'Description', 'Particulars', 'Material']) || '').trim(),
+      partNo:   String(_opGet(r, CM, ['GRN CODE', 'GRN Code', 'Part No', 'Part No.', 'Part Number', 'Part Code', 'Material Code', 'Item Code']) || '').trim(),
+      partDesc: String(_opGet(r, CM, ['Description', 'Part Description', 'Material Description', 'Material Desc', 'Material Name', 'Part Name', 'Item Description', 'Item Name', 'Particulars']) || '').trim(),
     };
   });
   _psiPartMap = map;
