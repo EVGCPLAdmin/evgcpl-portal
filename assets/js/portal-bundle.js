@@ -243,7 +243,12 @@ const ROLES = {
 //  AUTH — Google OAuth + Vendor/SC Login
 // ══════════════════════════════════════════════════
 
+// Gmail / Google sign-in is DISABLED. Login is via Email & PIN (and the Vendor
+// flow) only. The one-tap auto-prompt is suppressed here; to re-enable Google
+// login, restore this body and the button in index.html.
+const GOOGLE_LOGIN_ENABLED = false;
 function initGoogleSignIn() {
+  if (!GOOGLE_LOGIN_ENABLED) return;
   if (typeof google === 'undefined' || !google.accounts) return;
   if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.startsWith('YOUR_')) return;
   google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
@@ -292,6 +297,10 @@ async function handleGoogleCredential(response) {
 }
 
 function handleGoogleLogin() {
+  if (!GOOGLE_LOGIN_ENABLED) {
+    console.warn('Google sign-in is disabled. Use Email & PIN login.');
+    return;
+  }
   if (GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('YOUR_') && typeof google !== 'undefined' && google.accounts) {
     google.accounts.id.prompt();
   } else {
