@@ -3154,6 +3154,7 @@ function renderPage(page) {
     'purchase':       renderPurchaseDashboard,
     'purchase-view':      renderPurchaseView,
     'item-rate-master':   renderItemRateMaster,
+    'pending-stockin':    renderPendingStockIN,
     'vendor':             renderVendorPortalInternal,
     'subcontractor':  renderSubcontractorPortal,
     'po-register':    renderPORegister,
@@ -8325,6 +8326,179 @@ window._irmExport = function() {
   downloadCSV(csvRows, `ItemRateMaster_T${_irmType}_${fy}_${new Date().toISOString().slice(0, 10)}.csv`);
 };
 
+// ════════════════════════════════════════════════════════════════
+//  PENDING STOCK IN (Stock Transfer) — route 'pending-stockin'
+//  Lists Stock Transfer items that have NOT yet been stocked-in.
+//  Source tabs (all in STORES_SHEET_ID):
+//    StockTransfer  — items dispatched on a DC (delivery challan)
+//    ST_StockIN     — stock-in receipts against transfers
+//    StockIN        — main goods-receipt register
+//  A transfer is "stocked in" if its DC No appears in EITHER ST_StockIN or
+//  StockIN. Matching is on a normalised DC No. Export gated by Access Settings.
+// ════════════════════════════════════════════════════════════════
+let _psiStatus  = 'pending';   // 'pending' | 'done' | 'all'
+let _psiSearch  = '';
+let _psiRows    = null;        // built rows
+let _psiLoaded  = false;
+
+async function _psiEnsure(force) {
+  if (_psiLoaded && !force) return;
+  const grab = async (tab) => {
+    try {
+      let r = await fetchSheet(tab, null, STORES_SHEET_ID, { rawId: true });
+      if (!r || !r.length) { await new Promise(z => setTimeout(z, 500)); r = await fetchSheet(tab, null, STORES_SHEET_ID, { rawId: true }); }
+      return r || [];
+    } catch (e) { return []; }
+  };
+  const [st, stSi, si] = await Promise.all([grab('StockTransfer'), grab('ST_StockIN'), grab('StockIN')]);
+  _psiBuild(st, stSi, si);
+  _psiLoaded = true;
+}
+
+// Normalise a DC No for matching (strip spaces / punctuation, lowercase).
+const _psiDC = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, '').trim();
+
+function _psiBuild(stRows, stSiRows, siRows) {
+  // Collect the set of DC Nos that HAVE been stocked in (from both receipt tabs).
+  const dcCols = ['DC No', 'DC No.', 'DC Number', 'DCNo', 'Delivery Challan No', 'Delivery Challan', 'Challan No', 'DC'];
+  const stockedSet = new Set();
+  [stSiRows, siRows].forEach(rows => {
+    const CM = _opColMap(rows || []);
+    (rows || []).forEach(r => { const dc = _psiDC(_opGet(r, CM, dcCols)); if (dc) stockedSet.add(dc); });
+  });
+
+  const STC = _opColMap(stRows || []);
+  const out = [];
+  (stRows || []).forEach(r => {
+    const dcRaw = _opGet(r, STC, dcCols);
+    const dc    = _psiDC(dcRaw);
+    const part  = _opGet(r, STC, ['Material Description', 'Material Desc', 'Material Name', 'Part Details', 'Part Description', 'Item Name', 'Item Description', 'Description', 'Particulars', 'Material']);
+    if (!dcRaw && !part) return;   // skip blank rows
+    const stockedIn = dc ? stockedSet.has(dc) : false;
+    out.push({
+      dc: String(dcRaw || '').trim(),
+      date:     _opGet(r, STC, ['DC Date', 'Transfer Date', 'Date', 'ST Date', 'Dispatch Date']),
+      part:     String(part || '').trim(),
+      uom:      _opGet(r, STC, ['UOM', 'Unit', 'Unit of Measure', 'Units']),
+      qty:      _opGet(r, STC, ['Transfer Qty', 'Qty', 'Quantity', 'ST Qty', 'Dispatch Qty', 'DC Qty']),
+      fromSite: _opGet(r, STC, ['From Site', 'Source Site', 'Site From', 'From', 'Transfer From', 'From Location']),
+      toSite:   _opGet(r, STC, ['To Site', 'Destination Site', 'Site To', 'To', 'Transfer To', 'To Location']),
+      vehicle:  _opGet(r, STC, ['Vehicle No', 'Vehicle', 'Truck No', 'Lorry No']),
+      stockedIn,
+    });
+  });
+  // Pending first, then by date desc
+  out.sort((a, b) => (a.stockedIn === b.stockedIn) ? ((_mdpDateVal(b.date) || 0) - (_mdpDateVal(a.date) || 0)) : (a.stockedIn ? 1 : -1));
+  _psiRows = out;
+}
+
+function renderPendingStockIN() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+    <div><h1>&#128229; Pending Stock IN</h1><p>Stock Transfer items not yet stocked-in &middot; matched on DC No across ST_StockIN &amp; StockIN</p></div>
+    <button class="btn btn-secondary btn-sm" onclick="_psiReload(this)">&#8635; Refresh</button>
+  </div></div>
+  <div id="psi-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading stock transfer data&hellip;</div></div>`;
+  _psiStatus = 'pending'; _psiSearch = '';
+  _psiEnsure().then(() => _psiRender()).catch(() => {
+    const b = document.getElementById('psi-body');
+    if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load stock transfer data.</div>';
+  });
+}
+
+function _psiRender() {
+  const body = document.getElementById('psi-body'); if (!body) return;
+  const esc = _mdpEsc;
+  const rows = _psiRows || [];
+  const total   = rows.length;
+  const done    = rows.filter(r => r.stockedIn).length;
+  const pending = total - done;
+  const canExport = typeof userCan !== 'function' || userCan('pending-stockin', 'export');
+
+  body.innerHTML = `
+    <div class="evg-kpi-grid" style="margin-bottom:1rem">
+      ${evgKpiCard({ icon:'&#128666;', value: total.toLocaleString('en-IN'),   label: 'Total Transfers' })}
+      ${evgKpiCard({ icon:'&#9203;',   value: pending.toLocaleString('en-IN'), label: 'Pending Stock IN' })}
+      ${evgKpiCard({ icon:'&#9989;',   value: done.toLocaleString('en-IN'),    label: 'Stocked IN' })}
+    </div>
+    <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+      <input id="psiSearch" type="text" value="${esc(_psiSearch)}" oninput="_psiSetSearch(this.value)" placeholder="Search DC / part / site / vehicle&hellip;"
+        style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+      <div style="display:flex;gap:.35rem">
+        <button onclick="_psiSetStatus('pending')" class="btn btn-sm ${_psiStatus==='pending'?'btn-primary':'btn-secondary'}">Pending (${pending})</button>
+        <button onclick="_psiSetStatus('done')"    class="btn btn-sm ${_psiStatus==='done'?'btn-primary':'btn-secondary'}">Stocked IN (${done})</button>
+        <button onclick="_psiSetStatus('all')"     class="btn btn-sm ${_psiStatus==='all'?'btn-primary':'btn-secondary'}">All (${total})</button>
+      </div>
+      ${canExport ? `<button onclick="_psiExport()" class="btn btn-sm btn-secondary" title="Download CSV">&#11015; CSV</button>` : ''}
+      <span id="psiCount" style="font-size:.72rem;color:var(--txt3)"></span>
+    </div>
+    <div class="card"><table class="data-table" id="psiTable">
+      <thead><tr>
+        <th>Status</th>
+        <th>DC No</th>
+        <th>DC Date</th>
+        <th>Part</th>
+        <th>UOM</th>
+        <th style="text-align:right">Transfer Qty</th>
+        <th>From Site</th>
+        <th>To Site</th>
+        <th>Vehicle</th>
+      </tr></thead>
+      <tbody id="psiTbody"></tbody>
+    </table></div>`;
+
+  _psiFill();
+  try { applyTableFeatures(); } catch (e) {}
+}
+
+function _psiVisible() {
+  let rows = _psiRows || [];
+  if (_psiStatus === 'pending') rows = rows.filter(r => !r.stockedIn);
+  else if (_psiStatus === 'done') rows = rows.filter(r => r.stockedIn);
+  const q = _psiSearch.trim().toLowerCase();
+  if (q) rows = rows.filter(r => (r.dc + ' ' + r.part + ' ' + r.fromSite + ' ' + r.toSite + ' ' + r.vehicle).toLowerCase().includes(q));
+  return rows;
+}
+
+function _psiFill() {
+  const tb = document.getElementById('psiTbody'); if (!tb) return;
+  const esc = _mdpEsc;
+  const rows = _psiVisible();
+  const cnt = document.getElementById('psiCount'); if (cnt) cnt.textContent = rows.length + ' item(s)';
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--txt3);padding:1.5rem">No items match.</td></tr>`; return; }
+  tb.innerHTML = rows.map(r => {
+    const badge = r.stockedIn
+      ? `<span style="font-size:.68rem;font-weight:700;color:#16a34a;background:#e8f5e9;padding:2px 8px;border-radius:10px">Stocked IN</span>`
+      : `<span style="font-size:.68rem;font-weight:700;color:#e65100;background:#fff3e0;padding:2px 8px;border-radius:10px">Pending</span>`;
+    return `<tr${r.stockedIn ? '' : ' style="background:#fffaf3"'}>
+      <td>${badge}</td>
+      <td style="font-family:monospace;font-size:.76rem;font-weight:600">${esc(r.dc) || '—'}</td>
+      <td style="font-size:.78rem;white-space:nowrap">${_mdpFmtDate(r.date) || '—'}</td>
+      <td style="font-weight:500">${esc(r.part) || '—'}</td>
+      <td style="font-size:.78rem;color:var(--txt3)">${esc(r.uom) || '—'}</td>
+      <td style="text-align:right;font-size:.78rem">${esc(r.qty) || '—'}</td>
+      <td style="font-size:.78rem">${esc(r.fromSite) || '—'}</td>
+      <td style="font-size:.78rem">${esc(r.toSite) || '—'}</td>
+      <td style="font-size:.78rem">${esc(r.vehicle) || '—'}</td>
+    </tr>`;
+  }).join('');
+  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+}
+
+window._psiReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _psiEnsure(true).then(() => _psiRender()).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._psiSetStatus = function(v) { _psiStatus = v; _psiRender(); };
+window._psiSetSearch = function(v) { _psiSearch = v; _psiFill(); };
+window._psiExport = function() {
+  if (typeof userCan === 'function' && !userCan('pending-stockin', 'export')) { alert('You do not have permission to export.'); return; }
+  const rows = _psiVisible();
+  const csvRows = rows.map(r => ({
+    'Status': r.stockedIn ? 'Stocked IN' : 'Pending',
+    'DC No': r.dc, 'DC Date': r.date, 'Part': r.part, 'UOM': r.uom,
+    'Transfer Qty': r.qty, 'From Site': r.fromSite, 'To Site': r.toSite, 'Vehicle': r.vehicle,
+  }));
+  downloadCSV(csvRows, `PendingStockIN_${_psiStatus}_${new Date().toISOString().slice(0, 10)}.csv`);
+};
+
 // ── ACCOUNTS STATUS MASTER ──────────────────────────────
 // STATUS MAP: keys = exact AG column values (Col D of Status Master), labels = Col G display values
 // Colors: yellow=pending, red=rejected, green=completed, blue=progress
@@ -11453,6 +11627,7 @@ const MODULE_REGISTRY = [
   { route:'stockin-register',  label:'StockIN Register',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
   { route:'purchase-view',     label:'Purchase View',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'item-rate-master',  label:'Item Rate Master',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'pending-stockin',   label:'Pending Stock IN',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'tendering',         label:'Tendering',              section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
 
   // ── Accounts ──────────────────────────────────────────────────
@@ -12668,6 +12843,7 @@ const MODULE_ACTIONS = {
   'mrs':                ['view','create','edit'],
   'scm':                ['view','export'],
   'item-rate-master':  ['view','export'],
+  'pending-stockin':   ['view','export'],
 };
 function uaActionsFor(route) { return MODULE_ACTIONS[route] || ['view']; }
 

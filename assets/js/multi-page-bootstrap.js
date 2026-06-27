@@ -224,6 +224,7 @@
     'po-register':       'scm.html',
     'stockin-register':  'scm.html',
     'item-rate-master':  'scm.html',
+    'pending-stockin':   'scm.html',
 
     // Site Ops
     'site-manager':      'site-ops.html',
