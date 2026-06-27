@@ -8366,22 +8366,20 @@ const _PSI_PART_COLS = ['Part Details', 'Part Details (Key)', 'Material Descript
 
 function _psiBuild(stRows, stSiRows, siRows) {
   // A StockTransfer line is "stocked in" when, in ST_StockIN or StockIN, a row
-  // exists whose Part Details matches AND whose PO No OR Invoice No / ST No
-  // matches the transfer's DC No. We index the receipt tabs by composite keys
-  // "part|id" (id = PO No or Invoice No / ST No), plus an id-only fallback set.
+  // exists where Part Details matches AND the transfer's DC No equals that row's
+  // PO No OR Invoice No / ST No. We index the receipt tabs by composite keys
+  // "part|id" (id = PO No or Invoice No / ST No). Both fields are required —
+  // no fallback: a row with no Part Details or no DC No is treated as Pending.
   const stockedComposite = new Set();   // part|id
-  const stockedIds       = new Set();   // id (po / invoice-st) — fallback when part missing
   [stSiRows, siRows].forEach(rows => {
     const CM = _opColMap(rows || []);
     (rows || []).forEach(r => {
       const part = _psiKey(_opGet(r, CM, _PSI_PART_COLS));
-      const po   = _psiKey(_opGet(r, CM, _PSI_PO_COLS));
-      const inv  = _psiKey(_opGet(r, CM, _PSI_INV_COLS));
-      [po, inv].forEach(id => {
-        if (!id) return;
-        stockedIds.add(id);
-        if (part) stockedComposite.add(part + '|' + id);
-      });
+      if (!part) return;
+      const po  = _psiKey(_opGet(r, CM, _PSI_PO_COLS));
+      const inv = _psiKey(_opGet(r, CM, _PSI_INV_COLS));
+      if (po)  stockedComposite.add(part + '|' + po);
+      if (inv) stockedComposite.add(part + '|' + inv);
     });
   });
 
@@ -8393,11 +8391,8 @@ function _psiBuild(stRows, stSiRows, siRows) {
     if (!dcRaw && !partRaw) return;   // skip blank rows
     const dc   = _psiKey(dcRaw);
     const part = _psiKey(partRaw);
-    // Primary: part + DC matched against (PO No | Invoice No / ST No).
-    // Fallback: when transfer has no Part Details, match DC against id set alone.
-    const stockedIn = dc
-      ? (part ? stockedComposite.has(part + '|' + dc) : stockedIds.has(dc))
-      : false;
+    // Stocked in only when DC No + Part Details matches part|(PO No | Invoice/ST No).
+    const stockedIn = (dc && part) ? stockedComposite.has(part + '|' + dc) : false;
     out.push({
       dc: String(dcRaw || '').trim(),
       date:     _opGet(r, STC, ['DC Date', 'Transfer Date', 'Date', 'ST Date', 'Dispatch Date']),
