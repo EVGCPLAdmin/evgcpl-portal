@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.25.0';
-const PORTAL_BUILD    = 633;
-const PORTAL_BUILD_AT = '2026-06-27T13:05:38Z';
+const PORTAL_VERSION  = '4.25.1';
+const PORTAL_BUILD    = 634;
+const PORTAL_BUILD_AT = '2026-06-27T13:11:03Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -243,7 +243,12 @@ const ROLES = {
 //  AUTH — Google OAuth + Vendor/SC Login
 // ══════════════════════════════════════════════════
 
+// Gmail / Google sign-in is DISABLED. Login is via Email & PIN (and the Vendor
+// flow) only. The one-tap auto-prompt is suppressed here; to re-enable Google
+// login, restore this body and the button in index.html.
+const GOOGLE_LOGIN_ENABLED = false;
 function initGoogleSignIn() {
+  if (!GOOGLE_LOGIN_ENABLED) return;
   if (typeof google === 'undefined' || !google.accounts) return;
   if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.startsWith('YOUR_')) return;
   google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
@@ -292,6 +297,10 @@ async function handleGoogleCredential(response) {
 }
 
 function handleGoogleLogin() {
+  if (!GOOGLE_LOGIN_ENABLED) {
+    console.warn('Google sign-in is disabled. Use Email & PIN login.');
+    return;
+  }
   if (GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('YOUR_') && typeof google !== 'undefined' && google.accounts) {
     google.accounts.id.prompt();
   } else {
