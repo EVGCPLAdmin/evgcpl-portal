@@ -8355,30 +8355,53 @@ async function _psiEnsure(force) {
   _psiLoaded = true;
 }
 
-// Normalise a DC No for matching (strip spaces / punctuation, lowercase).
-const _psiDC = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, '').trim();
+// Normalise an identifier for matching (strip spaces / punctuation, lowercase).
+const _psiKey = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, '').trim();
+
+// Column-name candidates (flexible — live headers may vary).
+const _PSI_DC_COLS   = ['DC No', 'DC No.', 'DC Number', 'DCNo', 'Delivery Challan No', 'Delivery Challan', 'Challan No', 'DC'];
+const _PSI_PO_COLS   = ['PO No', 'PO No.', 'PO Number', 'Order No', 'Purchase Order No'];
+const _PSI_INV_COLS  = ['Invoice No / ST No', 'Invoice No/ST No', 'Invoice No / ST', 'Invoice No', 'ST No', 'ST No.', 'Invoice Number', 'Invoice'];
+const _PSI_PART_COLS = ['Part Details', 'Part Details (Key)', 'Material Description', 'Material Desc', 'Material Name', 'Part Description', 'Part Name', 'Item Name', 'Item Description', 'Description', 'Particulars', 'Material'];
 
 function _psiBuild(stRows, stSiRows, siRows) {
-  // Collect the set of DC Nos that HAVE been stocked in (from both receipt tabs).
-  const dcCols = ['DC No', 'DC No.', 'DC Number', 'DCNo', 'Delivery Challan No', 'Delivery Challan', 'Challan No', 'DC'];
-  const stockedSet = new Set();
+  // A StockTransfer line is "stocked in" when, in ST_StockIN or StockIN, a row
+  // exists whose Part Details matches AND whose PO No OR Invoice No / ST No
+  // matches the transfer's DC No. We index the receipt tabs by composite keys
+  // "part|id" (id = PO No or Invoice No / ST No), plus an id-only fallback set.
+  const stockedComposite = new Set();   // part|id
+  const stockedIds       = new Set();   // id (po / invoice-st) — fallback when part missing
   [stSiRows, siRows].forEach(rows => {
     const CM = _opColMap(rows || []);
-    (rows || []).forEach(r => { const dc = _psiDC(_opGet(r, CM, dcCols)); if (dc) stockedSet.add(dc); });
+    (rows || []).forEach(r => {
+      const part = _psiKey(_opGet(r, CM, _PSI_PART_COLS));
+      const po   = _psiKey(_opGet(r, CM, _PSI_PO_COLS));
+      const inv  = _psiKey(_opGet(r, CM, _PSI_INV_COLS));
+      [po, inv].forEach(id => {
+        if (!id) return;
+        stockedIds.add(id);
+        if (part) stockedComposite.add(part + '|' + id);
+      });
+    });
   });
 
   const STC = _opColMap(stRows || []);
   const out = [];
   (stRows || []).forEach(r => {
-    const dcRaw = _opGet(r, STC, dcCols);
-    const dc    = _psiDC(dcRaw);
-    const part  = _opGet(r, STC, ['Material Description', 'Material Desc', 'Material Name', 'Part Details', 'Part Description', 'Item Name', 'Item Description', 'Description', 'Particulars', 'Material']);
-    if (!dcRaw && !part) return;   // skip blank rows
-    const stockedIn = dc ? stockedSet.has(dc) : false;
+    const dcRaw   = _opGet(r, STC, _PSI_DC_COLS);
+    const partRaw = _opGet(r, STC, _PSI_PART_COLS);
+    if (!dcRaw && !partRaw) return;   // skip blank rows
+    const dc   = _psiKey(dcRaw);
+    const part = _psiKey(partRaw);
+    // Primary: part + DC matched against (PO No | Invoice No / ST No).
+    // Fallback: when transfer has no Part Details, match DC against id set alone.
+    const stockedIn = dc
+      ? (part ? stockedComposite.has(part + '|' + dc) : stockedIds.has(dc))
+      : false;
     out.push({
       dc: String(dcRaw || '').trim(),
       date:     _opGet(r, STC, ['DC Date', 'Transfer Date', 'Date', 'ST Date', 'Dispatch Date']),
-      part:     String(part || '').trim(),
+      part:     String(partRaw || '').trim(),
       uom:      _opGet(r, STC, ['UOM', 'Unit', 'Unit of Measure', 'Units']),
       qty:      _opGet(r, STC, ['Transfer Qty', 'Qty', 'Quantity', 'ST Qty', 'Dispatch Qty', 'DC Qty']),
       fromSite: _opGet(r, STC, ['From Site', 'Source Site', 'Site From', 'From', 'Transfer From', 'From Location']),
@@ -8395,7 +8418,7 @@ function _psiBuild(stRows, stSiRows, siRows) {
 function renderPendingStockIN() {
   const el = document.getElementById('mainContent'); if (!el) return;
   el.innerHTML = `<div class="page-header"><div class="page-header-row">
-    <div><h1>&#128229; Pending Stock IN</h1><p>Stock Transfer items not yet stocked-in &middot; matched on DC No across ST_StockIN &amp; StockIN</p></div>
+    <div><h1>&#128229; Pending StockTransfer - StockIN</h1><p>Stock Transfer items not yet stocked-in &middot; matched on PO No / Invoice No-ST No / Part Details across ST_StockIN &amp; StockIN</p></div>
     <button class="btn btn-secondary btn-sm" onclick="_psiReload(this)">&#8635; Refresh</button>
   </div></div>
   <div id="psi-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading stock transfer data&hellip;</div></div>`;
@@ -11627,7 +11650,7 @@ const MODULE_REGISTRY = [
   { route:'stockin-register',  label:'StockIN Register',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
   { route:'purchase-view',     label:'Purchase View',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'item-rate-master',  label:'Item Rate Master',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
-  { route:'pending-stockin',   label:'Pending Stock IN',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'pending-stockin',   label:'Pending StockTransfer - StockIN', section:'Procurement', defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'tendering',         label:'Tendering',              section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
 
   // ── Accounts ──────────────────────────────────────────────────
