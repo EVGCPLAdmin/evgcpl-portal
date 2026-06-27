@@ -8372,8 +8372,8 @@ function _psiBuildPartMap(grnRows) {
     const uuid = _psiKey(_opGet(r, CM, ['UUID', 'Row UUID', 'GRN UUID', 'Id', 'ID']));
     if (!uuid || map[uuid]) return;
     map[uuid] = {
-      partNo:   String(_opGet(r, CM, ['Part No', 'Part No.', 'Part Number', 'Part Code', 'Material Code', 'Item Code', 'Material No']) || '').trim(),
-      partDesc: String(_opGet(r, CM, ['Part Description', 'Material Description', 'Material Desc', 'Material Name', 'Part Name', 'Item Description', 'Item Name', 'Description', 'Particulars', 'Material']) || '').trim(),
+      partNo:   String(_opGet(r, CM, ['GRN CODE', 'GRN Code', 'Part No', 'Part No.', 'Part Number', 'Part Code', 'Material Code', 'Item Code']) || '').trim(),
+      partDesc: String(_opGet(r, CM, ['Description', 'Part Description', 'Material Description', 'Material Desc', 'Material Name', 'Part Name', 'Item Description', 'Item Name', 'Particulars']) || '').trim(),
     };
   });
   _psiPartMap = map;
