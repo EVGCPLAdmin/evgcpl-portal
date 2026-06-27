@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.20.1';
-const PORTAL_BUILD    = 621;
-const PORTAL_BUILD_AT = '2026-06-23T18:48:19Z';
+const PORTAL_VERSION  = '4.25.0';
+const PORTAL_BUILD    = 633;
+const PORTAL_BUILD_AT = '2026-06-27T13:05:38Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1007,6 +1007,7 @@ function _evgOptedOut(el) { return !!(el && el.closest && el.closest('[data-evg-
 function applyTableFeatures() {
   _tblEngineEnsureStyles();
   _tblObserveMainContent();
+  try { evgEnhanceSelects(); } catch (e) {}   // make large selects searchable
   const mc = document.getElementById('mainContent');
   if (!mc) return;
   // Standard data-table classes, PLUS any un-classed real data table (proper
@@ -1056,6 +1057,9 @@ function _tblObserveMainContent() {
   if (!mc || typeof MutationObserver === 'undefined') return;
   _tblFeatObserved = true;
   const obs = new MutationObserver(muts => {
+    // Make any newly-rendered large <select> searchable (debounced, app-wide).
+    clearTimeout(_evgEnhTimer);
+    _evgEnhTimer = setTimeout(() => { try { evgEnhanceSelects(); } catch (e) {} }, 250);
     let relevant = false;
     for (const m of muts) {
       for (const n of m.addedNodes) {
@@ -3157,8 +3161,10 @@ function renderPage(page) {
     'stores-openpo':  () => { window._pstPendingTab = 'openpo';  renderProcurementStores(); },
     'stores-levels':  () => { window._pstPendingTab = 'levels';  renderProcurementStores(); },
     'purchase':       renderPurchaseDashboard,
-    'purchase-view':  renderPurchaseView,
-    'vendor':         renderVendorPortalInternal,
+    'purchase-view':      renderPurchaseView,
+    'item-rate-master':   renderItemRateMaster,
+    'pending-stockin':    renderPendingStockIN,
+    'vendor':             renderVendorPortalInternal,
     'subcontractor':  renderSubcontractorPortal,
     'po-register':    renderPORegister,
     'stockin-register': renderStockINRegister,
@@ -4660,6 +4666,77 @@ window._evgComboPick = function(id, v) {
   const fn = window._evgComboPickFn[id];
   if (fn && typeof window[fn] === 'function') window[fn](v, it);
 };
+// Swap a combo's option list at runtime (cascading pickers, e.g. Dept→Process).
+// clearValue empties the input (the old pick may not exist in the new list).
+window.evgComboSetItems = function(id, items, clearValue) {
+  window._evgComboData[id] = items || [];
+  if (clearValue) { const inp = document.getElementById(id); if (inp) { inp.value = ''; inp.removeAttribute('data-value'); } }
+  const box = document.getElementById(id + '-sug'); if (box) box.style.display = 'none';
+};
+
+// ── Progressive enhancement: make every LARGE native <select> searchable ──
+// Keeps the native <select> as the source of truth (all existing .value reads,
+// onchange handlers, cascades and prefills keep working) and overlays a
+// type-to-filter input. Auto-applied across the app to selects with ≥ the
+// threshold options. Opt out with data-evg-nosearch on the select (or an
+// ancestor). Selecting an option dispatches a native 'change' event so inline
+// onchange handlers fire exactly as before.
+let _evgEnhTimer = null;
+function evgEnhanceSelects(root) {
+  const scope = (root && root.querySelectorAll) ? root : document;
+  let sels;
+  try { sels = scope.querySelectorAll('select:not([data-evg-enh]):not([multiple]):not([data-evg-nosearch])'); }
+  catch (e) { return; }
+  sels.forEach(sel => {
+    try {
+      if (sel.options.length < 12) return;                 // only big lists need search
+      if (sel.closest('[data-evg-nosearch]')) return;
+      // Skip purely-numeric sequence pickers (day / hour / year) — a dropdown
+      // reads more naturally there than a search box.
+      const sample = Array.from(sel.options).slice(0, 8).map(o => (o.text || '').trim()).filter(Boolean);
+      if (sample.length && sample.filter(t => /^\d+$/.test(t)).length >= Math.ceil(sample.length * 0.8)) return;
+      sel.setAttribute('data-evg-enh', '1');
+      const esc = _mdpEsc;
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative';
+      sel.parentNode.insertBefore(wrap, sel);
+      const input = document.createElement('input');
+      input.type = 'text'; input.autocomplete = 'off';
+      input.className = sel.className;
+      input.setAttribute('style', sel.getAttribute('style') || '');
+      input.placeholder = 'Type to search…';
+      const list = document.createElement('div');
+      list.style.cssText = 'display:none;position:absolute;top:100%;left:0;right:0;z-index:300;background:var(--surface,#fff);border:1px solid var(--border,#ccc);border-top:none;border-radius:0 0 8px 8px;max-height:300px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.16)';
+      sel.style.display = 'none';
+      wrap.appendChild(input); wrap.appendChild(list); wrap.appendChild(sel);
+      const syncDisplay = () => { const o = sel.options[sel.selectedIndex]; input.value = o ? o.text : ''; };
+      const render = (q) => {
+        const s = String(q || '').trim().toLowerCase();
+        const opts = Array.from(sel.options);
+        const matched = s ? opts.filter(o => (o.text || '').toLowerCase().includes(s) || (o.value || '').toLowerCase().includes(s)) : opts;
+        const shown = matched.slice(0, 60);
+        if (!shown.length) { list.innerHTML = `<div style="padding:.5rem .8rem;color:var(--txt3);font-size:.8rem">No match</div>`; list.style.display = 'block'; return; }
+        list.innerHTML = shown.map(o => `<div data-i="${o.index}" style="padding:.45rem .8rem;cursor:pointer;font-size:.82rem;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">${esc(o.text) || '&nbsp;'}</div>`).join('');
+        list.style.display = 'block';
+      };
+      input.addEventListener('focus', () => { input.select(); render(''); });
+      input.addEventListener('input', () => render(input.value));
+      input.addEventListener('blur', () => setTimeout(() => { list.style.display = 'none'; syncDisplay(); }, 160));
+      list.addEventListener('mousedown', (e) => {
+        const row = e.target.closest('[data-i]'); if (!row) return;
+        e.preventDefault();
+        sel.selectedIndex = parseInt(row.getAttribute('data-i'), 10);
+        syncDisplay();
+        list.style.display = 'none';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      // Cascading selects rebuild their <option>s → re-sync the display text.
+      try { new MutationObserver(() => syncDisplay()).observe(sel, { childList: true }); } catch (e) {}
+      syncDisplay();
+    } catch (e) { /* never let one select break the page */ }
+  });
+}
+window.evgEnhanceSelects = evgEnhanceSelects;
 
 function _mdpLedgerHtml() {
   const esc = _mdpEsc;
@@ -7906,6 +7983,531 @@ window._pvOnSearch = function(v) {
 };
 window._pvSetSite = function(v) { _pvSite = v; _pvRenderCards(); };
 
+// ── ITEM RATE MASTER ────────────────────────────────────────────────────────
+// Route: item-rate-master | Section: Procurement
+// Min / max / avg purchase rate per item, sourced from the
+// 4-GRNMaster_Actual tab of the Master spreadsheet (SHEET_ID).
+// Type 1 groups by Item + UOM + Site; Type 2 groups by Item + UOM.
+// Period filter: financial year. Export gated by Access Settings 'export' action.
+
+let _irmFY      = '';
+let _irmType    = 1;
+let _irmSearch  = '';
+let _irmAllRows = [];
+let _irmGrouped = null;
+let _irmGRNRows = null;   // raw rows from 4-GRNMaster_Actual
+let _irmExpanded = new Set();
+
+async function _irmEnsure(force) {
+  if (!force && _irmGRNRows) return;
+  await _openPOEnsure(force);
+  try {
+    _irmGRNRows = await fetchSheet('4-GRNMaster_Actual', null, SHEET_ID, { rawId: true }) || [];
+  } catch (e) {
+    _irmGRNRows = [];
+  }
+}
+
+async function renderItemRateMaster() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+    <div><h1>&#128200; Item Rate Master</h1><p>Min / Max / Average purchase rates per item &middot; sourced from GRN Master</p></div>
+    <button class="btn btn-secondary btn-sm" onclick="_irmReload(this)">&#8635; Refresh</button>
+  </div></div>
+  <div id="irm-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading data&hellip;</div></div>`;
+  try {
+    await _irmEnsure();
+    _irmAllRows = _irmBuildRows();
+    _irmGrouped = null;
+    _irmFY      = _irmDefaultFY();
+    _irmSearch  = '';
+    _irmType    = 1;
+    if (!_irmAllRows.length && _irmGRNRows && _irmGRNRows.length) {
+      const gCols = _irmGRNRows[0] ? Object.keys(_irmGRNRows[0]) : [];
+      const IC2 = _opColMap(_openPOItems || []);
+      const pCols = (_openPOItems && _openPOItems[0]) ? Object.keys(_openPOItems[0]) : [];
+      const b = document.getElementById('irm-body');
+      if (b) b.innerHTML = `<div class="card card-pad" style="color:var(--danger);padding:1.5rem">
+        <b>&#9888; 0 rows parsed. GRN rows: ${_irmGRNRows.length}, PO Items: ${(_openPOItems||[]).length}.</b>
+        <div style="font-size:.78rem;margin-top:.5rem;color:var(--txt2)">GRN columns: <code style="font-size:.74rem">${_mdpEsc(gCols.join(' · '))}</code></div>
+        <div style="font-size:.78rem;margin-top:.35rem;color:var(--txt2)">PO Items columns: <code style="font-size:.74rem">${_mdpEsc(pCols.join(' · '))}</code></div>
+        <div style="font-size:.74rem;color:var(--txt3);margin-top:.35rem">Check browser console. GRN needs a UUID column; PO Items needs Part Details (Key) / Part Details / CheckSum.</div>
+      </div>`;
+      return;
+    }
+    _irmRender();
+  } catch (err) {
+    const b = document.getElementById('irm-body');
+    if (b) b.innerHTML = `<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load data: ${_mdpEsc(String(err && err.message || err))}</div>`;
+  }
+}
+
+function _irmDefaultFY() {
+  const fySet = Array.from(new Set(_irmAllRows.map(r => _vplpFYof(r.poDate)).filter(Boolean))).sort();
+  const cur = _vplpFYof(new Date().toISOString());
+  return fySet.includes(cur) ? cur : (fySet[fySet.length - 1] || '');
+}
+
+function _irmBuildRows() {
+  const raw = _irmGRNRows || [];
+  if (!raw.length) return [];
+
+  // Step 1: collect UUID set from GRN Master (parts that have been actually received)
+  const grnUUIDs = new Set();
+  raw.forEach(r => {
+    const uuid = String(r['UUID'] || r['Row UUID'] || r['GRN UUID'] || r['Id'] || r['ID'] || '').trim();
+    if (uuid) grnUUIDs.add(uuid);
+  });
+  try { console.log('[IRM] GRN UUID count:', grnUUIDs.size, '| sample:', [...grnUUIDs].slice(0,3)); } catch (e) {}
+  if (!grnUUIDs.size) return [];
+
+  // Step 2: PO_Actual header lookup: PO No → { vendor, site, poDate }
+  const HC = _opColMap(_openPOHeaders || []);
+  const poHdrMap = {};
+  (_openPOHeaders || []).forEach(h => {
+    const poNo = String(_opGet(h, HC, ['PO No', 'Order No', 'PO No.']) || '').trim();
+    if (!poNo) return;
+    poHdrMap[poNo] = {
+      vendor: String(_opGet(h, HC, ['Vendor Name', 'Vendor', 'Supplier Name', 'Supplier']) || '').trim(),
+      site:   String(_opGet(h, HC, ['Site Name', 'Site', 'Project Site', 'Project', 'Location']) || '').trim(),
+      poDate: String(_opGet(h, HC, ['PO Date', 'Date', 'Order Date']) || '').trim(),
+    };
+  });
+
+  // Step 3: filter PO_Items where Part Details (Key) ∈ grnUUIDs; each matched row = one purchase entry
+  const IC = _opColMap(_openPOItems || []);
+  const rows = [];
+  (_openPOItems || []).forEach(x => {
+    const uuid = String(_opGet(x, IC, ['Part Details (Key)', 'Part Details', 'CheckSum', 'Check Sum']) || '').trim();
+    if (!uuid || !grnUUIDs.has(uuid)) return;
+
+    const part = String(_opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name', 'Part Description', 'Part Name', 'Item Description', 'Item Name', 'Description', 'Particulars', 'Material']) || '').trim();
+    if (!part) return;
+    const uom  = String(_opGet(x, IC, ['UOM', 'Unit', 'Unit of Measure', 'Units']) || '').trim();
+    const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate', 'Quoted Rate']));
+    if (!rate) return;
+    const qty  = _opNum(_opGet(x, IC, ['PO Qty', 'Qty', 'Quantity', 'Order Qty', 'Ordered Qty']));
+    if (!qty) return;
+    const poNo = String(_opGet(x, IC, ['PO No', 'Order No', 'PO No.']) || '').trim();
+
+    // Site: PO_Items first, then PO header
+    const itemSite = String(_opGet(x, IC, ['Site Name', 'Site', 'Project Site', 'Project', 'Location']) || '').trim();
+    const hdr    = (poNo && poHdrMap[poNo]) || {};
+    const site   = itemSite || hdr.site   || '';
+    const vendor = hdr.vendor || '';
+    const poDate = hdr.poDate  || '';
+
+    rows.push({ uuid, part, uom, rate, qty, site, vendor, poNo, poDate, receivedOn: poDate, grnNo: '', invNo: '', amount: rate * qty });
+  });
+  try { console.log('[IRM] PO_Items rows after GRN filter:', rows.length); } catch (e) {}
+  return rows;
+}
+
+function _irmFilteredRows() {
+  if (!_irmFY) return _irmAllRows;
+  return _irmAllRows.filter(r => _vplpFYof(r.poDate) === _irmFY);
+}
+
+function _irmGroupRows(rows, type) {
+  const groups = {};
+  rows.forEach(r => {
+    // Group key: UUID + UOM + Site (T1) or UUID + UOM (T2) — all from PO_Items
+    const key = r.uuid + '|' + _opNorm(r.uom) + (type === 1 ? '|' + _opNorm(r.site) : '');
+    if (!groups[key]) groups[key] = { key, uuid: r.uuid, part: r.part, uom: r.uom, site: type === 1 ? r.site : '', items: [] };
+    groups[key].items.push(r);
+  });
+  return Object.values(groups).map(g => {
+    const rts  = g.items.map(r => r.rate).filter(v => v > 0).sort((a, b) => a - b);
+    const min  = rts[0] || 0;
+    const max  = rts[rts.length - 1] || 0;
+    const avg  = rts.length ? rts.reduce((s, v) => s + v, 0) / rts.length : 0;
+    const last = g.items.slice().sort((a, b) => (_mdpDateVal(b.poDate) || 0) - (_mdpDateVal(a.poDate) || 0))[0] || {};
+    return { ...g, min, max, avg, count: g.items.length, lastRate: last.rate || 0, lastDate: last.poDate || '', lastVendor: last.vendor || '' };
+  }).sort((a, b) => a.part.localeCompare(b.part));
+}
+
+function _irmRender() {
+  const body = document.getElementById('irm-body'); if (!body) return;
+  const esc = _mdpEsc;
+  const rows   = _irmFilteredRows();
+  const groups = _irmGroupRows(rows, _irmType);
+  _irmGrouped  = groups;
+
+  const allFYs = Array.from(new Set(_irmAllRows.map(r => _vplpFYof(r.poDate)).filter(Boolean))).sort().reverse();
+  const fyOpts = `<option value="">All financial years</option>` +
+    allFYs.map(fy => `<option value="${esc(fy)}"${fy === _irmFY ? ' selected' : ''}>${_vplpFYLabel(fy)}</option>`).join('');
+
+  const totalParts   = groups.length;
+  const totalPOs     = new Set(rows.map(r => r.poNo).filter(Boolean)).size;
+  const totalVendors = new Set(rows.map(r => _opNorm(r.vendor)).filter(Boolean)).size;
+  const canExport    = typeof userCan !== 'function' || userCan('item-rate-master', 'export');
+
+  body.innerHTML = `
+    <div class="evg-kpi-grid" style="margin-bottom:1rem">
+      ${evgKpiCard({ icon:'&#127381;', value: totalParts.toLocaleString('en-IN'),  label: 'Parts Tracked' + (_irmFY ? ' · ' + _vplpFYLabel(_irmFY) : '') })}
+      ${evgKpiCard({ icon:'&#128203;', value: totalPOs.toLocaleString('en-IN'),    label: 'POs Included' })}
+      ${evgKpiCard({ icon:'&#127981;', value: totalVendors.toLocaleString('en-IN'),label: 'Vendors' })}
+    </div>
+    <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+      <input id="irmSearch" type="text" value="${esc(_irmSearch)}" oninput="_irmSetSearch(this.value)" placeholder="Search part / vendor&hellip;"
+        style="flex:1;min-width:200px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+      <select onchange="_irmSetFY(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 9px;background:var(--surface2)">${fyOpts}</select>
+      <div style="display:flex;gap:.35rem">
+        <button onclick="_irmSetType(1)" class="btn btn-sm ${_irmType===1?'btn-primary':'btn-secondary'}" title="Group by Item + UOM + Site">T1 &middot; Site</button>
+        <button onclick="_irmSetType(2)" class="btn btn-sm ${_irmType===2?'btn-primary':'btn-secondary'}" title="Group by Item + UOM">T2 &middot; Overall</button>
+      </div>
+      <div style="display:flex;gap:.25rem">
+        <button onclick="_irmExpandAll()" class="btn btn-sm btn-secondary" title="Expand all rows">&#9660; All</button>
+        <button onclick="_irmCollapseAll()" class="btn btn-sm btn-secondary" title="Collapse all rows">&#9650; All</button>
+      </div>
+      ${canExport ? `<button onclick="_irmExport()" class="btn btn-sm btn-secondary" title="Download CSV">&#11015; CSV</button>` : ''}
+      <span id="irmCount" style="font-size:.72rem;color:var(--txt3)"></span>
+    </div>
+    <div class="card"><table class="data-table" id="irmTable">
+      <thead><tr>
+        <th style="width:28px"></th>
+        <th>Part Description</th>
+        <th>UOM</th>
+        ${_irmType === 1 ? '<th>Site</th>' : ''}
+        <th style="text-align:right">Count</th>
+        <th style="text-align:right">Min Rate</th>
+        <th style="text-align:right">Avg Rate</th>
+        <th style="text-align:right">Max Rate</th>
+        <th style="text-align:right">Last Rate</th>
+        <th>Latest PO</th>
+        <th>Last Vendor</th>
+      </tr></thead>
+      <tbody id="irmTbody"></tbody>
+    </table></div>`;
+
+  _irmFill(groups);
+  try { applyTableFeatures(); } catch (e) {}
+}
+
+function _irmFill(groups) {
+  const tb = document.getElementById('irmTbody'); if (!tb) return;
+  const esc = _mdpEsc, inr = _regINR;
+  const q   = _irmSearch.trim().toLowerCase();
+  const vis = q ? groups.filter(g => (g.part + ' ' + g.uom + ' ' + g.site + ' ' + g.lastVendor).toLowerCase().includes(q)) : groups;
+  const cnt = document.getElementById('irmCount'); if (cnt) cnt.textContent = vis.length + ' item(s)';
+  const cols = _irmType === 1 ? 11 : 10;
+  if (!vis.length) {
+    tb.innerHTML = `<tr><td colspan="${cols}" style="text-align:center;color:var(--txt3);padding:1.5rem">No items match.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = vis.map(g => {
+    const spread     = g.max && g.min ? ((g.max - g.min) / g.min * 100).toFixed(1) : 0;
+    const spreadClr  = +spread > 20 ? '#c62828' : +spread > 10 ? '#e65100' : 'var(--g9)';
+    const rowBg      = +spread > 20 ? ';background:#fff8f0' : '';
+    const keyAttr    = esc(g.key);
+    const exp        = _irmExpanded.has(g.key);
+    const hide       = exp ? '' : 'display:none;';
+
+    // Pre-compute insights for child rows
+    const cheapest = g.items.reduce((a, b) => (!a || b.rate < a.rate) ? b : a, null);
+    const dearest  = g.items.reduce((a, b) => (!a || b.rate > a.rate) ? b : a, null);
+    const vCnt = {};
+    g.items.forEach(r => { const k = _opNorm(r.vendor); if (!k) return; if (!vCnt[k]) vCnt[k] = { name: r.vendor, n: 0 }; vCnt[k].n++; });
+    const mostFreq  = Object.values(vCnt).sort((a, b) => b.n - a.n)[0];
+    const totalQty  = g.items.reduce((s, r) => s + (r.qty  || 0), 0);
+    const totalVal  = g.items.reduce((s, r) => s + (r.amount || 0), 0);
+    const poLines   = g.items.slice().sort((a, b) => (_mdpDateVal(b.poDate) || 0) - (_mdpDateVal(a.poDate) || 0));
+    const showSite  = _irmType === 2;
+
+    const childStyle = `${hide}background:var(--surface2,#f9fafb);`;
+    const hdrStyle   = `${hide}background:var(--surface3,#f0f0f0);`;
+
+    const insightHdr = `<tr style="${hdrStyle}" data-irm-child="${keyAttr}">
+      <td colspan="${cols}" style="padding:3px 0 2px 2.8rem;font-size:.6rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.07em;border-bottom:none">Rate Insights</td>
+    </tr>`;
+
+    const insightRow = `<tr style="${childStyle}" data-irm-child="${keyAttr}">
+      <td colspan="${cols}" style="padding:.3rem .8rem .3rem 2.8rem">
+        <div style="display:flex;gap:1.6rem;flex-wrap:wrap;font-size:.78rem;align-items:baseline">
+          <span><b style="color:#16a34a">Min</b> ${inr(g.min)}${cheapest && cheapest.vendor ? ` <span style="color:var(--txt3);font-size:.72rem">· ${esc(cheapest.vendor)}</span>` : ''}</span>
+          <span><b style="color:#1565c0">Avg</b> ${inr(Math.round(g.avg * 100) / 100)}</span>
+          <span><b style="color:#c62828">Max</b> ${inr(g.max)}${dearest && dearest.vendor ? ` <span style="color:var(--txt3);font-size:.72rem">· ${esc(dearest.vendor)}</span>` : ''}</span>
+          <span><b style="color:${spreadClr}">Spread</b> ${spread}%</span>
+          <span><b>Total Qty</b> ${totalQty.toLocaleString('en-IN')} ${esc(g.uom||'')}</span>
+          <span><b>Total Value</b> ${inr(Math.round(totalVal))}</span>
+        </div>
+        <div style="display:flex;gap:1.6rem;flex-wrap:wrap;font-size:.76rem;margin-top:.25rem;color:var(--txt2)">
+          ${cheapest ? `<span>&#128994; Cheapest: <b>${esc(cheapest.vendor)||'—'}</b> ${inr(cheapest.rate)}${cheapest.poDate ? ' · ' + _mdpFmtDate(cheapest.poDate) : ''}</span>` : ''}
+          ${dearest  ? `<span>&#128308; Dearest: <b>${esc(dearest.vendor)||'—'}</b> ${inr(dearest.rate)}${dearest.poDate ? ' · ' + _mdpFmtDate(dearest.poDate) : ''}</span>` : ''}
+          ${mostFreq ? `<span>&#11088; Most Frequent: <b>${esc(mostFreq.name)}</b> (${mostFreq.n} PO${mostFreq.n>1?'s':''})</span>` : ''}
+        </div>
+      </td>
+    </tr>`;
+
+    const poHdr = `<tr style="${hdrStyle}" data-irm-child="${keyAttr}">
+      <td colspan="${cols}" style="padding:3px 0 2px 2.8rem;font-size:.6rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.07em;border-bottom:none">Purchase Lines (${poLines.length})</td>
+    </tr>`;
+
+    const poRows = poLines.map(r => `<tr style="${childStyle}" data-irm-child="${keyAttr}">
+      <td colspan="${cols}" style="padding:.25rem .8rem .25rem 2.8rem">
+        <div style="display:flex;gap:1.4rem;font-size:.76rem;flex-wrap:wrap;align-items:center">
+          <span style="color:var(--txt3);white-space:nowrap;min-width:75px">${_mdpFmtDate(r.poDate) || '—'}</span>
+          <span style="font-family:monospace;font-size:.72rem;color:var(--txt2)">${esc(r.poNo) || '—'}</span>
+          <span style="font-weight:500;min-width:120px">${esc(r.vendor) || '—'}</span>
+          ${showSite ? `<span style="color:var(--txt3)">${esc(r.site) || '—'}</span>` : ''}
+          <span style="color:var(--txt3)">${esc(r.uom) || ''}</span>
+          <span style="font-weight:700">${inr(r.rate)}</span>
+          <span style="color:var(--txt3)">Qty ${(r.qty||0).toLocaleString('en-IN')}</span>
+          <span style="color:var(--txt2)">${inr(Math.round(r.amount||0))}</span>
+        </div>
+      </td>
+    </tr>`).join('');
+
+    return `<tr style="cursor:pointer${rowBg}" data-irm-key="${keyAttr}" onclick="_irmToggle(event,'${keyAttr}')">
+      <td style="padding:0 4px;text-align:center"><span style="font-size:.65rem;color:var(--txt3)">${exp ? '▼' : '▶'}</span></td>
+      <td style="font-weight:500">${esc(g.part)}</td>
+      <td style="font-size:.78rem;color:var(--txt3)">${esc(g.uom) || '—'}</td>
+      ${_irmType === 1 ? `<td style="font-size:.78rem">${esc(g.site) || '—'}</td>` : ''}
+      <td style="text-align:right;font-size:.78rem">${g.count}</td>
+      <td style="text-align:right;color:#16a34a;font-weight:600">${inr(g.min)}</td>
+      <td style="text-align:right;font-weight:600">${inr(Math.round(g.avg * 100) / 100)}</td>
+      <td style="text-align:right;color:#c62828;font-weight:600">${inr(g.max)}</td>
+      <td style="text-align:right;color:var(--txt2)">${inr(g.lastRate)}</td>
+      <td style="font-size:.78rem;white-space:nowrap">${_mdpFmtDate(g.lastDate) || '—'}</td>
+      <td style="font-size:.78rem">${esc(g.lastVendor) || '—'}</td>
+    </tr>${insightHdr}${insightRow}${poHdr}${poRows}`;
+  }).join('');
+  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+}
+
+window._irmReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _irmEnsure(true).then(() => { _irmAllRows = _irmBuildRows(); _irmGrouped = null; _irmRender(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._irmSetFY     = function(v) { _irmFY = v; _irmGrouped = null; _irmRender(); };
+window._irmSetType   = function(v) { _irmType = +v; _irmGrouped = null; _irmExpanded.clear(); _irmRender(); };
+window._irmSetSearch = function(v) { _irmSearch = v; _irmFill(_irmGrouped || []); };
+
+window._irmToggle = function(e, key) {
+  if (e) e.stopPropagation();
+  const tb = document.getElementById('irmTbody'); if (!tb) return;
+  const exp = _irmExpanded.has(key);
+  if (exp) _irmExpanded.delete(key); else _irmExpanded.add(key);
+  tb.querySelectorAll(`[data-irm-child="${key}"]`).forEach(r => { r.style.display = exp ? 'none' : ''; });
+  const pRow = tb.querySelector(`[data-irm-key="${key}"]`);
+  if (pRow) { const icon = pRow.querySelector('span'); if (icon) icon.textContent = exp ? '▶' : '▼'; }
+};
+
+window._irmExpandAll = function() {
+  const tb = document.getElementById('irmTbody'); if (!tb) return;
+  tb.querySelectorAll('[data-irm-child]').forEach(r => { r.style.display = ''; });
+  tb.querySelectorAll('[data-irm-key]').forEach(r => {
+    const key = r.dataset.irmKey; if (key) _irmExpanded.add(key);
+    const icon = r.querySelector('span'); if (icon) icon.textContent = '▼';
+  });
+};
+
+window._irmCollapseAll = function() {
+  const tb = document.getElementById('irmTbody'); if (!tb) return;
+  tb.querySelectorAll('[data-irm-child]').forEach(r => { r.style.display = 'none'; });
+  tb.querySelectorAll('[data-irm-key]').forEach(r => {
+    const key = r.dataset.irmKey; if (key) _irmExpanded.delete(key);
+    const icon = r.querySelector('span'); if (icon) icon.textContent = '▶';
+  });
+};
+
+
+window._irmExport = function() {
+  if (typeof userCan === 'function' && !userCan('item-rate-master', 'export')) {
+    alert('You do not have permission to export.'); return;
+  }
+  const groups = _irmGrouped; if (!groups) return;
+  const q   = _irmSearch.trim().toLowerCase();
+  const vis = q ? groups.filter(g => (g.part + ' ' + g.uom + ' ' + g.site + ' ' + g.lastVendor).toLowerCase().includes(q)) : groups;
+  const fy  = _irmFY ? _vplpFYLabel(_irmFY).replace(/\s/g, '_') : 'all';
+  const csvRows = [];
+  vis.forEach(g => {
+    const base = { 'Part Description': g.part, 'UOM': g.uom };
+    if (_irmType === 1) base['Site'] = g.site;
+    // Summary row
+    csvRows.push({ ...base, 'Row Type': 'Summary', 'PO Date': '', 'PO No': '', 'Vendor': g.lastVendor,
+      'Count': g.count, 'Min Rate': g.min, 'Avg Rate': Math.round(g.avg * 100) / 100,
+      'Max Rate': g.max, 'Last Rate': g.lastRate, 'Latest PO': g.lastDate, 'PO Qty': '', 'Value': '' });
+    // One row per PO line with repeated Part details
+    g.items.slice().sort((a, b) => (_mdpDateVal(b.poDate)||0) - (_mdpDateVal(a.poDate)||0)).forEach(r => {
+      csvRows.push({ ...base, 'Row Type': 'PO Line', 'PO Date': r.poDate, 'PO No': r.poNo, 'Vendor': r.vendor,
+        'Count': '', 'Min Rate': '', 'Avg Rate': '', 'Max Rate': '', 'Last Rate': r.rate, 'Latest PO': r.poDate,
+        'PO Qty': r.qty, 'Value': Math.round(r.amount || 0) });
+    });
+  });
+  downloadCSV(csvRows, `ItemRateMaster_T${_irmType}_${fy}_${new Date().toISOString().slice(0, 10)}.csv`);
+};
+
+// ════════════════════════════════════════════════════════════════
+//  PENDING STOCK IN (Stock Transfer) — route 'pending-stockin'
+//  Lists Stock Transfer items that have NOT yet been stocked-in.
+//  Source tabs (all in STORES_SHEET_ID):
+//    StockTransfer  — items dispatched on a DC (delivery challan)
+//    ST_StockIN     — stock-in receipts against transfers
+//    StockIN        — main goods-receipt register
+//  A transfer is "stocked in" if its DC No appears in EITHER ST_StockIN or
+//  StockIN. Matching is on a normalised DC No. Export gated by Access Settings.
+// ════════════════════════════════════════════════════════════════
+let _psiStatus  = 'pending';   // 'pending' | 'done' | 'all'
+let _psiSearch  = '';
+let _psiRows    = null;        // built rows
+let _psiLoaded  = false;
+
+async function _psiEnsure(force) {
+  if (_psiLoaded && !force) return;
+  const grab = async (tab) => {
+    try {
+      let r = await fetchSheet(tab, null, STORES_SHEET_ID, { rawId: true });
+      if (!r || !r.length) { await new Promise(z => setTimeout(z, 500)); r = await fetchSheet(tab, null, STORES_SHEET_ID, { rawId: true }); }
+      return r || [];
+    } catch (e) { return []; }
+  };
+  const [st, stSi, si] = await Promise.all([grab('StockTransfer'), grab('ST_StockIN'), grab('StockIN')]);
+  _psiBuild(st, stSi, si);
+  _psiLoaded = true;
+}
+
+// Normalise a DC No for matching (strip spaces / punctuation, lowercase).
+const _psiDC = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, '').trim();
+
+function _psiBuild(stRows, stSiRows, siRows) {
+  // Collect the set of DC Nos that HAVE been stocked in (from both receipt tabs).
+  const dcCols = ['DC No', 'DC No.', 'DC Number', 'DCNo', 'Delivery Challan No', 'Delivery Challan', 'Challan No', 'DC'];
+  const stockedSet = new Set();
+  [stSiRows, siRows].forEach(rows => {
+    const CM = _opColMap(rows || []);
+    (rows || []).forEach(r => { const dc = _psiDC(_opGet(r, CM, dcCols)); if (dc) stockedSet.add(dc); });
+  });
+
+  const STC = _opColMap(stRows || []);
+  const out = [];
+  (stRows || []).forEach(r => {
+    const dcRaw = _opGet(r, STC, dcCols);
+    const dc    = _psiDC(dcRaw);
+    const part  = _opGet(r, STC, ['Material Description', 'Material Desc', 'Material Name', 'Part Details', 'Part Description', 'Item Name', 'Item Description', 'Description', 'Particulars', 'Material']);
+    if (!dcRaw && !part) return;   // skip blank rows
+    const stockedIn = dc ? stockedSet.has(dc) : false;
+    out.push({
+      dc: String(dcRaw || '').trim(),
+      date:     _opGet(r, STC, ['DC Date', 'Transfer Date', 'Date', 'ST Date', 'Dispatch Date']),
+      part:     String(part || '').trim(),
+      uom:      _opGet(r, STC, ['UOM', 'Unit', 'Unit of Measure', 'Units']),
+      qty:      _opGet(r, STC, ['Transfer Qty', 'Qty', 'Quantity', 'ST Qty', 'Dispatch Qty', 'DC Qty']),
+      fromSite: _opGet(r, STC, ['From Site', 'Source Site', 'Site From', 'From', 'Transfer From', 'From Location']),
+      toSite:   _opGet(r, STC, ['To Site', 'Destination Site', 'Site To', 'To', 'Transfer To', 'To Location']),
+      vehicle:  _opGet(r, STC, ['Vehicle No', 'Vehicle', 'Truck No', 'Lorry No']),
+      stockedIn,
+    });
+  });
+  // Pending first, then by date desc
+  out.sort((a, b) => (a.stockedIn === b.stockedIn) ? ((_mdpDateVal(b.date) || 0) - (_mdpDateVal(a.date) || 0)) : (a.stockedIn ? 1 : -1));
+  _psiRows = out;
+}
+
+function renderPendingStockIN() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+    <div><h1>&#128229; Pending Stock IN</h1><p>Stock Transfer items not yet stocked-in &middot; matched on DC No across ST_StockIN &amp; StockIN</p></div>
+    <button class="btn btn-secondary btn-sm" onclick="_psiReload(this)">&#8635; Refresh</button>
+  </div></div>
+  <div id="psi-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading stock transfer data&hellip;</div></div>`;
+  _psiStatus = 'pending'; _psiSearch = '';
+  _psiEnsure().then(() => _psiRender()).catch(() => {
+    const b = document.getElementById('psi-body');
+    if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load stock transfer data.</div>';
+  });
+}
+
+function _psiRender() {
+  const body = document.getElementById('psi-body'); if (!body) return;
+  const esc = _mdpEsc;
+  const rows = _psiRows || [];
+  const total   = rows.length;
+  const done    = rows.filter(r => r.stockedIn).length;
+  const pending = total - done;
+  const canExport = typeof userCan !== 'function' || userCan('pending-stockin', 'export');
+
+  body.innerHTML = `
+    <div class="evg-kpi-grid" style="margin-bottom:1rem">
+      ${evgKpiCard({ icon:'&#128666;', value: total.toLocaleString('en-IN'),   label: 'Total Transfers' })}
+      ${evgKpiCard({ icon:'&#9203;',   value: pending.toLocaleString('en-IN'), label: 'Pending Stock IN' })}
+      ${evgKpiCard({ icon:'&#9989;',   value: done.toLocaleString('en-IN'),    label: 'Stocked IN' })}
+    </div>
+    <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+      <input id="psiSearch" type="text" value="${esc(_psiSearch)}" oninput="_psiSetSearch(this.value)" placeholder="Search DC / part / site / vehicle&hellip;"
+        style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+      <div style="display:flex;gap:.35rem">
+        <button onclick="_psiSetStatus('pending')" class="btn btn-sm ${_psiStatus==='pending'?'btn-primary':'btn-secondary'}">Pending (${pending})</button>
+        <button onclick="_psiSetStatus('done')"    class="btn btn-sm ${_psiStatus==='done'?'btn-primary':'btn-secondary'}">Stocked IN (${done})</button>
+        <button onclick="_psiSetStatus('all')"     class="btn btn-sm ${_psiStatus==='all'?'btn-primary':'btn-secondary'}">All (${total})</button>
+      </div>
+      ${canExport ? `<button onclick="_psiExport()" class="btn btn-sm btn-secondary" title="Download CSV">&#11015; CSV</button>` : ''}
+      <span id="psiCount" style="font-size:.72rem;color:var(--txt3)"></span>
+    </div>
+    <div class="card"><table class="data-table" id="psiTable">
+      <thead><tr>
+        <th>Status</th>
+        <th>DC No</th>
+        <th>DC Date</th>
+        <th>Part</th>
+        <th>UOM</th>
+        <th style="text-align:right">Transfer Qty</th>
+        <th>From Site</th>
+        <th>To Site</th>
+        <th>Vehicle</th>
+      </tr></thead>
+      <tbody id="psiTbody"></tbody>
+    </table></div>`;
+
+  _psiFill();
+  try { applyTableFeatures(); } catch (e) {}
+}
+
+function _psiVisible() {
+  let rows = _psiRows || [];
+  if (_psiStatus === 'pending') rows = rows.filter(r => !r.stockedIn);
+  else if (_psiStatus === 'done') rows = rows.filter(r => r.stockedIn);
+  const q = _psiSearch.trim().toLowerCase();
+  if (q) rows = rows.filter(r => (r.dc + ' ' + r.part + ' ' + r.fromSite + ' ' + r.toSite + ' ' + r.vehicle).toLowerCase().includes(q));
+  return rows;
+}
+
+function _psiFill() {
+  const tb = document.getElementById('psiTbody'); if (!tb) return;
+  const esc = _mdpEsc;
+  const rows = _psiVisible();
+  const cnt = document.getElementById('psiCount'); if (cnt) cnt.textContent = rows.length + ' item(s)';
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--txt3);padding:1.5rem">No items match.</td></tr>`; return; }
+  tb.innerHTML = rows.map(r => {
+    const badge = r.stockedIn
+      ? `<span style="font-size:.68rem;font-weight:700;color:#16a34a;background:#e8f5e9;padding:2px 8px;border-radius:10px">Stocked IN</span>`
+      : `<span style="font-size:.68rem;font-weight:700;color:#e65100;background:#fff3e0;padding:2px 8px;border-radius:10px">Pending</span>`;
+    return `<tr${r.stockedIn ? '' : ' style="background:#fffaf3"'}>
+      <td>${badge}</td>
+      <td style="font-family:monospace;font-size:.76rem;font-weight:600">${esc(r.dc) || '—'}</td>
+      <td style="font-size:.78rem;white-space:nowrap">${_mdpFmtDate(r.date) || '—'}</td>
+      <td style="font-weight:500">${esc(r.part) || '—'}</td>
+      <td style="font-size:.78rem;color:var(--txt3)">${esc(r.uom) || '—'}</td>
+      <td style="text-align:right;font-size:.78rem">${esc(r.qty) || '—'}</td>
+      <td style="font-size:.78rem">${esc(r.fromSite) || '—'}</td>
+      <td style="font-size:.78rem">${esc(r.toSite) || '—'}</td>
+      <td style="font-size:.78rem">${esc(r.vehicle) || '—'}</td>
+    </tr>`;
+  }).join('');
+  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+}
+
+window._psiReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _psiEnsure(true).then(() => _psiRender()).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._psiSetStatus = function(v) { _psiStatus = v; _psiRender(); };
+window._psiSetSearch = function(v) { _psiSearch = v; _psiFill(); };
+window._psiExport = function() {
+  if (typeof userCan === 'function' && !userCan('pending-stockin', 'export')) { alert('You do not have permission to export.'); return; }
+  const rows = _psiVisible();
+  const csvRows = rows.map(r => ({
+    'Status': r.stockedIn ? 'Stocked IN' : 'Pending',
+    'DC No': r.dc, 'DC Date': r.date, 'Part': r.part, 'UOM': r.uom,
+    'Transfer Qty': r.qty, 'From Site': r.fromSite, 'To Site': r.toSite, 'Vehicle': r.vehicle,
+  }));
+  downloadCSV(csvRows, `PendingStockIN_${_psiStatus}_${new Date().toISOString().slice(0, 10)}.csv`);
+};
+
 // ── ACCOUNTS STATUS MASTER ──────────────────────────────
 // STATUS MAP: keys = exact AG column values (Col D of Status Master), labels = Col G display values
 // Colors: yellow=pending, red=rejected, green=completed, blue=progress
@@ -9232,8 +9834,8 @@ function _accDrawNewPRForm(dr) {
       ${sec('1 &middot; Initiator', grid(
         fld('Date of Request', `<input id="acc-pr-dateOfRequest" type="date" value="${today}">`, true),
         fld('Payment Requested By', `<input id="acc-pr-initiator" value="${esc(initiatorDefault)}" ${initiatorLocked ? 'readonly title="Auto-filled from your profile"' : ''} style="${initiatorLocked ? ro : ''}">`, true),
-        fld('Department', `<select id="acc-pr-department" onchange="_accPROnDeptChange()">${opt(depts)}</select>`),
-        fld('From Which Process', `<select id="acc-pr-fromWhichProcess" onchange="_accPROnProcessChange()">${opt(procs)}</select>`),
+        fld('Department', evgComboHtml({ id: 'acc-pr-department', items: depts.map(x => ({ v: x, label: x })), placeholder: 'Type a department…', onPick: '_accPROnDeptChange' })),
+        fld('From Which Process', evgComboHtml({ id: 'acc-pr-fromWhichProcess', items: procs.map(x => ({ v: x, label: x })), placeholder: 'Type a process…', onPick: '_accPROnProcessChange' })),
         fld('Manual / Auto', `<select id="acc-pr-manualAuto"><option value="Manual" selected>Manual</option><option value="Auto">Auto</option></select>`)
       ))}
 
@@ -9246,7 +9848,7 @@ function _accDrawNewPRForm(dr) {
       `)}
 
       ${sec('3 &middot; Site &amp; Company', grid(
-        fld('Site Name', `<select id="acc-pr-siteName" onchange="_accPROnSiteChange()">${opt(siteNames)}</select>`),
+        fld('Site Name', evgComboHtml({ id: 'acc-pr-siteName', items: [...new Set((siteNames || []).filter(Boolean))].sort().map(x => ({ v: x, label: x })), placeholder: 'Type a site name…', onPick: '_accPROnSiteChange' })),
         fld('Company', `<input id="acc-pr-company" placeholder="Auto-fills from site">`)
       ))}
 
@@ -9267,8 +9869,8 @@ function _accDrawNewPRForm(dr) {
       ${sec('5 &middot; Financial', grid(
         fld('Currency', `<select id="acc-pr-currency">${opt(currencies, 'Indian Rupee')}</select>`),
         fld('Amount', `<input id="acc-pr-amount" type="number" step="0.01">`, true),
-        fld('Nature of Expenses', `<select id="acc-pr-natureOfExpenses" onchange="_accPROnNatureChange()">${opt(natures)}</select>`),
-        fld('Account Code Description', `<select id="acc-pr-accountCodeDesc" onchange="_accPROnAccCodeChange()">${opt(accDescs)}</select>`),
+        fld('Nature of Expenses', evgComboHtml({ id: 'acc-pr-natureOfExpenses', items: natures.map(x => ({ v: x, label: x })), placeholder: 'Type a nature of expense…', onPick: '_accPROnNatureChange' })),
+        fld('Account Code Description', evgComboHtml({ id: 'acc-pr-accountCodeDesc', items: accDescs.map(x => ({ v: x, label: x })), placeholder: 'Type an account code…', onPick: '_accPROnAccCodeChange' })),
         fld('GST', `<input id="acc-pr-gst" type="number" step="0.01">`),
         fld('TDS', `<input id="acc-pr-tds" type="number" step="0.01">`)
       ) + `<input id="acc-pr-costCode" type="hidden">`)}
@@ -9297,11 +9899,8 @@ function _accDrawNewPRForm(dr) {
 function _accPROnDeptChange() {
   const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
   const dept = _accV('acc-pr-department');
-  const sel = document.getElementById('acc-pr-fromWhichProcess');
-  if (sel) {
-    const procs = [...new Set((_accPayMaster || []).filter(p => !dept || p.department === dept).map(p => p.process).filter(Boolean))].sort();
-    sel.innerHTML = '<option value=""></option>' + procs.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
-  }
+  const procs = [...new Set((_accPayMaster || []).filter(p => !dept || p.department === dept).map(p => p.process).filter(Boolean))].sort();
+  if (typeof evgComboSetItems === 'function') evgComboSetItems('acc-pr-fromWhichProcess', procs.map(p => ({ v: p, label: p })), true);
   const isPurchase = /purchase/i.test(dept);
   const pt = document.getElementById('acc-pr-paymentTerms-wrap'); if (pt) pt.style.display = isPurchase ? '' : 'none';
   const po = document.getElementById('acc-pr-po-wrap');           if (po) po.style.display = isPurchase ? '' : 'none';
@@ -9334,13 +9933,9 @@ function _accPROnSiteChange() {
 }
 
 function _accPROnNatureChange() {
-  const esc = (typeof escapeHtml_ === 'function') ? escapeHtml_ : (s => String(s || ''));
   const nature = _accV('acc-pr-natureOfExpenses');
-  const sel = document.getElementById('acc-pr-accountCodeDesc');
-  if (sel) {
-    const descs = [...new Set((_accCostCenter || []).filter(c => !nature || c.nature === nature).map(c => c.accCodeDesc).filter(Boolean))].sort();
-    sel.innerHTML = '<option value=""></option>' + descs.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
-  }
+  const descs = [...new Set((_accCostCenter || []).filter(c => !nature || c.nature === nature).map(c => c.accCodeDesc).filter(Boolean))].sort();
+  if (typeof evgComboSetItems === 'function') evgComboSetItems('acc-pr-accountCodeDesc', descs.map(d => ({ v: d, label: d })), true);
   _accPROnAccCodeChange();
 }
 
@@ -11040,6 +11635,8 @@ const MODULE_REGISTRY = [
   { route:'po-register',       label:'Purchase Orders',        section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
   { route:'stockin-register',  label:'StockIN Register',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
   { route:'purchase-view',     label:'Purchase View',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'item-rate-master',  label:'Item Rate Master',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'pending-stockin',   label:'Pending Stock IN',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'tendering',         label:'Tendering',              section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
 
   // ── Accounts ──────────────────────────────────────────────────
@@ -12254,6 +12851,8 @@ const MODULE_ACTIONS = {
   'reports':            ['view','export','schedule'],
   'mrs':                ['view','create','edit'],
   'scm':                ['view','export'],
+  'item-rate-master':  ['view','export'],
+  'pending-stockin':   ['view','export'],
 };
 function uaActionsFor(route) { return MODULE_ACTIONS[route] || ['view']; }
 

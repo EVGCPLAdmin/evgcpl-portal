@@ -193,6 +193,13 @@
     'rec-offers':        'hr.html',
     'rec-prejoining':    'hr.html',
     'rec-joining':       'hr.html',
+    'attendance':        'hr.html',
+    'att-register':      'hr.html',
+    'att-calendar':      'hr.html',
+    'leave':             'hr.html',
+    'leave-apply':       'hr.html',
+    'leave-approvals':   'hr.html',
+    'leave-types':       'hr.html',
     'mess-individual':   'hr.html',
     'my-profile':        'hr.html',
     'onboarding':        'hr.html',
@@ -216,6 +223,8 @@
     'subcontractor':     'scm.html',
     'po-register':       'scm.html',
     'stockin-register':  'scm.html',
+    'item-rate-master':  'scm.html',
+    'pending-stockin':   'scm.html',
 
     // Site Ops
     'site-manager':      'site-ops.html',
