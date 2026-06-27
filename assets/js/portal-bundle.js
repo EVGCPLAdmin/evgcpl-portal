@@ -8343,16 +8343,40 @@ let _psiLoaded  = false;
 
 async function _psiEnsure(force) {
   if (_psiLoaded && !force) return;
-  const grab = async (tab) => {
+  const grab = async (tab, sid) => {
     try {
-      let r = await fetchSheet(tab, null, STORES_SHEET_ID, { rawId: true });
-      if (!r || !r.length) { await new Promise(z => setTimeout(z, 500)); r = await fetchSheet(tab, null, STORES_SHEET_ID, { rawId: true }); }
+      let r = await fetchSheet(tab, null, sid, { rawId: true });
+      if (!r || !r.length) { await new Promise(z => setTimeout(z, 500)); r = await fetchSheet(tab, null, sid, { rawId: true }); }
       return r || [];
     } catch (e) { return []; }
   };
-  const [st, stSi, si] = await Promise.all([grab('StockTransfer'), grab('ST_StockIN'), grab('StockIN')]);
+  const [st, stSi, si, grn] = await Promise.all([
+    grab('StockTransfer', STORES_SHEET_ID),
+    grab('ST_StockIN',    STORES_SHEET_ID),
+    grab('StockIN',       STORES_SHEET_ID),
+    grab('4-GRNMaster_Actual', SHEET_ID),
+  ]);
+  _psiBuildPartMap(grn);
   _psiBuild(st, stSi, si);
   _psiLoaded = true;
+}
+
+// Resolve readable Part No / Part Description from the Master GRN tab
+// (4-GRNMaster_Actual), keyed by UUID. A StockTransfer / receipt "Part Details"
+// value IS that UUID, so we look it up to always show readable part details.
+let _psiPartMap = {};
+function _psiBuildPartMap(grnRows) {
+  const map = {};
+  const CM = _opColMap(grnRows || []);
+  (grnRows || []).forEach(r => {
+    const uuid = _psiKey(_opGet(r, CM, ['UUID', 'Row UUID', 'GRN UUID', 'Id', 'ID']));
+    if (!uuid || map[uuid]) return;
+    map[uuid] = {
+      partNo:   String(_opGet(r, CM, ['Part No', 'Part No.', 'Part Number', 'Part Code', 'Material Code', 'Item Code', 'Material No']) || '').trim(),
+      partDesc: String(_opGet(r, CM, ['Part Description', 'Material Description', 'Material Desc', 'Material Name', 'Part Name', 'Item Description', 'Item Name', 'Description', 'Particulars', 'Material']) || '').trim(),
+    };
+  });
+  _psiPartMap = map;
 }
 
 // Normalise an identifier for matching (strip spaces / punctuation, lowercase).
@@ -8393,10 +8417,14 @@ function _psiBuild(stRows, stSiRows, siRows) {
     const part = _psiKey(partRaw);
     // Stocked in only when DC No + Part Details matches part|(PO No | Invoice/ST No).
     const stockedIn = (dc && part) ? stockedComposite.has(part + '|' + dc) : false;
+    // Resolve readable Part No / Description from GRN master (Part Details = UUID).
+    const pm = _psiPartMap[part] || {};
     out.push({
       dc: String(dcRaw || '').trim(),
       date:     _opGet(r, STC, ['DC Date', 'Transfer Date', 'Date', 'ST Date', 'Dispatch Date']),
       part:     String(partRaw || '').trim(),
+      partNo:   pm.partNo   || '',
+      partDesc: pm.partDesc || '',
       uom:      _opGet(r, STC, ['UOM', 'Unit', 'Unit of Measure', 'Units']),
       qty:      _opGet(r, STC, ['Transfer Qty', 'Qty', 'Quantity', 'ST Qty', 'Dispatch Qty', 'DC Qty']),
       fromSite: _opGet(r, STC, ['From Site', 'Source Site', 'Site From', 'From', 'Transfer From', 'From Location']),
@@ -8455,7 +8483,8 @@ function _psiRender() {
         <th>Status</th>
         <th>DC No</th>
         <th>DC Date</th>
-        <th>Part</th>
+        <th>Part No</th>
+        <th>Part Description</th>
         <th>UOM</th>
         <th style="text-align:right">Transfer Qty</th>
         <th>From Site</th>
@@ -8474,7 +8503,7 @@ function _psiVisible() {
   if (_psiStatus === 'pending') rows = rows.filter(r => !r.stockedIn);
   else if (_psiStatus === 'done') rows = rows.filter(r => r.stockedIn);
   const q = _psiSearch.trim().toLowerCase();
-  if (q) rows = rows.filter(r => (r.dc + ' ' + r.part + ' ' + r.fromSite + ' ' + r.toSite + ' ' + r.vehicle).toLowerCase().includes(q));
+  if (q) rows = rows.filter(r => (r.dc + ' ' + r.partNo + ' ' + r.partDesc + ' ' + r.part + ' ' + r.fromSite + ' ' + r.toSite + ' ' + r.vehicle).toLowerCase().includes(q));
   return rows;
 }
 
@@ -8483,16 +8512,19 @@ function _psiFill() {
   const esc = _mdpEsc;
   const rows = _psiVisible();
   const cnt = document.getElementById('psiCount'); if (cnt) cnt.textContent = rows.length + ' item(s)';
-  if (!rows.length) { tb.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--txt3);padding:1.5rem">No items match.</td></tr>`; return; }
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--txt3);padding:1.5rem">No items match.</td></tr>`; return; }
   tb.innerHTML = rows.map(r => {
     const badge = r.stockedIn
       ? `<span style="font-size:.68rem;font-weight:700;color:#16a34a;background:#e8f5e9;padding:2px 8px;border-radius:10px">Stocked IN</span>`
       : `<span style="font-size:.68rem;font-weight:700;color:#e65100;background:#fff3e0;padding:2px 8px;border-radius:10px">Pending</span>`;
+    // Part No / Description resolved from GRN master; fall back to the raw key.
+    const partDesc = r.partDesc || (r.partNo ? '' : r.part);
     return `<tr${r.stockedIn ? '' : ' style="background:#fffaf3"'}>
       <td>${badge}</td>
       <td style="font-family:monospace;font-size:.76rem;font-weight:600">${esc(r.dc) || '—'}</td>
       <td style="font-size:.78rem;white-space:nowrap">${_mdpFmtDate(r.date) || '—'}</td>
-      <td style="font-weight:500">${esc(r.part) || '—'}</td>
+      <td style="font-size:.78rem;font-family:monospace">${esc(r.partNo) || '—'}</td>
+      <td style="font-weight:500">${esc(partDesc) || '—'}</td>
       <td style="font-size:.78rem;color:var(--txt3)">${esc(r.uom) || '—'}</td>
       <td style="text-align:right;font-size:.78rem">${esc(r.qty) || '—'}</td>
       <td style="font-size:.78rem">${esc(r.fromSite) || '—'}</td>
@@ -8511,7 +8543,9 @@ window._psiExport = function() {
   const rows = _psiVisible();
   const csvRows = rows.map(r => ({
     'Status': r.stockedIn ? 'Stocked IN' : 'Pending',
-    'DC No': r.dc, 'DC Date': r.date, 'Part': r.part, 'UOM': r.uom,
+    'DC No': r.dc, 'DC Date': r.date,
+    'Part No': r.partNo, 'Part Description': r.partDesc || (r.partNo ? '' : r.part),
+    'Part Key': r.part, 'UOM': r.uom,
     'Transfer Qty': r.qty, 'From Site': r.fromSite, 'To Site': r.toSite, 'Vehicle': r.vehicle,
   }));
   downloadCSV(csvRows, `PendingStockIN_${_psiStatus}_${new Date().toISOString().slice(0, 10)}.csv`);
