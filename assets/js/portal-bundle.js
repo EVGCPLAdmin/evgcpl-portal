@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.26.2';
-const PORTAL_BUILD    = 640;
-const PORTAL_BUILD_AT = '2026-06-29T17:28:59Z';
+const PORTAL_VERSION  = '4.26.3';
+const PORTAL_BUILD    = 641;
+const PORTAL_BUILD_AT = '2026-06-29T17:30:42Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5802,29 +5802,33 @@ function _poRegBuild() {
       <input id="poRegSearch" type="text" oninput="_poRegSetSearch(this.value)" placeholder="Search PO / vendor / site…" style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
       <select onchange="_poRegSetStatus(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 9px;background:var(--surface2)"><option value="">All statuses</option>${statuses.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>
       <span id="poRegCount" style="font-size:.72rem;color:var(--txt3)"></span></div>
-    <div class="card"><table class="data-table" data-evg-resize="skip" data-evg-default-hidden="${_regDefHiddenAttr(_PO_REG_CURATED, _regRawCols(_openPOHeaders))}"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th>${_regRawCols(_openPOHeaders).map(cc => `<th>${esc(cc)}</th>`).join('')}</tr></thead><tbody id="poRegTbody"></tbody></table></div>`;
+    <div class="card"><table class="data-table" data-evg-resize="skip"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th></tr></thead><tbody id="poRegTbody"></tbody></table></div>`;
   _poRegFill();
-  try { applyTableFeatures(); } catch (e) {}
 }
 const _PO_REG_CURATED = ['PO No', 'Date', 'Vendor', 'Site', 'Status', 'Net Amount', 'Received Value', 'Paid'];
 function _poRegFill() {
   const tb = document.getElementById('poRegTbody'); if (!tb) return;
   const esc = _mdpEsc;
-  const rawCols = _regRawCols(_openPOHeaders);
   const q = _poRegSearch.trim().toLowerCase();
   let rows = _poRegAll;
   if (_poRegStatus) rows = rows.filter(r => r.status === _poRegStatus);
   if (q) rows = rows.filter(r => (r.poNo + ' ' + r.vendor + ' ' + r.site).toLowerCase().includes(q));
   const cnt = document.getElementById('poRegCount'); if (cnt) cnt.textContent = rows.length + ' PO(s)';
-  if (!rows.length) { tb.innerHTML = `<tr><td colspan="${8 + rawCols.length}" style="text-align:center;color:var(--txt3);padding:1.5rem">No POs match.</td></tr>`; return; }
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--txt3);padding:1.5rem">No POs match.</td></tr>`; return; }
   tb.innerHTML = rows.map(r => `<tr style="cursor:pointer" data-po="${esc(r.poNo)}" onclick="_poOpenDetail(this.dataset.po)">
     <td style="font-family:monospace;font-size:.74rem">${esc(r.poNo)}</td>
     <td style="white-space:nowrap">${_mdpFmtDate(r.date)}</td>
     <td>${esc(r.vendor) || '—'}</td><td>${esc(r.site) || '—'}</td><td>${esc(r.status) || '—'}</td>
     <td style="text-align:right">${r.net ? _regINR(r.net) : '—'}</td>
     <td style="text-align:right;color:#b45309">${r.recvVal ? _regINR(r.recvVal) : '—'}</td>
-    <td style="text-align:right;color:#16a34a">${r.paid ? _regINR(r.paid) : '—'}</td>${rawCols.map(cc => `<td style="font-size:.74rem">${_regRawCell(r.raw && r.raw[cc])}</td>`).join('')}</tr>`).join('');
-  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+    <td style="text-align:right;color:#16a34a">${r.paid ? _regINR(r.paid) : '—'}</td></tr>`).join('');
+  const tbl = tb.closest('table');
+  if (tbl) {
+    // Expose raw PO header fields as hidden columns (via ⚙ Columns), not inline.
+    try { _evgExposeFields(tbl, rows.map(r => r.raw), _PO_REG_CURATED); } catch (e) {}
+    try { applyTableFeatures(); } catch (e) {}
+    try { updateTableBadge(tbl); } catch (e) {}
+  }
 }
 window._poRegReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _poRegAll = _poRegRows(); _poRegBuild(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
 window._poRegSetSearch = function(v) { _poRegSearch = v; _poRegFill(); };
