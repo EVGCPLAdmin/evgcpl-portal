@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.26.3';
-const PORTAL_BUILD    = 641;
-const PORTAL_BUILD_AT = '2026-06-29T17:30:42Z';
+const PORTAL_VERSION  = '4.26.4';
+const PORTAL_BUILD    = 642;
+const PORTAL_BUILD_AT = '2026-06-29T17:36:17Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5126,22 +5126,24 @@ function _vplpRenderBody() {
   const selV = d.vendors.find(x => x.key === _vplpVendor);
   const selLabel = selV ? `${selV.name}${selV.vid ? ` [${selV.vid}]` : ''}` : '';
   const vendorItems = d.vendors.map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}${v.unmapped ? ' ·Unmapped' : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
-  const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
+  const pickerRow = `<div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
     <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:280px">
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR</label>
       ${evgComboHtml({ id: 'vplp-vendor-search', items: vendorItems, value: selLabel, placeholder: 'Type a vendor name or ID…', onPick: '_vplpSetVendor' })}
     </div>
-    <div style="font-size:.72rem;color:var(--txt3)">${d.vendors.length} vendor(s)</div></div></div>`;
-  if (!_vplpVendor) { c.innerHTML = toggle + selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
+    <div style="font-size:.72rem;color:var(--txt3);padding-bottom:6px">${d.vendors.length} vendor(s)</div></div>`;
+  if (!_vplpVendor) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}</div>` + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
   const v = d.vendors.find(x => x.key === _vplpVendor);
-  if (!v) { c.innerHTML = toggle + selector; return; }
+  if (!v) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}</div>`; return; }
   const obTag = v.opening ? ` &middot; <span style="color:#3730a3">Opening ${'₹' + Math.round((v.opening.credit || 0) - (v.opening.debit || 0)).toLocaleString('en-IN')} ${(v.opening.credit >= v.opening.debit) ? 'Cr' : 'Dr'}</span>` : '';
-  const head = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem">
+  // Vendor picker + selected-vendor summary share one card to cut the vertical stacking.
+  const summaryRow = `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;margin-top:.85rem;padding-top:.85rem;border-top:1px solid var(--border)">
     <div><div style="font-weight:700;font-size:1rem">${esc(v.name)}${v.vid ? ` <span style="font-size:.72rem;color:var(--txt3)">[${esc(v.vid)}]</span>` : ''}</div>
     <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) received &middot; ${v.payCount} payment(s)${obTag}</div></div>
     <button onclick="_vplpOpenOB('${esc(v.key)}')" class="btn btn-sm btn-secondary" title="Record / update this vendor's opening balance">&#10133; Opening Balance</button>
   </div>`;
-  c.innerHTML = toggle + selector + head + _vplpLedger(v);
+  const headCard = `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}${summaryRow}</div>`;
+  c.innerHTML = toggle + headCard + _vplpLedger(v);
 }
 // Per-vendor Dr/Cr rows: credit = received goods (material + tax + charges),
 // debit = completed vendor payments, bal = credit − debit, status by sign.
@@ -5396,22 +5398,23 @@ function _vplpLedger(v, embedOpts) {
   const hasClosed = closedAll.length > 0;
   const showClosed = !embedOpts && hasClosed && _vplpLedgerMode === 'closed';
   const scope = showClosed ? closedAll : activeAll;
-  const modeBar = (!embedOpts && hasClosed) ? `<div style="display:flex;gap:.5rem;margin-bottom:.8rem;align-items:center;flex-wrap:wrap">
+  // Active/Closed toggle (only when an opening balance splits the ledger).
+  const modeInner = (!embedOpts && hasClosed) ? `
       <button onclick="_vplpSetLedgerMode('active')" class="btn btn-sm ${!showClosed ? 'btn-primary' : 'btn-secondary'}">&#128210; Active Ledger</button>
       <button onclick="_vplpSetLedgerMode('closed')" class="btn btn-sm ${showClosed ? 'btn-primary' : 'btn-secondary'}">&#128452; Closed Ledger (${closedAll.length})</button>
-      <span style="font-size:.7rem;color:var(--txt3)">${showClosed ? 'Entries on/before ' + _mdpFmtDate(ob.date) + ' &mdash; already rolled into the opening balance' : 'Opening balance as on ' + _mdpFmtDate(ob.date) + ' + entries posted after'}</span>
-    </div>` : '';
-  if (!scope.length) return modeBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No entries in this view.</div>';
-  // Financial-year filter.
+      <span style="font-size:.7rem;color:var(--txt3)">${showClosed ? 'Entries on/before ' + _mdpFmtDate(ob.date) + ' &mdash; already rolled into the opening balance' : 'Opening balance as on ' + _mdpFmtDate(ob.date) + ' + entries posted after'}</span>` : '';
+  if (!scope.length) return (modeInner ? `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">${modeInner}</div>` : '') + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No entries in this view.</div>';
+  // Financial-year filter — shares one toolbar row with the mode toggle.
   const fySet = Array.from(new Set(scope.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
   const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _fy ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
-  const fyBar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
-    <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">FINANCIAL YEAR</label>
+  const toolbar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+    ${modeInner}
+    <label style="font-size:.7rem;font-weight:700;color:var(--txt3);${modeInner ? 'margin-left:auto' : ''}">FINANCIAL YEAR</label>
     <select onchange="${_onChangeFY}(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2)">${fyOpts}</select>
     <span style="font-size:.7rem;color:var(--txt3)">${_fy ? _vplpFYLabel(_fy) + ' · Apr–Mar' : 'All transactions'}</span>
   </div>`;
   const entries = _fy ? scope.filter(e => _vplpFYof(e.date) === _fy) : scope;
-  if (!entries.length) return modeBar + fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
+  if (!entries.length) return toolbar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   // Opening balance always first; then chronological, same-day credits (receipt) before debits (payment).
   entries.sort((a, b) => ((b.opening ? 1 : 0) - (a.opening ? 1 : 0)) || (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
   let running = 0;
@@ -5483,7 +5486,7 @@ function _vplpLedger(v, embedOpts) {
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td></tr>`;
-  return modeBar + fyBar + kpi + `<div class="card"><div style="overflow-x:auto">
+  return toolbar + kpi + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
