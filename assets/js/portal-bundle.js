@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.26.1';
-const PORTAL_BUILD    = 639;
-const PORTAL_BUILD_AT = '2026-06-27T14:33:54Z';
+const PORTAL_VERSION  = '4.26.2';
+const PORTAL_BUILD    = 640;
+const PORTAL_BUILD_AT = '2026-06-29T17:28:59Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -6051,27 +6051,32 @@ function _siRegBuild() {
   c.innerHTML = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
       <input id="siRegSearch" type="text" oninput="_siRegSetSearch(this.value)" placeholder="Search GRN / PO / vendor / part / invoice…" style="flex:1;min-width:240px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
       <span id="siRegCount" style="font-size:.72rem;color:var(--txt3)"></span></div>
-    <div class="card"><table class="data-table" data-evg-resize="skip" data-evg-default-hidden="${_regDefHiddenAttr(_SI_REG_CURATED, _regRawCols(_openPOStock))}"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th>${_regRawCols(_openPOStock).map(cc => `<th>${_mdpEsc(cc)}</th>`).join('')}</tr></thead><tbody id="siRegTbody"></tbody></table></div>`;
+    <div class="card"><table class="data-table" data-evg-resize="skip"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th></tr></thead><tbody id="siRegTbody"></tbody></table></div>`;
   _siRegFill();
-  try { applyTableFeatures(); } catch (e) {}
 }
 const _SI_REG_CURATED = ['GRN No', 'Received On', 'PO No', 'Vendor', 'Site', 'Invoice No', 'Part', 'GRN Qty'];
 function _siRegFill() {
   const tb = document.getElementById('siRegTbody'); if (!tb) return;
   const esc = _mdpEsc;
-  const rawCols = _regRawCols(_openPOStock);
   const q = _siRegSearch.trim().toLowerCase();
   let rows = _siRegAll;
   if (q) rows = rows.filter(r => (r.grn + ' ' + r.poNo + ' ' + r.vendor + ' ' + r.part + ' ' + r.inv).toLowerCase().includes(q));
   const cnt = document.getElementById('siRegCount'); if (cnt) cnt.textContent = rows.length + ' receipt(s)';
-  if (!rows.length) { tb.innerHTML = `<tr><td colspan="${8 + rawCols.length}" style="text-align:center;color:var(--txt3);padding:1.5rem">No StockIN records match.</td></tr>`; return; }
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--txt3);padding:1.5rem">No StockIN records match.</td></tr>`; return; }
   tb.innerHTML = rows.map(r => `<tr style="cursor:pointer" data-idx="${r.idx}" onclick="_siOpenDetail(this.dataset.idx)">
     <td style="font-weight:600;color:var(--g7)">${esc(r.grn) || '<span style="color:var(--txt3);font-style:italic">Pending</span>'}</td>
     <td style="white-space:nowrap">${_mdpFmtDate(r.received)}</td>
     <td style="font-family:monospace;font-size:.74rem">${esc(r.poNo) || '—'}</td>
     <td>${esc(r.vendor) || '—'}</td><td>${esc(r.site) || '—'}</td><td>${esc(r.inv) || '—'}</td><td>${esc(r.part) || '—'}</td>
-    <td style="text-align:right">${esc(r.grnQty) || '—'}</td>${rawCols.map(cc => { const rr = _openPOStock[r.idx]; return `<td style="font-size:.74rem">${_regRawCell(rr && rr[cc])}</td>`; }).join('')}</tr>`).join('');
-  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+    <td style="text-align:right">${esc(r.grnQty) || '—'}</td></tr>`).join('');
+  const tbl = tb.closest('table');
+  if (tbl) {
+    // Expose every raw StockIN field as a hidden column (available via ⚙ Columns),
+    // instead of dumping them all inline — keeps the default view readable.
+    try { _evgExposeFields(tbl, rows.map(r => _openPOStock[r.idx]), _SI_REG_CURATED); } catch (e) {}
+    try { applyTableFeatures(); } catch (e) {}
+    try { updateTableBadge(tbl); } catch (e) {}
+  }
 }
 window._siRegReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _siRegAll = _siRegRows(); _siRegBuild(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
 window._siRegSetSearch = function(v) { _siRegSearch = v; _siRegFill(); };
