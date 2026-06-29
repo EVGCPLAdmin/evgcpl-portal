@@ -4120,7 +4120,7 @@ function _mdpParseRow(r) {
 
 async function _mdpLoad(force) {
   if (_mdpRows && !force) return;
-  const rows = await fetchSheet('PaymentRequest', null, PAYMENT_SHEET_ID);
+  const rows = await fetchSheetSafe('PaymentRequest', PAYMENT_SHEET_ID, {});
   _mdpRows = (rows || []).filter(r => (r['Payment To'] || '').trim()).map(_mdpParseRow);
 }
 
@@ -4918,7 +4918,7 @@ async function _vplpEnsure(force) {
   if (force || !_vplpGRNRows) {
     // GRN No lives in the separate GRN_No tab (keyed by UUID); StockIN joins to
     // it via CheckSum/UUID. rawId bypasses any stale Sheet-Linking override.
-    try { _vplpGRNRows = await fetchSheet('GRN_No', null, STORES_SHEET_ID, { rawId: true }) || []; }
+    try { _vplpGRNRows = await fetchSheetSafe('GRN_No', STORES_SHEET_ID, { rawId: true }) || []; }
     catch (e) { _vplpGRNRows = []; }
   }
   if (force || !_vplpVMRows) {
@@ -5648,7 +5648,7 @@ let _regGRNRows = null;
 async function _regEnsure(force) {
   await _openPOEnsure(force);
   if (force || !_regGRNRows) {
-    try { _regGRNRows = await fetchSheet('GRN_No', null, STORES_SHEET_ID, { rawId: true }) || []; }
+    try { _regGRNRows = await fetchSheetSafe('GRN_No', STORES_SHEET_ID, { rawId: true }) || []; }
     catch (e) { _regGRNRows = []; }
   }
 }
@@ -5805,7 +5805,7 @@ function _poRegBuild() {
       <input id="poRegSearch" type="text" oninput="_poRegSetSearch(this.value)" placeholder="Search PO / vendor / site…" style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
       <select onchange="_poRegSetStatus(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 9px;background:var(--surface2)"><option value="">All statuses</option>${statuses.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>
       <span id="poRegCount" style="font-size:.72rem;color:var(--txt3)"></span></div>
-    <div class="card"><table class="data-table" data-evg-resize="skip"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th></tr></thead><tbody id="poRegTbody"></tbody></table></div>`;
+    <div class="card"><table class="data-table"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th></tr></thead><tbody id="poRegTbody"></tbody></table></div>`;
   _poRegFill();
 }
 const _PO_REG_CURATED = ['PO No', 'Date', 'Vendor', 'Site', 'Status', 'Net Amount', 'Received Value', 'Paid'];
@@ -6058,7 +6058,7 @@ function _siRegBuild() {
   c.innerHTML = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
       <input id="siRegSearch" type="text" oninput="_siRegSetSearch(this.value)" placeholder="Search GRN / PO / vendor / part / invoice…" style="flex:1;min-width:240px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
       <span id="siRegCount" style="font-size:.72rem;color:var(--txt3)"></span></div>
-    <div class="card"><table class="data-table" data-evg-resize="skip"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th></tr></thead><tbody id="siRegTbody"></tbody></table></div>`;
+    <div class="card"><table class="data-table"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th></tr></thead><tbody id="siRegTbody"></tbody></table></div>`;
   _siRegFill();
 }
 const _SI_REG_CURATED = ['GRN No', 'Received On', 'PO No', 'Vendor', 'Site', 'Invoice No', 'Part', 'GRN Qty'];
@@ -8005,7 +8005,7 @@ async function _irmEnsure(force) {
   if (!force && _irmGRNRows) return;
   await _openPOEnsure(force);
   try {
-    _irmGRNRows = await fetchSheet('4-GRNMaster_Actual', null, SHEET_ID, { rawId: true }) || [];
+    _irmGRNRows = await fetchSheetSafe('4-GRNMaster_Actual', SHEET_ID, { rawId: true }) || [];
   } catch (e) {
     _irmGRNRows = [];
   }
@@ -8357,8 +8357,8 @@ async function _psiEnsure(force) {
   if (_psiLoaded && !force) return;
   const grab = async (tab, sid) => {
     try {
-      let r = await fetchSheet(tab, null, sid, { rawId: true });
-      if (!r || !r.length) { await new Promise(z => setTimeout(z, 500)); r = await fetchSheet(tab, null, sid, { rawId: true }); }
+      let r = await fetchSheetSafe(tab, sid, { rawId: true });
+      if (!r || !r.length) { await new Promise(z => setTimeout(z, 500)); r = await fetchSheetSafe(tab, sid, { rawId: true }); }
       return r || [];
     } catch (e) { return []; }
   };
@@ -18167,8 +18167,8 @@ async function _openPOEnsure(force) {
   // while PO_Actual/StockIN were fine — a no-query fetch reads every row, the
   // same way the master loads do. Falls back to SELECT * if no-query is empty.
   const grab = async (tab, sid, tq) => {
-    let r = await fetchSheet(tab, tq, sid, { rawId: true });
-    if (!r || r.length < 5) { await new Promise(z => setTimeout(z, 600)); r = await fetchSheet(tab, tq, sid, { rawId: true }); }
+    let r = await fetchSheetSafe(tab, sid, { rawId: true, tq });
+    if (!r || r.length < 5) { await new Promise(z => setTimeout(z, 600)); r = await fetchSheetSafe(tab, sid, { rawId: true, tq }); }
     return r || [];
   };
   let items = await grab('PO_Items_Actual', PO_SHEET_ID, null);
@@ -18187,8 +18187,8 @@ async function _openPOEnsure(force) {
     const lk = (typeof getLink === 'function') ? getLink('PAYMENT') : null;
     const payTab = (lk && lk.tab) || 'PaymentRequest';
     const paySid = (lk && lk.id)  || PAYMENT_SHEET_ID;
-    pay = await fetchSheet(payTab, null, paySid);
-    if (!pay || !pay.length) { await new Promise(z => setTimeout(z, 600)); pay = await fetchSheet(payTab, null, paySid); }
+    pay = await fetchSheetSafe(payTab, paySid, {});
+    if (!pay || !pay.length) { await new Promise(z => setTimeout(z, 600)); pay = await fetchSheetSafe(payTab, paySid, {}); }
   } catch (e) { pay = []; }
   _openPOPayments = pay || [];
   // Additional Charges tab — one row per additional charge per PO (freight, loading, etc.)
@@ -20610,6 +20610,54 @@ window.google.visualization.Query.setResponse = function(json) {
 };
 
 let _gvizReqId = 0;
+
+// ── Filter-proof reads via the Apps Script backend ──────────────────────
+// gviz (/gviz/tq, used by fetchSheet below) reflects a sheet's active BASIC
+// FILTER, so filtering the backend hides those rows from the app. Reading the
+// tab through Apps Script (getDataRange().getValues()) ignores filters and
+// hidden rows. We probe the backend once per browser (cached in localStorage)
+// for a `readSheet` action; if present we use it for the high-traffic tabs, and
+// on ANY miss we fall back to gviz — so the app works whether or not the
+// backend action is deployed. Only full-tab reads (no tq) route to the backend;
+// query (tq) reads stay on gviz.
+const _BKREAD_LS = 'evg_bkread_cap_v1';
+let _bkReadProbe = null;
+function _bkReadCached() {
+  try { const o = JSON.parse(localStorage.getItem(_BKREAD_LS) || 'null'); if (o && (Date.now() - o.t) < 864e5) return !!o.ok; } catch (e) {}
+  return null;
+}
+function _backendReadCapable() {
+  const c = _bkReadCached(); if (c !== null) return Promise.resolve(c);
+  if (_bkReadProbe) return _bkReadProbe;
+  _bkReadProbe = (async () => {
+    let ok = false;
+    try {
+      const resp = await fetch(getExec('main'), { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'readSheet', ping: 1 }) });
+      const j = await resp.json();
+      ok = !!(j && j.ok && j.readSheet);
+    } catch (e) { ok = false; }
+    try { localStorage.setItem(_BKREAD_LS, JSON.stringify({ ok, t: Date.now() })); } catch (e) {}
+    _bkReadProbe = null;
+    return ok;
+  })();
+  return _bkReadProbe;
+}
+// Force a re-probe (e.g. after deploying the backend action). Exposed for the console.
+window._evgRefreshBackendRead = function () { try { localStorage.removeItem(_BKREAD_LS); } catch (e) {} _bkReadProbe = null; return 'Backend-read capability will be re-checked on next load.'; };
+async function fetchSheetSafe(sheetName, sheetId, opts) {
+  opts = opts || {};
+  const gviz = () => fetchSheet(sheetName, opts.tq || null, sheetId, opts);
+  if (opts.tq) return gviz();                              // query reads stay on gviz
+  try {
+    if (!(await _backendReadCapable())) return gviz();
+    const sid = opts.rawId ? (sheetId || SHEET_ID)
+      : ((typeof _resolveSheetId === 'function') ? _resolveSheetId(sheetId || SHEET_ID) : (sheetId || SHEET_ID));
+    const resp = await fetch(getExec(opts.exec || 'main'), { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'readSheet', sheetId: sid, tab: sheetName, headerRows: (opts.headers != null ? opts.headers : 1) }) });
+    const j = await resp.json();
+    if (j && j.ok && Array.isArray(j.rows)) return j.rows;
+    return gviz();
+  } catch (e) { return gviz(); }
+}
 
 function fetchSheet(sheetName, tq, spreadsheetId, opts) {
   return new Promise((resolve) => {
