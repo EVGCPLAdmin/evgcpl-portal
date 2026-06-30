@@ -36,6 +36,7 @@ function doPost(e) {
 
     // ── Generic writes (SafetyHandlers.gs) ─────────────────────
     if (action === 'appendRow')                return appendRow(body);
+    if (action === 'appendRowMapped')          return appendRowMapped(body);
     if (action === 'updateCell')               return updateCell(body);
     if (action === 'batchUpdate')              return batchUpdate(body);
     if (action === 'closeSafetyIncident')      return closeSafetyIncident(body);

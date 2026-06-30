@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.21.0';
-const PORTAL_BUILD    = 623;
-const PORTAL_BUILD_AT = '2026-06-24T12:11:55Z';
+const PORTAL_VERSION  = '4.28.0';
+const PORTAL_BUILD    = 644;
+const PORTAL_BUILD_AT = '2026-06-30T12:34:20Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2784,21 +2784,30 @@ function _routeRegistryAudit() {
 //       multi-page-bootstrap.js if it lives on a different .html page)
 // ════════════════════════════════════════════════════════════════
 const NAV_SUBMENUS = {
+  mrs: {
+    children: [
+      { route:'mrs',       label:'Dashboard', status:'live' },
+      { route:'mrs-list',  label:'List',      status:'live', badge:{ text:'New', cls:'live' } },
+    ],
+  },
   scm: {
     children: [
-      { route:'scm',          label:'Overview',         status:'live' },
-      { route:'scm-pending',  label:'Pending Approval', status:'live' },
-      { route:'scm-site',     label:'Spend by Site',    status:'live' },
-      { route:'scm-vendor',   label:'Top Vendors',      status:'live' },
+      { route:'scm',              label:'Dashboard',           status:'live' },
+      { route:'po-register',      label:'PO Register',         status:'live' },
+      { route:'scm-pending',      label:'Pending Approval (PO)', status:'live' },
+      { route:'purchase-view',    label:'Purchase View',       status:'live' },
+      { route:'scm-site',         label:'Spend by Site',       status:'live' },
+      { route:'scm-vendor',       label:'Top Vendors',         status:'live' },
+      { route:'item-rate-master', label:'Item Rate Master',    status:'live' },
     ],
   },
   stores: {
     children: [
-      { route:'stores',         label:'Overview',      status:'live' },
-      { route:'stores-siraw',   label:'StockIN Table', status:'live' },
-      { route:'stores-grn',     label:'GRN Register',  status:'live' },
-      { route:'stores-openpo',  label:'Open POs',      status:'live', badge:{ text:'New', cls:'live' } },
-      { route:'stores-levels',  label:'Stock Levels',  status:'live' },
+      { route:'stores',               label:'Dashboard',         status:'live' },
+      { route:'stockin-register',     label:'StockIN Register',  status:'live' },
+      { route:'stores-stockout',      label:'StockOut Register', status:'live', badge:{ text:'New', cls:'live' } },
+      { route:'stores-stocktransfer', label:'StockTransfer',     status:'live', badge:{ text:'New', cls:'live' } },
+      { route:'stores-levels',        label:'Stock Level',       status:'live' },
     ],
   },
   // Ledgers parent → each ledger is its own level-3 sub-page. The parent route
@@ -3143,6 +3152,7 @@ function renderPage(page) {
     'store':          renderStoreModule,
     'scm':            renderSCMDashboard,
     'mrs':            renderMRSDashboard,
+    'mrs-list':       renderMRSList,
     'scm-pending':    () => renderSCMSubPage('pending'),
     'scm-site':       () => renderSCMSubPage('site'),
     'scm-vendor':     () => renderSCMSubPage('vendor'),
@@ -3151,9 +3161,14 @@ function renderPage(page) {
     'stores-grn':     () => { window._pstPendingTab = 'grn';     renderProcurementStores(); },
     'stores-openpo':  () => { window._pstPendingTab = 'openpo';  renderProcurementStores(); },
     'stores-levels':  () => { window._pstPendingTab = 'levels';  renderProcurementStores(); },
+    'stores-stockout':     renderStockOutRegister,
+    'stores-stocktransfer': renderStockTransferRegister,
+    'pending-pages':  renderPendingPages,
     'purchase':       renderPurchaseDashboard,
-    'purchase-view':  renderPurchaseView,
-    'vendor':         renderVendorPortalInternal,
+    'purchase-view':      renderPurchaseView,
+    'item-rate-master':   renderItemRateMaster,
+    'pending-stockin':    renderPendingStockIN,
+    'vendor':             renderVendorPortalInternal,
     'subcontractor':  renderSubcontractorPortal,
     'po-register':    renderPORegister,
     'stockin-register': renderStockINRegister,
@@ -4118,7 +4133,7 @@ function _mdpParseRow(r) {
 
 async function _mdpLoad(force) {
   if (_mdpRows && !force) return;
-  const rows = await fetchSheet('PaymentRequest', null, PAYMENT_SHEET_ID);
+  const rows = await fetchSheetSafe('PaymentRequest', PAYMENT_SHEET_ID, {});
   _mdpRows = (rows || []).filter(r => (r['Payment To'] || '').trim()).map(_mdpParseRow);
 }
 
@@ -4916,7 +4931,7 @@ async function _vplpEnsure(force) {
   if (force || !_vplpGRNRows) {
     // GRN No lives in the separate GRN_No tab (keyed by UUID); StockIN joins to
     // it via CheckSum/UUID. rawId bypasses any stale Sheet-Linking override.
-    try { _vplpGRNRows = await fetchSheet('GRN_No', null, STORES_SHEET_ID, { rawId: true }) || []; }
+    try { _vplpGRNRows = await fetchSheetSafe('GRN_No', STORES_SHEET_ID, { rawId: true }) || []; }
     catch (e) { _vplpGRNRows = []; }
   }
   if (force || !_vplpVMRows) {
@@ -5125,22 +5140,24 @@ function _vplpRenderBody() {
   const selV = d.vendors.find(x => x.key === _vplpVendor);
   const selLabel = selV ? `${selV.name}${selV.vid ? ` [${selV.vid}]` : ''}` : '';
   const vendorItems = d.vendors.map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}${v.unmapped ? ' ·Unmapped' : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
-  const selector = `<div class="card card-pad" style="margin-bottom:1rem"><div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
+  const pickerRow = `<div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
     <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:280px">
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR</label>
       ${evgComboHtml({ id: 'vplp-vendor-search', items: vendorItems, value: selLabel, placeholder: 'Type a vendor name or ID…', onPick: '_vplpSetVendor' })}
     </div>
-    <div style="font-size:.72rem;color:var(--txt3)">${d.vendors.length} vendor(s)</div></div></div>`;
-  if (!_vplpVendor) { c.innerHTML = toggle + selector + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
+    <div style="font-size:.72rem;color:var(--txt3);padding-bottom:6px">${d.vendors.length} vendor(s)</div></div>`;
+  if (!_vplpVendor) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}</div>` + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
   const v = d.vendors.find(x => x.key === _vplpVendor);
-  if (!v) { c.innerHTML = toggle + selector; return; }
+  if (!v) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}</div>`; return; }
   const obTag = v.opening ? ` &middot; <span style="color:#3730a3">Opening ${'₹' + Math.round((v.opening.credit || 0) - (v.opening.debit || 0)).toLocaleString('en-IN')} ${(v.opening.credit >= v.opening.debit) ? 'Cr' : 'Dr'}</span>` : '';
-  const head = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem">
+  // Vendor picker + selected-vendor summary share one card to cut the vertical stacking.
+  const summaryRow = `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;margin-top:.85rem;padding-top:.85rem;border-top:1px solid var(--border)">
     <div><div style="font-weight:700;font-size:1rem">${esc(v.name)}${v.vid ? ` <span style="font-size:.72rem;color:var(--txt3)">[${esc(v.vid)}]</span>` : ''}</div>
     <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) received &middot; ${v.payCount} payment(s)${obTag}</div></div>
     <button onclick="_vplpOpenOB('${esc(v.key)}')" class="btn btn-sm btn-secondary" title="Record / edit this vendor's opening balance">${v.opening ? '&#9998; Edit Opening Balance' : '&#10133; Opening Balance'}</button>
   </div>`;
-  c.innerHTML = toggle + selector + head + _vplpLedger(v);
+  const headCard = `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}${summaryRow}</div>`;
+  c.innerHTML = toggle + headCard + _vplpLedger(v);
 }
 // Per-vendor Dr/Cr rows: credit = received goods (material + tax + charges),
 // debit = completed vendor payments, bal = credit − debit, status by sign.
@@ -5407,22 +5424,23 @@ function _vplpLedger(v, embedOpts) {
   const hasClosed = closedAll.length > 0;
   const showClosed = !embedOpts && hasClosed && _vplpLedgerMode === 'closed';
   const scope = showClosed ? closedAll : activeAll;
-  const modeBar = (!embedOpts && hasClosed) ? `<div style="display:flex;gap:.5rem;margin-bottom:.8rem;align-items:center;flex-wrap:wrap">
+  // Active/Closed toggle (only when an opening balance splits the ledger).
+  const modeInner = (!embedOpts && hasClosed) ? `
       <button onclick="_vplpSetLedgerMode('active')" class="btn btn-sm ${!showClosed ? 'btn-primary' : 'btn-secondary'}">&#128210; Active Ledger</button>
       <button onclick="_vplpSetLedgerMode('closed')" class="btn btn-sm ${showClosed ? 'btn-primary' : 'btn-secondary'}">&#128452; Closed Ledger (${closedAll.length})</button>
-      <span style="font-size:.7rem;color:var(--txt3)">${showClosed ? 'Entries on/before ' + _mdpFmtDate(ob.date) + ' &mdash; already rolled into the opening balance' : 'Opening balance as on ' + _mdpFmtDate(ob.date) + ' + entries posted after'}</span>
-    </div>` : '';
-  if (!scope.length) return modeBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No entries in this view.</div>';
-  // Financial-year filter.
+      <span style="font-size:.7rem;color:var(--txt3)">${showClosed ? 'Entries on/before ' + _mdpFmtDate(ob.date) + ' &mdash; already rolled into the opening balance' : 'Opening balance as on ' + _mdpFmtDate(ob.date) + ' + entries posted after'}</span>` : '';
+  if (!scope.length) return (modeInner ? `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">${modeInner}</div>` : '') + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No entries in this view.</div>';
+  // Financial-year filter — shares one toolbar row with the mode toggle.
   const fySet = Array.from(new Set(scope.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
   const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _fy ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
-  const fyBar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
-    <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">FINANCIAL YEAR</label>
+  const toolbar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+    ${modeInner}
+    <label style="font-size:.7rem;font-weight:700;color:var(--txt3);${modeInner ? 'margin-left:auto' : ''}">FINANCIAL YEAR</label>
     <select onchange="${_onChangeFY}(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2)">${fyOpts}</select>
     <span style="font-size:.7rem;color:var(--txt3)">${_fy ? _vplpFYLabel(_fy) + ' · Apr–Mar' : 'All transactions'}</span>
   </div>`;
   const entries = _fy ? scope.filter(e => _vplpFYof(e.date) === _fy) : scope;
-  if (!entries.length) return modeBar + fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
+  if (!entries.length) return toolbar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   // Opening balance always first; then chronological, same-day credits (receipt) before debits (payment).
   entries.sort((a, b) => ((b.opening ? 1 : 0) - (a.opening ? 1 : 0)) || (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
   let running = 0;
@@ -5494,7 +5512,7 @@ function _vplpLedger(v, embedOpts) {
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td></tr>`;
-  return modeBar + fyBar + kpi + `<div class="card"><div style="overflow-x:auto">
+  return toolbar + kpi + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
@@ -5668,7 +5686,7 @@ let _regGRNRows = null;
 async function _regEnsure(force) {
   await _openPOEnsure(force);
   if (force || !_regGRNRows) {
-    try { _regGRNRows = await fetchSheet('GRN_No', null, STORES_SHEET_ID, { rawId: true }) || []; }
+    try { _regGRNRows = await fetchSheetSafe('GRN_No', STORES_SHEET_ID, { rawId: true }) || []; }
     catch (e) { _regGRNRows = []; }
   }
 }
@@ -5825,29 +5843,33 @@ function _poRegBuild() {
       <input id="poRegSearch" type="text" oninput="_poRegSetSearch(this.value)" placeholder="Search PO / vendor / site…" style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
       <select onchange="_poRegSetStatus(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 9px;background:var(--surface2)"><option value="">All statuses</option>${statuses.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>
       <span id="poRegCount" style="font-size:.72rem;color:var(--txt3)"></span></div>
-    <div class="card"><table class="data-table" data-evg-resize="skip" data-evg-default-hidden="${_regDefHiddenAttr(_PO_REG_CURATED, _regRawCols(_openPOHeaders))}"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th>${_regRawCols(_openPOHeaders).map(cc => `<th>${esc(cc)}</th>`).join('')}</tr></thead><tbody id="poRegTbody"></tbody></table></div>`;
+    <div class="card"><table class="data-table"><thead><tr><th>PO No</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th><th style="text-align:right">Net Amount</th><th style="text-align:right">Received Value</th><th style="text-align:right">Paid</th></tr></thead><tbody id="poRegTbody"></tbody></table></div>`;
   _poRegFill();
-  try { applyTableFeatures(); } catch (e) {}
 }
 const _PO_REG_CURATED = ['PO No', 'Date', 'Vendor', 'Site', 'Status', 'Net Amount', 'Received Value', 'Paid'];
 function _poRegFill() {
   const tb = document.getElementById('poRegTbody'); if (!tb) return;
   const esc = _mdpEsc;
-  const rawCols = _regRawCols(_openPOHeaders);
   const q = _poRegSearch.trim().toLowerCase();
   let rows = _poRegAll;
   if (_poRegStatus) rows = rows.filter(r => r.status === _poRegStatus);
   if (q) rows = rows.filter(r => (r.poNo + ' ' + r.vendor + ' ' + r.site).toLowerCase().includes(q));
   const cnt = document.getElementById('poRegCount'); if (cnt) cnt.textContent = rows.length + ' PO(s)';
-  if (!rows.length) { tb.innerHTML = `<tr><td colspan="${8 + rawCols.length}" style="text-align:center;color:var(--txt3);padding:1.5rem">No POs match.</td></tr>`; return; }
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--txt3);padding:1.5rem">No POs match.</td></tr>`; return; }
   tb.innerHTML = rows.map(r => `<tr style="cursor:pointer" data-po="${esc(r.poNo)}" onclick="_poOpenDetail(this.dataset.po)">
     <td style="font-family:monospace;font-size:.74rem">${esc(r.poNo)}</td>
     <td style="white-space:nowrap">${_mdpFmtDate(r.date)}</td>
     <td>${esc(r.vendor) || '—'}</td><td>${esc(r.site) || '—'}</td><td>${esc(r.status) || '—'}</td>
     <td style="text-align:right">${r.net ? _regINR(r.net) : '—'}</td>
     <td style="text-align:right;color:#b45309">${r.recvVal ? _regINR(r.recvVal) : '—'}</td>
-    <td style="text-align:right;color:#16a34a">${r.paid ? _regINR(r.paid) : '—'}</td>${rawCols.map(cc => `<td style="font-size:.74rem">${_regRawCell(r.raw && r.raw[cc])}</td>`).join('')}</tr>`).join('');
-  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+    <td style="text-align:right;color:#16a34a">${r.paid ? _regINR(r.paid) : '—'}</td></tr>`).join('');
+  const tbl = tb.closest('table');
+  if (tbl) {
+    // Expose raw PO header fields as hidden columns (via ⚙ Columns), not inline.
+    try { _evgExposeFields(tbl, rows.map(r => r.raw), _PO_REG_CURATED); } catch (e) {}
+    try { applyTableFeatures(); } catch (e) {}
+    try { updateTableBadge(tbl); } catch (e) {}
+  }
 }
 window._poRegReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _poRegAll = _poRegRows(); _poRegBuild(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
 window._poRegSetSearch = function(v) { _poRegSearch = v; _poRegFill(); };
@@ -6074,27 +6096,32 @@ function _siRegBuild() {
   c.innerHTML = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
       <input id="siRegSearch" type="text" oninput="_siRegSetSearch(this.value)" placeholder="Search GRN / PO / vendor / part / invoice…" style="flex:1;min-width:240px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
       <span id="siRegCount" style="font-size:.72rem;color:var(--txt3)"></span></div>
-    <div class="card"><table class="data-table" data-evg-resize="skip" data-evg-default-hidden="${_regDefHiddenAttr(_SI_REG_CURATED, _regRawCols(_openPOStock))}"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th>${_regRawCols(_openPOStock).map(cc => `<th>${_mdpEsc(cc)}</th>`).join('')}</tr></thead><tbody id="siRegTbody"></tbody></table></div>`;
+    <div class="card"><table class="data-table"><thead><tr><th>GRN No</th><th>Received On</th><th>PO No</th><th>Vendor</th><th>Site</th><th>Invoice No</th><th>Part</th><th style="text-align:right">GRN Qty</th></tr></thead><tbody id="siRegTbody"></tbody></table></div>`;
   _siRegFill();
-  try { applyTableFeatures(); } catch (e) {}
 }
 const _SI_REG_CURATED = ['GRN No', 'Received On', 'PO No', 'Vendor', 'Site', 'Invoice No', 'Part', 'GRN Qty'];
 function _siRegFill() {
   const tb = document.getElementById('siRegTbody'); if (!tb) return;
   const esc = _mdpEsc;
-  const rawCols = _regRawCols(_openPOStock);
   const q = _siRegSearch.trim().toLowerCase();
   let rows = _siRegAll;
   if (q) rows = rows.filter(r => (r.grn + ' ' + r.poNo + ' ' + r.vendor + ' ' + r.part + ' ' + r.inv).toLowerCase().includes(q));
   const cnt = document.getElementById('siRegCount'); if (cnt) cnt.textContent = rows.length + ' receipt(s)';
-  if (!rows.length) { tb.innerHTML = `<tr><td colspan="${8 + rawCols.length}" style="text-align:center;color:var(--txt3);padding:1.5rem">No StockIN records match.</td></tr>`; return; }
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--txt3);padding:1.5rem">No StockIN records match.</td></tr>`; return; }
   tb.innerHTML = rows.map(r => `<tr style="cursor:pointer" data-idx="${r.idx}" onclick="_siOpenDetail(this.dataset.idx)">
     <td style="font-weight:600;color:var(--g7)">${esc(r.grn) || '<span style="color:var(--txt3);font-style:italic">Pending</span>'}</td>
     <td style="white-space:nowrap">${_mdpFmtDate(r.received)}</td>
     <td style="font-family:monospace;font-size:.74rem">${esc(r.poNo) || '—'}</td>
     <td>${esc(r.vendor) || '—'}</td><td>${esc(r.site) || '—'}</td><td>${esc(r.inv) || '—'}</td><td>${esc(r.part) || '—'}</td>
-    <td style="text-align:right">${esc(r.grnQty) || '—'}</td>${rawCols.map(cc => { const rr = _openPOStock[r.idx]; return `<td style="font-size:.74rem">${_regRawCell(rr && rr[cc])}</td>`; }).join('')}</tr>`).join('');
-  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+    <td style="text-align:right">${esc(r.grnQty) || '—'}</td></tr>`).join('');
+  const tbl = tb.closest('table');
+  if (tbl) {
+    // Expose every raw StockIN field as a hidden column (available via ⚙ Columns),
+    // instead of dumping them all inline — keeps the default view readable.
+    try { _evgExposeFields(tbl, rows.map(r => _openPOStock[r.idx]), _SI_REG_CURATED); } catch (e) {}
+    try { applyTableFeatures(); } catch (e) {}
+    try { updateTableBadge(tbl); } catch (e) {}
+  }
 }
 window._siRegReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _regEnsure(true).then(() => { _siRegAll = _siRegRows(); _siRegBuild(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
 window._siRegSetSearch = function(v) { _siRegSearch = v; _siRegFill(); };
@@ -7996,6 +8023,656 @@ window._pvOnSearch = function(v) {
   }, 250);
 };
 window._pvSetSite = function(v) { _pvSite = v; _pvRenderCards(); };
+
+// ── ITEM RATE MASTER ────────────────────────────────────────────────────────
+// Route: item-rate-master | Section: Procurement
+// Min / max / avg purchase rate per item, sourced from the
+// 4-GRNMaster_Actual tab of the Master spreadsheet (SHEET_ID).
+// Type 1 groups by Item + UOM + Site; Type 2 groups by Item + UOM.
+// Period filter: financial year. Export gated by Access Settings 'export' action.
+
+let _irmFY      = '';
+let _irmType    = 1;
+let _irmSearch  = '';
+let _irmAllRows = [];
+let _irmGrouped = null;
+let _irmGRNRows = null;   // raw rows from 4-GRNMaster_Actual
+let _irmExpanded = new Set();
+
+async function _irmEnsure(force) {
+  if (!force && _irmGRNRows) return;
+  await _openPOEnsure(force);
+  try {
+    _irmGRNRows = await fetchSheetSafe('4-GRNMaster_Actual', SHEET_ID, { rawId: true }) || [];
+  } catch (e) {
+    _irmGRNRows = [];
+  }
+}
+
+async function renderItemRateMaster() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+    <div><h1>&#128200; Item Rate Master</h1><p>Min / Max / Average purchase rates per item &middot; sourced from GRN Master</p></div>
+    <button class="btn btn-secondary btn-sm" onclick="_irmReload(this)">&#8635; Refresh</button>
+  </div></div>
+  <div id="irm-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading data&hellip;</div></div>`;
+  try {
+    await _irmEnsure();
+    _irmAllRows = _irmBuildRows();
+    _irmGrouped = null;
+    _irmFY      = _irmDefaultFY();
+    _irmSearch  = '';
+    _irmType    = 1;
+    if (!_irmAllRows.length && _irmGRNRows && _irmGRNRows.length) {
+      const gCols = _irmGRNRows[0] ? Object.keys(_irmGRNRows[0]) : [];
+      const IC2 = _opColMap(_openPOItems || []);
+      const pCols = (_openPOItems && _openPOItems[0]) ? Object.keys(_openPOItems[0]) : [];
+      const b = document.getElementById('irm-body');
+      if (b) b.innerHTML = `<div class="card card-pad" style="color:var(--danger);padding:1.5rem">
+        <b>&#9888; 0 rows parsed. GRN rows: ${_irmGRNRows.length}, PO Items: ${(_openPOItems||[]).length}.</b>
+        <div style="font-size:.78rem;margin-top:.5rem;color:var(--txt2)">GRN columns: <code style="font-size:.74rem">${_mdpEsc(gCols.join(' · '))}</code></div>
+        <div style="font-size:.78rem;margin-top:.35rem;color:var(--txt2)">PO Items columns: <code style="font-size:.74rem">${_mdpEsc(pCols.join(' · '))}</code></div>
+        <div style="font-size:.74rem;color:var(--txt3);margin-top:.35rem">Check browser console. GRN needs a UUID column; PO Items needs Part Details (Key) / Part Details / CheckSum.</div>
+      </div>`;
+      return;
+    }
+    _irmRender();
+  } catch (err) {
+    const b = document.getElementById('irm-body');
+    if (b) b.innerHTML = `<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load data: ${_mdpEsc(String(err && err.message || err))}</div>`;
+  }
+}
+
+function _irmDefaultFY() {
+  const fySet = Array.from(new Set(_irmAllRows.map(r => _vplpFYof(r.poDate)).filter(Boolean))).sort();
+  const cur = _vplpFYof(new Date().toISOString());
+  return fySet.includes(cur) ? cur : (fySet[fySet.length - 1] || '');
+}
+
+function _irmBuildRows() {
+  const raw = _irmGRNRows || [];
+  if (!raw.length) return [];
+
+  // Step 1: collect UUID set from GRN Master (parts that have been actually received)
+  const grnUUIDs = new Set();
+  raw.forEach(r => {
+    const uuid = String(r['UUID'] || r['Row UUID'] || r['GRN UUID'] || r['Id'] || r['ID'] || '').trim();
+    if (uuid) grnUUIDs.add(uuid);
+  });
+  try { console.log('[IRM] GRN UUID count:', grnUUIDs.size, '| sample:', [...grnUUIDs].slice(0,3)); } catch (e) {}
+  if (!grnUUIDs.size) return [];
+
+  // Step 2: PO_Actual header lookup: PO No → { vendor, site, poDate }
+  const HC = _opColMap(_openPOHeaders || []);
+  const poHdrMap = {};
+  (_openPOHeaders || []).forEach(h => {
+    const poNo = String(_opGet(h, HC, ['PO No', 'Order No', 'PO No.']) || '').trim();
+    if (!poNo) return;
+    poHdrMap[poNo] = {
+      vendor: String(_opGet(h, HC, ['Vendor Name', 'Vendor', 'Supplier Name', 'Supplier']) || '').trim(),
+      site:   String(_opGet(h, HC, ['Site Name', 'Site', 'Project Site', 'Project', 'Location']) || '').trim(),
+      poDate: String(_opGet(h, HC, ['PO Date', 'Date', 'Order Date']) || '').trim(),
+    };
+  });
+
+  // Step 3: filter PO_Items where Part Details (Key) ∈ grnUUIDs; each matched row = one purchase entry
+  const IC = _opColMap(_openPOItems || []);
+  const rows = [];
+  (_openPOItems || []).forEach(x => {
+    const uuid = String(_opGet(x, IC, ['Part Details (Key)', 'Part Details', 'CheckSum', 'Check Sum']) || '').trim();
+    if (!uuid || !grnUUIDs.has(uuid)) return;
+
+    const part = String(_opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name', 'Part Description', 'Part Name', 'Item Description', 'Item Name', 'Description', 'Particulars', 'Material']) || '').trim();
+    if (!part) return;
+    const uom  = String(_opGet(x, IC, ['UOM', 'Unit', 'Unit of Measure', 'Units']) || '').trim();
+    const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate', 'Quoted Rate']));
+    if (!rate) return;
+    const qty  = _opNum(_opGet(x, IC, ['PO Qty', 'Qty', 'Quantity', 'Order Qty', 'Ordered Qty']));
+    if (!qty) return;
+    const poNo = String(_opGet(x, IC, ['PO No', 'Order No', 'PO No.']) || '').trim();
+
+    // Site: PO_Items first, then PO header
+    const itemSite = String(_opGet(x, IC, ['Site Name', 'Site', 'Project Site', 'Project', 'Location']) || '').trim();
+    const hdr    = (poNo && poHdrMap[poNo]) || {};
+    const site   = itemSite || hdr.site   || '';
+    const vendor = hdr.vendor || '';
+    const poDate = hdr.poDate  || '';
+
+    rows.push({ uuid, part, uom, rate, qty, site, vendor, poNo, poDate, receivedOn: poDate, grnNo: '', invNo: '', amount: rate * qty });
+  });
+  try { console.log('[IRM] PO_Items rows after GRN filter:', rows.length); } catch (e) {}
+  return rows;
+}
+
+function _irmFilteredRows() {
+  if (!_irmFY) return _irmAllRows;
+  return _irmAllRows.filter(r => _vplpFYof(r.poDate) === _irmFY);
+}
+
+function _irmGroupRows(rows, type) {
+  const groups = {};
+  rows.forEach(r => {
+    // Group key: UUID + UOM + Site (T1) or UUID + UOM (T2) — all from PO_Items
+    const key = r.uuid + '|' + _opNorm(r.uom) + (type === 1 ? '|' + _opNorm(r.site) : '');
+    if (!groups[key]) groups[key] = { key, uuid: r.uuid, part: r.part, uom: r.uom, site: type === 1 ? r.site : '', items: [] };
+    groups[key].items.push(r);
+  });
+  return Object.values(groups).map(g => {
+    const rts  = g.items.map(r => r.rate).filter(v => v > 0).sort((a, b) => a - b);
+    const min  = rts[0] || 0;
+    const max  = rts[rts.length - 1] || 0;
+    const avg  = rts.length ? rts.reduce((s, v) => s + v, 0) / rts.length : 0;
+    const last = g.items.slice().sort((a, b) => (_mdpDateVal(b.poDate) || 0) - (_mdpDateVal(a.poDate) || 0))[0] || {};
+    return { ...g, min, max, avg, count: g.items.length, lastRate: last.rate || 0, lastDate: last.poDate || '', lastVendor: last.vendor || '' };
+  }).sort((a, b) => a.part.localeCompare(b.part));
+}
+
+function _irmRender() {
+  const body = document.getElementById('irm-body'); if (!body) return;
+  const esc = _mdpEsc;
+  const rows   = _irmFilteredRows();
+  const groups = _irmGroupRows(rows, _irmType);
+  _irmGrouped  = groups;
+
+  const allFYs = Array.from(new Set(_irmAllRows.map(r => _vplpFYof(r.poDate)).filter(Boolean))).sort().reverse();
+  const fyOpts = `<option value="">All financial years</option>` +
+    allFYs.map(fy => `<option value="${esc(fy)}"${fy === _irmFY ? ' selected' : ''}>${_vplpFYLabel(fy)}</option>`).join('');
+
+  const totalParts   = groups.length;
+  const totalPOs     = new Set(rows.map(r => r.poNo).filter(Boolean)).size;
+  const totalVendors = new Set(rows.map(r => _opNorm(r.vendor)).filter(Boolean)).size;
+  const canExport    = typeof userCan !== 'function' || userCan('item-rate-master', 'export');
+
+  body.innerHTML = `
+    <div class="evg-kpi-grid" style="margin-bottom:1rem">
+      ${evgKpiCard({ icon:'&#127381;', value: totalParts.toLocaleString('en-IN'),  label: 'Parts Tracked' + (_irmFY ? ' · ' + _vplpFYLabel(_irmFY) : '') })}
+      ${evgKpiCard({ icon:'&#128203;', value: totalPOs.toLocaleString('en-IN'),    label: 'POs Included' })}
+      ${evgKpiCard({ icon:'&#127981;', value: totalVendors.toLocaleString('en-IN'),label: 'Vendors' })}
+    </div>
+    <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+      <input id="irmSearch" type="text" value="${esc(_irmSearch)}" oninput="_irmSetSearch(this.value)" placeholder="Search part / vendor&hellip;"
+        style="flex:1;min-width:200px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+      <select onchange="_irmSetFY(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 9px;background:var(--surface2)">${fyOpts}</select>
+      <div style="display:flex;gap:.35rem">
+        <button onclick="_irmSetType(1)" class="btn btn-sm ${_irmType===1?'btn-primary':'btn-secondary'}" title="Group by Item + UOM + Site">T1 &middot; Site</button>
+        <button onclick="_irmSetType(2)" class="btn btn-sm ${_irmType===2?'btn-primary':'btn-secondary'}" title="Group by Item + UOM">T2 &middot; Overall</button>
+      </div>
+      <div style="display:flex;gap:.25rem">
+        <button onclick="_irmExpandAll()" class="btn btn-sm btn-secondary" title="Expand all rows">&#9660; All</button>
+        <button onclick="_irmCollapseAll()" class="btn btn-sm btn-secondary" title="Collapse all rows">&#9650; All</button>
+      </div>
+      ${canExport ? `<button onclick="_irmExport()" class="btn btn-sm btn-secondary" title="Download CSV">&#11015; CSV</button>` : ''}
+      <span id="irmCount" style="font-size:.72rem;color:var(--txt3)"></span>
+    </div>
+    <div class="card"><table class="data-table" id="irmTable">
+      <thead><tr>
+        <th style="width:28px"></th>
+        <th>Part Description</th>
+        <th>UOM</th>
+        ${_irmType === 1 ? '<th>Site</th>' : ''}
+        <th style="text-align:right">Count</th>
+        <th style="text-align:right">Min Rate</th>
+        <th style="text-align:right">Avg Rate</th>
+        <th style="text-align:right">Max Rate</th>
+        <th style="text-align:right">Last Rate</th>
+        <th>Latest PO</th>
+        <th>Last Vendor</th>
+      </tr></thead>
+      <tbody id="irmTbody"></tbody>
+    </table></div>`;
+
+  _irmFill(groups);
+  try { applyTableFeatures(); } catch (e) {}
+}
+
+function _irmFill(groups) {
+  const tb = document.getElementById('irmTbody'); if (!tb) return;
+  const esc = _mdpEsc, inr = _regINR;
+  const q   = _irmSearch.trim().toLowerCase();
+  const vis = q ? groups.filter(g => (g.part + ' ' + g.uom + ' ' + g.site + ' ' + g.lastVendor).toLowerCase().includes(q)) : groups;
+  const cnt = document.getElementById('irmCount'); if (cnt) cnt.textContent = vis.length + ' item(s)';
+  const cols = _irmType === 1 ? 11 : 10;
+  if (!vis.length) {
+    tb.innerHTML = `<tr><td colspan="${cols}" style="text-align:center;color:var(--txt3);padding:1.5rem">No items match.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = vis.map(g => {
+    const spread     = g.max && g.min ? ((g.max - g.min) / g.min * 100).toFixed(1) : 0;
+    const spreadClr  = +spread > 20 ? '#c62828' : +spread > 10 ? '#e65100' : 'var(--g9)';
+    const rowBg      = +spread > 20 ? ';background:#fff8f0' : '';
+    const keyAttr    = esc(g.key);
+    const exp        = _irmExpanded.has(g.key);
+    const hide       = exp ? '' : 'display:none;';
+
+    // Pre-compute insights for child rows
+    const cheapest = g.items.reduce((a, b) => (!a || b.rate < a.rate) ? b : a, null);
+    const dearest  = g.items.reduce((a, b) => (!a || b.rate > a.rate) ? b : a, null);
+    const vCnt = {};
+    g.items.forEach(r => { const k = _opNorm(r.vendor); if (!k) return; if (!vCnt[k]) vCnt[k] = { name: r.vendor, n: 0 }; vCnt[k].n++; });
+    const mostFreq  = Object.values(vCnt).sort((a, b) => b.n - a.n)[0];
+    const totalQty  = g.items.reduce((s, r) => s + (r.qty  || 0), 0);
+    const totalVal  = g.items.reduce((s, r) => s + (r.amount || 0), 0);
+    const poLines   = g.items.slice().sort((a, b) => (_mdpDateVal(b.poDate) || 0) - (_mdpDateVal(a.poDate) || 0));
+    const showSite  = _irmType === 2;
+
+    const childStyle = `${hide}background:var(--surface2,#f9fafb);`;
+    const hdrStyle   = `${hide}background:var(--surface3,#f0f0f0);`;
+
+    const insightHdr = `<tr style="${hdrStyle}" data-irm-child="${keyAttr}">
+      <td colspan="${cols}" style="padding:3px 0 2px 2.8rem;font-size:.6rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.07em;border-bottom:none">Rate Insights</td>
+    </tr>`;
+
+    const insightRow = `<tr style="${childStyle}" data-irm-child="${keyAttr}">
+      <td colspan="${cols}" style="padding:.3rem .8rem .3rem 2.8rem">
+        <div style="display:flex;gap:1.6rem;flex-wrap:wrap;font-size:.78rem;align-items:baseline">
+          <span><b style="color:#16a34a">Min</b> ${inr(g.min)}${cheapest && cheapest.vendor ? ` <span style="color:var(--txt3);font-size:.72rem">· ${esc(cheapest.vendor)}</span>` : ''}</span>
+          <span><b style="color:#1565c0">Avg</b> ${inr(Math.round(g.avg * 100) / 100)}</span>
+          <span><b style="color:#c62828">Max</b> ${inr(g.max)}${dearest && dearest.vendor ? ` <span style="color:var(--txt3);font-size:.72rem">· ${esc(dearest.vendor)}</span>` : ''}</span>
+          <span><b style="color:${spreadClr}">Spread</b> ${spread}%</span>
+          <span><b>Total Qty</b> ${totalQty.toLocaleString('en-IN')} ${esc(g.uom||'')}</span>
+          <span><b>Total Value</b> ${inr(Math.round(totalVal))}</span>
+        </div>
+        <div style="display:flex;gap:1.6rem;flex-wrap:wrap;font-size:.76rem;margin-top:.25rem;color:var(--txt2)">
+          ${cheapest ? `<span>&#128994; Cheapest: <b>${esc(cheapest.vendor)||'—'}</b> ${inr(cheapest.rate)}${cheapest.poDate ? ' · ' + _mdpFmtDate(cheapest.poDate) : ''}</span>` : ''}
+          ${dearest  ? `<span>&#128308; Dearest: <b>${esc(dearest.vendor)||'—'}</b> ${inr(dearest.rate)}${dearest.poDate ? ' · ' + _mdpFmtDate(dearest.poDate) : ''}</span>` : ''}
+          ${mostFreq ? `<span>&#11088; Most Frequent: <b>${esc(mostFreq.name)}</b> (${mostFreq.n} PO${mostFreq.n>1?'s':''})</span>` : ''}
+        </div>
+      </td>
+    </tr>`;
+
+    const poHdr = `<tr style="${hdrStyle}" data-irm-child="${keyAttr}">
+      <td colspan="${cols}" style="padding:3px 0 2px 2.8rem;font-size:.6rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.07em;border-bottom:none">Purchase Lines (${poLines.length})</td>
+    </tr>`;
+
+    const poRows = poLines.map(r => `<tr style="${childStyle}" data-irm-child="${keyAttr}">
+      <td colspan="${cols}" style="padding:.25rem .8rem .25rem 2.8rem">
+        <div style="display:flex;gap:1.4rem;font-size:.76rem;flex-wrap:wrap;align-items:center">
+          <span style="color:var(--txt3);white-space:nowrap;min-width:75px">${_mdpFmtDate(r.poDate) || '—'}</span>
+          <span style="font-family:monospace;font-size:.72rem;color:var(--txt2)">${esc(r.poNo) || '—'}</span>
+          <span style="font-weight:500;min-width:120px">${esc(r.vendor) || '—'}</span>
+          ${showSite ? `<span style="color:var(--txt3)">${esc(r.site) || '—'}</span>` : ''}
+          <span style="color:var(--txt3)">${esc(r.uom) || ''}</span>
+          <span style="font-weight:700">${inr(r.rate)}</span>
+          <span style="color:var(--txt3)">Qty ${(r.qty||0).toLocaleString('en-IN')}</span>
+          <span style="color:var(--txt2)">${inr(Math.round(r.amount||0))}</span>
+        </div>
+      </td>
+    </tr>`).join('');
+
+    return `<tr style="cursor:pointer${rowBg}" data-irm-key="${keyAttr}" onclick="_irmToggle(event,'${keyAttr}')">
+      <td style="padding:0 4px;text-align:center"><span style="font-size:.65rem;color:var(--txt3)">${exp ? '▼' : '▶'}</span></td>
+      <td style="font-weight:500">${esc(g.part)}</td>
+      <td style="font-size:.78rem;color:var(--txt3)">${esc(g.uom) || '—'}</td>
+      ${_irmType === 1 ? `<td style="font-size:.78rem">${esc(g.site) || '—'}</td>` : ''}
+      <td style="text-align:right;font-size:.78rem">${g.count}</td>
+      <td style="text-align:right;color:#16a34a;font-weight:600">${inr(g.min)}</td>
+      <td style="text-align:right;font-weight:600">${inr(Math.round(g.avg * 100) / 100)}</td>
+      <td style="text-align:right;color:#c62828;font-weight:600">${inr(g.max)}</td>
+      <td style="text-align:right;color:var(--txt2)">${inr(g.lastRate)}</td>
+      <td style="font-size:.78rem;white-space:nowrap">${_mdpFmtDate(g.lastDate) || '—'}</td>
+      <td style="font-size:.78rem">${esc(g.lastVendor) || '—'}</td>
+    </tr>${insightHdr}${insightRow}${poHdr}${poRows}`;
+  }).join('');
+  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+}
+
+window._irmReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _irmEnsure(true).then(() => { _irmAllRows = _irmBuildRows(); _irmGrouped = null; _irmRender(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._irmSetFY     = function(v) { _irmFY = v; _irmGrouped = null; _irmRender(); };
+window._irmSetType   = function(v) { _irmType = +v; _irmGrouped = null; _irmExpanded.clear(); _irmRender(); };
+window._irmSetSearch = function(v) { _irmSearch = v; _irmFill(_irmGrouped || []); };
+
+window._irmToggle = function(e, key) {
+  if (e) e.stopPropagation();
+  const tb = document.getElementById('irmTbody'); if (!tb) return;
+  const exp = _irmExpanded.has(key);
+  if (exp) _irmExpanded.delete(key); else _irmExpanded.add(key);
+  tb.querySelectorAll(`[data-irm-child="${key}"]`).forEach(r => { r.style.display = exp ? 'none' : ''; });
+  const pRow = tb.querySelector(`[data-irm-key="${key}"]`);
+  if (pRow) { const icon = pRow.querySelector('span'); if (icon) icon.textContent = exp ? '▶' : '▼'; }
+};
+
+window._irmExpandAll = function() {
+  const tb = document.getElementById('irmTbody'); if (!tb) return;
+  tb.querySelectorAll('[data-irm-child]').forEach(r => { r.style.display = ''; });
+  tb.querySelectorAll('[data-irm-key]').forEach(r => {
+    const key = r.dataset.irmKey; if (key) _irmExpanded.add(key);
+    const icon = r.querySelector('span'); if (icon) icon.textContent = '▼';
+  });
+};
+
+window._irmCollapseAll = function() {
+  const tb = document.getElementById('irmTbody'); if (!tb) return;
+  tb.querySelectorAll('[data-irm-child]').forEach(r => { r.style.display = 'none'; });
+  tb.querySelectorAll('[data-irm-key]').forEach(r => {
+    const key = r.dataset.irmKey; if (key) _irmExpanded.delete(key);
+    const icon = r.querySelector('span'); if (icon) icon.textContent = '▶';
+  });
+};
+
+
+window._irmExport = function() {
+  if (typeof userCan === 'function' && !userCan('item-rate-master', 'export')) {
+    alert('You do not have permission to export.'); return;
+  }
+  const groups = _irmGrouped; if (!groups) return;
+  const q   = _irmSearch.trim().toLowerCase();
+  const vis = q ? groups.filter(g => (g.part + ' ' + g.uom + ' ' + g.site + ' ' + g.lastVendor).toLowerCase().includes(q)) : groups;
+  const fy  = _irmFY ? _vplpFYLabel(_irmFY).replace(/\s/g, '_') : 'all';
+  const csvRows = [];
+  vis.forEach(g => {
+    const base = { 'Part Description': g.part, 'UOM': g.uom };
+    if (_irmType === 1) base['Site'] = g.site;
+    // Summary row
+    csvRows.push({ ...base, 'Row Type': 'Summary', 'PO Date': '', 'PO No': '', 'Vendor': g.lastVendor,
+      'Count': g.count, 'Min Rate': g.min, 'Avg Rate': Math.round(g.avg * 100) / 100,
+      'Max Rate': g.max, 'Last Rate': g.lastRate, 'Latest PO': g.lastDate, 'PO Qty': '', 'Value': '' });
+    // One row per PO line with repeated Part details
+    g.items.slice().sort((a, b) => (_mdpDateVal(b.poDate)||0) - (_mdpDateVal(a.poDate)||0)).forEach(r => {
+      csvRows.push({ ...base, 'Row Type': 'PO Line', 'PO Date': r.poDate, 'PO No': r.poNo, 'Vendor': r.vendor,
+        'Count': '', 'Min Rate': '', 'Avg Rate': '', 'Max Rate': '', 'Last Rate': r.rate, 'Latest PO': r.poDate,
+        'PO Qty': r.qty, 'Value': Math.round(r.amount || 0) });
+    });
+  });
+  downloadCSV(csvRows, `ItemRateMaster_T${_irmType}_${fy}_${new Date().toISOString().slice(0, 10)}.csv`);
+};
+
+// ════════════════════════════════════════════════════════════════
+//  PENDING STOCK IN (Stock Transfer) — route 'pending-stockin'
+//  Lists Stock Transfer items that have NOT yet been stocked-in.
+//  Source tabs (all in STORES_SHEET_ID):
+//    StockTransfer  — items dispatched on a DC (delivery challan)
+//    ST_StockIN     — stock-in receipts against transfers
+//    StockIN        — main goods-receipt register
+//  A transfer is "stocked in" if its DC No appears in EITHER ST_StockIN or
+//  StockIN. Matching is on a normalised DC No. Export gated by Access Settings.
+// ════════════════════════════════════════════════════════════════
+let _psiStatus  = 'pending';   // 'pending' | 'done' | 'all'
+let _psiSearch  = '';
+let _psiRows    = null;        // built rows
+let _psiLoaded  = false;
+
+async function _psiEnsure(force) {
+  if (_psiLoaded && !force) return;
+  const grab = async (tab, sid) => {
+    try {
+      let r = await fetchSheetSafe(tab, sid, { rawId: true });
+      if (!r || !r.length) { await new Promise(z => setTimeout(z, 500)); r = await fetchSheetSafe(tab, sid, { rawId: true }); }
+      return r || [];
+    } catch (e) { return []; }
+  };
+  const [st, stSi, si, grn] = await Promise.all([
+    grab('StockTransfer', STORES_SHEET_ID),
+    grab('ST_StockIN',    STORES_SHEET_ID),
+    grab('StockIN',       STORES_SHEET_ID),
+    grab('4-GRNMaster_Actual', SHEET_ID),
+  ]);
+  _psiBuildPartMap(grn);
+  _psiBuild(st, stSi, si);
+  _psiLoaded = true;
+}
+
+// Resolve readable Part No / Part Description from the Master GRN tab
+// (4-GRNMaster_Actual), keyed by UUID. A StockTransfer / receipt "Part Details"
+// value IS that UUID, so we look it up to always show readable part details.
+let _psiPartMap = {};
+function _psiBuildPartMap(grnRows) {
+  const map = {};
+  const CM = _opColMap(grnRows || []);
+  (grnRows || []).forEach(r => {
+    const uuid = _psiKey(_opGet(r, CM, ['UUID', 'Row UUID', 'GRN UUID', 'Id', 'ID']));
+    if (!uuid || map[uuid]) return;
+    map[uuid] = {
+      partNo:   String(_opGet(r, CM, ['GRN CODE', 'GRN Code', 'Part No', 'Part No.', 'Part Number', 'Part Code', 'Material Code', 'Item Code']) || '').trim(),
+      partDesc: String(_opGet(r, CM, ['Description', 'Part Description', 'Material Description', 'Material Desc', 'Material Name', 'Part Name', 'Item Description', 'Item Name', 'Particulars']) || '').trim(),
+    };
+  });
+  _psiPartMap = map;
+}
+
+// Normalise an identifier for matching (strip spaces / punctuation, lowercase).
+const _psiKey = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, '').trim();
+
+// Column-name candidates (flexible — live headers may vary).
+const _PSI_DC_COLS   = ['DC No', 'DC No.', 'DC Number', 'DCNo', 'Delivery Challan No', 'Delivery Challan', 'Challan No', 'DC'];
+const _PSI_PO_COLS   = ['PO No', 'PO No.', 'PO Number', 'Order No', 'Purchase Order No'];
+const _PSI_INV_COLS  = ['Invoice No / ST No', 'Invoice No/ST No', 'Invoice No / ST', 'Invoice No', 'ST No', 'ST No.', 'Invoice Number', 'Invoice'];
+const _PSI_PART_COLS = ['Part Details', 'Part Details (Key)', 'Material Description', 'Material Desc', 'Material Name', 'Part Description', 'Part Name', 'Item Name', 'Item Description', 'Description', 'Particulars', 'Material'];
+
+function _psiBuild(stRows, stSiRows, siRows) {
+  // A StockTransfer line is "stocked in" when, in ST_StockIN or StockIN, a row
+  // exists where Part Details matches AND the transfer's DC No equals that row's
+  // PO No OR Invoice No / ST No. We index the receipt tabs by composite keys
+  // "part|id" (id = PO No or Invoice No / ST No). Both fields are required —
+  // no fallback: a row with no Part Details or no DC No is treated as Pending.
+  const stockedComposite = new Set();   // part|id
+  [stSiRows, siRows].forEach(rows => {
+    const CM = _opColMap(rows || []);
+    (rows || []).forEach(r => {
+      const part = _psiKey(_opGet(r, CM, _PSI_PART_COLS));
+      if (!part) return;
+      const po  = _psiKey(_opGet(r, CM, _PSI_PO_COLS));
+      const inv = _psiKey(_opGet(r, CM, _PSI_INV_COLS));
+      if (po)  stockedComposite.add(part + '|' + po);
+      if (inv) stockedComposite.add(part + '|' + inv);
+    });
+  });
+
+  const STC = _opColMap(stRows || []);
+  const out = [];
+  (stRows || []).forEach(r => {
+    const dcRaw   = _opGet(r, STC, _PSI_DC_COLS);
+    const partRaw = _opGet(r, STC, _PSI_PART_COLS);
+    if (!dcRaw && !partRaw) return;   // skip blank rows
+    const dc   = _psiKey(dcRaw);
+    const part = _psiKey(partRaw);
+    // Stocked in only when DC No + Part Details matches part|(PO No | Invoice/ST No).
+    const stockedIn = (dc && part) ? stockedComposite.has(part + '|' + dc) : false;
+    // Resolve readable Part No / Description from GRN master (Part Details = UUID).
+    const pm = _psiPartMap[part] || {};
+    out.push({
+      dc: String(dcRaw || '').trim(),
+      date:     _opGet(r, STC, ['DC Date', 'Transfer Date', 'Date', 'ST Date', 'Dispatch Date']),
+      part:     String(partRaw || '').trim(),
+      partNo:   pm.partNo   || '',
+      partDesc: pm.partDesc || '',
+      uom:      _opGet(r, STC, ['UOM', 'Unit', 'Unit of Measure', 'Units']),
+      qty:      _opGet(r, STC, ['Transfer Qty', 'Qty', 'Quantity', 'ST Qty', 'Dispatch Qty', 'DC Qty']),
+      fromSite: _opGet(r, STC, ['From Site', 'Source Site', 'Site From', 'From', 'Transfer From', 'From Location']),
+      toSite:   _opGet(r, STC, ['To Site', 'Destination Site', 'Site To', 'To', 'Transfer To', 'To Location']),
+      vehicle:  _opGet(r, STC, ['Vehicle No', 'Vehicle', 'Truck No', 'Lorry No']),
+      stockedIn,
+    });
+  });
+  // Pending first, then by date desc
+  out.sort((a, b) => (a.stockedIn === b.stockedIn) ? ((_mdpDateVal(b.date) || 0) - (_mdpDateVal(a.date) || 0)) : (a.stockedIn ? 1 : -1));
+  _psiRows = out;
+}
+
+function renderPendingStockIN() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+    <div><h1>&#128229; Open StockTransfer Report</h1><p>Stock Transfer items not yet stocked-in &middot; matched on PO No / Invoice No-ST No / Part Details across ST_StockIN &amp; StockIN</p></div>
+    <button class="btn btn-secondary btn-sm" onclick="_psiReload(this)">&#8635; Refresh</button>
+  </div></div>
+  <div id="psi-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading stock transfer data&hellip;</div></div>`;
+  _psiStatus = 'pending'; _psiSearch = '';
+  _psiEnsure().then(() => _psiRender()).catch(() => {
+    const b = document.getElementById('psi-body');
+    if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load stock transfer data.</div>';
+  });
+}
+
+function _psiRender() {
+  const body = document.getElementById('psi-body'); if (!body) return;
+  const esc = _mdpEsc;
+  const rows = _psiRows || [];
+  const total   = rows.length;
+  const done    = rows.filter(r => r.stockedIn).length;
+  const pending = total - done;
+  const canExport = typeof userCan !== 'function' || userCan('pending-stockin', 'export');
+
+  body.innerHTML = `
+    <div class="evg-kpi-grid" style="margin-bottom:1rem">
+      ${evgKpiCard({ icon:'&#128666;', value: total.toLocaleString('en-IN'),   label: 'Total Transfers' })}
+      ${evgKpiCard({ icon:'&#9203;',   value: pending.toLocaleString('en-IN'), label: 'Pending Stock IN' })}
+      ${evgKpiCard({ icon:'&#9989;',   value: done.toLocaleString('en-IN'),    label: 'Stocked IN' })}
+    </div>
+    <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+      <input id="psiSearch" type="text" value="${esc(_psiSearch)}" oninput="_psiSetSearch(this.value)" placeholder="Search DC / part / site / vehicle&hellip;"
+        style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+      <div style="display:flex;gap:.35rem">
+        <button onclick="_psiSetStatus('pending')" class="btn btn-sm ${_psiStatus==='pending'?'btn-primary':'btn-secondary'}">Pending (${pending})</button>
+        <button onclick="_psiSetStatus('done')"    class="btn btn-sm ${_psiStatus==='done'?'btn-primary':'btn-secondary'}">Stocked IN (${done})</button>
+        <button onclick="_psiSetStatus('all')"     class="btn btn-sm ${_psiStatus==='all'?'btn-primary':'btn-secondary'}">All (${total})</button>
+      </div>
+      ${canExport ? `<button onclick="_psiExport()" class="btn btn-sm btn-secondary" title="Download CSV">&#11015; CSV</button>` : ''}
+      <span id="psiCount" style="font-size:.72rem;color:var(--txt3)"></span>
+    </div>
+    <div class="card"><table class="data-table" id="psiTable">
+      <thead><tr>
+        <th>Status</th>
+        <th>DC No</th>
+        <th>DC Date</th>
+        <th>Part No</th>
+        <th>Part Description</th>
+        <th>UOM</th>
+        <th style="text-align:right">Transfer Qty</th>
+        <th>From Site</th>
+        <th>To Site</th>
+        <th>Vehicle</th>
+      </tr></thead>
+      <tbody id="psiTbody"></tbody>
+    </table></div>`;
+
+  _psiFill();
+  try { applyTableFeatures(); } catch (e) {}
+}
+
+function _psiVisible() {
+  let rows = _psiRows || [];
+  if (_psiStatus === 'pending') rows = rows.filter(r => !r.stockedIn);
+  else if (_psiStatus === 'done') rows = rows.filter(r => r.stockedIn);
+  const q = _psiSearch.trim().toLowerCase();
+  if (q) rows = rows.filter(r => (r.dc + ' ' + r.partNo + ' ' + r.partDesc + ' ' + r.part + ' ' + r.fromSite + ' ' + r.toSite + ' ' + r.vehicle).toLowerCase().includes(q));
+  return rows;
+}
+
+function _psiFill() {
+  const tb = document.getElementById('psiTbody'); if (!tb) return;
+  const esc = _mdpEsc;
+  const rows = _psiVisible();
+  const cnt = document.getElementById('psiCount'); if (cnt) cnt.textContent = rows.length + ' item(s)';
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--txt3);padding:1.5rem">No items match.</td></tr>`; return; }
+  tb.innerHTML = rows.map(r => {
+    const badge = r.stockedIn
+      ? `<span style="font-size:.68rem;font-weight:700;color:#16a34a;background:#e8f5e9;padding:2px 8px;border-radius:10px">Stocked IN</span>`
+      : `<span style="font-size:.68rem;font-weight:700;color:#e65100;background:#fff3e0;padding:2px 8px;border-radius:10px">Pending</span>`;
+    // Part No / Description resolved from GRN master; fall back to the raw key.
+    const partDesc = r.partDesc || (r.partNo ? '' : r.part);
+    return `<tr${r.stockedIn ? '' : ' style="background:#fffaf3"'}>
+      <td>${badge}</td>
+      <td style="font-family:monospace;font-size:.76rem;font-weight:600">${esc(r.dc) || '—'}</td>
+      <td style="font-size:.78rem;white-space:nowrap">${_mdpFmtDate(r.date) || '—'}</td>
+      <td style="font-size:.78rem;font-family:monospace">${esc(r.partNo) || '—'}</td>
+      <td style="font-weight:500">${esc(partDesc) || '—'}</td>
+      <td style="font-size:.78rem;color:var(--txt3)">${esc(r.uom) || '—'}</td>
+      <td style="text-align:right;font-size:.78rem">${esc(r.qty) || '—'}</td>
+      <td style="font-size:.78rem">${esc(r.fromSite) || '—'}</td>
+      <td style="font-size:.78rem">${esc(r.toSite) || '—'}</td>
+      <td style="font-size:.78rem">${esc(r.vehicle) || '—'}</td>
+    </tr>`;
+  }).join('');
+  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+}
+
+window._psiReload    = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } _psiEnsure(true).then(() => _psiRender()).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._psiSetStatus = function(v) { _psiStatus = v; _psiRender(); };
+window._psiSetSearch = function(v) { _psiSearch = v; _psiFill(); };
+window._psiExport = function() {
+  if (typeof userCan === 'function' && !userCan('pending-stockin', 'export')) { alert('You do not have permission to export.'); return; }
+  const rows = _psiVisible();
+  const csvRows = rows.map(r => ({
+    'Status': r.stockedIn ? 'Stocked IN' : 'Pending',
+    'DC No': r.dc, 'DC Date': r.date,
+    'Part No': r.partNo, 'Part Description': r.partDesc || (r.partNo ? '' : r.part),
+    'Part Key': r.part, 'UOM': r.uom,
+    'Transfer Qty': r.qty, 'From Site': r.fromSite, 'To Site': r.toSite, 'Vehicle': r.vehicle,
+  }));
+  downloadCSV(csvRows, `PendingStockIN_${_psiStatus}_${new Date().toISOString().slice(0, 10)}.csv`);
+};
+
+// ════════════════════════════════════════════════════════════════
+//  PROCUREMENT LIST PAGES — Material Request List, StockTransfer &
+//  StockOut registers, and the Pending Pages landing. The registers are
+//  generic searchable/exportable tables over their source tab; every
+//  returned column renders and EVG table features add ⚙ Columns /
+//  resize / CSV / sort / search.
+// ════════════════════════════════════════════════════════════════
+function _procRegRender(bodyId, rows, cols, emptyMsg) {
+  const body = document.getElementById(bodyId); if (!body) return;
+  const esc = _mdpEsc;
+  rows = rows || [];
+  cols = (cols && cols.length) ? cols : (rows[0] ? Object.keys(rows[0]).filter(c => c && String(c).trim()) : []);
+  if (!rows.length || !cols.length) { body.innerHTML = `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">${emptyMsg || 'No records.'}</div>`; return; }
+  const head = cols.map(c => `<th>${esc(c)}</th>`).join('');
+  const trs = rows.map(r => `<tr>${cols.map(c => `<td style="font-size:.78rem">${esc(r[c] != null ? r[c] : '') || '—'}</td>`).join('')}</tr>`).join('');
+  body.innerHTML = `<div class="card"><table class="data-table"><thead><tr>${head}</tr></thead><tbody>${trs}</tbody></table></div>`;
+  try { applyTableFeatures(); } catch (e) {}
+}
+
+// Material Request List (route 'mrs-list') — all MRS line items.
+async function renderMRSList() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+    <div><h1>&#128203; Material Request List</h1><p>All MRS line items &middot; search &middot; export</p></div>
+    <button class="btn btn-secondary btn-sm" onclick="renderMRSList()">&#8635; Refresh</button>
+  </div></div><div id="mrsl-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading MRS data&hellip;</div></div>`;
+  try {
+    const rows = (await fetchSheet('MRS', 'SELECT D,E,F,G,I,J,K,L,N,O,P,U,Y', PO_SHEET_ID) || [])
+      .filter(r => { const n = (r['Request No'] || '').trim(); return n && n.toLowerCase() !== 'dummy'; });
+    _procRegRender('mrsl-body', rows, null, 'No material requests found.');
+  } catch (e) { const b = document.getElementById('mrsl-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load MRS data.</div>'; }
+}
+
+// StockTransfer Register (route 'stores-stocktransfer') — the StockTransfer tab.
+async function renderStockTransferRegister() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+    <div><h1>&#128666; StockTransfer Register</h1><p>Material transfers between sites &middot; search &middot; export</p></div>
+    <button class="btn btn-secondary btn-sm" onclick="renderStockTransferRegister()">&#8635; Refresh</button>
+  </div></div><div id="stxr-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading stock transfers&hellip;</div></div>`;
+  try {
+    const rows = await fetchSheetSafe('StockTransfer', STORES_SHEET_ID, { rawId: true }) || [];
+    _procRegRender('stxr-body', rows, null, 'No stock transfers found.');
+  } catch (e) { const b = document.getElementById('stxr-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load StockTransfer data.</div>'; }
+}
+
+// StockOut Register (route 'stores-stockout') — items with a stock-out qty.
+async function renderStockOutRegister() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+    <div><h1>&#128229; StockOut Register</h1><p>Items issued out / consumed per site &middot; search &middot; export</p></div>
+    <button class="btn btn-secondary btn-sm" onclick="renderStockOutRegister()">&#8635; Refresh</button>
+  </div></div><div id="stor-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading stock-out data&hellip;</div></div>`;
+  try {
+    const all = await fetchSheet('v3StockLevels', 'SELECT A,B,C,D,E,F,G,H', STORES_SHEET_ID) || [];
+    const rows = all.filter(r => (parseFloat(r['Stock Out'] || 0) || 0) > 0);
+    _procRegRender('stor-body', rows, null, 'No stock-out entries found.');
+  } catch (e) { const b = document.getElementById('stor-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load stock-out data.</div>'; }
+}
+
+// Pending Pages (route 'pending-pages') — landing for parked modules.
+function renderPendingPages() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  const card = (route, icon, title, desc) => `<div class="card card-pad" style="cursor:pointer;display:flex;gap:.8rem;align-items:flex-start" onclick="navigate('${route}')">
+    <div style="font-size:1.6rem">${icon}</div>
+    <div><div style="font-weight:700">${title}</div><div style="font-size:.78rem;color:var(--txt3);margin-top:.2rem">${desc}</div></div></div>`;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row"><div><h1>&#128452; Pending Pages</h1><p>Parked modules &middot; work in progress</p></div></div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem">
+      ${card('vendor', '&#127970;', 'Vendor Portal', 'Vendor master, ledgers and PO history')}
+      ${card('subcontractor', '&#128119;', 'Subcontractor', 'Subcontractor portal and work orders')}
+    </div>`;
+}
 
 // ── ACCOUNTS STATUS MASTER ──────────────────────────────
 // STATUS MAP: keys = exact AG column values (Col D of Status Master), labels = Col G display values
@@ -11109,21 +11786,27 @@ const MODULE_REGISTRY = [
   { route:'plant',             label:'Plant Overview',         section:'Site Ops',         defStatus:'live', defRoles:['md','site','dept_head'] },
 
   // ── Procurement ───────────────────────────────────────────────
-  { route:'scm',               label:'Purchase Dashboard',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'scm',               label:'Purchase List (PO)',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'scm-pending',       label:'Purchase · Pending Approval', section:'Procurement',  defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'scm-site',          label:'Purchase · Spend by Site',section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'scm-vendor',        label:'Purchase · Top Vendors',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
-  { route:'mrs',               label:'MRS',                    section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'mrs',               label:'Material Request List (MRS List)', section:'Procurement', defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'mrs-list',          label:'MRS · List',             section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores',            label:'Stores',                 section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-siraw',      label:'Stores · StockIN Table', section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-grn',        label:'Stores · GRN Register',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
-  { route:'stores-openpo',     label:'Stores · Open POs',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'stores-openpo',     label:'Open PO Report',         section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'stores-stockout',   label:'Stores · StockOut Register',  section:'Procurement', defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'stores-stocktransfer', label:'Stores · StockTransfer', section:'Procurement',   defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-levels',     label:'Stores · Stock Levels',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'vendor',            label:'Vendor Portal',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts','dept_head'] },
   { route:'subcontractor',     label:'Subcontractor Portal',   section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
+  { route:'pending-pages',     label:'Pending Pages',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts','dept_head'] },
   { route:'po-register',       label:'Purchase Orders',        section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
   { route:'stockin-register',  label:'StockIN Register',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
   { route:'purchase-view',     label:'Purchase View',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'item-rate-master',  label:'Item Rate Master',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'pending-stockin',   label:'Open StockTransfer Report', section:'Procurement',   defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'tendering',         label:'Tendering',              section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
 
   // ── Accounts ──────────────────────────────────────────────────
@@ -12338,6 +13021,11 @@ const MODULE_ACTIONS = {
   'reports':            ['view','export','schedule'],
   'mrs':                ['view','create','edit'],
   'scm':                ['view','export'],
+  'item-rate-master':  ['view','export'],
+  'pending-stockin':   ['view','export'],
+  'mrs-list':          ['view','export'],
+  'stores-stockout':   ['view','export'],
+  'stores-stocktransfer': ['view','export'],
 };
 function uaActionsFor(route) { return MODULE_ACTIONS[route] || ['view']; }
 
@@ -17597,8 +18285,8 @@ async function _openPOEnsure(force) {
   // while PO_Actual/StockIN were fine — a no-query fetch reads every row, the
   // same way the master loads do. Falls back to SELECT * if no-query is empty.
   const grab = async (tab, sid, tq) => {
-    let r = await fetchSheet(tab, tq, sid, { rawId: true });
-    if (!r || r.length < 5) { await new Promise(z => setTimeout(z, 600)); r = await fetchSheet(tab, tq, sid, { rawId: true }); }
+    let r = await fetchSheetSafe(tab, sid, { rawId: true, tq });
+    if (!r || r.length < 5) { await new Promise(z => setTimeout(z, 600)); r = await fetchSheetSafe(tab, sid, { rawId: true, tq }); }
     return r || [];
   };
   let items = await grab('PO_Items_Actual', PO_SHEET_ID, null);
@@ -17617,8 +18305,8 @@ async function _openPOEnsure(force) {
     const lk = (typeof getLink === 'function') ? getLink('PAYMENT') : null;
     const payTab = (lk && lk.tab) || 'PaymentRequest';
     const paySid = (lk && lk.id)  || PAYMENT_SHEET_ID;
-    pay = await fetchSheet(payTab, null, paySid);
-    if (!pay || !pay.length) { await new Promise(z => setTimeout(z, 600)); pay = await fetchSheet(payTab, null, paySid); }
+    pay = await fetchSheetSafe(payTab, paySid, {});
+    if (!pay || !pay.length) { await new Promise(z => setTimeout(z, 600)); pay = await fetchSheetSafe(payTab, paySid, {}); }
   } catch (e) { pay = []; }
   _openPOPayments = pay || [];
   // Additional Charges tab — one row per additional charge per PO (freight, loading, etc.)
@@ -20040,6 +20728,54 @@ window.google.visualization.Query.setResponse = function(json) {
 };
 
 let _gvizReqId = 0;
+
+// ── Filter-proof reads via the Apps Script backend ──────────────────────
+// gviz (/gviz/tq, used by fetchSheet below) reflects a sheet's active BASIC
+// FILTER, so filtering the backend hides those rows from the app. Reading the
+// tab through Apps Script (getDataRange().getValues()) ignores filters and
+// hidden rows. We probe the backend once per browser (cached in localStorage)
+// for a `readSheet` action; if present we use it for the high-traffic tabs, and
+// on ANY miss we fall back to gviz — so the app works whether or not the
+// backend action is deployed. Only full-tab reads (no tq) route to the backend;
+// query (tq) reads stay on gviz.
+const _BKREAD_LS = 'evg_bkread_cap_v1';
+let _bkReadProbe = null;
+function _bkReadCached() {
+  try { const o = JSON.parse(localStorage.getItem(_BKREAD_LS) || 'null'); if (o && (Date.now() - o.t) < 864e5) return !!o.ok; } catch (e) {}
+  return null;
+}
+function _backendReadCapable() {
+  const c = _bkReadCached(); if (c !== null) return Promise.resolve(c);
+  if (_bkReadProbe) return _bkReadProbe;
+  _bkReadProbe = (async () => {
+    let ok = false;
+    try {
+      const resp = await fetch(getExec('main'), { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'readSheet', ping: 1 }) });
+      const j = await resp.json();
+      ok = !!(j && j.ok && j.readSheet);
+    } catch (e) { ok = false; }
+    try { localStorage.setItem(_BKREAD_LS, JSON.stringify({ ok, t: Date.now() })); } catch (e) {}
+    _bkReadProbe = null;
+    return ok;
+  })();
+  return _bkReadProbe;
+}
+// Force a re-probe (e.g. after deploying the backend action). Exposed for the console.
+window._evgRefreshBackendRead = function () { try { localStorage.removeItem(_BKREAD_LS); } catch (e) {} _bkReadProbe = null; return 'Backend-read capability will be re-checked on next load.'; };
+async function fetchSheetSafe(sheetName, sheetId, opts) {
+  opts = opts || {};
+  const gviz = () => fetchSheet(sheetName, opts.tq || null, sheetId, opts);
+  if (opts.tq) return gviz();                              // query reads stay on gviz
+  try {
+    if (!(await _backendReadCapable())) return gviz();
+    const sid = opts.rawId ? (sheetId || SHEET_ID)
+      : ((typeof _resolveSheetId === 'function') ? _resolveSheetId(sheetId || SHEET_ID) : (sheetId || SHEET_ID));
+    const resp = await fetch(getExec(opts.exec || 'main'), { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'readSheet', sheetId: sid, tab: sheetName, headerRows: (opts.headers != null ? opts.headers : 1) }) });
+    const j = await resp.json();
+    if (j && j.ok && Array.isArray(j.rows)) return j.rows;
+    return gviz();
+  } catch (e) { return gviz(); }
+}
 
 function fetchSheet(sheetName, tq, spreadsheetId, opts) {
   return new Promise((resolve) => {
