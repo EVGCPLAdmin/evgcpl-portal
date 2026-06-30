@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.30.1';
-const PORTAL_BUILD    = 647;
-const PORTAL_BUILD_AT = '2026-06-30T14:26:30Z';
+const PORTAL_VERSION  = '4.30.2';
+const PORTAL_BUILD    = 648;
+const PORTAL_BUILD_AT = '2026-06-30T17:58:25Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5150,23 +5150,22 @@ function _vplpRenderBody() {
   const selV = d.vendors.find(x => x.key === _vplpVendor);
   const selLabel = selV ? `${selV.name}${selV.vid ? ` [${selV.vid}]` : ''}` : '';
   const vendorItems = d.vendors.map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}${v.unmapped ? ' ·Unmapped' : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
-  const pickerRow = `<div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
-    <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:280px">
-      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR</label>
+  // Vendor picker (selection).
+  const picker = `<div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:240px;max-width:520px">
+      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR <span style="font-weight:400">&middot; ${d.vendors.length}</span></label>
       ${evgComboHtml({ id: 'vplp-vendor-search', items: vendorItems, value: selLabel, placeholder: 'Type a vendor name or ID…', onPick: '_vplpSetVendor' })}
-    </div>
-    <div style="font-size:.72rem;color:var(--txt3);padding-bottom:6px">${d.vendors.length} vendor(s)</div></div>`;
-  if (!_vplpVendor) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}</div>` + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
+    </div>`;
+  if (!_vplpVendor) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${picker}</div>` + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
   const v = d.vendors.find(x => x.key === _vplpVendor);
-  if (!v) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}</div>`; return; }
+  if (!v) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${picker}</div>`; return; }
   const obTag = v.opening ? ` &middot; <span style="color:#3730a3">Opening ${'₹' + Math.round((v.opening.credit || 0) - (v.opening.debit || 0)).toLocaleString('en-IN')} ${(v.opening.credit >= v.opening.debit) ? 'Cr' : 'Dr'}</span>` : '';
-  // Vendor picker + selected-vendor summary share one card to cut the vertical stacking.
-  const summaryRow = `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;margin-top:.85rem;padding-top:.85rem;border-top:1px solid var(--border)">
+  // Selection + selected-vendor summary, SIDE BY SIDE in one compact card.
+  const summary = `<div style="flex:2;min-width:260px;display:flex;justify-content:space-between;align-items:center;gap:.6rem;flex-wrap:wrap">
     <div><div style="font-weight:700;font-size:1rem">${esc(v.name)}${v.vid ? ` <span style="font-size:.72rem;color:var(--txt3)">[${esc(v.vid)}]</span>` : ''}</div>
-    <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) received &middot; ${v.payCount} payment(s)${obTag}</div></div>
+    <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) &middot; ${v.payCount} payment(s)${obTag}</div></div>
     <button onclick="_vplpOpenOB('${esc(v.key)}')" class="btn btn-sm btn-secondary" title="Record / edit this vendor's opening balance">${v.opening ? '&#9998; Edit Opening Balance' : '&#10133; Opening Balance'}</button>
   </div>`;
-  const headCard = `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}${summaryRow}</div>`;
+  const headCard = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:1.4rem;align-items:center;flex-wrap:wrap">${picker}${summary}</div>`;
   c.innerHTML = toggle + headCard + _vplpLedger(v);
 }
 // Per-vendor Dr/Cr rows: credit = received goods (material + tax + charges),
@@ -5481,13 +5480,17 @@ function _vplpLedger(v, embedOpts) {
     </div>` : '<div></div>';
   const modeHint = (!embedOpts && hasClosed) ? `<div style="font-size:.68rem;color:var(--txt3);margin-bottom:.8rem">${showClosed ? 'Showing entries on/before ' + _mdpFmtDate(ob.date) + ' &mdash; already in the opening balance' : 'Opening balance as on ' + _mdpFmtDate(ob.date) + ' + entries posted after'}</div>` : '';
   if (!scope.length) return vmCard + (modeButtons !== '<div></div>' ? `<div class="card card-pad" style="margin-bottom:1rem">${modeButtons}${modeHint}</div>` : '') + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No entries in this view.</div>';
-  // Financial-year filter — slim, right-aligned, sits next to the table search.
-  const fySet = Array.from(new Set(scope.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
-  const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _fy ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
-  const fyBar = `<div style="display:flex;justify-content:flex-end;align-items:center;gap:.4rem;margin-bottom:.45rem">
-    <label style="font-size:.66rem;font-weight:700;color:var(--txt3)">FY</label>
-    <select onchange="${_onChangeFY}(this.value)" data-evg-nosearch style="font-size:.8rem;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--surface2)">${fyOpts}</select>
-  </div>`;
+  // Financial-year filter — removed from the main Vendor Ledger (minimal view).
+  // Kept only for the embedded ledgers (profile / vendor portal) that rely on it.
+  let fyBar = '';
+  if (embedOpts) {
+    const fySet = Array.from(new Set(scope.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
+    const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _fy ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
+    fyBar = `<div style="display:flex;justify-content:flex-end;align-items:center;gap:.4rem;margin-bottom:.45rem">
+      <label style="font-size:.66rem;font-weight:700;color:var(--txt3)">FY</label>
+      <select onchange="${_onChangeFY}(this.value)" data-evg-nosearch style="font-size:.8rem;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--surface2)">${fyOpts}</select>
+    </div>`;
+  }
   const entries = _fy ? scope.filter(e => _vplpFYof(e.date) === _fy) : scope;
   if (!entries.length) return vmCard + `<div class="card card-pad" style="margin-bottom:1rem">${modeButtons}${modeHint}</div>` + fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   // Opening balance always first; then chronological, same-day credits (receipt) before debits (payment).
