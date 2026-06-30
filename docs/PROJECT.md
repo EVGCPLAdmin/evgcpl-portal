@@ -276,13 +276,17 @@ A vendor account statement scoped to PO purchases (not the billed-amount model):
 - **Opening Balance** = a vendor's carried-forward Dr/Cr balance, recorded via a
   side-pull form (⊕ Opening Balance) capturing **Vendor ID, Vendor Key (UUID),
   Vendor Name, Vendor Detail, Opening Balance + Dr/Cr, Remarks, and an "as-on"
-  date**. It folds into the ledger as the first entry (Cr → payable b/f, Dr →
-  advance) and seeds the running balance; an opening-balance-only vendor still
-  appears. Stored in the `OpeningBalance` tab of the Vendor Master sheet
-  (`VENDOR_OPENING_BAL_SHEET_ID` / `_TAB`); the amount is **signed** (+ Cr / −
-  Dr — the tab has no separate Dr/Cr column). Write posts via
-  `getExec('accounts')` action `saveVendorOpeningBalance` (a small additive Apps
-  Script handler is still needed in that project to append the row).
+  date** (plus Status / Company / Financial Year / Approval / Currency). It folds
+  into the ledger as the first entry (Cr → payable b/f, Dr → advance) and seeds
+  the running balance; an opening-balance-only vendor still appears. **Editable**
+  — the form prefills the vendor's current opening balance; saving appends a
+  newer row and the reader takes the **latest non-superseded row per vendor**
+  (older rows become history, kept for audit — no backend update needed). A
+  dedicated **Opening Balances** view lists every recorded entry (current rows
+  editable; replaced/superseded rows dimmed). Stored in the `OpeningBalance` tab
+  of the Vendor Master sheet (`VENDOR_OPENING_BAL_SHEET_ID` / `_TAB`); the amount
+  is **signed** (+ Cr / − Dr). Write posts via `getExec('accounts')` action
+  `saveVendorOpeningBalance` (header-mapped append in `apps-script/`).
 - **Running Balance** = Opening ± Σ(Credit − Debit) = outstanding payable. (Tax &
   Additional Charges are shown as columns and are *not* currently folded into
   the balance.)

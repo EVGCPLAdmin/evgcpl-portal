@@ -4967,19 +4967,20 @@ function _vplpOBNorm(r) {
   const details = _vplpOBVal(r, ['Remarks (If Any)', 'Remarks', 'Details', 'Narration', 'Note', 'Description']);
   const company = _vplpOBVal(r, ['Company', 'Entity']);
   const fy = _vplpOBVal(r, ['Financial Year', 'FY']);
-  return { key, vid, uuid, name, detail, credit, debit, date, details, company, fy };
+  const currency = _vplpOBVal(r, ['Currency']);
+  const obUuid = _vplpOBVal(r, ['UUID']);
+  const ts = _mdpDateVal(_vplpOBVal(r, ['Timestamp'])) || _mdpDateVal(date) || 0;
+  return { key, vid, code: vid, uuid, obUuid, name, detail, credit, debit, mag: Math.abs(amount), side: debit > credit ? 'Dr' : 'Cr', date, asOn: date, details, company, fy, currency, ts };
 }
-// vendor key → merged opening balance (multiple rows per vendor sum together).
+// vendor key → the CURRENT opening balance (latest non-superseded row by
+// Timestamp). Editing = appending a newer row, so the latest one wins and the
+// older rows become history (no backend update needed; they're kept for audit).
 function _vplpOBByKey() {
   const m = {};
   (_vplpOBRows || []).forEach(raw => {
     const o = _vplpOBNorm(raw); if (!o) return;
-    const e = m[o.key] = m[o.key] || { key: o.key, vid: o.vid, uuid: o.uuid, code: o.vid, name: o.name, detail: o.detail, credit: 0, debit: 0, date: o.date, details: o.details };
-    e.credit += o.credit; e.debit += o.debit;
-    if (!e.vid && o.vid) { e.vid = o.vid; e.code = o.vid; }
-    if (!e.uuid && o.uuid) e.uuid = o.uuid;
-    if (!e.date && o.date) e.date = o.date;
-    if (o.details) e.details = e.details ? (e.details + '; ' + o.details) : o.details;
+    const e = m[o.key];
+    if (!e || o.ts >= e.ts) m[o.key] = o;
   });
   return m;
 }
@@ -5137,7 +5138,7 @@ function _vplpRenderBody() {
   const head = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem">
     <div><div style="font-weight:700;font-size:1rem">${esc(v.name)}${v.vid ? ` <span style="font-size:.72rem;color:var(--txt3)">[${esc(v.vid)}]</span>` : ''}</div>
     <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) received &middot; ${v.payCount} payment(s)${obTag}</div></div>
-    <button onclick="_vplpOpenOB('${esc(v.key)}')" class="btn btn-sm btn-secondary" title="Record / update this vendor's opening balance">&#10133; Opening Balance</button>
+    <button onclick="_vplpOpenOB('${esc(v.key)}')" class="btn btn-sm btn-secondary" title="Record / edit this vendor's opening balance">${v.opening ? '&#9998; Edit Opening Balance' : '&#10133; Opening Balance'}</button>
   </div>`;
   c.innerHTML = toggle + selector + head + _vplpLedger(v);
 }
@@ -5294,26 +5295,38 @@ function _vplpOBListView() {
   const sideOf = r => { const dc = val(r, ['Dr/Cr', 'DrCr', 'Dr / Cr', 'Type', 'Side']); return /^d|debit/i.test(dc) ? 'Dr' : /^c|credit/i.test(dc) ? 'Cr' : (amtOf(r) < 0 ? 'Dr' : 'Cr'); };
   const isClosed = r => /supersed|inactive|void|cancel|delete/i.test(val(r, ['Status']));
   rows.sort((a, b) => (_mdpDateVal(val(b, ['Timestamp'])) || 0) - (_mdpDateVal(val(a, ['Timestamp'])) || 0));
+  // Newest non-superseded row per vendor is the CURRENT one; older rows are
+  // history (an edit appends a newer row that supersedes the previous).
+  const vidOf = r => (val(r, ['Vendor ID', 'VendorID']) || '').toUpperCase();
+  const currentByVid = {};
+  rows.forEach(r => { if (isClosed(r)) return; const k = vidOf(r); if (!(k in currentByVid)) currentByVid[k] = r; });
+  const isCurrent = r => currentByVid[vidOf(r)] === r;
   let netCr = 0, active = 0;
-  rows.forEach(r => { if (isClosed(r)) return; active++; netCr += (sideOf(r) === 'Dr' ? -Math.abs(amtOf(r)) : Math.abs(amtOf(r))); });
+  rows.forEach(r => { if (!isCurrent(r)) return; active++; netCr += (sideOf(r) === 'Dr' ? -Math.abs(amtOf(r)) : Math.abs(amtOf(r))); });
   const chip = (txt, bg, col) => `<span style="font-size:.66rem;font-weight:700;background:${bg};color:${col};padding:2px 8px;border-radius:9px;white-space:nowrap">${esc(txt)}</span>`;
   const stat = (val2, lbl, col) => `<div style="display:flex;flex-direction:column;line-height:1.1"><span style="font-size:.92rem;font-weight:800;${col ? `color:${col}` : ''}">${val2}</span><span style="font-size:.58rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap">${lbl}</span></div>`;
   const body = rows.map(r => {
-    const vid = (val(r, ['Vendor ID', 'VendorID']) || '').toUpperCase();
-    const side = sideOf(r), closed = isClosed(r);
+    const vid = vidOf(r);
+    const side = sideOf(r), closed = isClosed(r), cur = isCurrent(r);
+    const history = !closed && !cur;            // replaced by a newer entry
     const appr = val(r, ['Approval Status']) || 'Pending';
+    const statusCell = closed ? chip('Superseded', '#f1f5f9', '#64748b')
+      : history ? chip('Replaced', '#f1f5f9', '#64748b')
+      : chip(val(r, ['Status']) || 'Active', '#dcfce7', '#15803d');
+    const editBtn = (cur && vid) ? `<button onclick="event.stopPropagation();_vplpOpenOB('${esc(vid)}')" class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:.68rem" title="Edit this opening balance">&#9998; Edit</button>` : '';
     const click = vid ? ` style="cursor:pointer" onclick="_vplpOpenVendorView('${esc(vid)}')" title="Open this vendor's ledger"` : '';
-    return `<tr${click}${closed ? ' style="opacity:.55"' : ''}>
+    return `<tr${click}${(closed || history) ? ' style="opacity:.5"' : ''}>
       <td style="padding:6px 9px;white-space:nowrap;font-family:monospace;font-size:.72rem">${esc(vid) || '—'}</td>
       <td style="padding:6px 9px">${esc(val(r, ['Vendor Name', 'Name']) || val(r, ['Vendor Detail']) || '—')}</td>
       <td style="padding:6px 9px;text-align:right;font-weight:700;color:${side === 'Cr' ? '#15803d' : '#1d4ed8'}">${inr(amtOf(r))} ${side}</td>
       <td style="padding:6px 9px;white-space:nowrap">${esc(_mdpFmtDate(val(r, ['As On (Date)', 'As On', 'Date'])))}</td>
       <td style="padding:6px 9px;white-space:nowrap">${esc(val(r, ['Financial Year', 'FY']) || '—')}</td>
       <td style="padding:6px 9px">${esc(val(r, ['Company']) || '—')}</td>
-      <td style="padding:6px 9px">${closed ? chip('Superseded', '#f1f5f9', '#64748b') : chip(val(r, ['Status']) || 'Active', '#dcfce7', '#15803d')}</td>
+      <td style="padding:6px 9px">${statusCell}</td>
       <td style="padding:6px 9px">${/approved/i.test(appr) ? chip('Approved', '#dcfce7', '#15803d') : /reject/i.test(appr) ? chip('Rejected', '#fee2e2', '#b91c1c') : chip('Pending', '#fef3c7', '#92400e')}</td>
       <td style="padding:6px 9px;font-size:.72rem;color:var(--txt2)">${esc(val(r, ['Remarks (If Any)', 'Remarks']) || '')}</td>
       <td style="padding:6px 9px;font-size:.72rem;color:var(--txt3);white-space:nowrap">${esc(val(r, ['Updated By']) || val(r, ['UserEmail']) || '')}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${editBtn}</td>
     </tr>`;
   }).join('');
   const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.6rem 1.1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
@@ -5333,7 +5346,7 @@ function _vplpOBListView() {
         <th style="padding:8px 9px;text-align:right">Opening Balance</th><th style="padding:8px 9px">As On</th>
         <th style="padding:8px 9px">FY</th><th style="padding:8px 9px">Company</th>
         <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Approval</th>
-        <th style="padding:8px 9px">Remarks</th><th style="padding:8px 9px">Updated By</th>
+        <th style="padding:8px 9px">Remarks</th><th style="padding:8px 9px">Updated By</th><th style="padding:8px 9px"></th>
       </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 // Indian FY runs Apr→Mar; the FY "start year" identifies it (2026 → FY 2026-27).
@@ -5532,6 +5545,18 @@ function _vplpDrawOBForm(dr, prefillKey) {
   const d = _vplpData || { vendors: [] };
   const today = new Date().toLocaleDateString('en-CA');
   const cur = (d.vendors || []).find(x => x.key === prefillKey);
+  // Existing (current) opening balance for this vendor → prefill = Edit mode.
+  const obEx = (d.obByKey && d.obByKey[prefillKey]) || null;
+  const isEdit = !!obEx;
+  const ymd = s => { const t = _mdpDateVal(s); return t ? new Date(t).toLocaleDateString('en-CA') : ''; };
+  const asOnVal = isEdit && obEx.asOn ? (ymd(obEx.asOn) || today) : today;
+  const fyVal = isEdit ? (obEx.fy || _vplpFYString(asOnVal)) : _vplpFYString(today);
+  const amtVal = isEdit && obEx.mag ? obEx.mag : '';
+  const sideVal = isEdit ? obEx.side : 'Cr';
+  const curncyVal = isEdit && obEx.currency ? obEx.currency : 'Indian Rupee';
+  const companyVal = isEdit ? (obEx.company || '') : '';
+  const remarksVal = isEdit ? (obEx.details || '') : '';
+  const detailVal = (obEx && obEx.detail) || (cur && cur.detail) || '';
   const obVendorItems = (d.vendors || []).map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
   const fld = (label, ctrl, req) => `
     <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:.7rem">
@@ -5543,8 +5568,8 @@ function _vplpDrawOBForm(dr, prefillKey) {
   dr.innerHTML = `
     <div style="padding:1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff">
       <div>
-        <div style="font-size:.98rem;font-weight:700">&#10133; Opening Balance</div>
-        <div style="font-size:.72rem;opacity:.85;margin-top:2px">Vendor carried-forward balance &middot; fields marked * are required</div>
+        <div style="font-size:.98rem;font-weight:700">${isEdit ? '&#9998; Edit Opening Balance' : '&#10133; Opening Balance'}</div>
+        <div style="font-size:.72rem;opacity:.85;margin-top:2px">${isEdit ? 'Saving replaces the current opening balance' : 'Vendor carried-forward balance'} &middot; fields marked * are required</div>
       </div>
       <button onclick="_vplpCloseOB()" style="background:rgba(255,255,255,.18);border:none;color:#fff;width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:1rem">&#10006;</button>
     </div>
@@ -5556,24 +5581,24 @@ function _vplpDrawOBForm(dr, prefillKey) {
         fld('Vendor Key (UUID)', `<input id="vplp-ob-uuid" value="${esc(cur ? (cur.uuid || '') : '')}" placeholder="auto from master">`)
       )}
       ${fld('Vendor Name', `<input id="vplp-ob-name" value="${esc(cur ? cur.name : '')}" placeholder="display name">`)}
-      ${fld('Vendor Detail', `<input id="vplp-ob-detail" value="${esc(cur ? (cur.detail || '') : '')}" placeholder="e.g. MV300|USHA MARTIN">`)}
+      ${fld('Vendor Detail', `<input id="vplp-ob-detail" value="${esc(detailVal)}" placeholder="e.g. MV300|USHA MARTIN">`)}
       ${grid(
-        fld('Opening Balance', `<input id="vplp-ob-amount" type="number" step="0.01" min="0" placeholder="0.00">`, true),
-        fld('Dr / Cr', `<select id="vplp-ob-drcr"><option value="Cr" selected>Cr — Payable (we owe)</option><option value="Dr">Dr — Advance (recoverable)</option></select>`, true)
+        fld('Opening Balance', `<input id="vplp-ob-amount" type="number" step="0.01" min="0" value="${esc(amtVal)}" placeholder="0.00">`, true),
+        fld('Dr / Cr', `<select id="vplp-ob-drcr"><option value="Cr"${sideVal !== 'Dr' ? ' selected' : ''}>Cr — Payable (we owe)</option><option value="Dr"${sideVal === 'Dr' ? ' selected' : ''}>Dr — Advance (recoverable)</option></select>`, true)
       )}
       ${grid(
-        fld('As On (Date)', `<input id="vplp-ob-date" type="date" value="${today}" onchange="_vplpOBSyncFY()">`, true),
-        fld('Financial Year', `<input id="vplp-ob-fy" value="${esc(_vplpFYString(today))}" placeholder="2025-26">`)
+        fld('As On (Date)', `<input id="vplp-ob-date" type="date" value="${esc(asOnVal)}" onchange="_vplpOBSyncFY()">`, true),
+        fld('Financial Year', `<input id="vplp-ob-fy" value="${esc(fyVal)}" placeholder="2025-26">`)
       )}
       ${grid(
-        fld('Company', `<input id="vplp-ob-company" placeholder="entity (optional)">`),
-        fld('Currency', `<select id="vplp-ob-currency">${['Indian Rupee','US Dollar','Euro','GBP','AED','OMR','QAR'].map(c => `<option${c === 'Indian Rupee' ? ' selected' : ''}>${c}</option>`).join('')}</select>`)
+        fld('Company', `<input id="vplp-ob-company" value="${esc(companyVal)}" placeholder="entity (optional)">`),
+        fld('Currency', `<select id="vplp-ob-currency">${['Indian Rupee','US Dollar','Euro','GBP','AED','OMR','QAR'].map(c => `<option${c === curncyVal ? ' selected' : ''}>${c}</option>`).join('')}</select>`)
       )}
-      ${fld('Remarks (If Any)', `<textarea id="vplp-ob-details" rows="2" style="resize:vertical" placeholder="e.g. Balance carried forward from FY 2025-26"></textarea>`)}
+      ${fld('Remarks (If Any)', `<textarea id="vplp-ob-details" rows="2" style="resize:vertical" placeholder="e.g. Balance carried forward from FY 2025-26">${esc(remarksVal)}</textarea>`)}
     </div>
     <div style="padding:.9rem 1.3rem;border-top:1px solid var(--border);display:flex;gap:.7rem;justify-content:flex-end;flex-shrink:0;background:var(--surface2)">
       <button onclick="_vplpCloseOB()" class="btn btn-secondary btn-sm">Cancel</button>
-      <button id="vplp-ob-submit" onclick="_vplpOBSubmit()" class="btn btn-primary btn-sm">Save Opening Balance</button>
+      <button id="vplp-ob-submit" onclick="_vplpOBSubmit()" class="btn btn-primary btn-sm">${isEdit ? 'Update Opening Balance' : 'Save Opening Balance'}</button>
     </div>`;
 }
 window._vplpOBSubmit = async function() {
