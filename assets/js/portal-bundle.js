@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.30.0';
-const PORTAL_BUILD    = 646;
-const PORTAL_BUILD_AT = '2026-06-30T14:21:54Z';
+const PORTAL_VERSION  = '4.30.1';
+const PORTAL_BUILD    = 647;
+const PORTAL_BUILD_AT = '2026-06-30T14:26:30Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1212,9 +1212,19 @@ function _tblMakeResizable(table) {
     grip.addEventListener('mousedown', e => {
       e.preventDefault(); e.stopPropagation();
       const col = cols[i]; const startX = e.pageX; const startW = parseInt(col.style.width) || col.offsetWidth || 110;
-      const move = ev => { col.style.width = Math.max(50, startW + (ev.pageX - startX)) + 'px'; table.style.width = total() + 'px'; };
+      // Coalesce layout writes to one per animation frame. Writing col/table
+      // width on every mousemove forces a full reflow of a table-layout:fixed
+      // table; on large tables (1000s of rows) that floods the main thread and
+      // the tab goes non-responsive. rAF caps it at ~one reflow per frame.
+      let pendingW = startW, raf = 0;
+      const apply = () => { raf = 0; col.style.width = pendingW + 'px'; table.style.width = total() + 'px'; };
+      const move = ev => { pendingW = Math.max(50, startW + (ev.pageX - startX)); if (!raf) raf = requestAnimationFrame(apply); };
+      const prevSel = document.body.style.userSelect;
+      document.body.style.userSelect = 'none';
       const up = () => {
         document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+        if (raf) { cancelAnimationFrame(raf); raf = 0; } apply();
+        document.body.style.userSelect = prevSel;
         const wmap = _tblWidthsGet(sig); wmap[i] = parseInt(col.style.width) || 110; _tblWidthsSet(sig, wmap);
       };
       document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
