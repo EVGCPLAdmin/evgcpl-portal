@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.29.0';
-const PORTAL_BUILD    = 645;
-const PORTAL_BUILD_AT = '2026-06-30T12:38:39Z';
+const PORTAL_VERSION  = '4.30.0';
+const PORTAL_BUILD    = 646;
+const PORTAL_BUILD_AT = '2026-06-30T14:21:54Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5381,6 +5381,43 @@ function _vplpEnsureLedgerStyle() {
     .evg-ledger-tbl tfoot td { position:sticky; bottom:0; background:#0e5a34 !important; color:#fff !important; font-weight:700; z-index:4; border-top:2px solid var(--gold,#d4a017); box-shadow:0 -2px 6px rgba(0,0,0,.18); }`;
   document.head.appendChild(st);
 }
+// Full Vendor Master row for a vendor (by Vendor ID), for the details panel.
+function _vplpVMLookup(v) {
+  if (!v || !v.vid) return null;
+  return (_vplpVMRows || []).find(r => String(r['Vendor ID'] || '').toUpperCase().trim() === v.vid) || null;
+}
+// Collapsible Vendor Details card — Account / Address / Contact in 3 columns.
+// Defaults collapsed (saves space); click the header to expand.
+function _vplpVendorDetailsCard(v) {
+  const vm = _vplpVMLookup(v);
+  if (!vm) return '';
+  const esc = _mdpEsc;
+  const g = names => { for (const n of names) { const x = vm[n]; if (x != null && String(x).trim() !== '') return String(x).trim(); } return ''; };
+  const accNo = g(['Acc No', 'A/C NUMBER', 'Account Number']).replace(/^ACNO\s*:?\s*'?/i, '');
+  const addr = [g(['Address Line 1']), g(['Address Line 2']), g(['Address Line 3'])].filter(Boolean).join(', ') || g(['Address']);
+  const cityLine = [g(['City']), g(['District']), g(['State']), g(['Pin Code'])].filter(Boolean).join(' · ');
+  const kv = (label, val) => val ? `<div style="display:flex;flex-direction:column;gap:1px;margin-bottom:.35rem"><span style="font-size:.56rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.03em">${esc(label)}</span><span style="font-size:.78rem;color:var(--txt);word-break:break-word">${esc(val)}</span></div>` : '';
+  const col = (title, rowsHtml) => rowsHtml ? `<div style="flex:1;min-width:180px"><div style="font-size:.64rem;font-weight:800;color:var(--g8);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.45rem;border-bottom:1px solid var(--border);padding-bottom:.25rem">${esc(title)}</div>${rowsHtml}</div>` : '';
+  const bankCol = col('Account Details', kv('A/C Holder', g(['Vendor Acc Name', 'A/C HOLDER NAME'])) + kv('A/C Number', accNo) + kv('IFSC', g(['IFSC', 'IFSC CODE'])) + kv('Bank', g(['Bank', 'BANK NAME'])) + kv('Branch', g(['Branch'])));
+  const addrCol = col('Address', kv('Address', addr) + kv('City / State', cityLine) + kv('Country', g(['Country'])) + kv('Location', g(['Location'])));
+  const contactCol = col('Contact', kv('Contact 1', g(['Contact 1'])) + kv('Contact 2', g(['Contact 2'])) + kv('Email', g(['Email ID', 'Email'])) + kv('GST', g(['GST'])) + kv('PAN', g(['PAN'])));
+  const inner = `<div style="display:flex;gap:1.4rem;flex-wrap:wrap">${bankCol}${addrCol}${contactCol}</div>`;
+  if (!bankCol && !addrCol && !contactCol) return '';
+  return `<div class="card" style="margin-bottom:1rem">
+    <div onclick="_vplpToggleVDetails(this)" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:.55rem .9rem;user-select:none">
+      <span style="font-size:.78rem;font-weight:700;color:var(--g8)">&#128203; Vendor Details${vm['Legal Name'] ? ` <span style="font-weight:400;color:var(--txt3);font-size:.72rem">&middot; ${esc(g(['Legal Name']))}</span>` : ''}</span>
+      <span class="vd-caret" style="font-size:.78rem;color:var(--txt3);transition:transform .2s;display:inline-block">&#9656;</span>
+    </div>
+    <div class="vd-body" style="display:none;padding:0 .9rem .85rem">${inner}</div>
+  </div>`;
+}
+window._vplpToggleVDetails = function(hdr) {
+  const card = hdr.parentNode, body = card.querySelector('.vd-body'), caret = hdr.querySelector('.vd-caret');
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  if (caret) caret.style.transform = open ? 'rotate(0deg)' : 'rotate(90deg)';
+};
 function _vplpLedger(v, embedOpts) {
   const _fy = (embedOpts && embedOpts.fy !== undefined) ? embedOpts.fy : _vplpFY;
   const _onChangeFY = (embedOpts && embedOpts.onChangeFY) || '_vplpSetFY';
@@ -5424,23 +5461,25 @@ function _vplpLedger(v, embedOpts) {
   const hasClosed = closedAll.length > 0;
   const showClosed = !embedOpts && hasClosed && _vplpLedgerMode === 'closed';
   const scope = showClosed ? closedAll : activeAll;
-  // Active/Closed toggle (only when an opening balance splits the ledger).
-  const modeInner = (!embedOpts && hasClosed) ? `
+  // Collapsible Vendor Details (from Vendor Master) — multi-column to save space.
+  const vmCard = !embedOpts ? _vplpVendorDetailsCard(v) : '';
+  // Active/Closed toggle (only when an opening balance splits the ledger) — left
+  // side of the control row; the KPI cards sit on the right.
+  const modeButtons = (!embedOpts && hasClosed) ? `<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
       <button onclick="_vplpSetLedgerMode('active')" class="btn btn-sm ${!showClosed ? 'btn-primary' : 'btn-secondary'}">&#128210; Active Ledger</button>
       <button onclick="_vplpSetLedgerMode('closed')" class="btn btn-sm ${showClosed ? 'btn-primary' : 'btn-secondary'}">&#128452; Closed Ledger (${closedAll.length})</button>
-      <span style="font-size:.7rem;color:var(--txt3)">${showClosed ? 'Entries on/before ' + _mdpFmtDate(ob.date) + ' &mdash; already rolled into the opening balance' : 'Opening balance as on ' + _mdpFmtDate(ob.date) + ' + entries posted after'}</span>` : '';
-  if (!scope.length) return (modeInner ? `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">${modeInner}</div>` : '') + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No entries in this view.</div>';
-  // Financial-year filter — shares one toolbar row with the mode toggle.
+    </div>` : '<div></div>';
+  const modeHint = (!embedOpts && hasClosed) ? `<div style="font-size:.68rem;color:var(--txt3);margin-bottom:.8rem">${showClosed ? 'Showing entries on/before ' + _mdpFmtDate(ob.date) + ' &mdash; already in the opening balance' : 'Opening balance as on ' + _mdpFmtDate(ob.date) + ' + entries posted after'}</div>` : '';
+  if (!scope.length) return vmCard + (modeButtons !== '<div></div>' ? `<div class="card card-pad" style="margin-bottom:1rem">${modeButtons}${modeHint}</div>` : '') + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No entries in this view.</div>';
+  // Financial-year filter — slim, right-aligned, sits next to the table search.
   const fySet = Array.from(new Set(scope.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
   const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _fy ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
-  const toolbar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
-    ${modeInner}
-    <label style="font-size:.7rem;font-weight:700;color:var(--txt3);${modeInner ? 'margin-left:auto' : ''}">FINANCIAL YEAR</label>
-    <select onchange="${_onChangeFY}(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2)">${fyOpts}</select>
-    <span style="font-size:.7rem;color:var(--txt3)">${_fy ? _vplpFYLabel(_fy) + ' · Apr–Mar' : 'All transactions'}</span>
+  const fyBar = `<div style="display:flex;justify-content:flex-end;align-items:center;gap:.4rem;margin-bottom:.45rem">
+    <label style="font-size:.66rem;font-weight:700;color:var(--txt3)">FY</label>
+    <select onchange="${_onChangeFY}(this.value)" data-evg-nosearch style="font-size:.8rem;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--surface2)">${fyOpts}</select>
   </div>`;
   const entries = _fy ? scope.filter(e => _vplpFYof(e.date) === _fy) : scope;
-  if (!entries.length) return toolbar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
+  if (!entries.length) return vmCard + `<div class="card card-pad" style="margin-bottom:1rem">${modeButtons}${modeHint}</div>` + fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   // Opening balance always first; then chronological, same-day credits (receipt) before debits (payment).
   entries.sort((a, b) => ((b.opening ? 1 : 0) - (a.opening ? 1 : 0)) || (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
   let running = 0;
@@ -5448,15 +5487,18 @@ function _vplpLedger(v, embedOpts) {
   const sum = key => entries.reduce((s, e) => s + e[key], 0);
   const totMat = sum('mat'), totAddl = sum('addl'), totTaxA = sum('taxA'), totTaxB = sum('taxB'), totCredit = sum('credit'), totDebit = sum('debit');
   const bal = totCredit - totDebit;
+  // Compact KPI cards — right side of the control row (cards moved right).
   const card = (icon, iconStyle, val, label, cardStyle) =>
-    `<div class="kpi-card" style="padding:.55rem .75rem;${cardStyle || ''}"><div class="kpi-top"><div class="kpi-icon" style="width:26px;height:26px;font-size:.85rem;${iconStyle}">${icon}</div></div><div class="kpi-value" style="font-size:.98rem">${val}</div><div class="kpi-label" style="font-size:.64rem">${label}</div></div>`;
-  const kpi = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.55rem;margin-bottom:1rem">
-    ${card('⚖', `background:${bal >= 0 ? '#ffedd5;color:#c2410c' : '#dbeafe;color:#1d4ed8'}`, drcr(bal), bal >= 0 ? 'Outstanding (payable)' : 'Advance (Dr)', `border-left:4px solid ${bal >= 0 ? '#ea580c' : '#1d4ed8'}`)}
-    ${card('📦', 'background:#dcfce7;color:#15803d', inr(totMat), 'Material Received')}
+    `<div class="kpi-card" style="padding:.4rem .6rem;min-width:0;${cardStyle || ''}"><div style="display:flex;align-items:center;gap:.45rem"><div class="kpi-icon" style="width:22px;height:22px;font-size:.78rem;flex-shrink:0;${iconStyle}">${icon}</div><div style="display:flex;flex-direction:column;line-height:1.05"><span style="font-size:.86rem;font-weight:800">${val}</span><span style="font-size:.55rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap">${label}</span></div></div></div>`;
+  const kpiCards = `<div style="display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end">
+    ${card('⚖', `background:${bal >= 0 ? '#ffedd5;color:#c2410c' : '#dbeafe;color:#1d4ed8'}`, drcr(bal), bal >= 0 ? 'Outstanding' : 'Advance (Dr)', `border-left:3px solid ${bal >= 0 ? '#ea580c' : '#1d4ed8'}`)}
+    ${card('📦', 'background:#dcfce7;color:#15803d', inr(totMat), 'Material')}
     ${card('🧾', 'background:#dbeafe;color:#2563eb', inr(totTaxA + totTaxB), 'Tax (a+b)')}
-    ${card('➕', 'background:#ede9fe;color:#7c3aed', inr(totAddl), 'Additional Charges')}
-    ${card('✅', 'background:#dcfce7;color:#16a34a', inr(totDebit), 'Paid (Debit)')}
+    ${card('➕', 'background:#ede9fe;color:#7c3aed', inr(totAddl), "Add'l Charges")}
+    ${card('✅', 'background:#dcfce7;color:#16a34a', inr(totDebit), 'Paid')}
   </div>`;
+  // Control row: Active/Closed toggle on the left, KPI cards on the right.
+  const controlRow = `<div style="display:flex;gap:1rem;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:${modeHint ? '.3rem' : '1rem'}">${modeButtons}${kpiCards}</div>`;
   const m = x => x ? inr(x) : '—';
   // Optional columns from PO_Actual (credit rows), StockIN (credit rows) and
   // PaymentRequest (debit rows). Rendered HIDDEN by default — the ⚙ Columns
@@ -5512,7 +5554,7 @@ function _vplpLedger(v, embedOpts) {
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td></tr>`;
-  return toolbar + kpi + `<div class="card"><div style="overflow-x:auto">
+  return vmCard + controlRow + modeHint + fyBar + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
