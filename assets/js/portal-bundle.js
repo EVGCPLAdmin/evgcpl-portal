@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.27.0';
-const PORTAL_BUILD    = 643;
-const PORTAL_BUILD_AT = '2026-06-29T17:52:42Z';
+const PORTAL_VERSION  = '4.28.0';
+const PORTAL_BUILD    = 644;
+const PORTAL_BUILD_AT = '2026-06-30T12:34:20Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -2784,21 +2784,30 @@ function _routeRegistryAudit() {
 //       multi-page-bootstrap.js if it lives on a different .html page)
 // ════════════════════════════════════════════════════════════════
 const NAV_SUBMENUS = {
+  mrs: {
+    children: [
+      { route:'mrs',       label:'Dashboard', status:'live' },
+      { route:'mrs-list',  label:'List',      status:'live', badge:{ text:'New', cls:'live' } },
+    ],
+  },
   scm: {
     children: [
-      { route:'scm',          label:'Overview',         status:'live' },
-      { route:'scm-pending',  label:'Pending Approval', status:'live' },
-      { route:'scm-site',     label:'Spend by Site',    status:'live' },
-      { route:'scm-vendor',   label:'Top Vendors',      status:'live' },
+      { route:'scm',              label:'Dashboard',           status:'live' },
+      { route:'po-register',      label:'PO Register',         status:'live' },
+      { route:'scm-pending',      label:'Pending Approval (PO)', status:'live' },
+      { route:'purchase-view',    label:'Purchase View',       status:'live' },
+      { route:'scm-site',         label:'Spend by Site',       status:'live' },
+      { route:'scm-vendor',       label:'Top Vendors',         status:'live' },
+      { route:'item-rate-master', label:'Item Rate Master',    status:'live' },
     ],
   },
   stores: {
     children: [
-      { route:'stores',         label:'Overview',      status:'live' },
-      { route:'stores-siraw',   label:'StockIN Table', status:'live' },
-      { route:'stores-grn',     label:'GRN Register',  status:'live' },
-      { route:'stores-openpo',  label:'Open POs',      status:'live', badge:{ text:'New', cls:'live' } },
-      { route:'stores-levels',  label:'Stock Levels',  status:'live' },
+      { route:'stores',               label:'Dashboard',         status:'live' },
+      { route:'stockin-register',     label:'StockIN Register',  status:'live' },
+      { route:'stores-stockout',      label:'StockOut Register', status:'live', badge:{ text:'New', cls:'live' } },
+      { route:'stores-stocktransfer', label:'StockTransfer',     status:'live', badge:{ text:'New', cls:'live' } },
+      { route:'stores-levels',        label:'Stock Level',       status:'live' },
     ],
   },
   // Ledgers parent → each ledger is its own level-3 sub-page. The parent route
@@ -3143,6 +3152,7 @@ function renderPage(page) {
     'store':          renderStoreModule,
     'scm':            renderSCMDashboard,
     'mrs':            renderMRSDashboard,
+    'mrs-list':       renderMRSList,
     'scm-pending':    () => renderSCMSubPage('pending'),
     'scm-site':       () => renderSCMSubPage('site'),
     'scm-vendor':     () => renderSCMSubPage('vendor'),
@@ -3151,6 +3161,9 @@ function renderPage(page) {
     'stores-grn':     () => { window._pstPendingTab = 'grn';     renderProcurementStores(); },
     'stores-openpo':  () => { window._pstPendingTab = 'openpo';  renderProcurementStores(); },
     'stores-levels':  () => { window._pstPendingTab = 'levels';  renderProcurementStores(); },
+    'stores-stockout':     renderStockOutRegister,
+    'stores-stocktransfer': renderStockTransferRegister,
+    'pending-pages':  renderPendingPages,
     'purchase':       renderPurchaseDashboard,
     'purchase-view':      renderPurchaseView,
     'item-rate-master':   renderItemRateMaster,
@@ -8453,7 +8466,7 @@ function _psiBuild(stRows, stSiRows, siRows) {
 function renderPendingStockIN() {
   const el = document.getElementById('mainContent'); if (!el) return;
   el.innerHTML = `<div class="page-header"><div class="page-header-row">
-    <div><h1>&#128229; Pending StockTransfer - StockIN</h1><p>Stock Transfer items not yet stocked-in &middot; matched on PO No / Invoice No-ST No / Part Details across ST_StockIN &amp; StockIN</p></div>
+    <div><h1>&#128229; Open StockTransfer Report</h1><p>Stock Transfer items not yet stocked-in &middot; matched on PO No / Invoice No-ST No / Part Details across ST_StockIN &amp; StockIN</p></div>
     <button class="btn btn-secondary btn-sm" onclick="_psiReload(this)">&#8635; Refresh</button>
   </div></div>
   <div id="psi-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading stock transfer data&hellip;</div></div>`;
@@ -8562,6 +8575,79 @@ window._psiExport = function() {
   }));
   downloadCSV(csvRows, `PendingStockIN_${_psiStatus}_${new Date().toISOString().slice(0, 10)}.csv`);
 };
+
+// ════════════════════════════════════════════════════════════════
+//  PROCUREMENT LIST PAGES — Material Request List, StockTransfer &
+//  StockOut registers, and the Pending Pages landing. The registers are
+//  generic searchable/exportable tables over their source tab; every
+//  returned column renders and EVG table features add ⚙ Columns /
+//  resize / CSV / sort / search.
+// ════════════════════════════════════════════════════════════════
+function _procRegRender(bodyId, rows, cols, emptyMsg) {
+  const body = document.getElementById(bodyId); if (!body) return;
+  const esc = _mdpEsc;
+  rows = rows || [];
+  cols = (cols && cols.length) ? cols : (rows[0] ? Object.keys(rows[0]).filter(c => c && String(c).trim()) : []);
+  if (!rows.length || !cols.length) { body.innerHTML = `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">${emptyMsg || 'No records.'}</div>`; return; }
+  const head = cols.map(c => `<th>${esc(c)}</th>`).join('');
+  const trs = rows.map(r => `<tr>${cols.map(c => `<td style="font-size:.78rem">${esc(r[c] != null ? r[c] : '') || '—'}</td>`).join('')}</tr>`).join('');
+  body.innerHTML = `<div class="card"><table class="data-table"><thead><tr>${head}</tr></thead><tbody>${trs}</tbody></table></div>`;
+  try { applyTableFeatures(); } catch (e) {}
+}
+
+// Material Request List (route 'mrs-list') — all MRS line items.
+async function renderMRSList() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+    <div><h1>&#128203; Material Request List</h1><p>All MRS line items &middot; search &middot; export</p></div>
+    <button class="btn btn-secondary btn-sm" onclick="renderMRSList()">&#8635; Refresh</button>
+  </div></div><div id="mrsl-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading MRS data&hellip;</div></div>`;
+  try {
+    const rows = (await fetchSheet('MRS', 'SELECT D,E,F,G,I,J,K,L,N,O,P,U,Y', PO_SHEET_ID) || [])
+      .filter(r => { const n = (r['Request No'] || '').trim(); return n && n.toLowerCase() !== 'dummy'; });
+    _procRegRender('mrsl-body', rows, null, 'No material requests found.');
+  } catch (e) { const b = document.getElementById('mrsl-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load MRS data.</div>'; }
+}
+
+// StockTransfer Register (route 'stores-stocktransfer') — the StockTransfer tab.
+async function renderStockTransferRegister() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+    <div><h1>&#128666; StockTransfer Register</h1><p>Material transfers between sites &middot; search &middot; export</p></div>
+    <button class="btn btn-secondary btn-sm" onclick="renderStockTransferRegister()">&#8635; Refresh</button>
+  </div></div><div id="stxr-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading stock transfers&hellip;</div></div>`;
+  try {
+    const rows = await fetchSheetSafe('StockTransfer', STORES_SHEET_ID, { rawId: true }) || [];
+    _procRegRender('stxr-body', rows, null, 'No stock transfers found.');
+  } catch (e) { const b = document.getElementById('stxr-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load StockTransfer data.</div>'; }
+}
+
+// StockOut Register (route 'stores-stockout') — items with a stock-out qty.
+async function renderStockOutRegister() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+    <div><h1>&#128229; StockOut Register</h1><p>Items issued out / consumed per site &middot; search &middot; export</p></div>
+    <button class="btn btn-secondary btn-sm" onclick="renderStockOutRegister()">&#8635; Refresh</button>
+  </div></div><div id="stor-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading stock-out data&hellip;</div></div>`;
+  try {
+    const all = await fetchSheet('v3StockLevels', 'SELECT A,B,C,D,E,F,G,H', STORES_SHEET_ID) || [];
+    const rows = all.filter(r => (parseFloat(r['Stock Out'] || 0) || 0) > 0);
+    _procRegRender('stor-body', rows, null, 'No stock-out entries found.');
+  } catch (e) { const b = document.getElementById('stor-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load stock-out data.</div>'; }
+}
+
+// Pending Pages (route 'pending-pages') — landing for parked modules.
+function renderPendingPages() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  const card = (route, icon, title, desc) => `<div class="card card-pad" style="cursor:pointer;display:flex;gap:.8rem;align-items:flex-start" onclick="navigate('${route}')">
+    <div style="font-size:1.6rem">${icon}</div>
+    <div><div style="font-weight:700">${title}</div><div style="font-size:.78rem;color:var(--txt3);margin-top:.2rem">${desc}</div></div></div>`;
+  el.innerHTML = `<div class="page-header"><div class="page-header-row"><div><h1>&#128452; Pending Pages</h1><p>Parked modules &middot; work in progress</p></div></div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem">
+      ${card('vendor', '&#127970;', 'Vendor Portal', 'Vendor master, ledgers and PO history')}
+      ${card('subcontractor', '&#128119;', 'Subcontractor', 'Subcontractor portal and work orders')}
+    </div>`;
+}
 
 // ── ACCOUNTS STATUS MASTER ──────────────────────────────
 // STATUS MAP: keys = exact AG column values (Col D of Status Master), labels = Col G display values
@@ -11675,23 +11761,27 @@ const MODULE_REGISTRY = [
   { route:'plant',             label:'Plant Overview',         section:'Site Ops',         defStatus:'live', defRoles:['md','site','dept_head'] },
 
   // ── Procurement ───────────────────────────────────────────────
-  { route:'scm',               label:'Purchase Dashboard',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'scm',               label:'Purchase List (PO)',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'scm-pending',       label:'Purchase · Pending Approval', section:'Procurement',  defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'scm-site',          label:'Purchase · Spend by Site',section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'scm-vendor',        label:'Purchase · Top Vendors',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
-  { route:'mrs',               label:'MRS',                    section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'mrs',               label:'Material Request List (MRS List)', section:'Procurement', defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'mrs-list',          label:'MRS · List',             section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores',            label:'Stores',                 section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-siraw',      label:'Stores · StockIN Table', section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-grn',        label:'Stores · GRN Register',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
-  { route:'stores-openpo',     label:'Stores · Open POs',      section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'stores-openpo',     label:'Open PO Report',         section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'stores-stockout',   label:'Stores · StockOut Register',  section:'Procurement', defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'stores-stocktransfer', label:'Stores · StockTransfer', section:'Procurement',   defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-levels',     label:'Stores · Stock Levels',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'vendor',            label:'Vendor Portal',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts','dept_head'] },
   { route:'subcontractor',     label:'Subcontractor Portal',   section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
+  { route:'pending-pages',     label:'Pending Pages',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts','dept_head'] },
   { route:'po-register',       label:'Purchase Orders',        section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
   { route:'stockin-register',  label:'StockIN Register',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
   { route:'purchase-view',     label:'Purchase View',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'item-rate-master',  label:'Item Rate Master',       section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
-  { route:'pending-stockin',   label:'Pending StockTransfer - StockIN', section:'Procurement', defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'pending-stockin',   label:'Open StockTransfer Report', section:'Procurement',   defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'tendering',         label:'Tendering',              section:'Procurement',      defStatus:'dev',  defRoles:['md','purchase'] },
 
   // ── Accounts ──────────────────────────────────────────────────
@@ -12908,6 +12998,9 @@ const MODULE_ACTIONS = {
   'scm':                ['view','export'],
   'item-rate-master':  ['view','export'],
   'pending-stockin':   ['view','export'],
+  'mrs-list':          ['view','export'],
+  'stores-stockout':   ['view','export'],
+  'stores-stocktransfer': ['view','export'],
 };
 function uaActionsFor(route) { return MODULE_ACTIONS[route] || ['view']; }
 
