@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.28.0';
-const PORTAL_BUILD    = 644;
-const PORTAL_BUILD_AT = '2026-06-30T12:34:20Z';
+const PORTAL_VERSION  = '4.30.0';
+const PORTAL_BUILD    = 646;
+const PORTAL_BUILD_AT = '2026-06-30T14:21:54Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4992,19 +4992,20 @@ function _vplpOBNorm(r) {
   const details = _vplpOBVal(r, ['Remarks (If Any)', 'Remarks', 'Details', 'Narration', 'Note', 'Description']);
   const company = _vplpOBVal(r, ['Company', 'Entity']);
   const fy = _vplpOBVal(r, ['Financial Year', 'FY']);
-  return { key, vid, uuid, name, detail, credit, debit, date, details, company, fy };
+  const currency = _vplpOBVal(r, ['Currency']);
+  const obUuid = _vplpOBVal(r, ['UUID']);
+  const ts = _mdpDateVal(_vplpOBVal(r, ['Timestamp'])) || _mdpDateVal(date) || 0;
+  return { key, vid, code: vid, uuid, obUuid, name, detail, credit, debit, mag: Math.abs(amount), side: debit > credit ? 'Dr' : 'Cr', date, asOn: date, details, company, fy, currency, ts };
 }
-// vendor key → merged opening balance (multiple rows per vendor sum together).
+// vendor key → the CURRENT opening balance (latest non-superseded row by
+// Timestamp). Editing = appending a newer row, so the latest one wins and the
+// older rows become history (no backend update needed; they're kept for audit).
 function _vplpOBByKey() {
   const m = {};
   (_vplpOBRows || []).forEach(raw => {
     const o = _vplpOBNorm(raw); if (!o) return;
-    const e = m[o.key] = m[o.key] || { key: o.key, vid: o.vid, uuid: o.uuid, code: o.vid, name: o.name, detail: o.detail, credit: 0, debit: 0, date: o.date, details: o.details };
-    e.credit += o.credit; e.debit += o.debit;
-    if (!e.vid && o.vid) { e.vid = o.vid; e.code = o.vid; }
-    if (!e.uuid && o.uuid) e.uuid = o.uuid;
-    if (!e.date && o.date) e.date = o.date;
-    if (o.details) e.details = e.details ? (e.details + '; ' + o.details) : o.details;
+    const e = m[o.key];
+    if (!e || o.ts >= e.ts) m[o.key] = o;
   });
   return m;
 }
@@ -5163,7 +5164,7 @@ function _vplpRenderBody() {
   const summaryRow = `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;margin-top:.85rem;padding-top:.85rem;border-top:1px solid var(--border)">
     <div><div style="font-weight:700;font-size:1rem">${esc(v.name)}${v.vid ? ` <span style="font-size:.72rem;color:var(--txt3)">[${esc(v.vid)}]</span>` : ''}</div>
     <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) received &middot; ${v.payCount} payment(s)${obTag}</div></div>
-    <button onclick="_vplpOpenOB('${esc(v.key)}')" class="btn btn-sm btn-secondary" title="Record / update this vendor's opening balance">&#10133; Opening Balance</button>
+    <button onclick="_vplpOpenOB('${esc(v.key)}')" class="btn btn-sm btn-secondary" title="Record / edit this vendor's opening balance">${v.opening ? '&#9998; Edit Opening Balance' : '&#10133; Opening Balance'}</button>
   </div>`;
   const headCard = `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}${summaryRow}</div>`;
   c.innerHTML = toggle + headCard + _vplpLedger(v);
@@ -5321,26 +5322,38 @@ function _vplpOBListView() {
   const sideOf = r => { const dc = val(r, ['Dr/Cr', 'DrCr', 'Dr / Cr', 'Type', 'Side']); return /^d|debit/i.test(dc) ? 'Dr' : /^c|credit/i.test(dc) ? 'Cr' : (amtOf(r) < 0 ? 'Dr' : 'Cr'); };
   const isClosed = r => /supersed|inactive|void|cancel|delete/i.test(val(r, ['Status']));
   rows.sort((a, b) => (_mdpDateVal(val(b, ['Timestamp'])) || 0) - (_mdpDateVal(val(a, ['Timestamp'])) || 0));
+  // Newest non-superseded row per vendor is the CURRENT one; older rows are
+  // history (an edit appends a newer row that supersedes the previous).
+  const vidOf = r => (val(r, ['Vendor ID', 'VendorID']) || '').toUpperCase();
+  const currentByVid = {};
+  rows.forEach(r => { if (isClosed(r)) return; const k = vidOf(r); if (!(k in currentByVid)) currentByVid[k] = r; });
+  const isCurrent = r => currentByVid[vidOf(r)] === r;
   let netCr = 0, active = 0;
-  rows.forEach(r => { if (isClosed(r)) return; active++; netCr += (sideOf(r) === 'Dr' ? -Math.abs(amtOf(r)) : Math.abs(amtOf(r))); });
+  rows.forEach(r => { if (!isCurrent(r)) return; active++; netCr += (sideOf(r) === 'Dr' ? -Math.abs(amtOf(r)) : Math.abs(amtOf(r))); });
   const chip = (txt, bg, col) => `<span style="font-size:.66rem;font-weight:700;background:${bg};color:${col};padding:2px 8px;border-radius:9px;white-space:nowrap">${esc(txt)}</span>`;
   const stat = (val2, lbl, col) => `<div style="display:flex;flex-direction:column;line-height:1.1"><span style="font-size:.92rem;font-weight:800;${col ? `color:${col}` : ''}">${val2}</span><span style="font-size:.58rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap">${lbl}</span></div>`;
   const body = rows.map(r => {
-    const vid = (val(r, ['Vendor ID', 'VendorID']) || '').toUpperCase();
-    const side = sideOf(r), closed = isClosed(r);
+    const vid = vidOf(r);
+    const side = sideOf(r), closed = isClosed(r), cur = isCurrent(r);
+    const history = !closed && !cur;            // replaced by a newer entry
     const appr = val(r, ['Approval Status']) || 'Pending';
+    const statusCell = closed ? chip('Superseded', '#f1f5f9', '#64748b')
+      : history ? chip('Replaced', '#f1f5f9', '#64748b')
+      : chip(val(r, ['Status']) || 'Active', '#dcfce7', '#15803d');
+    const editBtn = (cur && vid) ? `<button onclick="event.stopPropagation();_vplpOpenOB('${esc(vid)}')" class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:.68rem" title="Edit this opening balance">&#9998; Edit</button>` : '';
     const click = vid ? ` style="cursor:pointer" onclick="_vplpOpenVendorView('${esc(vid)}')" title="Open this vendor's ledger"` : '';
-    return `<tr${click}${closed ? ' style="opacity:.55"' : ''}>
+    return `<tr${click}${(closed || history) ? ' style="opacity:.5"' : ''}>
       <td style="padding:6px 9px;white-space:nowrap;font-family:monospace;font-size:.72rem">${esc(vid) || '—'}</td>
       <td style="padding:6px 9px">${esc(val(r, ['Vendor Name', 'Name']) || val(r, ['Vendor Detail']) || '—')}</td>
       <td style="padding:6px 9px;text-align:right;font-weight:700;color:${side === 'Cr' ? '#15803d' : '#1d4ed8'}">${inr(amtOf(r))} ${side}</td>
       <td style="padding:6px 9px;white-space:nowrap">${esc(_mdpFmtDate(val(r, ['As On (Date)', 'As On', 'Date'])))}</td>
       <td style="padding:6px 9px;white-space:nowrap">${esc(val(r, ['Financial Year', 'FY']) || '—')}</td>
       <td style="padding:6px 9px">${esc(val(r, ['Company']) || '—')}</td>
-      <td style="padding:6px 9px">${closed ? chip('Superseded', '#f1f5f9', '#64748b') : chip(val(r, ['Status']) || 'Active', '#dcfce7', '#15803d')}</td>
+      <td style="padding:6px 9px">${statusCell}</td>
       <td style="padding:6px 9px">${/approved/i.test(appr) ? chip('Approved', '#dcfce7', '#15803d') : /reject/i.test(appr) ? chip('Rejected', '#fee2e2', '#b91c1c') : chip('Pending', '#fef3c7', '#92400e')}</td>
       <td style="padding:6px 9px;font-size:.72rem;color:var(--txt2)">${esc(val(r, ['Remarks (If Any)', 'Remarks']) || '')}</td>
       <td style="padding:6px 9px;font-size:.72rem;color:var(--txt3);white-space:nowrap">${esc(val(r, ['Updated By']) || val(r, ['UserEmail']) || '')}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${editBtn}</td>
     </tr>`;
   }).join('');
   const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.6rem 1.1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
@@ -5360,7 +5373,7 @@ function _vplpOBListView() {
         <th style="padding:8px 9px;text-align:right">Opening Balance</th><th style="padding:8px 9px">As On</th>
         <th style="padding:8px 9px">FY</th><th style="padding:8px 9px">Company</th>
         <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Approval</th>
-        <th style="padding:8px 9px">Remarks</th><th style="padding:8px 9px">Updated By</th>
+        <th style="padding:8px 9px">Remarks</th><th style="padding:8px 9px">Updated By</th><th style="padding:8px 9px"></th>
       </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 // Indian FY runs Apr→Mar; the FY "start year" identifies it (2026 → FY 2026-27).
@@ -5378,6 +5391,43 @@ function _vplpEnsureLedgerStyle() {
     .evg-ledger-tbl tfoot td { position:sticky; bottom:0; background:#0e5a34 !important; color:#fff !important; font-weight:700; z-index:4; border-top:2px solid var(--gold,#d4a017); box-shadow:0 -2px 6px rgba(0,0,0,.18); }`;
   document.head.appendChild(st);
 }
+// Full Vendor Master row for a vendor (by Vendor ID), for the details panel.
+function _vplpVMLookup(v) {
+  if (!v || !v.vid) return null;
+  return (_vplpVMRows || []).find(r => String(r['Vendor ID'] || '').toUpperCase().trim() === v.vid) || null;
+}
+// Collapsible Vendor Details card — Account / Address / Contact in 3 columns.
+// Defaults collapsed (saves space); click the header to expand.
+function _vplpVendorDetailsCard(v) {
+  const vm = _vplpVMLookup(v);
+  if (!vm) return '';
+  const esc = _mdpEsc;
+  const g = names => { for (const n of names) { const x = vm[n]; if (x != null && String(x).trim() !== '') return String(x).trim(); } return ''; };
+  const accNo = g(['Acc No', 'A/C NUMBER', 'Account Number']).replace(/^ACNO\s*:?\s*'?/i, '');
+  const addr = [g(['Address Line 1']), g(['Address Line 2']), g(['Address Line 3'])].filter(Boolean).join(', ') || g(['Address']);
+  const cityLine = [g(['City']), g(['District']), g(['State']), g(['Pin Code'])].filter(Boolean).join(' · ');
+  const kv = (label, val) => val ? `<div style="display:flex;flex-direction:column;gap:1px;margin-bottom:.35rem"><span style="font-size:.56rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.03em">${esc(label)}</span><span style="font-size:.78rem;color:var(--txt);word-break:break-word">${esc(val)}</span></div>` : '';
+  const col = (title, rowsHtml) => rowsHtml ? `<div style="flex:1;min-width:180px"><div style="font-size:.64rem;font-weight:800;color:var(--g8);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.45rem;border-bottom:1px solid var(--border);padding-bottom:.25rem">${esc(title)}</div>${rowsHtml}</div>` : '';
+  const bankCol = col('Account Details', kv('A/C Holder', g(['Vendor Acc Name', 'A/C HOLDER NAME'])) + kv('A/C Number', accNo) + kv('IFSC', g(['IFSC', 'IFSC CODE'])) + kv('Bank', g(['Bank', 'BANK NAME'])) + kv('Branch', g(['Branch'])));
+  const addrCol = col('Address', kv('Address', addr) + kv('City / State', cityLine) + kv('Country', g(['Country'])) + kv('Location', g(['Location'])));
+  const contactCol = col('Contact', kv('Contact 1', g(['Contact 1'])) + kv('Contact 2', g(['Contact 2'])) + kv('Email', g(['Email ID', 'Email'])) + kv('GST', g(['GST'])) + kv('PAN', g(['PAN'])));
+  const inner = `<div style="display:flex;gap:1.4rem;flex-wrap:wrap">${bankCol}${addrCol}${contactCol}</div>`;
+  if (!bankCol && !addrCol && !contactCol) return '';
+  return `<div class="card" style="margin-bottom:1rem">
+    <div onclick="_vplpToggleVDetails(this)" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:.55rem .9rem;user-select:none">
+      <span style="font-size:.78rem;font-weight:700;color:var(--g8)">&#128203; Vendor Details${vm['Legal Name'] ? ` <span style="font-weight:400;color:var(--txt3);font-size:.72rem">&middot; ${esc(g(['Legal Name']))}</span>` : ''}</span>
+      <span class="vd-caret" style="font-size:.78rem;color:var(--txt3);transition:transform .2s;display:inline-block">&#9656;</span>
+    </div>
+    <div class="vd-body" style="display:none;padding:0 .9rem .85rem">${inner}</div>
+  </div>`;
+}
+window._vplpToggleVDetails = function(hdr) {
+  const card = hdr.parentNode, body = card.querySelector('.vd-body'), caret = hdr.querySelector('.vd-caret');
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  if (caret) caret.style.transform = open ? 'rotate(0deg)' : 'rotate(90deg)';
+};
 function _vplpLedger(v, embedOpts) {
   const _fy = (embedOpts && embedOpts.fy !== undefined) ? embedOpts.fy : _vplpFY;
   const _onChangeFY = (embedOpts && embedOpts.onChangeFY) || '_vplpSetFY';
@@ -5421,23 +5471,25 @@ function _vplpLedger(v, embedOpts) {
   const hasClosed = closedAll.length > 0;
   const showClosed = !embedOpts && hasClosed && _vplpLedgerMode === 'closed';
   const scope = showClosed ? closedAll : activeAll;
-  // Active/Closed toggle (only when an opening balance splits the ledger).
-  const modeInner = (!embedOpts && hasClosed) ? `
+  // Collapsible Vendor Details (from Vendor Master) — multi-column to save space.
+  const vmCard = !embedOpts ? _vplpVendorDetailsCard(v) : '';
+  // Active/Closed toggle (only when an opening balance splits the ledger) — left
+  // side of the control row; the KPI cards sit on the right.
+  const modeButtons = (!embedOpts && hasClosed) ? `<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
       <button onclick="_vplpSetLedgerMode('active')" class="btn btn-sm ${!showClosed ? 'btn-primary' : 'btn-secondary'}">&#128210; Active Ledger</button>
       <button onclick="_vplpSetLedgerMode('closed')" class="btn btn-sm ${showClosed ? 'btn-primary' : 'btn-secondary'}">&#128452; Closed Ledger (${closedAll.length})</button>
-      <span style="font-size:.7rem;color:var(--txt3)">${showClosed ? 'Entries on/before ' + _mdpFmtDate(ob.date) + ' &mdash; already rolled into the opening balance' : 'Opening balance as on ' + _mdpFmtDate(ob.date) + ' + entries posted after'}</span>` : '';
-  if (!scope.length) return (modeInner ? `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">${modeInner}</div>` : '') + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No entries in this view.</div>';
-  // Financial-year filter — shares one toolbar row with the mode toggle.
+    </div>` : '<div></div>';
+  const modeHint = (!embedOpts && hasClosed) ? `<div style="font-size:.68rem;color:var(--txt3);margin-bottom:.8rem">${showClosed ? 'Showing entries on/before ' + _mdpFmtDate(ob.date) + ' &mdash; already in the opening balance' : 'Opening balance as on ' + _mdpFmtDate(ob.date) + ' + entries posted after'}</div>` : '';
+  if (!scope.length) return vmCard + (modeButtons !== '<div></div>' ? `<div class="card card-pad" style="margin-bottom:1rem">${modeButtons}${modeHint}</div>` : '') + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No entries in this view.</div>';
+  // Financial-year filter — slim, right-aligned, sits next to the table search.
   const fySet = Array.from(new Set(scope.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
   const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _fy ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
-  const toolbar = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
-    ${modeInner}
-    <label style="font-size:.7rem;font-weight:700;color:var(--txt3);${modeInner ? 'margin-left:auto' : ''}">FINANCIAL YEAR</label>
-    <select onchange="${_onChangeFY}(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2)">${fyOpts}</select>
-    <span style="font-size:.7rem;color:var(--txt3)">${_fy ? _vplpFYLabel(_fy) + ' · Apr–Mar' : 'All transactions'}</span>
+  const fyBar = `<div style="display:flex;justify-content:flex-end;align-items:center;gap:.4rem;margin-bottom:.45rem">
+    <label style="font-size:.66rem;font-weight:700;color:var(--txt3)">FY</label>
+    <select onchange="${_onChangeFY}(this.value)" data-evg-nosearch style="font-size:.8rem;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--surface2)">${fyOpts}</select>
   </div>`;
   const entries = _fy ? scope.filter(e => _vplpFYof(e.date) === _fy) : scope;
-  if (!entries.length) return toolbar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
+  if (!entries.length) return vmCard + `<div class="card card-pad" style="margin-bottom:1rem">${modeButtons}${modeHint}</div>` + fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   // Opening balance always first; then chronological, same-day credits (receipt) before debits (payment).
   entries.sort((a, b) => ((b.opening ? 1 : 0) - (a.opening ? 1 : 0)) || (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
   let running = 0;
@@ -5445,15 +5497,18 @@ function _vplpLedger(v, embedOpts) {
   const sum = key => entries.reduce((s, e) => s + e[key], 0);
   const totMat = sum('mat'), totAddl = sum('addl'), totTaxA = sum('taxA'), totTaxB = sum('taxB'), totCredit = sum('credit'), totDebit = sum('debit');
   const bal = totCredit - totDebit;
+  // Compact KPI cards — right side of the control row (cards moved right).
   const card = (icon, iconStyle, val, label, cardStyle) =>
-    `<div class="kpi-card" style="padding:.55rem .75rem;${cardStyle || ''}"><div class="kpi-top"><div class="kpi-icon" style="width:26px;height:26px;font-size:.85rem;${iconStyle}">${icon}</div></div><div class="kpi-value" style="font-size:.98rem">${val}</div><div class="kpi-label" style="font-size:.64rem">${label}</div></div>`;
-  const kpi = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.55rem;margin-bottom:1rem">
-    ${card('⚖', `background:${bal >= 0 ? '#ffedd5;color:#c2410c' : '#dbeafe;color:#1d4ed8'}`, drcr(bal), bal >= 0 ? 'Outstanding (payable)' : 'Advance (Dr)', `border-left:4px solid ${bal >= 0 ? '#ea580c' : '#1d4ed8'}`)}
-    ${card('📦', 'background:#dcfce7;color:#15803d', inr(totMat), 'Material Received')}
+    `<div class="kpi-card" style="padding:.4rem .6rem;min-width:0;${cardStyle || ''}"><div style="display:flex;align-items:center;gap:.45rem"><div class="kpi-icon" style="width:22px;height:22px;font-size:.78rem;flex-shrink:0;${iconStyle}">${icon}</div><div style="display:flex;flex-direction:column;line-height:1.05"><span style="font-size:.86rem;font-weight:800">${val}</span><span style="font-size:.55rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap">${label}</span></div></div></div>`;
+  const kpiCards = `<div style="display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end">
+    ${card('⚖', `background:${bal >= 0 ? '#ffedd5;color:#c2410c' : '#dbeafe;color:#1d4ed8'}`, drcr(bal), bal >= 0 ? 'Outstanding' : 'Advance (Dr)', `border-left:3px solid ${bal >= 0 ? '#ea580c' : '#1d4ed8'}`)}
+    ${card('📦', 'background:#dcfce7;color:#15803d', inr(totMat), 'Material')}
     ${card('🧾', 'background:#dbeafe;color:#2563eb', inr(totTaxA + totTaxB), 'Tax (a+b)')}
-    ${card('➕', 'background:#ede9fe;color:#7c3aed', inr(totAddl), 'Additional Charges')}
-    ${card('✅', 'background:#dcfce7;color:#16a34a', inr(totDebit), 'Paid (Debit)')}
+    ${card('➕', 'background:#ede9fe;color:#7c3aed', inr(totAddl), "Add'l Charges")}
+    ${card('✅', 'background:#dcfce7;color:#16a34a', inr(totDebit), 'Paid')}
   </div>`;
+  // Control row: Active/Closed toggle on the left, KPI cards on the right.
+  const controlRow = `<div style="display:flex;gap:1rem;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:${modeHint ? '.3rem' : '1rem'}">${modeButtons}${kpiCards}</div>`;
   const m = x => x ? inr(x) : '—';
   // Optional columns from PO_Actual (credit rows), StockIN (credit rows) and
   // PaymentRequest (debit rows). Rendered HIDDEN by default — the ⚙ Columns
@@ -5509,7 +5564,7 @@ function _vplpLedger(v, embedOpts) {
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td></tr>`;
-  return toolbar + kpi + `<div class="card"><div style="overflow-x:auto">
+  return vmCard + controlRow + modeHint + fyBar + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
@@ -5560,6 +5615,18 @@ function _vplpDrawOBForm(dr, prefillKey) {
   const d = _vplpData || { vendors: [] };
   const today = new Date().toLocaleDateString('en-CA');
   const cur = (d.vendors || []).find(x => x.key === prefillKey);
+  // Existing (current) opening balance for this vendor → prefill = Edit mode.
+  const obEx = (d.obByKey && d.obByKey[prefillKey]) || null;
+  const isEdit = !!obEx;
+  const ymd = s => { const t = _mdpDateVal(s); return t ? new Date(t).toLocaleDateString('en-CA') : ''; };
+  const asOnVal = isEdit && obEx.asOn ? (ymd(obEx.asOn) || today) : today;
+  const fyVal = isEdit ? (obEx.fy || _vplpFYString(asOnVal)) : _vplpFYString(today);
+  const amtVal = isEdit && obEx.mag ? obEx.mag : '';
+  const sideVal = isEdit ? obEx.side : 'Cr';
+  const curncyVal = isEdit && obEx.currency ? obEx.currency : 'Indian Rupee';
+  const companyVal = isEdit ? (obEx.company || '') : '';
+  const remarksVal = isEdit ? (obEx.details || '') : '';
+  const detailVal = (obEx && obEx.detail) || (cur && cur.detail) || '';
   const obVendorItems = (d.vendors || []).map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
   const fld = (label, ctrl, req) => `
     <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:.7rem">
@@ -5571,8 +5638,8 @@ function _vplpDrawOBForm(dr, prefillKey) {
   dr.innerHTML = `
     <div style="padding:1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:linear-gradient(135deg,var(--g9),var(--g7));color:#fff">
       <div>
-        <div style="font-size:.98rem;font-weight:700">&#10133; Opening Balance</div>
-        <div style="font-size:.72rem;opacity:.85;margin-top:2px">Vendor carried-forward balance &middot; fields marked * are required</div>
+        <div style="font-size:.98rem;font-weight:700">${isEdit ? '&#9998; Edit Opening Balance' : '&#10133; Opening Balance'}</div>
+        <div style="font-size:.72rem;opacity:.85;margin-top:2px">${isEdit ? 'Saving replaces the current opening balance' : 'Vendor carried-forward balance'} &middot; fields marked * are required</div>
       </div>
       <button onclick="_vplpCloseOB()" style="background:rgba(255,255,255,.18);border:none;color:#fff;width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:1rem">&#10006;</button>
     </div>
@@ -5584,24 +5651,24 @@ function _vplpDrawOBForm(dr, prefillKey) {
         fld('Vendor Key (UUID)', `<input id="vplp-ob-uuid" value="${esc(cur ? (cur.uuid || '') : '')}" placeholder="auto from master">`)
       )}
       ${fld('Vendor Name', `<input id="vplp-ob-name" value="${esc(cur ? cur.name : '')}" placeholder="display name">`)}
-      ${fld('Vendor Detail', `<input id="vplp-ob-detail" value="${esc(cur ? (cur.detail || '') : '')}" placeholder="e.g. MV300|USHA MARTIN">`)}
+      ${fld('Vendor Detail', `<input id="vplp-ob-detail" value="${esc(detailVal)}" placeholder="e.g. MV300|USHA MARTIN">`)}
       ${grid(
-        fld('Opening Balance', `<input id="vplp-ob-amount" type="number" step="0.01" min="0" placeholder="0.00">`, true),
-        fld('Dr / Cr', `<select id="vplp-ob-drcr"><option value="Cr" selected>Cr — Payable (we owe)</option><option value="Dr">Dr — Advance (recoverable)</option></select>`, true)
+        fld('Opening Balance', `<input id="vplp-ob-amount" type="number" step="0.01" min="0" value="${esc(amtVal)}" placeholder="0.00">`, true),
+        fld('Dr / Cr', `<select id="vplp-ob-drcr"><option value="Cr"${sideVal !== 'Dr' ? ' selected' : ''}>Cr — Payable (we owe)</option><option value="Dr"${sideVal === 'Dr' ? ' selected' : ''}>Dr — Advance (recoverable)</option></select>`, true)
       )}
       ${grid(
-        fld('As On (Date)', `<input id="vplp-ob-date" type="date" value="${today}" onchange="_vplpOBSyncFY()">`, true),
-        fld('Financial Year', `<input id="vplp-ob-fy" value="${esc(_vplpFYString(today))}" placeholder="2025-26">`)
+        fld('As On (Date)', `<input id="vplp-ob-date" type="date" value="${esc(asOnVal)}" onchange="_vplpOBSyncFY()">`, true),
+        fld('Financial Year', `<input id="vplp-ob-fy" value="${esc(fyVal)}" placeholder="2025-26">`)
       )}
       ${grid(
-        fld('Company', `<input id="vplp-ob-company" placeholder="entity (optional)">`),
-        fld('Currency', `<select id="vplp-ob-currency">${['Indian Rupee','US Dollar','Euro','GBP','AED','OMR','QAR'].map(c => `<option${c === 'Indian Rupee' ? ' selected' : ''}>${c}</option>`).join('')}</select>`)
+        fld('Company', `<input id="vplp-ob-company" value="${esc(companyVal)}" placeholder="entity (optional)">`),
+        fld('Currency', `<select id="vplp-ob-currency">${['Indian Rupee','US Dollar','Euro','GBP','AED','OMR','QAR'].map(c => `<option${c === curncyVal ? ' selected' : ''}>${c}</option>`).join('')}</select>`)
       )}
-      ${fld('Remarks (If Any)', `<textarea id="vplp-ob-details" rows="2" style="resize:vertical" placeholder="e.g. Balance carried forward from FY 2025-26"></textarea>`)}
+      ${fld('Remarks (If Any)', `<textarea id="vplp-ob-details" rows="2" style="resize:vertical" placeholder="e.g. Balance carried forward from FY 2025-26">${esc(remarksVal)}</textarea>`)}
     </div>
     <div style="padding:.9rem 1.3rem;border-top:1px solid var(--border);display:flex;gap:.7rem;justify-content:flex-end;flex-shrink:0;background:var(--surface2)">
       <button onclick="_vplpCloseOB()" class="btn btn-secondary btn-sm">Cancel</button>
-      <button id="vplp-ob-submit" onclick="_vplpOBSubmit()" class="btn btn-primary btn-sm">Save Opening Balance</button>
+      <button id="vplp-ob-submit" onclick="_vplpOBSubmit()" class="btn btn-primary btn-sm">${isEdit ? 'Update Opening Balance' : 'Save Opening Balance'}</button>
     </div>`;
 }
 window._vplpOBSubmit = async function() {
