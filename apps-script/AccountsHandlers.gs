@@ -10,7 +10,7 @@
  *
  * Dispatched from Router.gs:
  *   saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance,
- *   createPRFolder, uploadPRAttachment, listPRAttachments
+ *   saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments
  *
  * IMPORTANT: after editing this file the Apps Script /exec MUST be
  * redeployed (Deploy -> Manage deployments -> New version) before the
@@ -62,6 +62,27 @@ function saveVendorOpeningBalance(body) {
       return { success: false, message: 'Missing Vendor ID / Vendor Key' };
     }
     var res = _accAppendByHeader(body.sheetId, body.tab || 'OpeningBalance', row);
+    if (!res.success) return res;
+    return { success: true, uuid: row['UUID'] || '', rowsAfter: res.rowsAfter, unmatched: res.unmatched };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ACTION: saveGRNReview
+//  body: { sheetId, tab:'GRN_Review', row:{ <header>:<value>, ... } }
+//  Records the Accounts review of a received GRN StockIN line (keyed by
+//  SI ID): Review Status + edited Reviewed Rate + Additional Charges.
+//  Header-mapped append; the portal takes the latest row per SI ID, so a
+//  re-review just appends a newer row. The web app must have EDIT access to
+//  the GRN Review workbook.
+// ─────────────────────────────────────────────────────────────
+function saveGRNReview(body) {
+  try {
+    var row = body.row || {};
+    if (!row['SI ID']) return { success: false, message: 'Missing SI ID' };
+    var res = _accAppendByHeader(body.sheetId, body.tab || 'GRN_Review', row);
     if (!res.success) return res;
     return { success: true, uuid: row['UUID'] || '', rowsAfter: res.rowsAfter, unmatched: res.unmatched };
   } catch (e) {
