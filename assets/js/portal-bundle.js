@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.31.3';
-const PORTAL_BUILD    = 652;
-const PORTAL_BUILD_AT = '2026-07-01T11:02:32Z';
+const PORTAL_VERSION  = '4.32.0';
+const PORTAL_BUILD    = 653;
+const PORTAL_BUILD_AT = '2026-07-01T16:50:39Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4415,6 +4415,7 @@ function _mdpSelAll(on) {
 async function _mdpApproveSelected() {
   const ids = Object.keys(_mdpSel);
   if (!ids.length) return;
+  if (typeof _accCanSetStatus === 'function' && !_accCanSetStatus('Process Payment, Move to Accounts')) { alert('You are not authorised to approve payments (Proceed with Payment).\n\nThis action is restricted under Configuration → Status Access.'); return; }
   if (!confirm(`Approve ${ids.length} payment request(s) and move them to Accounts?`)) return;
   _mdpBulkPost(ids, 'Process Payment, Move to Accounts', 'Approved', '');
 }
@@ -4520,6 +4521,7 @@ function _mdpHistory(r) {
 }
 
 function _mdpApprove(uuid) {
+  if (typeof _accCanSetStatus === 'function' && !_accCanSetStatus('Process Payment, Move to Accounts')) { alert('You are not authorised to approve payments (Proceed with Payment).\n\nThis action is restricted under Configuration → Status Access.'); return; }
   if (!confirm('Approve this payment request and move it to Accounts for processing?')) return;
   _accClosePRDetail();
   _mdpBulkPost([uuid], 'Process Payment, Move to Accounts', 'Approved', '');
@@ -9408,6 +9410,10 @@ function _accRowsInView(rows, id) {
 // the Quick Action button is therefore visible to Admin in all views.
 function _accCanAdvance(viewDef) {
   if (!viewDef || !viewDef.next) return false;
+  // Per-status people/role restriction wins for everyone (except super-admins,
+  // handled inside _accCanSetStatus) — so the Quick Action button hides for
+  // anyone not on the allow-list, including MD/admin.
+  if (typeof _accCanSetStatus === 'function' && !_accCanSetStatus(viewDef.next.status)) return false;
   if (typeof _accIsAdmin === 'function' && _accIsAdmin()) return true;
   return (viewDef.next.roles || []).includes((STATE.role || '').toLowerCase());
 }
@@ -11419,6 +11425,7 @@ async function _accUpdateFormSubmit(prUuid) {
   if (/pending due to queries/.test(norm) && !_accV('acc-up-reason')) errors.push('Pending Reason is required.');
   if (/payment completed/.test(norm) && !_accV('acc-up-utr')) errors.push('UTR Details are required to complete a payment.');
   if (/reject/.test(norm) && !_accV('acc-up-comments')) errors.push('Comments are required when rejecting.');
+  if (status && !_accCanSetStatus(status)) errors.push('You are not authorised to set the status “' + status + '”.');
   if (errors.length) { alert('Please fix the following:\n\n• ' + errors.join('\n• ')); return; }
 
   const btn = document.getElementById('acc-up-submit');
@@ -11477,11 +11484,52 @@ function _accCan(action) {
   return ['accounts','accounts-v2','accounts-worklist','accounts-dashboard','md-payments'].some(rt => userCan(rt, action));
 }
 
+// ── Per-status update access (Accounts) ──────────────────────────────────
+// Admins can restrict individual status transitions to specific PEOPLE (by
+// email or name) and/or roles, via Configuration → Status Access. Stored in
+// PortalConfig key 'acc_status_access' = { '<statusLabel>': {users:[],roles:[]} }.
+// A status with no rule (or an empty rule) is unrestricted → normal role checks
+// apply. Super-admins are never blocked (they configure the rules).
+const ACC_STATUS_ACCESS = [
+  { status: 'Verified, Move to MD Queue',        label: 'Move to MD Queue',               desc: 'Accounts verifies a request and moves it to the MD approval queue.' },
+  { status: 'Process Payment, Move to Accounts', label: 'Approve — Proceed with Payment',  desc: 'MD approves a request; it moves to Accounts to process payment.' },
+  { status: 'Payment Initiated',                 label: 'Initiate Payment (in bank)',      desc: 'Mark the payment as initiated in the bank.' },
+  { status: 'Paid (MD_ED)',                      label: 'Bank Transaction Completed',      desc: 'Confirm the bank transaction is completed.' },
+  { status: 'Payment Completed',                 label: 'Update UTR / Complete',           desc: 'Final completion of the payment (with UTR).' },
+  { status: 'Reject Payment (MD)',               label: 'Reject Payment',                  desc: 'Reject a payment request.' },
+];
+function _accStatusAccessCfg() { return (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {}); }
+function _accStatusRule(status) {
+  const r = _accStatusAccessCfg()[status];
+  if (!r) return null;
+  const users = (r.users || []).map(x => String(x || '').trim()).filter(Boolean);
+  const roles = (r.roles || []).map(x => String(x || '').trim()).filter(Boolean);
+  return (users.length || roles.length) ? { users, roles } : null;
+}
+// Can the current user set this status? true when unrestricted or allowed.
+function _accCanSetStatus(status) {
+  const rule = _accStatusRule(status);
+  if (!rule) return true;                                   // no restriction on this status
+  if (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) return true;
+  const me = (typeof STATE !== 'undefined' && STATE.user) || {};
+  const norm = s => String(s == null ? '' : s).toLowerCase().trim();
+  const mine = [norm(me.email), norm(me.name), norm(me.employeeRef), norm(me.empCode)].filter(Boolean);
+  const userMatch = rule.users.some(u => mine.includes(norm(u)));
+  const roleMatch = rule.roles.map(norm).includes(norm(typeof STATE !== 'undefined' && STATE.role));
+  return userMatch || roleMatch;
+}
+
 async function _accQuickStatus(uuid, status, comments, utr, silent, dedupeKey) {
   // Central write-path gate: a user with no Accounts action permission cannot
   // post status/advance updates when group access is enforced.
   if (!_accCan('update') && !_accCan('advance') && !_accCan('verify') && !_accCan('approve')) {
     if (!silent) _accToast('🔒 You do not have permission to update payments.');
+    return false;
+  }
+  // Per-status people/role restriction (Configuration → Status Access).
+  if (!_accCanSetStatus(status)) {
+    window._accLastQuickErr = 'Not authorised to set status: ' + status;
+    if (!silent) _accToast('🔒 You are not authorised to set “' + status + '”.');
     return false;
   }
   // Build the row ONCE (stable UUID + DedupeKey) so the retry loop below re-posts
@@ -13211,8 +13259,9 @@ function userCan(route, action) {
 
 // ── Tab bar + dispatcher ──────────────────────────────────────────────
 const CFG_TABS = [
-  { id:'config',  icon:'&#9881;',   label:'Portal Config' },
-  { id:'sheets',  icon:'&#128279;', label:'Sheet Linking' },
+  { id:'config',    icon:'&#9881;',   label:'Portal Config' },
+  { id:'sheets',    icon:'&#128279;', label:'Sheet Linking' },
+  { id:'accstatus', icon:'&#128272;', label:'Status Access' },
 ];
 function _cfgTabBar(active) {
   return `<div style="display:flex;gap:.3rem;flex-wrap:wrap;border-bottom:2px solid var(--border);margin-bottom:1.1rem">
@@ -13237,6 +13286,7 @@ function renderDevModePage(tab) {
   window._cfgActiveTab = tab || window._cfgActiveTab || 'config';
   const t = window._cfgActiveTab;
   if (t === 'sheets') return _cfgRenderSheets();
+  if (t === 'accstatus') return _cfgRenderAccStatus();
   // 'modules' (the old Modules & Roles tab) → Portal Config; its role matrix
   // is retired and its Live/Dev/Off status lives in Access & Pages.
   return _cfgRenderConfig();
@@ -13344,6 +13394,75 @@ function renderAccessPages() {
   }
   _cfgRenderAccess();
 }
+
+// ════════════════════════════════════════════════════════════════════
+//  TAB: ACCOUNTS STATUS ACCESS — restrict each status transition to people
+// ════════════════════════════════════════════════════════════════════
+const _ACS_ROLES = ['md', 'accounts', 'dept_head', 'purchase', 'hr', 'site'];
+function _cfgRenderAccStatus() {
+  const el = document.getElementById('mainContent');
+  const esc = _mdpEsc;
+  const cfg = (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {});
+  const card = (item, i) => {
+    const rule = cfg[item.status] || {};
+    const uVal = (rule.users || []).join(', ');
+    const rSet = new Set((rule.roles || []).map(x => String(x).toLowerCase()));
+    const restricted = (rule.users && rule.users.length) || (rule.roles && rule.roles.length);
+    const badge = restricted
+      ? '<span style="font-size:.6rem;background:#fee2e2;color:#b91c1c;padding:1px 8px;border-radius:9px;font-weight:700">RESTRICTED</span>'
+      : '<span style="font-size:.6rem;background:#dcfce7;color:#15803d;padding:1px 8px;border-radius:9px;font-weight:700">ANYONE (role default)</span>';
+    const roleChips = _ACS_ROLES.map(r => `<label style="display:inline-flex;align-items:center;gap:.3rem;font-size:.74rem;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:2px 10px;cursor:pointer">
+        <input type="checkbox" id="acs-role-${i}-${r}" ${rSet.has(r) ? 'checked' : ''} style="margin:0">${esc(r)}</label>`).join('');
+    return `<div class="card card-pad" style="margin-bottom:.8rem">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.6rem;flex-wrap:wrap">
+        <div><div style="font-weight:700;font-size:.9rem;color:var(--g8);display:flex;align-items:center;gap:.5rem">${esc(item.label)} ${badge}</div>
+        <div style="font-size:.72rem;color:var(--txt3);margin-top:2px">${esc(item.desc)}</div>
+        <div style="font-size:.64rem;color:var(--txt3);margin-top:1px">Sets status: <code>${esc(item.status)}</code></div></div>
+        <span id="acs-st-${i}" style="font-size:.72rem;color:var(--txt3)"></span>
+      </div>
+      <div style="margin-top:.7rem">
+        <label style="font-size:.64rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Allowed people (emails or names, comma-separated)</label>
+        <input id="acs-users-${i}" value="${esc(uVal)}" placeholder="e.g. manoj@evgcpl.com, nkm@evgcpl.com, Shanthini" style="width:100%;margin-top:.25rem;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface2);color:var(--txt)">
+      </div>
+      <div style="margin-top:.6rem;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+        <span style="font-size:.64rem;font-weight:700;color:var(--txt3);text-transform:uppercase">…or allow whole roles:</span>${roleChips}
+      </div>
+      <div style="margin-top:.7rem;display:flex;gap:.5rem">
+        <button onclick="_accStatusSave(${i})" class="btn btn-primary btn-sm" style="font-size:.74rem">&#128190; Save</button>
+        <button onclick="_accStatusClear(${i})" class="btn btn-secondary btn-sm" style="font-size:.74rem">Clear (allow anyone)</button>
+      </div>
+    </div>`;
+  };
+  el.innerHTML = `${_cfgTabBar('accstatus')}
+    <div class="page-header"><div class="page-header-row"><div>
+      <h1>&#128272; Accounts &mdash; Status Access</h1>
+      <p>Restrict who can move a payment request to each status &middot; by person (email/name) or role &middot; saved org-wide &middot; Admin only</p>
+    </div></div></div>
+    <div class="alert-strip" style="margin-bottom:1rem"><span class="alert-icon">&#8505;&#65039;</span>
+      <span>Leave a status blank to allow anyone with the usual role permission. Add people to lock it down &mdash; then <b>only</b> those people (or ticked roles) can set that status. Super-admins are always allowed.</span></div>
+    ${ACC_STATUS_ACCESS.map(card).join('')}`;
+}
+window._accStatusSave = async function(i) {
+  const item = ACC_STATUS_ACCESS[i]; if (!item) return;
+  const st = document.getElementById('acs-st-' + i);
+  const usersRaw = (document.getElementById('acs-users-' + i) || {}).value || '';
+  const users = usersRaw.split(/[,\n;]+/).map(s => s.trim()).filter(Boolean);
+  const roles = _ACS_ROLES.filter(r => { const e = document.getElementById('acs-role-' + i + '-' + r); return e && e.checked; });
+  const cfg = (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {});
+  if (users.length || roles.length) cfg[item.status] = { users, roles };
+  else delete cfg[item.status];
+  if (st) { st.textContent = 'Saving…'; st.style.color = '#92400e'; }
+  const res = await pcWriteJSON('acc_status_access', cfg);
+  if (st) { st.textContent = res.ok ? '✓ Saved org-wide' : '✗ ' + (res.message || 'failed'); st.style.color = res.ok ? '#16a34a' : '#dc2626'; }
+  if (res.ok) setTimeout(_cfgRenderAccStatus, 900);
+};
+window._accStatusClear = async function(i) {
+  const item = ACC_STATUS_ACCESS[i]; if (!item) return;
+  const cfg = (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {});
+  delete cfg[item.status];
+  await pcWriteJSON('acc_status_access', cfg);
+  _cfgRenderAccStatus();
+};
 
 function _cfgRenderAccess() {
   const el = document.getElementById('mainContent');

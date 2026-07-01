@@ -152,6 +152,17 @@ Access-Group route/action grants. `access_config` is sheet-authoritative on
 load; `?access=off` is an escape hatch so an admin can't be locked out.
 External roles (`vendor`, `sc`) land on `external.html`, not the staff shell.
 
+**Per-status update access (Accounts).** Configuration → **Status Access**
+(`_cfgRenderAccStatus`) restricts *individual* payment-status transitions to
+specific **people** (email/name) and/or roles — e.g. only `manoj@evgcpl.com`
+may "Move to MD Queue"; only `nkm@evgcpl.com` / Shanthini may "Approve — Proceed
+with Payment". Stored org-wide in PortalConfig `acc_status_access` = `{ '<status
+label>': {users:[],roles:[]} }`. A status with no rule is unrestricted (normal
+role checks apply); super-admins are never blocked. Enforced centrally in
+`_accCanSetStatus()` → `_accQuickStatus` + `_accUpdateFormSubmit` (write paths)
+and surfaced in the UI via `_accCanAdvance` (hides the Quick Action) and the MD
+approve buttons.
+
 ---
 
 ## 5. Data sources
