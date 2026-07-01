@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.30.2';
-const PORTAL_BUILD    = 648;
-const PORTAL_BUILD_AT = '2026-06-30T17:58:25Z';
+const PORTAL_VERSION  = '4.31.0';
+const PORTAL_BUILD    = 649;
+const PORTAL_BUILD_AT = '2026-07-01T05:55:33Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -243,7 +243,12 @@ const ROLES = {
 //  AUTH — Google OAuth + Vendor/SC Login
 // ══════════════════════════════════════════════════
 
+// Gmail / Google sign-in is DISABLED. Login is via Email & PIN (and the Vendor
+// flow) only. The one-tap auto-prompt is suppressed here; to re-enable Google
+// login, restore this body and the button in index.html.
+const GOOGLE_LOGIN_ENABLED = false;
 function initGoogleSignIn() {
+  if (!GOOGLE_LOGIN_ENABLED) return;
   if (typeof google === 'undefined' || !google.accounts) return;
   if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.startsWith('YOUR_')) return;
   google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
@@ -292,6 +297,10 @@ async function handleGoogleCredential(response) {
 }
 
 function handleGoogleLogin() {
+  if (!GOOGLE_LOGIN_ENABLED) {
+    console.warn('Google sign-in is disabled. Use Email & PIN login.');
+    return;
+  }
   if (GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('YOUR_') && typeof google !== 'undefined' && google.accounts) {
     google.accounts.id.prompt();
   } else {
@@ -3214,6 +3223,7 @@ function renderPage(page) {
     'schema':         renderSchemaPage,
     'reports':        renderReportsModule,
     'data-hub':       renderDataHub,
+    'masters':        renderMastersPage,
     // Vendor / SC external portal routes
     'my-portal':      renderExternalPortal,
     'my-orders':      renderVendorPOTracker,
@@ -11886,6 +11896,7 @@ const MODULE_REGISTRY = [
   // ── Reports ───────────────────────────────────────────────────
   { route:'reports',           label:'Reports',                section:'Reports',          defStatus:'live', defRoles:['md','hr','purchase','accounts','dept_head'] },
   { route:'data-hub',          label:'Data Hub',               section:'Reports',          defStatus:'live', defRoles:['md','hr','purchase','accounts','dept_head'] },
+  { route:'masters',           label:'Masters',                section:'Reports',          defStatus:'live', defRoles:['md','hr','purchase','accounts','dept_head'] },
 
   // ── Quick Access ──────────────────────────────────────────────
   { route:'rewards',           label:'Rewards & Wall',         section:'Quick Access',     defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
@@ -17231,6 +17242,283 @@ function renderReportsModule() {
 //  table — zero per-dataset configuration. Add a dataset by appending
 //  one row to DATAHUB_SOURCES.
 // ════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════
+//  MASTERS — browse every tab of the Master spreadsheet (SHEET_ID),
+//  export any master to CSV, and add/remove (show/hide) columns per tab.
+//  Route: 'masters'  ·  lives under Data Hub.
+// ════════════════════════════════════════════════════════════════════
+const MASTERS_TABS = [
+  '1-BillingMaster', 'PortalConfig', '2-UserMaster', '3-HeadMaster',
+  '2a-UserMaster-Site', '4-GRNMaster_Actual', '4-GRNMasterDetails', '5-SiteMaster',
+  'M_Attachments', 'Backup-GRNMaster5Jul25', '4A-Update-GRNMaster', '6-AssetMaster',
+  'v26-AssetMaster', '7-VendorMaster_Actual', '7-VendorMaster_Details', '8-UOMMaster',
+  '9-ModeMaster', '10-SubContractorMaster', '11-RejectionMaster', '12-Nature of Work',
+  'M13_Currency', 'M_13a_ConvertionRate', 'M14_PaymentTerms', '15-Dimension Master_Actual',
+  'M16_IDCMaster', 'M17_CostCenter',
+];
+
+const _mastersCache = {};
+let _mastersState = { tab: null, rows: [], cols: [], q: '' };
+
+function _mastersHiddenKey(tab) { return 'masters_hidden_' + tab; }
+function _mastersGetHidden(tab) {
+  try { return new Set(JSON.parse(localStorage.getItem(_mastersHiddenKey(tab)) || '[]')); }
+  catch (e) { return new Set(); }
+}
+function _mastersSetHidden(tab, set) {
+  try { localStorage.setItem(_mastersHiddenKey(tab), JSON.stringify([...set])); } catch (e) {}
+}
+function _mastersVisibleCols(tab, cols) {
+  const hidden = _mastersGetHidden(tab);
+  return cols.filter(c => !hidden.has(c));
+}
+
+function renderMastersPage() {
+  const el = document.getElementById('mainContent');
+  if (!el) return;
+  _mastersInjectStyles();
+
+  const chips = MASTERS_TABS.map(t => `
+    <button class="mst-chip${_mastersState.tab === t ? ' active' : ''}" onclick="mastersSelect('${t.replace(/'/g, "\\'")}')">${_dhEsc(t)}</button>
+  `).join('');
+
+  el.innerHTML = `
+    <div class="mst-wrap">
+      <div class="mst-head">
+        <div>
+          <h1 class="mst-title">🗂️ Masters</h1>
+          <p class="mst-sub">Every tab of the Master spreadsheet. Pick a master to view, choose columns, and export to CSV.</p>
+        </div>
+        <div class="mst-head-btns">
+          <button class="mst-btn ghost" onclick="mastersExportAll()" id="mst-export-all" title="Download every master as one combined CSV">⬇ Export All Masters</button>
+          <button class="mst-btn ghost" onclick="mastersRefresh()" title="Reload the current master">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="mst-picker">${chips}</div>
+      <div id="mst-panel" class="mst-panel">
+        ${_mastersState.tab ? '' : '<div class="mst-empty">Pick a master above to view its data.</div>'}
+      </div>
+    </div>`;
+
+  if (_mastersState.tab) mastersSelect(_mastersState.tab, true);
+}
+
+window.mastersRefresh = function() {
+  if (_mastersState.tab) { delete _mastersCache[_mastersState.tab]; mastersSelect(_mastersState.tab); }
+};
+
+window.mastersSelect = function(tab, keepCache) {
+  _mastersState.tab = tab; _mastersState.q = '';
+  document.querySelectorAll('.mst-chip').forEach(b => b.classList.remove('active'));
+  const chip = [...document.querySelectorAll('.mst-chip')].find(b => (b.getAttribute('onclick') || '').includes(`'${tab.replace(/'/g, "\\'")}'`));
+  if (chip) chip.classList.add('active');
+
+  const panel = document.getElementById('mst-panel');
+  if (!panel) return;
+
+  if (_mastersCache[tab]) { _mastersRender(tab, _mastersCache[tab]); return; }
+
+  panel.innerHTML = `<div class="mst-loading">⏳ Loading <strong>${_dhEsc(tab)}</strong>…</div>`;
+  fetchSheet(tab, null, SHEET_ID, { rawId: true })
+    .then(rows => {
+      rows = rows || [];
+      const cols = rows.length ? Object.keys(rows[0]).filter(c => !String(c).startsWith('_')) : [];
+      _mastersCache[tab] = { rows, cols };
+      if (_mastersState.tab === tab) _mastersRender(tab, _mastersCache[tab]);
+    })
+    .catch(err => {
+      panel.innerHTML = `<div class="mst-err">Couldn't load ${_dhEsc(tab)} — ${_dhEsc(err && err.message || 'fetch failed')}.</div>`;
+    });
+};
+
+function _mastersRender(tab, data) {
+  const panel = document.getElementById('mst-panel');
+  if (!panel) return;
+  const { rows, cols } = data;
+  _mastersState.rows = rows; _mastersState.cols = cols;
+
+  if (!rows.length) { panel.innerHTML = `<div class="mst-err">${_dhEsc(tab)} returned no rows.</div>`; return; }
+
+  const vis = _mastersVisibleCols(tab, cols);
+  panel.innerHTML = `
+    <div class="mst-toolbar">
+      <span class="mst-meta"><strong>${_dhEsc(tab)}</strong> · ${rows.length.toLocaleString('en-IN')} rows · ${vis.length}/${cols.length} columns</span>
+      <div class="mst-tools">
+        <input class="mst-search" type="text" placeholder="Filter rows…" oninput="mastersFilter(this.value)"/>
+        <button class="mst-btn" onclick="mastersToggleCols()" title="Add / remove columns">⚙ Columns</button>
+        <button class="mst-btn primary" onclick="mastersExportOne()" title="Download this master as CSV">⬇ Export CSV</button>
+      </div>
+    </div>
+    <div id="mst-colpanel" class="mst-colpanel" style="display:none">
+      <div class="mst-colpanel-h">
+        <span>Show / hide columns</span>
+        <div>
+          <button class="mst-mini" onclick="mastersColsAll(true)">Select all</button>
+          <button class="mst-mini" onclick="mastersColsAll(false)">Clear all</button>
+        </div>
+      </div>
+      <div class="mst-colgrid">
+        ${cols.map(c => {
+          const shown = vis.includes(c);
+          return `<label class="mst-colitem"><input type="checkbox" ${shown ? 'checked' : ''} onchange="mastersColToggle('${c.replace(/'/g, "\\'")}', this.checked)"> ${_dhEsc(c)}</label>`;
+        }).join('')}
+      </div>
+    </div>
+    <div id="mst-table" class="mst-table-scroll">${_mastersTableHtml(tab, cols, rows, '')}</div>`;
+}
+
+function _mastersTableHtml(tab, cols, rows, q) {
+  const vis = _mastersVisibleCols(tab, cols);
+  if (!vis.length) return `<div class="mst-err">All columns are hidden — enable some via ⚙ Columns.</div>`;
+  let filtered = rows;
+  if (q) { const lc = q.toLowerCase(); filtered = rows.filter(r => vis.some(c => String(r[c] == null ? '' : r[c]).toLowerCase().includes(lc))); }
+  const cap = filtered.slice(0, 300);
+  const head = vis.map(c => `<th>${_dhEsc(c)}</th>`).join('');
+  const body = cap.map(r => `<tr>${vis.map(c => `<td>${_dhEsc(r[c])}</td>`).join('')}</tr>`).join('');
+  return `<table class="mst-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+    <div class="mst-table-foot">Showing ${cap.length.toLocaleString('en-IN')} of ${filtered.length.toLocaleString('en-IN')} rows</div>`;
+}
+
+window.mastersFilter = function(q) {
+  _mastersState.q = q;
+  const host = document.getElementById('mst-table');
+  if (host) host.innerHTML = _mastersTableHtml(_mastersState.tab, _mastersState.cols, _mastersState.rows, q);
+};
+
+window.mastersToggleCols = function() {
+  const p = document.getElementById('mst-colpanel');
+  if (p) p.style.display = (p.style.display === 'none') ? 'block' : 'none';
+};
+
+window.mastersColToggle = function(col, shown) {
+  const tab = _mastersState.tab;
+  const hidden = _mastersGetHidden(tab);
+  if (shown) hidden.delete(col); else hidden.add(col);
+  _mastersSetHidden(tab, hidden);
+  _mastersRefreshTable();
+};
+
+window.mastersColsAll = function(showAll) {
+  const tab = _mastersState.tab;
+  _mastersSetHidden(tab, showAll ? new Set() : new Set(_mastersState.cols));
+  _mastersRender(tab, _mastersCache[tab]);
+  const p = document.getElementById('mst-colpanel');
+  if (p) p.style.display = 'block';
+};
+
+function _mastersRefreshTable() {
+  const host = document.getElementById('mst-table');
+  if (host) host.innerHTML = _mastersTableHtml(_mastersState.tab, _mastersState.cols, _mastersState.rows, _mastersState.q);
+  // Refresh the meta count
+  const cache = _mastersCache[_mastersState.tab];
+  if (cache) {
+    const vis = _mastersVisibleCols(_mastersState.tab, cache.cols);
+    const meta = document.querySelector('.mst-meta');
+    if (meta) meta.innerHTML = `<strong>${_dhEsc(_mastersState.tab)}</strong> · ${cache.rows.length.toLocaleString('en-IN')} rows · ${vis.length}/${cache.cols.length} columns`;
+  }
+}
+
+// Build row objects containing only the visible columns (for CSV export).
+function _mastersVisibleRows(tab, cols, rows) {
+  const vis = _mastersVisibleCols(tab, cols);
+  return rows.map(r => { const o = {}; vis.forEach(c => { o[c] = r[c]; }); return o; });
+}
+
+window.mastersExportOne = function() {
+  const tab = _mastersState.tab;
+  const cache = _mastersCache[tab];
+  if (!cache || !cache.rows.length) { alert('No data to export.'); return; }
+  const out = _mastersVisibleRows(tab, cache.cols, cache.rows);
+  downloadCSV(out, `Master_${tab.replace(/[^\w.-]+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`);
+};
+
+// Fetch every master tab and download one combined CSV, each master as a
+// clearly-labelled section. Respects per-tab hidden columns where a tab has
+// already been viewed; otherwise exports all columns for that tab.
+window.mastersExportAll = async function() {
+  const btn = document.getElementById('mst-export-all');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Exporting… 0/' + MASTERS_TABS.length; }
+  const esc = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const sections = [];
+  let done = 0;
+  for (const tab of MASTERS_TABS) {
+    try {
+      let cache = _mastersCache[tab];
+      if (!cache) {
+        const rows = (await fetchSheet(tab, null, SHEET_ID, { rawId: true })) || [];
+        const cols = rows.length ? Object.keys(rows[0]).filter(c => !String(c).startsWith('_')) : [];
+        cache = { rows, cols };
+        _mastersCache[tab] = cache;
+      }
+      const vis = _mastersVisibleCols(tab, cache.cols);
+      sections.push('### ' + tab + ' (' + cache.rows.length + ' rows) ###');
+      if (cache.rows.length && vis.length) {
+        sections.push(vis.map(esc).join(','));
+        cache.rows.forEach(r => sections.push(vis.map(c => esc(r[c])).join(',')));
+      } else {
+        sections.push('(no data)');
+      }
+      sections.push(''); // blank line between masters
+    } catch (e) {
+      sections.push('### ' + tab + ' — ERROR: ' + (e && e.message || 'fetch failed') + ' ###', '');
+    }
+    done++;
+    if (btn) btn.textContent = '⏳ Exporting… ' + done + '/' + MASTERS_TABS.length;
+  }
+  const csv = sections.join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `All_Masters_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  if (btn) { btn.disabled = false; btn.textContent = '⬇ Export All Masters'; }
+};
+
+function _mastersInjectStyles() {
+  if (document.getElementById('mst-styles')) return;
+  const css = `
+    .mst-wrap{max-width:1280px;margin:0 auto}
+    .mst-head{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
+    .mst-title{font-size:1.5rem;font-weight:700;color:var(--txt1,#1a2b3c);margin:0}
+    .mst-sub{font-size:.85rem;color:var(--txt3,#64748b);margin:.25rem 0 0;max-width:680px}
+    .mst-head-btns{display:flex;gap:.5rem;flex-wrap:wrap}
+    .mst-btn{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:7px 14px;font-weight:600;cursor:pointer;font-size:.8rem;color:#334155;white-space:nowrap;font-family:inherit}
+    .mst-btn:hover{border-color:#1a6038;color:#1a6038}
+    .mst-btn.primary{background:#1a6038;border-color:#1a6038;color:#fff}
+    .mst-btn.primary:hover{background:#15502f;color:#fff}
+    .mst-btn.ghost{background:transparent}
+    .mst-btn:disabled{opacity:.6;cursor:default}
+    .mst-picker{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:1.2rem}
+    .mst-chip{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:5px 12px;font-size:.76rem;font-weight:600;color:#334155;cursor:pointer;transition:all .12s;font-family:inherit}
+    .mst-chip:hover{border-color:#1a6038;color:#1a6038}
+    .mst-chip.active{background:#1a6038;border-color:#1a6038;color:#fff}
+    .mst-panel{min-height:200px}
+    .mst-empty,.mst-loading,.mst-err{padding:3rem;text-align:center;color:var(--txt3,#64748b);background:#fff;border:1px dashed #e2e8f0;border-radius:14px}
+    .mst-err{color:#c0392b;border-color:#f3c0b8;background:#fdf3f1}
+    .mst-toolbar{display:flex;align-items:center;justify-content:space-between;gap:.7rem;margin-bottom:.7rem;flex-wrap:wrap}
+    .mst-meta{font-size:.8rem;color:var(--txt2,#475569)}
+    .mst-tools{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+    .mst-search{border:1px solid #e2e8f0;border-radius:8px;padding:6px 12px;font-size:.8rem;font-family:inherit;min-width:180px}
+    .mst-colpanel{background:#fff;border:1px solid #eef2f6;border-radius:12px;padding:.8rem 1rem;margin-bottom:.8rem}
+    .mst-colpanel-h{display:flex;align-items:center;justify-content:space-between;font-size:.8rem;font-weight:700;color:#1a2b3c;margin-bottom:.6rem}
+    .mst-mini{background:#f1f5f9;border:none;border-radius:6px;padding:3px 10px;font-size:.72rem;font-weight:600;color:#334155;cursor:pointer;margin-left:.4rem;font-family:inherit}
+    .mst-mini:hover{background:#e2e8f0}
+    .mst-colgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.35rem .8rem}
+    .mst-colitem{display:flex;align-items:center;gap:.4rem;font-size:.76rem;color:#334155;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .mst-table-scroll{overflow:auto;max-height:65vh;border:1px solid #eef2f6;border-radius:12px;background:#fff}
+    .mst-table{border-collapse:collapse;width:100%;font-size:.78rem}
+    .mst-table th{position:sticky;top:0;background:#1a6038;color:#fff;text-align:left;padding:8px 10px;white-space:nowrap;font-weight:600;z-index:1}
+    .mst-table td{padding:6px 10px;border-bottom:1px solid #eef2f6;white-space:nowrap;color:#334155}
+    .mst-table tbody tr:hover td,.mst-table tbody tr:hover td{background:#f8fafc}
+    .mst-table-foot{padding:.55rem .8rem;font-size:.72rem;color:#64748b;background:#f8fafc}
+  `;
+  const style = document.createElement('style');
+  style.id = 'mst-styles';
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+
 const DATAHUB_SOURCES = [
   { id:'payments',  label:'Payment Requests',   group:'Accounts', tab:'PaymentRequest',          sid:() => PAYMENT_SHEET_ID,       icon:'💳' },
   { id:'po',        label:'Purchase Orders',    group:'Purchase', tab:'PO_Actual',               sid:() => PO_SHEET_ID,            icon:'🧾' },
