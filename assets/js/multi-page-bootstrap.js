@@ -251,6 +251,7 @@
     // Reports
     'reports':           'reports.html',
     'data-hub':          'reports.html',
+    'masters':           'reports.html',
 
     // Tendering / Planning
     'tendering':         'planning.html',
