@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.32.0';
-const PORTAL_BUILD    = 653;
-const PORTAL_BUILD_AT = '2026-07-01T16:50:39Z';
+const PORTAL_VERSION  = '4.33.0';
+const PORTAL_BUILD    = 654;
+const PORTAL_BUILD_AT = '2026-07-01T20:03:37Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4977,8 +4977,40 @@ async function _vplpEnsure(force) {
       catch (e) { _vplpOBRows = []; }
     } else { _vplpOBRows = []; }
   }
+  if (force || !_vplpGRNReviewRows) {
+    // GRN accounts-review records (keyed by SI ID). Placeholder → empty → gate off.
+    if (GRN_REVIEW_SHEET_ID) {
+      try { _vplpGRNReviewRows = await fetchSheet(GRN_REVIEW_TAB, null, GRN_REVIEW_SHEET_ID, { rawId: true }) || []; }
+      catch (e) { _vplpGRNReviewRows = []; }
+    } else { _vplpGRNReviewRows = []; }
+  }
   _vplpData = _vplpCompute();
 }
+// GRN review gate is active only when the sheet is configured.
+function _grnGateOn() { return !!GRN_REVIEW_SHEET_ID; }
+let _vplpGRNReviewRows = null;
+function _grnRVal(r, names) { for (const n of names) { const v = r[n]; if (v != null && String(v).trim() !== '') return String(v).trim(); } return ''; }
+// SI ID → latest review { status, rate, addl, by, ts, comments, invoice }.
+// Latest by Timestamp wins so a review is editable (append-only, like OB).
+function _grnReviewBySiId() {
+  const m = {};
+  (_vplpGRNReviewRows || []).forEach(r => {
+    const si = _opNorm(_grnRVal(r, ['SI ID', 'SIID', 'StockIN ID', 'SI Id']));
+    if (!si) return;
+    const ts = _mdpDateVal(_grnRVal(r, ['Timestamp'])) || 0;
+    const o = {
+      status: _grnRVal(r, ['Review Status', 'Status']) || 'Pending',
+      rate: _opNum(_grnRVal(r, ['Reviewed Rate', 'Rate'])),
+      addl: _opNum(_grnRVal(r, ['Additional Charges', 'Addl Charges', 'Additional Charge'])),
+      by: _grnRVal(r, ['Reviewed By', 'Updated By']),
+      comments: _grnRVal(r, ['Comments', 'Remarks']),
+      ts,
+    };
+    if (!m[si] || ts >= m[si].ts) m[si] = o;
+  });
+  return m;
+}
+function _grnIsApproved(rev) { return !!(rev && /approv/i.test(rev.status || '')); }
 // Opening-balance rows from the OpeningBalance tab. Columns: UUID, SystemEmail,
 // UserEmail, Timestamp, Updated By, VendorKey(UUID), Vendor ID, Vendor Name,
 // Vendor Detail, Opening Balance, As On (Date), Remarks (If Any). Keyed into the
@@ -5053,13 +5085,20 @@ function _vplpCompute() {
   // StockIN receipts by (PO No (Key) || part) — the PO_Items join. Each receipt
   // carries its GRN No (StockIN ColAA direct, else the GRN_No-sheet join), its
   // invoice number, and its row index so the ledger can link to the detail.
+  // Per-StockIN-line, each with its own qty + SI ID + accounts review, so credit
+  // can honour the reviewed rate / additional charges and gate un-reviewed lines.
+  const reviewBySi = _grnGateOn() ? _grnReviewBySiId() : {};
+  const gateOn = _grnGateOn();
   const siAgg = {};
   _openPOStock.forEach((r, idx) => {
     const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey'])); if (!pk) return;
     const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
     const e = siAgg[key] = siAgg[key] || { qty: 0, rcpts: [] };
-    e.qty += _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
-    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx });
+    const qty = _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
+    const siId = _opGet(r, SC, ['SI ID', 'SIID', 'SI Id']);
+    const rev = reviewBySi[_opNorm(siId)] || null;
+    e.qty += qty;
+    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev });
   });
   // PO header: approval, vendor, date, Tax(b), Additional Charges(b). Keyed by
   // the normalised PO key (folds EGVE/EVGE spelling variants).
@@ -5077,19 +5116,32 @@ function _vplpCompute() {
   });
   // Received material (received qty × rate) + Tax(a) apportioned to the received
   // fraction of each line, per PO.
-  const poRecv = {}, poTaxA = {}, poRcpt = {};
+  // poRecv = COUNTED (approved, or all when the gate is off) received value;
+  // poPending = value of un-reviewed receipts, shown but NOT counted.
+  const poRecv = {}, poTaxA = {}, poRcpt = {}, poPending = {};
   _openPOItems.forEach(x => {
     const k = _opPOKey(_opGet(x, IC, ['PO No', 'Order No'])); if (!k) return;
     const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
     const cs = _opGet(x, IC, ['CheckSum', 'Check Sum']);
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
-    const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)] || { qty: 0, rcpts: [] };
-    if (m.qty <= 0) return;
-    poRecv[k] = (poRecv[k] || 0) + m.qty * rate;
+    const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)];
+    if (!m || !m.rcpts.length || m.qty <= 0) return;
     const oq = _opNum(_opGet(x, IC, ['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
     const lineTax = _opNum(_opGet(x, IC, ['Tax Amt', 'Tax Amount', 'Total Tax']));
-    poTaxA[k] = (poTaxA[k] || 0) + lineTax * (oq > 0 ? Math.min(m.qty / oq, 1) : 1);
-    const g = poRcpt[k] = poRcpt[k] || []; m.rcpts.forEach(rc => { if (!g.some(z => z.idx === rc.idx)) g.push(rc); });
+    let countedQty = 0;
+    m.rcpts.forEach(rc => {
+      const approved = !gateOn || _grnIsApproved(rc.rev);   // gate off → everything counts (unchanged)
+      const useRate = (rc.rev && rc.rev.rate > 0) ? rc.rev.rate : rate;
+      const addl = (rc.rev && rc.rev.addl) || 0;
+      const lineCredit = (rc.qty || 0) * useRate + addl;
+      // stash for the ledger / review UI
+      rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.part = part;
+      if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; countedQty += (rc.qty || 0); }
+      else { poPending[k] = (poPending[k] || 0) + lineCredit; }
+      const g = poRcpt[k] = poRcpt[k] || []; if (!g.some(z => z.idx === rc.idx)) g.push(rc);
+    });
+    // Tax(a) apportioned to the COUNTED fraction of the line (matches old maths when gate off).
+    if (countedQty > 0) poTaxA[k] = (poTaxA[k] || 0) + lineTax * (oq > 0 ? Math.min(countedQty / oq, 1) : 1);
   });
   // Vendor Master bridge: name → Vendor ID and bank-account → Vendor ID. Lets a
   // payment (which carries only the selected vendor NAME + account, no Vendor ID)
@@ -5116,7 +5168,9 @@ function _vplpCompute() {
     if (vid && vendorById[vid]) v.name = vendorById[vid];
     return v;
   };
-  Object.keys(poInfo).forEach(k => { const i = poInfo[k]; if (i.approved && (poRecv[k] || 0) > 0) getV(i.vendorId, i.vendorName).poKeys[k] = true; });
+  // Include a PO if it has counted receipts OR pending-review receipts (so the
+  // vendor + the "Pending review" line still surface while un-reviewed).
+  Object.keys(poInfo).forEach(k => { const i = poInfo[k]; if (i.approved && ((poRecv[k] || 0) > 0 || (poPending[k] || 0) > 0)) getV(i.vendorId, i.vendorName).poKeys[k] = true; });
   (_mdpRows || []).forEach(r => {
     if (r.payTo !== 'Vendor') return;
     if (!(r.status && r.status.cat === 'completed')) return;
@@ -5131,7 +5185,19 @@ function _vplpCompute() {
     v.opening = o;
   });
   const list = Object.values(vendors).sort((a, b) => (a.unmapped - b.unmapped) || (a.name || '').localeCompare(b.name || ''));
-  return { vendors: list, poInfo, poRecv, poTaxA, poRcpt, bridge, obByKey };
+  // Flat list of every received StockIN line (with its review), for the GRN
+  // Review queue. Only lines that matched a PO item (have a rate) appear.
+  const grnLines = [];
+  Object.keys(poRcpt).forEach(k => {
+    const i = poInfo[k] || {};
+    (poRcpt[k] || []).forEach(rc => grnLines.push({
+      siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '',
+      qty: rc.qty || 0, poRate: rc.poRate || 0, useRate: rc.useRate || 0, addl: rc.addl || 0,
+      credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null,
+      poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
+    }));
+  });
+  return { vendors: list, poInfo, poRecv, poTaxA, poRcpt, poPending, bridge, obByKey, gateOn, grnLines };
 }
 // GRN + invoice sub-line for a credit (material-received) row. Each receipt's
 // GRN No links to its StockIN detail; invoice numbers are shown after.
@@ -5158,10 +5224,12 @@ function _vplpRenderBody() {
     <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
     <button onclick="_vplpSetView('flat')" class="btn btn-sm ${_vplpView === 'flat' ? 'btn-primary' : 'btn-secondary'}">&#128203; Flat List (all vendors)</button>
     <button onclick="_vplpSetView('openings')" class="btn btn-sm ${_vplpView === 'openings' ? 'btn-primary' : 'btn-secondary'}">&#128209; Opening Balances</button>
+    <button onclick="_vplpSetView('grnreview')" class="btn btn-sm ${_vplpView === 'grnreview' ? 'btn-primary' : 'btn-secondary'}">&#128203; GRN Review</button>
     <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="margin-left:auto" title="Record a vendor's carried-forward opening balance">&#10133; Opening Balance</button>
   </div>`;
   if (_vplpView === 'flat') { c.innerHTML = _vplpFlatList(toggle); return; }
   if (_vplpView === 'openings') { c.innerHTML = toggle + _vplpOBListView(); return; }
+  if (_vplpView === 'grnreview') { c.innerHTML = toggle + _vplpGRNReviewView(); return; }
   // Type-and-search vendor picker (347+ vendors → a combobox beats a native select).
   const selV = d.vendors.find(x => x.key === _vplpVendor);
   const selLabel = selV ? `${selV.name}${selV.vid ? ` [${selV.vid}]` : ''}` : '';
@@ -5184,6 +5252,110 @@ function _vplpRenderBody() {
   const headCard = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:1.4rem;align-items:center;flex-wrap:wrap">${picker}${summary}</div>`;
   c.innerHTML = toggle + headCard + _vplpLedger(v);
 }
+
+// ── GRN Review queue (Accounts) ──────────────────────────────────────────
+// Each received StockIN line comes here for Accounts review against the
+// invoice + PO. Accounts may edit the rate and add per-line additional
+// charges, then Approve (counts into the ledger) or Reject. Writes via
+// getExec('accounts') action 'saveGRNReview' (append; latest per SI ID wins).
+let _vplpGRNFilter = 'pending';   // 'pending' | 'approved' | 'rejected' | 'all'
+window._vplpGRNSetFilter = function(f) { _vplpGRNFilter = f; _vplpRenderBody(); };
+function _grnCanReview() {
+  const roleOk = (typeof _accCan !== 'function') || _accCan('update') || _accCan('verify') || _accCan('advance');
+  const statusOk = (typeof _accCanSetStatus !== 'function') || _accCanSetStatus('GRN Approved');
+  return roleOk && statusOk;
+}
+function _vplpGRNReviewView() {
+  _vplpEnsureLedgerStyle();
+  const esc = _mdpEsc, d = _vplpData || {};
+  const inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
+  const lines = (d.grnLines || []).slice();
+  const statusOf = l => l.rev && l.rev.status ? l.rev.status : 'Pending';
+  const isApp = l => /approv/i.test(statusOf(l)), isRej = l => /reject/i.test(statusOf(l));
+  const isPend = l => !isApp(l) && !isRej(l);
+  const counts = { pending: lines.filter(isPend).length, approved: lines.filter(isApp).length, rejected: lines.filter(isRej).length, all: lines.length };
+  const shown = _vplpGRNFilter === 'all' ? lines
+    : _vplpGRNFilter === 'approved' ? lines.filter(isApp)
+    : _vplpGRNFilter === 'rejected' ? lines.filter(isRej) : lines.filter(isPend);
+  // stash for the submit handler (index-addressed)
+  window._vplpGRNShown = shown;
+  const canReview = _grnCanReview();
+  const notCfg = !GRN_REVIEW_SHEET_ID;
+  const fbtn = (v, label, n) => `<button onclick="_vplpGRNSetFilter('${v}')" class="btn btn-sm ${_vplpGRNFilter === v ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 10px;font-size:.72rem">${label} (${n})</button>`;
+  const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.55rem .8rem;display:flex;gap:.6rem 1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+      <span style="font-size:.8rem;font-weight:700;color:var(--g8)">&#128203; GRN Review</span>
+      ${fbtn('pending', 'Pending', counts.pending)}${fbtn('approved', 'Approved', counts.approved)}${fbtn('rejected', 'Rejected', counts.rejected)}${fbtn('all', 'All', counts.all)}
+    </div>
+    <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
+  </div>`;
+  const cfgWarn = notCfg ? `<div class="alert-strip" style="margin-bottom:.7rem;background:#fef3c7;border-color:#f59e0b"><span class="alert-icon">&#9888;&#65039;</span><span><b>GRN Review sheet not configured.</b> The ledger gate is OFF (every received line still counts as before). Set <code>GRN_REVIEW_SHEET_ID</code> to activate review-gating; you can preview the queue below but can't save until it's set.</span></div>` : '';
+  const permWarn = (!canReview && !notCfg) ? `<div class="alert-strip" style="margin-bottom:.7rem"><span class="alert-icon">&#128274;</span><span>You can view GRN reviews but only Accounts can approve/edit them.</span></div>` : '';
+  if (!shown.length) return header + cfgWarn + permWarn + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No GRN lines in this view.</div>';
+  const body = shown.map((l, i) => {
+    const st = statusOf(l);
+    const chip = isApp(l) ? '<span style="font-size:.66rem;font-weight:700;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9px">Approved</span>'
+      : isRej(l) ? '<span style="font-size:.66rem;font-weight:700;background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9px">Rejected</span>'
+      : '<span style="font-size:.66rem;font-weight:700;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px">Pending</span>';
+    const rateVal = (l.rev && l.rev.rate > 0) ? l.rev.rate : (l.poRate || '');
+    const addlVal = (l.rev && l.rev.addl) || '';
+    const ro = canReview ? '' : ' disabled';
+    const val = (l.qty || 0) * ((l.rev && l.rev.rate > 0) ? l.rev.rate : l.poRate) + ((l.rev && l.rev.addl) || 0);
+    return `<tr>
+      <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
+      <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
+      <td style="padding:6px 9px">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</td>
+      <td style="padding:6px 9px;font-size:.74rem">${esc(l.part)}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
+      <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
+      <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-rate-${i}" type="number" step="0.01" value="${esc(rateVal)}"${ro} style="width:90px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-addl-${i}" type="number" step="0.01" value="${esc(addlVal)}"${ro} placeholder="0" style="width:90px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px;text-align:right;font-weight:700;color:#15803d">${inr(val)}</td>
+      <td style="padding:6px 9px">${chip}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${canReview ? `<button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : '—'}</td>
+    </tr>`;
+  }).join('');
+  return header + cfgWarn + permWarn + `<div class="card"><div style="overflow-x:auto">
+    <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
+      <thead><tr style="background:var(--g9);color:#fff;text-align:left">
+        <th style="padding:8px 9px">GRN</th><th style="padding:8px 9px">PO No</th><th style="padding:8px 9px">Vendor</th>
+        <th style="padding:8px 9px">Part</th><th style="padding:8px 9px">Invoice</th><th style="padding:8px 9px;text-align:right">Qty</th>
+        <th style="padding:8px 9px;text-align:right">PO Rate</th><th style="padding:8px 9px;text-align:right">Reviewed Rate</th>
+        <th style="padding:8px 9px;text-align:right">Add'l Charges</th><th style="padding:8px 9px;text-align:right">Value</th>
+        <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Review</th>
+      </tr></thead><tbody>${body}</tbody></table></div></div>`;
+}
+window._vplpGRNSubmit = async function(i, action) {
+  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
+  if (!_grnCanReview()) { _accToast('🔒 Only Accounts can review GRNs.'); return; }
+  if (!l.siId) { _accToast('⚠ This StockIN line has no SI ID — cannot review.'); return; }
+  if (!GRN_REVIEW_SHEET_ID) { _accToast('⚠ GRN Review sheet not configured — set GRN_REVIEW_SHEET_ID to save.'); return; }
+  const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
+  const rate = num('grn-rate-' + i), addl = num('grn-addl-' + i);
+  const email = (STATE.user && STATE.user.email) || '';
+  const row = {
+    'UUID': 'GRV-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    'SystemEmail': email, 'UserEmail': email,
+    'Timestamp': _accFmtDateTime(new Date()),
+    'Reviewed By': (STATE.user && (STATE.user.name || STATE.user.email)) || '',
+    'SI ID': l.siId, 'GRN No': l.grn, 'PO No': l.poNo, 'Vendor ID': l.vid, 'Part': l.part,
+    'Invoice No': l.inv, 'GRN Qty': l.qty, 'PO Rate': l.poRate,
+    'Reviewed Rate': isNaN(rate) ? (l.poRate || 0) : rate,
+    'Additional Charges': isNaN(addl) ? 0 : addl,
+    'Review Status': action, 'Comments': '',
+  };
+  const obSheet = (typeof _resolveSheetId === 'function') ? _resolveSheetId(GRN_REVIEW_SHEET_ID) : GRN_REVIEW_SHEET_ID;
+  const resp = await _accPostAwait({ action: 'saveGRNReview', sheetId: obSheet, tab: GRN_REVIEW_TAB, row });
+  if (resp && resp.success !== false) {
+    _accToast('✅ GRN ' + action.toLowerCase());
+    _vplpGRNReviewRows = null;
+    _vplpEnsure(true).then(() => _vplpRenderBody()).catch(() => {});
+  } else {
+    _accToast('⚠ ' + ((resp && resp.message) || 'Could not save the review'));
+  }
+};
+
 // Per-vendor Dr/Cr rows: credit = received goods (material + tax + charges),
 // debit = completed vendor payments, bal = credit − debit, status by sign.
 // Shared by the flat list and by PR bill-status lookups.
@@ -5464,8 +5636,18 @@ function _vplpLedger(v, embedOpts) {
     const i = d.poInfo[k] || {};
     const mat = d.poRecv[k] || 0, taxA = d.poTaxA[k] || 0, taxB = i.taxB || 0, addl = i.addl || 0;
     const credit = mat + addl + taxA + taxB;
-    if (credit <= 0) return;
-    all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: d.poRcpt[k] || [], poRaw: i.raw || null, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+    // Approved (counted) receipts — PO-level charges recognised only when there
+    // is approved material (gate on); gate off preserves the old credit>0 rule.
+    if (credit > 0 && (!d.gateOn || mat > 0)) {
+      const appRcpts = (d.poRcpt[k] || []).filter(rc => rc.approved !== false);
+      all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: appRcpts, poRaw: i.raw || null, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+    }
+    // Pending accounts review — shown but NOT counted (credit 0).
+    const pend = (d.poPending && d.poPending[k]) || 0;
+    if (pend > 0) {
+      const pendRcpts = (d.poRcpt[k] || []).filter(rc => rc.approved === false);
+      all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: pendRcpts, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pend, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
+    }
   });
   // Debit (payment) — this vendor's completed payments (vendor-level; orderNo not required).
   (_mdpRows || []).forEach(r => {
@@ -5560,11 +5742,16 @@ function _vplpLedger(v, embedOpts) {
       ? `<span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span>`
       : e.opening
         ? `<span style="font-size:.66rem;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:9px;font-weight:600">Opening</span>`
-        : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
-    return `<tr${click}>
+        : e.pending
+          ? `<span style="font-size:.66rem;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px;font-weight:700">Pending review</span>`
+          : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
+    const partic = e.pending
+      ? `<span style="color:var(--txt3)">${e.type} &middot; awaiting Accounts review</span> <span style="font-weight:700;color:#b45309;white-space:nowrap">(₹${Math.round(e.pendingAmt || 0).toLocaleString('en-IN')} pending)</span>`
+      : e.type;
+    return `<tr${click}${e.pending ? ' style="opacity:.85"' : ''}>
       <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(e.date)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(e.ref)}</td>
-      <td style="padding:6px 9px">${e.type}${e.kind === 'cr' ? _vplpRcptHtml(e.rcpts, esc) : ''}</td>
+      <td style="padding:6px 9px">${partic}${e.kind === 'cr' ? _vplpRcptHtml(e.rcpts, esc) : ''}</td>
       <td style="padding:6px 9px;text-align:right;color:#b45309">${m(e.mat)}</td>
       <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(e.addl)}</td>
       <td style="padding:6px 9px;text-align:right;color:#2563eb">${m(e.taxA)}</td>
@@ -6650,6 +6837,16 @@ const VENDOR_MASTER_SHEET_ID = '1WhjqAGb5XNSQ-q-tPA7tGPQa-aPpgX2LHzzOy2HwTkA';
 const VENDOR_MASTER_TAB      = '7-VendorMaster_Actual';
 const VENDOR_OPENING_BAL_SHEET_ID = '1WhjqAGb5XNSQ-q-tPA7tGPQa-aPpgX2LHzzOy2HwTkA';
 const VENDOR_OPENING_BAL_TAB      = 'OpeningBalance';
+// GRN accounts review — each StockIN line (by SI ID) is reviewed by Accounts
+// against the invoice + PO before its value hits the Vendor Ledger. Accounts may
+// override the rate and add per-line additional charges. Stored in a dedicated
+// tab (schema: docs). PLACEHOLDER sheet ID → the whole gate is OFF until set
+// (ledger behaves exactly as before); once set, only Approved lines are counted
+// and un-reviewed lines show as "Pending review". Write posts via
+// getExec('accounts') action 'saveGRNReview' (header-mapped append; latest per
+// SI ID wins so a review is editable).
+const GRN_REVIEW_SHEET_ID = ''; // TODO: set the GRN Review sheet ID to activate the gate
+const GRN_REVIEW_TAB      = 'GRN_Review';
 
 // ══════════════════════════════════════════════════════════
 //  MRS DASHBOARD
@@ -11497,6 +11694,7 @@ const ACC_STATUS_ACCESS = [
   { status: 'Paid (MD_ED)',                      label: 'Bank Transaction Completed',      desc: 'Confirm the bank transaction is completed.' },
   { status: 'Payment Completed',                 label: 'Update UTR / Complete',           desc: 'Final completion of the payment (with UTR).' },
   { status: 'Reject Payment (MD)',               label: 'Reject Payment',                  desc: 'Reject a payment request.' },
+  { status: 'GRN Approved',                      label: 'GRN Review — Approve / Edit',     desc: 'Accounts reviews a received GRN StockIN line (may edit rate + additional charges) and approves it into the ledger.' },
 ];
 function _accStatusAccessCfg() { return (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {}); }
 function _accStatusRule(status) {

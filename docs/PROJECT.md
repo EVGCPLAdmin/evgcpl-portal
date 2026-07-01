@@ -283,6 +283,13 @@ A vendor account statement scoped to PO purchases (not the billed-amount model):
 - **Total Tax** = `Tax (a)` (`Tax Amt` on `PO_Items_Actual`) + `Tax (b)`
   (`PO_Actual`).
 - **Additional Charges** = `Sub Total (b)` (`PO_Actual`).
+- **GRN accounts review (gate).** Each received StockIN line is reviewed by
+  Accounts against the invoice + PO before its value hits the ledger; Accounts
+  may edit the rate and add per-line additional charges. Only **Approved** lines
+  count; un-reviewed lines show as **"Pending review"** (not counted). Gated
+  behind `GRN_REVIEW_SHEET_ID` (OFF until set → old behaviour). Review queue =
+  Vendor Ledger → **GRN Review** view; write action `saveGRNReview`. See
+  [`docs/GRN_REVIEW.md`](GRN_REVIEW.md).
 - **Debit (Paid)** = the vendor's paid PO payments.
 - **Opening Balance** = a vendor's carried-forward Dr/Cr balance, recorded via a
   side-pull form (⊕ Opening Balance) capturing **Vendor ID, Vendor Key (UUID),
