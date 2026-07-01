@@ -17257,6 +17257,19 @@ const MASTERS_TABS = [
   'M16_IDCMaster', 'M17_CostCenter',
 ];
 
+// Most master tabs live on the main Master spreadsheet (SHEET_ID). A few masters
+// have moved to their own spreadsheet — map those tabs to the right sheet ID so
+// the Masters page reads them from the canonical source. The Vendor Master is
+// now on its own spreadsheet (VENDOR_MASTER_SHEET_ID), so its tab reads from
+// there, not from the legacy copy on the Master sheet.
+const MASTERS_TAB_SHEET = {
+  '7-VendorMaster_Actual': () => VENDOR_MASTER_SHEET_ID,
+};
+function _mastersSidFor(tab) {
+  const fn = MASTERS_TAB_SHEET[tab];
+  try { const sid = fn ? fn() : SHEET_ID; return sid || SHEET_ID; } catch (e) { return SHEET_ID; }
+}
+
 const _mastersCache = {};
 let _mastersState = { tab: null, rows: [], cols: [], q: '' };
 
@@ -17319,7 +17332,7 @@ window.mastersSelect = function(tab, keepCache) {
   if (_mastersCache[tab]) { _mastersRender(tab, _mastersCache[tab]); return; }
 
   panel.innerHTML = `<div class="mst-loading">⏳ Loading <strong>${_dhEsc(tab)}</strong>…</div>`;
-  fetchSheet(tab, null, SHEET_ID, { rawId: true })
+  fetchSheet(tab, null, _mastersSidFor(tab), { rawId: true })
     .then(rows => {
       rows = rows || [];
       const cols = rows.length ? Object.keys(rows[0]).filter(c => !String(c).startsWith('_')) : [];
@@ -17445,7 +17458,7 @@ window.mastersExportAll = async function() {
     try {
       let cache = _mastersCache[tab];
       if (!cache) {
-        const rows = (await fetchSheet(tab, null, SHEET_ID, { rawId: true })) || [];
+        const rows = (await fetchSheet(tab, null, _mastersSidFor(tab), { rawId: true })) || [];
         const cols = rows.length ? Object.keys(rows[0]).filter(c => !String(c).startsWith('_')) : [];
         cache = { rows, cols };
         _mastersCache[tab] = cache;
