@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.31.2';
-const PORTAL_BUILD    = 651;
-const PORTAL_BUILD_AT = '2026-07-01T09:03:45Z';
+const PORTAL_VERSION  = '4.31.3';
+const PORTAL_BUILD    = 652;
+const PORTAL_BUILD_AT = '2026-07-01T11:02:32Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1318,6 +1318,10 @@ function _tblColApply(table, sig) {
   };
   const htr = table.querySelector('thead tr'); if (htr) reorder(htr);
   table.querySelectorAll('tbody tr').forEach(reorder);
+  // Also reorder footer/totals rows so they follow the columns. The
+  // cell-count guard skips any colspan/empty-state footer (unchanged), so a
+  // totals row only tracks the columns if it has one <td> per column.
+  table.querySelectorAll('tfoot tr').forEach(reorder);
 }
 function _tblColInit(table) {
   if (table.dataset.evgCols === '1') {
@@ -5299,7 +5303,8 @@ function _vplpFlatList(toggle) {
     <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${m(r.debit - r.opDebit)}</td>
     <td style="padding:6px 9px;text-align:right;font-weight:700;color:var(--g8)">${drcr(r.bal)}</td></tr>`).join('');
   const tfoot = `<tr style="background:var(--surface2);font-weight:700">
-    <td style="padding:7px 9px" colspan="2">Totals &middot; ${shown.length}</td>
+    <td style="padding:7px 9px">Totals &middot; ${shown.length}</td>
+    <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#4f46e5">${dc(Topen)}</td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(T.mat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(T.addl)}</td>
@@ -5568,15 +5573,20 @@ function _vplpLedger(v, embedOpts) {
       <td style="padding:6px 9px">${statusCell}</td>${extraCells(e)}
     </tr>`;
   }).join('');
+  // One <td> per column (no colspan) so the totals row reorders/hides WITH the
+  // columns via the column manager; empty cells for the hidden extra columns.
+  const extraFoot = extraLabels.map(() => '<td></td>').join('');
   const tfoot = `<tr style="background:var(--surface2);font-weight:700">
-    <td style="padding:7px 9px" colspan="3">Totals</td>
+    <td style="padding:7px 9px">Totals</td>
+    <td style="padding:7px 9px"></td>
+    <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(totMat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(totAddl)}</td>
     <td style="padding:7px 9px;text-align:right;color:#2563eb">${m(totTaxA)}</td>
     <td style="padding:7px 9px;text-align:right;color:#0891b2">${m(totTaxB)}</td>
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
-    <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td></tr>`;
+    <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td>${extraFoot}</tr>`;
   return vmCard + controlRow + modeHint + fyBar + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
