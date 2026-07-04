@@ -13416,12 +13416,30 @@ function uaSeedGroups() {
     return { id:'role_'+r.key, name:r.label, desc:'Seeded from the "'+r.key+'" role', color:palette[i%palette.length], routes, actions };
   });
 }
+// Managed groups whose membership is stored compactly in emp_group_sync — it
+// must NEVER be materialised into access_config.users (that oversizes the cell
+// and breaks the write). Kept as literals to avoid const temporal-dead-zone.
+const _UA_MANAGED_GIDS = ['grp_users', 'grp_deactivated'];
+function _uaStripManaged(users) {
+  let changed = false;
+  for (const em of Object.keys(users || {})) {
+    const rec = users[em];
+    if (!rec || !Array.isArray(rec.groups)) continue;
+    const before = rec.groups.length;
+    rec.groups = rec.groups.filter(g => !_UA_MANAGED_GIDS.includes(g));
+    if (rec.groups.length !== before) changed = true;
+    if (!rec.groups.length) { delete users[em]; changed = true; }
+  }
+  return changed;
+}
 function uaGetDraft() {
   if (window._uaDraft) return window._uaDraft;
   let cfg = pcReadJSON('access_config', null);
   if (!cfg) cfg = { enforce:false, groups: uaSeedGroups(), users:{} };
   cfg.groups = cfg.groups || []; cfg.users = cfg.users || {};
   cfg.superAdmins = Array.isArray(cfg.superAdmins) ? cfg.superAdmins : [];
+  // Auto-managed memberships live in emp_group_sync — never keep them here.
+  _uaStripManaged(cfg.users);
   window._uaDraft = cfg;
   return cfg;
 }
@@ -13521,14 +13539,7 @@ async function _uaAutoSyncEmployees(opts) {
   cfg.groups = cfg.groups || []; cfg.users = cfg.users || {};
   cfg.superAdmins = Array.isArray(cfg.superAdmins) ? cfg.superAdmins : [];
   let cfgChanged = _uaEnsureDefaultGroups(cfg);
-  for (const em of Object.keys(cfg.users)) {
-    const rec = cfg.users[em];
-    if (!rec || !Array.isArray(rec.groups)) continue;
-    const before = rec.groups.length;
-    rec.groups = rec.groups.filter(g => g !== UA_USERS_GID && g !== UA_DEACTIVATED_GID);
-    if (rec.groups.length !== before) cfgChanged = true;
-    if (!rec.groups.length) { delete cfg.users[em]; cfgChanged = true; }
-  }
+  if (_uaStripManaged(cfg.users)) cfgChanged = true;
   if (cfgChanged) {
     const r0 = await pcWriteJSON('access_config', cfg);
     if (!r0.ok) return { ok: false, message: r0.message };
@@ -14173,7 +14184,11 @@ function _cfgRenderAccess() {
   window.uaSave = async function() {
     const b = document.getElementById('uaSaveBtn');
     if (b) { b.innerHTML = 'Saving…'; b.style.background = '#92400e'; }
-    const res = await pcWriteJSON('access_config', uaGetDraft());
+    const draft = uaGetDraft();
+    // Never persist auto-managed memberships here — they live in emp_group_sync.
+    // Guards against a stale/bloated draft oversizing the cell (→ "Failed to fetch").
+    _uaStripManaged(draft.users);
+    const res = await pcWriteJSON('access_config', draft);
     if (res.ok) {
       try { applyPortalConfig(); applyRoleNavRestrictions(STATE.role); } catch (e) {}
       if (b) { b.innerHTML = '&#10003; Saved &amp; applied'; b.style.background = '#16a34a'; b.style.color = '#fff'; }
