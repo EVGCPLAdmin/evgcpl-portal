@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.35.0';
-const PORTAL_BUILD    = 656;
-const PORTAL_BUILD_AT = '2026-07-04T14:50:04Z';
+const PORTAL_VERSION  = '4.35.1';
+const PORTAL_BUILD    = 657;
+const PORTAL_BUILD_AT = '2026-07-04T15:49:37Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -13428,14 +13428,17 @@ function uaGetDraft() {
 function uaGroup(gid) { return uaGetDraft().groups.find(g => g.id === gid); }
 
 // ── Auto-assign employees to the Users / Deactivated groups by default ──
-// Every employee in the Employee Register is mirrored into an access group:
+// Every employee in the Employee Register is mapped to an access group:
 //   Employee Status = Current   → "Users" group
 //   Employee Status <> Current  → "Deactivated User Profiles" group
-// The two groups are auto-created if missing and auto-managed: only membership
-// of THESE two groups is reconciled — any other group an admin assigned is left
-// untouched. Reconciliation runs at most once per 24h (throttled on
-// access_config.empAutoSyncAt) and only from an admin session, since it writes
-// the org-wide access config.
+//
+// IMPORTANT: the per-employee membership is stored in its OWN compact config
+// key `emp_group_sync` = { at, map:{ email: 'u'|'d' } } — NOT inside
+// access_config. Cramming ~333 employees into access_config.users blew past
+// Google Sheets' 50,000-char-per-cell limit and the backend write failed
+// ("Failed to fetch"). Keeping it separate & compact keeps every write small.
+// access_config only holds the two GROUP DEFINITIONS (routes/actions). At read
+// time enforcement merges the auto map with any manual assignments.
 const UA_USERS_GID       = 'grp_users';
 const UA_DEACTIVATED_GID = 'grp_deactivated';
 const UA_AUTOSYNC_MS     = 24 * 60 * 60 * 1000;
@@ -13459,23 +13462,43 @@ function _uaEnsureDefaultGroups(draft) {
   return changed;
 }
 
-function _uaReconcileEmployees(draft) {
+// Build the compact { email: 'u'|'d' } map from the loaded Employee Register.
+function _uaBuildEmpMap() {
   const emps = (STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
-  let changed = false;
+  const map = {};
   emps.forEach(u => {
     const email = (u.email || '').trim().toLowerCase();
     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
     // status==='ACTIVE' is derived from Employee Status === 'CURRENT' (see loadAllMasters).
-    const isCurrent = (u.status === 'ACTIVE');
-    const target = isCurrent ? UA_USERS_GID : UA_DEACTIVATED_GID;
-    const other  = isCurrent ? UA_DEACTIVATED_GID : UA_USERS_GID;
-    const rec = draft.users[email] || { groups: [] };
-    rec.groups = Array.isArray(rec.groups) ? rec.groups : [];
-    if (!rec.groups.includes(target)) { rec.groups.push(target); changed = true; }
-    if (rec.groups.includes(other))   { rec.groups = rec.groups.filter(g => g !== other); changed = true; }
-    draft.users[email] = rec;
+    map[email] = (u.status === 'ACTIVE') ? 'u' : 'd';
   });
-  return changed;
+  return map;
+}
+
+// The auto-assigned group id for an email (or null), read from emp_group_sync.
+function _uaAutoGidForEmail(email) {
+  const s = pcReadJSON('emp_group_sync', null);
+  if (!s || !s.map) return null;
+  const v = s.map[(email || '').toLowerCase().trim()];
+  return v === 'u' ? UA_USERS_GID : v === 'd' ? UA_DEACTIVATED_GID : null;
+}
+
+// Effective group ids for an email = manual assignments (access_config.users)
+// ∪ the auto-assigned group. Used by enforcement and the Access page.
+function _uaGroupsForEmail(acc, email) {
+  email = (email || '').toLowerCase().trim();
+  const manual = (((acc && acc.users) || {})[email] || {}).groups || [];
+  const auto = _uaAutoGidForEmail(email);
+  return auto ? [...new Set([...manual, auto])] : manual.slice();
+}
+
+// All emails auto-assigned to a given managed group (for the Access page).
+function _uaAutoMembersOf(gid) {
+  const s = pcReadJSON('emp_group_sync', null);
+  if (!s || !s.map) return [];
+  const want = gid === UA_USERS_GID ? 'u' : gid === UA_DEACTIVATED_GID ? 'd' : null;
+  if (!want) return [];
+  return Object.keys(s.map).filter(e => s.map[e] === want);
 }
 
 // Reconcile + persist. Returns { ok, changed, skipped?, message?, at? }.
@@ -13486,31 +13509,44 @@ async function _uaAutoSyncEmployees(opts) {
   const emps = (STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
   if (!emps.length) return { ok: false, skipped: 'no-employees' };
 
-  // Work on a fresh copy of the STORED config, not the in-page editor draft.
+  const sync = pcReadJSON('emp_group_sync', null) || {};
+  const last = Date.parse(sync.at || '') || 0;
+  if (!opts.force && (Date.now() - last) < UA_AUTOSYNC_MS) return { ok: true, skipped: 'throttled', at: sync.at };
+
+  // Ensure the two managed group DEFINITIONS exist in access_config, and MIGRATE
+  // away the old approach that stored every employee under access_config.users
+  // (that oversized the cell and broke the write). Strip the managed gids from
+  // manual assignments and drop now-empty entries so access_config stays small.
   let cfg = pcReadJSON('access_config', null) || { enforce: false, groups: uaSeedGroups(), users: {} };
   cfg.groups = cfg.groups || []; cfg.users = cfg.users || {};
   cfg.superAdmins = Array.isArray(cfg.superAdmins) ? cfg.superAdmins : [];
-
-  const last = Date.parse(cfg.empAutoSyncAt || '') || 0;
-  if (!opts.force && (Date.now() - last) < UA_AUTOSYNC_MS) return { ok: true, skipped: 'throttled', at: cfg.empAutoSyncAt };
-
-  _uaEnsureDefaultGroups(cfg);
-  const changed = _uaReconcileEmployees(cfg);
-  cfg.empAutoSyncAt = new Date().toISOString();
-
-  const res = await pcWriteJSON('access_config', cfg);
-  if (res.ok) {
-    // Don't clobber an admin actively editing the Access page; a manual sync
-    // resets the draft itself. Background runs only reset when off the page.
+  let cfgChanged = _uaEnsureDefaultGroups(cfg);
+  for (const em of Object.keys(cfg.users)) {
+    const rec = cfg.users[em];
+    if (!rec || !Array.isArray(rec.groups)) continue;
+    const before = rec.groups.length;
+    rec.groups = rec.groups.filter(g => g !== UA_USERS_GID && g !== UA_DEACTIVATED_GID);
+    if (rec.groups.length !== before) cfgChanged = true;
+    if (!rec.groups.length) { delete cfg.users[em]; cfgChanged = true; }
+  }
+  if (cfgChanged) {
+    const r0 = await pcWriteJSON('access_config', cfg);
+    if (!r0.ok) return { ok: false, message: r0.message };
     if (STATE.currentPage !== 'access-pages') window._uaDraft = null;
+  }
+
+  // Write the compact employee→group map in its own key.
+  const map = _uaBuildEmpMap();
+  const res = await pcWriteJSON('emp_group_sync', { at: new Date().toISOString(), map });
+  if (res.ok) {
     try { applyPortalConfig(); if (typeof applyRoleNavRestrictions === 'function') applyRoleNavRestrictions(STATE.role); } catch (e) {}
   }
-  return { ok: res.ok, changed, message: res.message, at: cfg.empAutoSyncAt };
+  return { ok: res.ok, changed: true, message: res.message };
 }
 
 // Install the periodic re-check (idempotent). Self-throttles to once per 24h
-// via empAutoSyncAt, so an hourly tick is cheap and guarantees the sync fires
-// roughly every 24h for any long-lived admin session.
+// via emp_group_sync.at, so an hourly tick is cheap and guarantees the sync
+// fires roughly every 24h for any long-lived admin session.
 function _uaStartAutoSync() {
   if (window._uaAutoSyncStarted) return;
   window._uaAutoSyncStarted = true;
@@ -13519,9 +13555,9 @@ function _uaStartAutoSync() {
 }
 
 function _uaLastSyncLabel() {
-  const cfg = pcReadJSON('access_config', null) || {};
-  if (!cfg.empAutoSyncAt) return 'never';
-  const d = new Date(cfg.empAutoSyncAt);
+  const s = pcReadJSON('emp_group_sync', null);
+  if (!s || !s.at) return 'never';
+  const d = new Date(s.at);
   return isNaN(d.getTime()) ? 'never' : d.toLocaleString('en-IN');
 }
 
@@ -13571,10 +13607,10 @@ function _accessRouteSetForCurrentUser() {
   if (!acc || !acc.enforce) return null;
   const email = ((STATE && STATE.user && STATE.user.email) || '').toLowerCase().trim();
   if (!email) return null;
-  const u = (acc.users || {})[email];
-  if (!u || !Array.isArray(u.groups) || !u.groups.length) return null;
+  const groups = _uaGroupsForEmail(acc, email);
+  if (!groups.length) return null;
   const set = new Set(['dashboard','my-profile','my-documents']); // always-on core
-  u.groups.forEach(gid => {
+  groups.forEach(gid => {
     const g = (acc.groups || []).find(x => x.id === gid);
     if (g && Array.isArray(g.routes)) g.routes.forEach(rt => set.add(rt));
   });
@@ -13591,11 +13627,11 @@ function userCan(route, action) {
   const acc = pcReadJSON('access_config', null);
   if (!acc || !acc.enforce) return action === 'view' ? getRouteSet(role).has(route) : true;
   const email = ((STATE.user && STATE.user.email) || '').toLowerCase().trim();
-  const u = (acc.users || {})[email];
-  if (!u || !Array.isArray(u.groups) || !u.groups.length) {
+  const groups = _uaGroupsForEmail(acc, email);
+  if (!groups.length) {
     return action === 'view' ? getRouteSet(role).has(route) : true;
   }
-  for (const gid of u.groups) {
+  for (const gid of groups) {
     const g = (acc.groups || []).find(x => x.id === gid);
     if (!g) continue;
     if (action === 'view') { if ((g.routes || []).includes(route)) return true; }
@@ -13838,7 +13874,7 @@ function _cfgRenderAccess() {
   const currentEmps = emps
     .filter(u => u.status === 'ACTIVE' && u.email)
     .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-  const _uaIsMember = (email) => !!(sel && draft.users[email] && (draft.users[email].groups || []).includes(sel.id));
+  const _uaIsMember = (email) => !!(sel && _uaGroupsForEmail(draft, email).includes(sel.id));
   // Searchable, click-to-add result list (filtered by name / email / dept).
   function empResultsHtml(q) {
     if (!currentEmps.length) return `<div style="padding:.8rem;text-align:center;color:var(--txt3);font-size:.74rem">${emps.length ? 'No current employees with a Mail ID' : 'Loading employees…'}</div>`;
@@ -13861,8 +13897,12 @@ function _cfgRenderAccess() {
   }
   const _uaQuery = window._uaEmpQuery || '';
 
-  // Member count per group
-  const memberCount = (gid) => Object.values(draft.users).filter(u => (u.groups || []).includes(gid)).length;
+  // Member count per group — manual assignments ∪ auto-assigned employees.
+  const memberCount = (gid) => {
+    const manual = Object.entries(draft.users).filter(([e, u]) => (u.groups || []).includes(gid)).map(([e]) => e);
+    const auto = _uaAutoMembersOf(gid);
+    return new Set([...manual, ...auto]).size;
+  };
 
   const groupListHtml = draft.groups.map(g => {
     const on = sel && g.id === sel.id;
@@ -13887,12 +13927,25 @@ function _cfgRenderAccess() {
     <div class="card card-pad" style="margin-bottom:1rem">
       <div style="font-weight:700;font-size:.82rem;color:var(--g9);margin-bottom:.5rem">&#128101; Members</div>
       <div id="uaMembers" style="display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.6rem">
-        ${Object.entries(draft.users).filter(([e,u])=>(u.groups||[]).includes(sel.id)).map(([e])=>{
-          const emp = emps.find(u => String(u.email).toLowerCase() === e);
-          const nm = emp ? (emp.name || emp.employeeRef || e) : e;
-          return `<span title="${e}" style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 6px 3px 10px;font-size:.74rem">
-            ${nm}<button onclick="uaRemoveUser('${e}','${sel.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px">&times;</button></span>`;}).join('')
-        || '<span style="font-size:.74rem;color:var(--txt3)">No users assigned yet</span>'}
+        ${(() => {
+          const manual = Object.entries(draft.users).filter(([e,u])=>(u.groups||[]).includes(sel.id)).map(([e])=>e);
+          const manualSet = new Set(manual);
+          const auto = _uaAutoMembersOf(sel.id).filter(e => !manualSet.has(e));
+          const CAP = 60;
+          const chip = (e, isAuto) => {
+            const emp = emps.find(u => String(u.email).toLowerCase() === e);
+            const nm = emp ? (emp.name || emp.employeeRef || e) : e;
+            // Auto members are managed by the 24h sync — no manual remove button.
+            const rm = isAuto ? '<span style="font-size:.6rem;color:var(--txt3);margin-left:2px">auto</span>'
+              : `<button onclick="uaRemoveUser('${e}','${sel.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px">&times;</button>`;
+            return `<span title="${e}" style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 6px 3px 10px;font-size:.74rem">${nm}${rm}</span>`;
+          };
+          const manualChips = manual.map(e => chip(e, false)).join('');
+          const autoShown = auto.slice(0, CAP).map(e => chip(e, true)).join('');
+          const moreNote = auto.length > CAP ? `<span style="font-size:.7rem;color:var(--txt3);align-self:center">+${auto.length - CAP} more auto-assigned</span>` : '';
+          const anything = manual.length || auto.length;
+          return anything ? (manualChips + autoShown + moreNote) : '<span style="font-size:.74rem;color:var(--txt3)">No users assigned yet</span>';
+        })()}
       </div>
       <input id="uaEmpSearch" value="${_uaQuery}" oninput="uaEmpFilter(this.value)" autocomplete="off"
         placeholder="&#128269; Search current employees by name, email or department…"
