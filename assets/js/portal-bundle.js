@@ -13120,6 +13120,104 @@ function uaGetDraft() {
 }
 function uaGroup(gid) { return uaGetDraft().groups.find(g => g.id === gid); }
 
+// ── Auto-assign employees to the Users / Deactivated groups by default ──
+// Every employee in the Employee Register is mirrored into an access group:
+//   Employee Status = Current   → "Users" group
+//   Employee Status <> Current  → "Deactivated User Profiles" group
+// The two groups are auto-created if missing and auto-managed: only membership
+// of THESE two groups is reconciled — any other group an admin assigned is left
+// untouched. Reconciliation runs at most once per 24h (throttled on
+// access_config.empAutoSyncAt) and only from an admin session, since it writes
+// the org-wide access config.
+const UA_USERS_GID       = 'grp_users';
+const UA_DEACTIVATED_GID = 'grp_deactivated';
+const UA_AUTOSYNC_MS     = 24 * 60 * 60 * 1000;
+
+function _uaEnsureDefaultGroups(draft) {
+  let changed = false;
+  if (!draft.groups.some(g => g.id === UA_USERS_GID)) {
+    const cfg = loadPortalConfig();
+    const routes = MODULE_REGISTRY.filter(m => {
+      const mc = cfg.modules[m.route] || { status: m.defStatus, roles: m.defRoles };
+      return mc.status === 'live' && mc.roles.includes('employee');
+    }).map(m => m.route);
+    const actions = {}; routes.forEach(rt => { actions[rt] = ['view']; });
+    draft.groups.push({ id: UA_USERS_GID, name: 'Users', desc: 'All current employees (auto-managed)', color: '#0ea5e9', routes, actions });
+    changed = true;
+  }
+  if (!draft.groups.some(g => g.id === UA_DEACTIVATED_GID)) {
+    draft.groups.push({ id: UA_DEACTIVATED_GID, name: 'Deactivated User Profiles', desc: 'Employees whose status is not Current (auto-managed) — no access', color: '#dc2626', routes: [], actions: {} });
+    changed = true;
+  }
+  return changed;
+}
+
+function _uaReconcileEmployees(draft) {
+  const emps = (STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
+  let changed = false;
+  emps.forEach(u => {
+    const email = (u.email || '').trim().toLowerCase();
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
+    // status==='ACTIVE' is derived from Employee Status === 'CURRENT' (see loadAllMasters).
+    const isCurrent = (u.status === 'ACTIVE');
+    const target = isCurrent ? UA_USERS_GID : UA_DEACTIVATED_GID;
+    const other  = isCurrent ? UA_DEACTIVATED_GID : UA_USERS_GID;
+    const rec = draft.users[email] || { groups: [] };
+    rec.groups = Array.isArray(rec.groups) ? rec.groups : [];
+    if (!rec.groups.includes(target)) { rec.groups.push(target); changed = true; }
+    if (rec.groups.includes(other))   { rec.groups = rec.groups.filter(g => g !== other); changed = true; }
+    draft.users[email] = rec;
+  });
+  return changed;
+}
+
+// Reconcile + persist. Returns { ok, changed, skipped?, message?, at? }.
+async function _uaAutoSyncEmployees(opts) {
+  opts = opts || {};
+  const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || STATE.role === 'md';
+  if (!isAdmin) return { ok: false, skipped: 'not-admin' };
+  const emps = (STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
+  if (!emps.length) return { ok: false, skipped: 'no-employees' };
+
+  // Work on a fresh copy of the STORED config, not the in-page editor draft.
+  let cfg = pcReadJSON('access_config', null) || { enforce: false, groups: uaSeedGroups(), users: {} };
+  cfg.groups = cfg.groups || []; cfg.users = cfg.users || {};
+  cfg.superAdmins = Array.isArray(cfg.superAdmins) ? cfg.superAdmins : [];
+
+  const last = Date.parse(cfg.empAutoSyncAt || '') || 0;
+  if (!opts.force && (Date.now() - last) < UA_AUTOSYNC_MS) return { ok: true, skipped: 'throttled', at: cfg.empAutoSyncAt };
+
+  _uaEnsureDefaultGroups(cfg);
+  const changed = _uaReconcileEmployees(cfg);
+  cfg.empAutoSyncAt = new Date().toISOString();
+
+  const res = await pcWriteJSON('access_config', cfg);
+  if (res.ok) {
+    // Don't clobber an admin actively editing the Access page; a manual sync
+    // resets the draft itself. Background runs only reset when off the page.
+    if (STATE.currentPage !== 'access-pages') window._uaDraft = null;
+    try { applyPortalConfig(); if (typeof applyRoleNavRestrictions === 'function') applyRoleNavRestrictions(STATE.role); } catch (e) {}
+  }
+  return { ok: res.ok, changed, message: res.message, at: cfg.empAutoSyncAt };
+}
+
+// Install the periodic re-check (idempotent). Self-throttles to once per 24h
+// via empAutoSyncAt, so an hourly tick is cheap and guarantees the sync fires
+// roughly every 24h for any long-lived admin session.
+function _uaStartAutoSync() {
+  if (window._uaAutoSyncStarted) return;
+  window._uaAutoSyncStarted = true;
+  _uaAutoSyncEmployees().catch(() => {});
+  setInterval(() => { _uaAutoSyncEmployees().catch(() => {}); }, 60 * 60 * 1000);
+}
+
+function _uaLastSyncLabel() {
+  const cfg = pcReadJSON('access_config', null) || {};
+  if (!cfg.empAutoSyncAt) return 'never';
+  const d = new Date(cfg.empAutoSyncAt);
+  return isNaN(d.getTime()) ? 'never' : d.toLocaleString('en-IN');
+}
+
 // The access *super-admin* — the person who manages access groups. Identified
 // by email (or the dedicated admin account), NOT by the md role: a Director/
 // Head/AT-code account resolves to md but must still be restrict-able by group.
@@ -13500,6 +13598,18 @@ function _cfgRenderAccess() {
       </div>
     </div>
 
+    <!-- Auto-assignment: Users / Deactivated User Profiles -->
+    <div class="card card-pad" style="margin-bottom:1.1rem;border-left:4px solid #0ea5e9">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:700;color:var(--g9)">&#128101; Auto-assign employees</div>
+          <div style="font-size:.78rem;color:var(--txt3);margin-top:.2rem">Every employee is added by default to a group based on Employee Register status: <strong>Current &rarr; Users</strong>, <strong>not Current &rarr; Deactivated User Profiles</strong>. Runs automatically every 24&nbsp;hours. Manual group assignments are left untouched.</div>
+          <div style="font-size:.72rem;color:var(--txt3);margin-top:.35rem">Last sync: <strong>${_uaLastSyncLabel()}</strong></div>
+        </div>
+        <button onclick="uaSyncEmployeesNow()" class="btn btn-sm" id="uaSyncNowBtn" style="background:#0ea5e9;color:#fff;border:none;padding:.55rem 1.2rem;font-weight:700;white-space:nowrap">&#8635; Sync now</button>
+      </div>
+    </div>
+
     <div style="display:grid;grid-template-columns:260px 1fr;gap:1rem;align-items:start">
       <div class="card card-pad">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem">
@@ -13588,6 +13698,22 @@ function _cfgRenderAccess() {
     uaDirty(); _cfgRenderAccess();
   };
   window.uaToggleEnforce = function(on) { uaGetDraft().enforce = !!on; uaDirty(); _cfgRenderAccess(); };
+  window.uaSyncEmployeesNow = async function() {
+    const b = document.getElementById('uaSyncNowBtn');
+    if (b) { b.disabled = true; b.textContent = 'Syncing…'; }
+    // Ensure the Employee Register is loaded before reconciling.
+    if ((!STATE.masters || !(STATE.masters.users || []).length) && typeof loadAllMasters === 'function') {
+      try { await loadAllMasters(); } catch (e) {}
+    }
+    const res = await _uaAutoSyncEmployees({ force: true });
+    if (res.ok) {
+      window._uaDraft = null;   // reload the editor with the new memberships
+      _cfgRenderAccess();
+    } else {
+      if (b) { b.disabled = false; b.textContent = '↻ Sync now'; }
+      alert('Sync failed: ' + (res.message || res.skipped || 'unknown error'));
+    }
+  };
   window.uaAddSuperAdmin = function(email) {
     email = (email || '').trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert('Enter a valid Mail ID, e.g. name@evgcpl.com'); return; }
@@ -21352,6 +21478,9 @@ async function loadAllMasters() {
 
   STATE.mastersLoaded = true;
   console.log(`✅ Masters loaded — Sites:${STATE.masters.sites.length} Employees:${STATE.masters.users.length} Mess:${STATE.masters.mess.length} Assets:${STATE.masters.assets.length} Vendors:${STATE.masters.vendors.length} SCs:${STATE.masters.subcontractors.length}`);
+  // Employees are now loaded — start the 24h auto-assignment of employees to
+  // the Users / Deactivated User Profiles access groups (admin sessions only).
+  try { if (typeof _uaStartAutoSync === 'function') _uaStartAutoSync(); } catch (e) {}
 }
 
 // Legacy aliases
