@@ -6,10 +6,20 @@ During review Accounts can **edit the rate** and add **per-line additional
 charges**. Only **Approved** lines are counted in the ledger; un-reviewed lines
 show as **"Pending review"** and are excluded from the running balance.
 
-## Status: gated behind a placeholder sheet
-The gate is **OFF until `GRN_REVIEW_SHEET_ID` is set** in `portal-bundle.js`.
-While off, the ledger behaves exactly as before (every received line counts).
-Once the sheet ID is set, the review gate activates.
+## Ledger Link (runtime On / Off / Off + Hide)
+Once `GRN_REVIEW_SHEET_ID` is set, admins control the gate at runtime from the
+**GRN Review** header or **Configuration → Status Access** (stored org-wide in
+PortalConfig `grn_review_mode`):
+- **On** — only Accounts-**approved** GRN lines credit the ledger (gate active).
+- **Off** — every received line counts (as before); the GRN Review tab stays visible.
+- **Off + Hide tab** — gate off **and** the GRN Review tab is hidden.
+
+Default is **Off** (setting the sheet ID does not silently change balances — an
+admin flips it On). Reviews can still be recorded while Off; they only drive the
+ledger when On.
+
+If `GRN_REVIEW_SHEET_ID` is blank the gate can't be On (no review data to read),
+and the ledger behaves exactly as before.
 
 ## 1. Create the review tab
 A dedicated tab (own workbook, or the Vendor Master workbook). Default name
@@ -19,8 +29,12 @@ backend appends by header name):
 ```
 UUID | SystemEmail | UserEmail | Timestamp | Reviewed By | SI ID | GRN No |
 PO No | Vendor ID | Part | Invoice No | GRN Qty | PO Rate | Reviewed Rate |
-Additional Charges | Review Status | Comments
+Additional Charges | Reviewed Value | Review Status | Comments
 ```
+
+- **`Reviewed Value`** — Accounts may set the line value **directly** (overrides
+  `qty × Reviewed Rate + Additional Charges`). Leave it blank to let the value be
+  computed from the rate. When present (> 0) it is what credits the ledger.
 
 - **`SI ID`** is the join key — the StockIN line's own ID (the portal reads it
   from the StockIN `SI ID` column). One review per SI ID; the **latest** row per

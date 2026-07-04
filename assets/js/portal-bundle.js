@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.33.0';
-const PORTAL_BUILD    = 654;
-const PORTAL_BUILD_AT = '2026-07-01T20:03:37Z';
+const PORTAL_VERSION  = '4.34.0';
+const PORTAL_BUILD    = 655;
+const PORTAL_BUILD_AT = '2026-07-04T14:44:35Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4986,11 +4986,36 @@ async function _vplpEnsure(force) {
   }
   _vplpData = _vplpCompute();
 }
-// GRN review gate is active only when the sheet is configured.
-function _grnGateOn() { return !!GRN_REVIEW_SHEET_ID; }
+// GRN review "Ledger Link" mode — runtime toggle (PortalConfig 'grn_review_mode'):
+//   'on'     → only Accounts-approved GRN lines count in the ledger (gate active)
+//   'off'    → all received lines count (gate off); GRN Review tab still visible
+//   'hidden' → gate off AND the GRN Review tab is hidden
+// Default 'off' so configuring the sheet doesn't silently change balances.
+function _grnMode() { const c = (typeof pcReadJSON === 'function') ? (pcReadJSON('grn_review_mode', {}) || {}) : {}; const m = c.mode || 'off'; return (m === 'on' || m === 'hidden') ? m : 'off'; }
+function _grnGateOn() { return _grnMode() === 'on' && !!GRN_REVIEW_SHEET_ID; }
+function _grnTabHidden() { return _grnMode() === 'hidden'; }
+window._grnSetMode = async function(mode) {
+  const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
+  if (!isAdmin) { _accToast('🔒 Only admins can change the Ledger Link.'); return; }
+  await pcWriteJSON('grn_review_mode', { mode });
+  if (typeof _vplpEnsure === 'function') { try { await _vplpEnsure(true); } catch (e) {} }
+  if (typeof _vplpRenderBody === 'function' && document.getElementById('vplp-body')) _vplpRenderBody();
+  if (typeof _cfgRenderAccStatus === 'function' && window._cfgActiveTab === 'accstatus') _cfgRenderAccStatus();
+};
+// The On / Off / Off+Hide control (admin only elsewhere; render anywhere).
+function _grnModeControls() {
+  const m = _grnMode();
+  const b = (val, label, hint) => `<button onclick="_grnSetMode('${val}')" class="btn btn-sm ${m === val ? 'btn-primary' : 'btn-secondary'}" title="${hint}" style="font-size:.72rem;padding:3px 10px">${label}</button>`;
+  return `<div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+    <span style="font-size:.64rem;font-weight:700;color:var(--txt3)">LEDGER LINK</span>
+    ${b('on', 'On', 'Only Accounts-approved GRN lines count in the ledger')}
+    ${b('off', 'Off', 'All received lines count (review not enforced); GRN Review tab stays visible')}
+    ${b('hidden', 'Off + Hide tab', 'Gate off and hide the GRN Review tab')}
+  </div>`;
+}
 let _vplpGRNReviewRows = null;
 function _grnRVal(r, names) { for (const n of names) { const v = r[n]; if (v != null && String(v).trim() !== '') return String(v).trim(); } return ''; }
-// SI ID → latest review { status, rate, addl, by, ts, comments, invoice }.
+// SI ID → latest review { status, rate, addl, value, by, ts, comments }.
 // Latest by Timestamp wins so a review is editable (append-only, like OB).
 function _grnReviewBySiId() {
   const m = {};
@@ -5002,6 +5027,7 @@ function _grnReviewBySiId() {
       status: _grnRVal(r, ['Review Status', 'Status']) || 'Pending',
       rate: _opNum(_grnRVal(r, ['Reviewed Rate', 'Rate'])),
       addl: _opNum(_grnRVal(r, ['Additional Charges', 'Addl Charges', 'Additional Charge'])),
+      value: _opNum(_grnRVal(r, ['Reviewed Value', 'Value', 'Line Value'])),
       by: _grnRVal(r, ['Reviewed By', 'Updated By']),
       comments: _grnRVal(r, ['Comments', 'Remarks']),
       ts,
@@ -5087,7 +5113,9 @@ function _vplpCompute() {
   // invoice number, and its row index so the ledger can link to the detail.
   // Per-StockIN-line, each with its own qty + SI ID + accounts review, so credit
   // can honour the reviewed rate / additional charges and gate un-reviewed lines.
-  const reviewBySi = _grnGateOn() ? _grnReviewBySiId() : {};
+  // Reviews are loaded for DISPLAY whenever the sheet is configured; they only
+  // drive the ledger credit when the gate is ON (Ledger Link = On).
+  const reviewBySi = GRN_REVIEW_SHEET_ID ? _grnReviewBySiId() : {};
   const gateOn = _grnGateOn();
   const siAgg = {};
   _openPOStock.forEach((r, idx) => {
@@ -5130,10 +5158,14 @@ function _vplpCompute() {
     const lineTax = _opNum(_opGet(x, IC, ['Tax Amt', 'Tax Amount', 'Total Tax']));
     let countedQty = 0;
     m.rcpts.forEach(rc => {
-      const approved = !gateOn || _grnIsApproved(rc.rev);   // gate off → everything counts (unchanged)
-      const useRate = (rc.rev && rc.rev.rate > 0) ? rc.rev.rate : rate;
-      const addl = (rc.rev && rc.rev.addl) || 0;
-      const lineCredit = (rc.qty || 0) * useRate + addl;
+      // Reviewed values only drive credit when the gate is ON; gate off → PO
+      // values as before (everything counts).
+      const applied = gateOn ? rc.rev : null;
+      const approved = !gateOn || _grnIsApproved(rc.rev);
+      const useRate = (applied && applied.rate > 0) ? applied.rate : rate;
+      const addl = (applied && applied.addl) || 0;
+      // Accounts may set the line VALUE directly (overrides qty × rate + addl).
+      const lineCredit = (applied && applied.value > 0) ? applied.value : ((rc.qty || 0) * useRate + addl);
       // stash for the ledger / review UI
       rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.part = part;
       if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; countedQty += (rc.qty || 0); }
@@ -5224,9 +5256,10 @@ function _vplpRenderBody() {
     <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
     <button onclick="_vplpSetView('flat')" class="btn btn-sm ${_vplpView === 'flat' ? 'btn-primary' : 'btn-secondary'}">&#128203; Flat List (all vendors)</button>
     <button onclick="_vplpSetView('openings')" class="btn btn-sm ${_vplpView === 'openings' ? 'btn-primary' : 'btn-secondary'}">&#128209; Opening Balances</button>
-    <button onclick="_vplpSetView('grnreview')" class="btn btn-sm ${_vplpView === 'grnreview' ? 'btn-primary' : 'btn-secondary'}">&#128203; GRN Review</button>
+    ${_grnTabHidden() ? '' : `<button onclick="_vplpSetView('grnreview')" class="btn btn-sm ${_vplpView === 'grnreview' ? 'btn-primary' : 'btn-secondary'}">&#128203; GRN Review</button>`}
     <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="margin-left:auto" title="Record a vendor's carried-forward opening balance">&#10133; Opening Balance</button>
   </div>`;
+  if (_vplpView === 'grnreview' && _grnTabHidden()) _vplpView = 'vendor';   // tab was hidden
   if (_vplpView === 'flat') { c.innerHTML = _vplpFlatList(toggle); return; }
   if (_vplpView === 'openings') { c.innerHTML = toggle + _vplpOBListView(); return; }
   if (_vplpView === 'grnreview') { c.innerHTML = toggle + _vplpGRNReviewView(); return; }
@@ -5282,12 +5315,16 @@ function _vplpGRNReviewView() {
   const canReview = _grnCanReview();
   const notCfg = !GRN_REVIEW_SHEET_ID;
   const fbtn = (v, label, n) => `<button onclick="_vplpGRNSetFilter('${v}')" class="btn btn-sm ${_vplpGRNFilter === v ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 10px;font-size:.72rem">${label} (${n})</button>`;
+  const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
   const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.55rem .8rem;display:flex;gap:.6rem 1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
     <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
       <span style="font-size:.8rem;font-weight:700;color:var(--g8)">&#128203; GRN Review</span>
       ${fbtn('pending', 'Pending', counts.pending)}${fbtn('approved', 'Approved', counts.approved)}${fbtn('rejected', 'Rejected', counts.rejected)}${fbtn('all', 'All', counts.all)}
     </div>
-    <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
+    <div style="display:flex;gap:.9rem;align-items:center;flex-wrap:wrap">
+      ${isAdmin ? _grnModeControls() : `<span style="font-size:.66rem;color:var(--txt3)">Ledger Link: <b>${_grnMode() === 'on' ? 'On' : 'Off'}</b></span>`}
+      <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
+    </div>
   </div>`;
   const cfgWarn = notCfg ? `<div class="alert-strip" style="margin-bottom:.7rem;background:#fef3c7;border-color:#f59e0b"><span class="alert-icon">&#9888;&#65039;</span><span><b>GRN Review sheet not configured.</b> The ledger gate is OFF (every received line still counts as before). Set <code>GRN_REVIEW_SHEET_ID</code> to activate review-gating; you can preview the queue below but can't save until it's set.</span></div>` : '';
   const permWarn = (!canReview && !notCfg) ? `<div class="alert-strip" style="margin-bottom:.7rem"><span class="alert-icon">&#128274;</span><span>You can view GRN reviews but only Accounts can approve/edit them.</span></div>` : '';
@@ -5300,7 +5337,11 @@ function _vplpGRNReviewView() {
     const rateVal = (l.rev && l.rev.rate > 0) ? l.rev.rate : (l.poRate || '');
     const addlVal = (l.rev && l.rev.addl) || '';
     const ro = canReview ? '' : ' disabled';
-    const val = (l.qty || 0) * ((l.rev && l.rev.rate > 0) ? l.rev.rate : l.poRate) + ((l.rev && l.rev.addl) || 0);
+    // Value = the reviewed line value. Defaults to qty×rate + addl, but editable
+    // directly (an override wins over rate). Pre-set from the saved review.
+    const valDefault = (l.qty || 0) * ((l.rev && l.rev.rate > 0) ? l.rev.rate : l.poRate) + ((l.rev && l.rev.addl) || 0);
+    const valVal = (l.rev && l.rev.value > 0) ? l.rev.value : (valDefault ? Math.round(valDefault * 100) / 100 : '');
+    const valTouched = (l.rev && l.rev.value > 0) ? ' data-touched="1"' : '';
     return `<tr>
       <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
@@ -5309,9 +5350,9 @@ function _vplpGRNReviewView() {
       <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
       <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
-      <td style="padding:6px 9px;text-align:right"><input id="grn-rate-${i}" type="number" step="0.01" value="${esc(rateVal)}"${ro} style="width:90px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
-      <td style="padding:6px 9px;text-align:right"><input id="grn-addl-${i}" type="number" step="0.01" value="${esc(addlVal)}"${ro} placeholder="0" style="width:90px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
-      <td style="padding:6px 9px;text-align:right;font-weight:700;color:#15803d">${inr(val)}</td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-rate-${i}" type="number" step="0.01" value="${esc(rateVal)}"${ro} oninput="_vplpGRNCalc(${i})" style="width:88px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-addl-${i}" type="number" step="0.01" value="${esc(addlVal)}"${ro} oninput="_vplpGRNCalc(${i})" placeholder="0" style="width:80px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-val-${i}" type="number" step="0.01" value="${esc(valVal)}"${ro}${valTouched} oninput="this.dataset.touched=1" title="Edit the line value directly (overrides rate)" style="width:104px;text-align:right;font-weight:700;color:#15803d;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
       <td style="padding:6px 9px">${chip}</td>
       <td style="padding:6px 9px;white-space:nowrap">${canReview ? `<button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : '—'}</td>
     </tr>`;
@@ -5326,13 +5367,22 @@ function _vplpGRNReviewView() {
         <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Review</th>
       </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
+// Live-recompute the Value field from qty × rate + addl, unless the user has
+// typed a value directly (data-touched).
+window._vplpGRNCalc = function(i) {
+  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
+  const v = document.getElementById('grn-val-' + i); if (!v || v.dataset.touched) return;
+  const rate = parseFloat((document.getElementById('grn-rate-' + i) || {}).value) || 0;
+  const addl = parseFloat((document.getElementById('grn-addl-' + i) || {}).value) || 0;
+  v.value = (Math.round(((l.qty || 0) * rate + addl) * 100) / 100) || '';
+};
 window._vplpGRNSubmit = async function(i, action) {
   const l = (window._vplpGRNShown || [])[i]; if (!l) return;
   if (!_grnCanReview()) { _accToast('🔒 Only Accounts can review GRNs.'); return; }
   if (!l.siId) { _accToast('⚠ This StockIN line has no SI ID — cannot review.'); return; }
   if (!GRN_REVIEW_SHEET_ID) { _accToast('⚠ GRN Review sheet not configured — set GRN_REVIEW_SHEET_ID to save.'); return; }
   const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
-  const rate = num('grn-rate-' + i), addl = num('grn-addl-' + i);
+  const rate = num('grn-rate-' + i), addl = num('grn-addl-' + i), value = num('grn-val-' + i);
   const email = (STATE.user && STATE.user.email) || '';
   const row = {
     'UUID': 'GRV-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -5343,6 +5393,7 @@ window._vplpGRNSubmit = async function(i, action) {
     'Invoice No': l.inv, 'GRN Qty': l.qty, 'PO Rate': l.poRate,
     'Reviewed Rate': isNaN(rate) ? (l.poRate || 0) : rate,
     'Additional Charges': isNaN(addl) ? 0 : addl,
+    'Reviewed Value': isNaN(value) ? '' : value,
     'Review Status': action, 'Comments': '',
   };
   const obSheet = (typeof _resolveSheetId === 'function') ? _resolveSheetId(GRN_REVIEW_SHEET_ID) : GRN_REVIEW_SHEET_ID;
@@ -13638,6 +13689,11 @@ function _cfgRenderAccStatus() {
     </div></div></div>
     <div class="alert-strip" style="margin-bottom:1rem"><span class="alert-icon">&#8505;&#65039;</span>
       <span>Leave a status blank to allow anyone with the usual role permission. Add people to lock it down &mdash; then <b>only</b> those people (or ticked roles) can set that status. Super-admins are always allowed.</span></div>
+    <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.8rem 1.2rem;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div><div style="font-weight:700;font-size:.86rem;color:var(--g8)">&#128203; GRN Review &mdash; Ledger Link</div>
+      <div style="font-size:.72rem;color:var(--txt3)">On = only Accounts-approved GRN lines credit the Vendor Ledger. Off = every received line counts (as before). Off + Hide also removes the GRN Review tab.${GRN_REVIEW_SHEET_ID ? '' : ' <b style="color:#b45309">GRN Review sheet not configured yet.</b>'}</div></div>
+      ${_grnModeControls()}
+    </div>
     ${ACC_STATUS_ACCESS.map(card).join('')}`;
 }
 window._accStatusSave = async function(i) {
