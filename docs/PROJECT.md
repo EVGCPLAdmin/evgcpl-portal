@@ -152,6 +152,17 @@ Access-Group route/action grants. `access_config` is sheet-authoritative on
 load; `?access=off` is an escape hatch so an admin can't be locked out.
 External roles (`vendor`, `sc`) land on `external.html`, not the staff shell.
 
+**Per-status update access (Accounts).** Configuration → **Status Access**
+(`_cfgRenderAccStatus`) restricts *individual* payment-status transitions to
+specific **people** (email/name) and/or roles — e.g. only `manoj@evgcpl.com`
+may "Move to MD Queue"; only `nkm@evgcpl.com` / Shanthini may "Approve — Proceed
+with Payment". Stored org-wide in PortalConfig `acc_status_access` = `{ '<status
+label>': {users:[],roles:[]} }`. A status with no rule is unrestricted (normal
+role checks apply); super-admins are never blocked. Enforced centrally in
+`_accCanSetStatus()` → `_accQuickStatus` + `_accUpdateFormSubmit` (write paths)
+and surfaced in the UI via `_accCanAdvance` (hides the Quick Action) and the MD
+approve buttons.
+
 ---
 
 ## 5. Data sources
@@ -272,6 +283,13 @@ A vendor account statement scoped to PO purchases (not the billed-amount model):
 - **Total Tax** = `Tax (a)` (`Tax Amt` on `PO_Items_Actual`) + `Tax (b)`
   (`PO_Actual`).
 - **Additional Charges** = `Sub Total (b)` (`PO_Actual`).
+- **GRN accounts review (gate).** Each received StockIN line is reviewed by
+  Accounts against the invoice + PO before its value hits the ledger; Accounts
+  may edit the rate and add per-line additional charges. Only **Approved** lines
+  count; un-reviewed lines show as **"Pending review"** (not counted). Gated
+  behind `GRN_REVIEW_SHEET_ID` (OFF until set → old behaviour). Review queue =
+  Vendor Ledger → **GRN Review** view; write action `saveGRNReview`. See
+  [`docs/GRN_REVIEW.md`](GRN_REVIEW.md).
 - **Debit (Paid)** = the vendor's paid PO payments.
 - **Opening Balance** = a vendor's carried-forward Dr/Cr balance, recorded via a
   side-pull form (⊕ Opening Balance) capturing **Vendor ID, Vendor Key (UUID),

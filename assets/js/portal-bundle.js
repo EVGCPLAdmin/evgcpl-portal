@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.31.1';
-const PORTAL_BUILD    = 650;
-const PORTAL_BUILD_AT = '2026-07-01T06:48:45Z';
+const PORTAL_VERSION  = '4.34.0';
+const PORTAL_BUILD    = 655;
+const PORTAL_BUILD_AT = '2026-07-04T14:44:35Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -1318,6 +1318,10 @@ function _tblColApply(table, sig) {
   };
   const htr = table.querySelector('thead tr'); if (htr) reorder(htr);
   table.querySelectorAll('tbody tr').forEach(reorder);
+  // Also reorder footer/totals rows so they follow the columns. The
+  // cell-count guard skips any colspan/empty-state footer (unchanged), so a
+  // totals row only tracks the columns if it has one <td> per column.
+  table.querySelectorAll('tfoot tr').forEach(reorder);
 }
 function _tblColInit(table) {
   if (table.dataset.evgCols === '1') {
@@ -4411,6 +4415,7 @@ function _mdpSelAll(on) {
 async function _mdpApproveSelected() {
   const ids = Object.keys(_mdpSel);
   if (!ids.length) return;
+  if (typeof _accCanSetStatus === 'function' && !_accCanSetStatus('Process Payment, Move to Accounts')) { alert('You are not authorised to approve payments (Proceed with Payment).\n\nThis action is restricted under Configuration → Status Access.'); return; }
   if (!confirm(`Approve ${ids.length} payment request(s) and move them to Accounts?`)) return;
   _mdpBulkPost(ids, 'Process Payment, Move to Accounts', 'Approved', '');
 }
@@ -4516,6 +4521,7 @@ function _mdpHistory(r) {
 }
 
 function _mdpApprove(uuid) {
+  if (typeof _accCanSetStatus === 'function' && !_accCanSetStatus('Process Payment, Move to Accounts')) { alert('You are not authorised to approve payments (Proceed with Payment).\n\nThis action is restricted under Configuration → Status Access.'); return; }
   if (!confirm('Approve this payment request and move it to Accounts for processing?')) return;
   _accClosePRDetail();
   _mdpBulkPost([uuid], 'Process Payment, Move to Accounts', 'Approved', '');
@@ -4971,8 +4977,66 @@ async function _vplpEnsure(force) {
       catch (e) { _vplpOBRows = []; }
     } else { _vplpOBRows = []; }
   }
+  if (force || !_vplpGRNReviewRows) {
+    // GRN accounts-review records (keyed by SI ID). Placeholder → empty → gate off.
+    if (GRN_REVIEW_SHEET_ID) {
+      try { _vplpGRNReviewRows = await fetchSheet(GRN_REVIEW_TAB, null, GRN_REVIEW_SHEET_ID, { rawId: true }) || []; }
+      catch (e) { _vplpGRNReviewRows = []; }
+    } else { _vplpGRNReviewRows = []; }
+  }
   _vplpData = _vplpCompute();
 }
+// GRN review "Ledger Link" mode — runtime toggle (PortalConfig 'grn_review_mode'):
+//   'on'     → only Accounts-approved GRN lines count in the ledger (gate active)
+//   'off'    → all received lines count (gate off); GRN Review tab still visible
+//   'hidden' → gate off AND the GRN Review tab is hidden
+// Default 'off' so configuring the sheet doesn't silently change balances.
+function _grnMode() { const c = (typeof pcReadJSON === 'function') ? (pcReadJSON('grn_review_mode', {}) || {}) : {}; const m = c.mode || 'off'; return (m === 'on' || m === 'hidden') ? m : 'off'; }
+function _grnGateOn() { return _grnMode() === 'on' && !!GRN_REVIEW_SHEET_ID; }
+function _grnTabHidden() { return _grnMode() === 'hidden'; }
+window._grnSetMode = async function(mode) {
+  const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
+  if (!isAdmin) { _accToast('🔒 Only admins can change the Ledger Link.'); return; }
+  await pcWriteJSON('grn_review_mode', { mode });
+  if (typeof _vplpEnsure === 'function') { try { await _vplpEnsure(true); } catch (e) {} }
+  if (typeof _vplpRenderBody === 'function' && document.getElementById('vplp-body')) _vplpRenderBody();
+  if (typeof _cfgRenderAccStatus === 'function' && window._cfgActiveTab === 'accstatus') _cfgRenderAccStatus();
+};
+// The On / Off / Off+Hide control (admin only elsewhere; render anywhere).
+function _grnModeControls() {
+  const m = _grnMode();
+  const b = (val, label, hint) => `<button onclick="_grnSetMode('${val}')" class="btn btn-sm ${m === val ? 'btn-primary' : 'btn-secondary'}" title="${hint}" style="font-size:.72rem;padding:3px 10px">${label}</button>`;
+  return `<div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+    <span style="font-size:.64rem;font-weight:700;color:var(--txt3)">LEDGER LINK</span>
+    ${b('on', 'On', 'Only Accounts-approved GRN lines count in the ledger')}
+    ${b('off', 'Off', 'All received lines count (review not enforced); GRN Review tab stays visible')}
+    ${b('hidden', 'Off + Hide tab', 'Gate off and hide the GRN Review tab')}
+  </div>`;
+}
+let _vplpGRNReviewRows = null;
+function _grnRVal(r, names) { for (const n of names) { const v = r[n]; if (v != null && String(v).trim() !== '') return String(v).trim(); } return ''; }
+// SI ID → latest review { status, rate, addl, value, by, ts, comments }.
+// Latest by Timestamp wins so a review is editable (append-only, like OB).
+function _grnReviewBySiId() {
+  const m = {};
+  (_vplpGRNReviewRows || []).forEach(r => {
+    const si = _opNorm(_grnRVal(r, ['SI ID', 'SIID', 'StockIN ID', 'SI Id']));
+    if (!si) return;
+    const ts = _mdpDateVal(_grnRVal(r, ['Timestamp'])) || 0;
+    const o = {
+      status: _grnRVal(r, ['Review Status', 'Status']) || 'Pending',
+      rate: _opNum(_grnRVal(r, ['Reviewed Rate', 'Rate'])),
+      addl: _opNum(_grnRVal(r, ['Additional Charges', 'Addl Charges', 'Additional Charge'])),
+      value: _opNum(_grnRVal(r, ['Reviewed Value', 'Value', 'Line Value'])),
+      by: _grnRVal(r, ['Reviewed By', 'Updated By']),
+      comments: _grnRVal(r, ['Comments', 'Remarks']),
+      ts,
+    };
+    if (!m[si] || ts >= m[si].ts) m[si] = o;
+  });
+  return m;
+}
+function _grnIsApproved(rev) { return !!(rev && /approv/i.test(rev.status || '')); }
 // Opening-balance rows from the OpeningBalance tab. Columns: UUID, SystemEmail,
 // UserEmail, Timestamp, Updated By, VendorKey(UUID), Vendor ID, Vendor Name,
 // Vendor Detail, Opening Balance, As On (Date), Remarks (If Any). Keyed into the
@@ -5047,13 +5111,22 @@ function _vplpCompute() {
   // StockIN receipts by (PO No (Key) || part) — the PO_Items join. Each receipt
   // carries its GRN No (StockIN ColAA direct, else the GRN_No-sheet join), its
   // invoice number, and its row index so the ledger can link to the detail.
+  // Per-StockIN-line, each with its own qty + SI ID + accounts review, so credit
+  // can honour the reviewed rate / additional charges and gate un-reviewed lines.
+  // Reviews are loaded for DISPLAY whenever the sheet is configured; they only
+  // drive the ledger credit when the gate is ON (Ledger Link = On).
+  const reviewBySi = GRN_REVIEW_SHEET_ID ? _grnReviewBySiId() : {};
+  const gateOn = _grnGateOn();
   const siAgg = {};
   _openPOStock.forEach((r, idx) => {
     const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey'])); if (!pk) return;
     const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
     const e = siAgg[key] = siAgg[key] || { qty: 0, rcpts: [] };
-    e.qty += _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
-    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx });
+    const qty = _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
+    const siId = _opGet(r, SC, ['SI ID', 'SIID', 'SI Id']);
+    const rev = reviewBySi[_opNorm(siId)] || null;
+    e.qty += qty;
+    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev });
   });
   // PO header: approval, vendor, date, Tax(b), Additional Charges(b). Keyed by
   // the normalised PO key (folds EGVE/EVGE spelling variants).
@@ -5071,19 +5144,36 @@ function _vplpCompute() {
   });
   // Received material (received qty × rate) + Tax(a) apportioned to the received
   // fraction of each line, per PO.
-  const poRecv = {}, poTaxA = {}, poRcpt = {};
+  // poRecv = COUNTED (approved, or all when the gate is off) received value;
+  // poPending = value of un-reviewed receipts, shown but NOT counted.
+  const poRecv = {}, poTaxA = {}, poRcpt = {}, poPending = {};
   _openPOItems.forEach(x => {
     const k = _opPOKey(_opGet(x, IC, ['PO No', 'Order No'])); if (!k) return;
     const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
     const cs = _opGet(x, IC, ['CheckSum', 'Check Sum']);
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
-    const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)] || { qty: 0, rcpts: [] };
-    if (m.qty <= 0) return;
-    poRecv[k] = (poRecv[k] || 0) + m.qty * rate;
+    const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)];
+    if (!m || !m.rcpts.length || m.qty <= 0) return;
     const oq = _opNum(_opGet(x, IC, ['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
     const lineTax = _opNum(_opGet(x, IC, ['Tax Amt', 'Tax Amount', 'Total Tax']));
-    poTaxA[k] = (poTaxA[k] || 0) + lineTax * (oq > 0 ? Math.min(m.qty / oq, 1) : 1);
-    const g = poRcpt[k] = poRcpt[k] || []; m.rcpts.forEach(rc => { if (!g.some(z => z.idx === rc.idx)) g.push(rc); });
+    let countedQty = 0;
+    m.rcpts.forEach(rc => {
+      // Reviewed values only drive credit when the gate is ON; gate off → PO
+      // values as before (everything counts).
+      const applied = gateOn ? rc.rev : null;
+      const approved = !gateOn || _grnIsApproved(rc.rev);
+      const useRate = (applied && applied.rate > 0) ? applied.rate : rate;
+      const addl = (applied && applied.addl) || 0;
+      // Accounts may set the line VALUE directly (overrides qty × rate + addl).
+      const lineCredit = (applied && applied.value > 0) ? applied.value : ((rc.qty || 0) * useRate + addl);
+      // stash for the ledger / review UI
+      rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.part = part;
+      if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; countedQty += (rc.qty || 0); }
+      else { poPending[k] = (poPending[k] || 0) + lineCredit; }
+      const g = poRcpt[k] = poRcpt[k] || []; if (!g.some(z => z.idx === rc.idx)) g.push(rc);
+    });
+    // Tax(a) apportioned to the COUNTED fraction of the line (matches old maths when gate off).
+    if (countedQty > 0) poTaxA[k] = (poTaxA[k] || 0) + lineTax * (oq > 0 ? Math.min(countedQty / oq, 1) : 1);
   });
   // Vendor Master bridge: name → Vendor ID and bank-account → Vendor ID. Lets a
   // payment (which carries only the selected vendor NAME + account, no Vendor ID)
@@ -5110,7 +5200,9 @@ function _vplpCompute() {
     if (vid && vendorById[vid]) v.name = vendorById[vid];
     return v;
   };
-  Object.keys(poInfo).forEach(k => { const i = poInfo[k]; if (i.approved && (poRecv[k] || 0) > 0) getV(i.vendorId, i.vendorName).poKeys[k] = true; });
+  // Include a PO if it has counted receipts OR pending-review receipts (so the
+  // vendor + the "Pending review" line still surface while un-reviewed).
+  Object.keys(poInfo).forEach(k => { const i = poInfo[k]; if (i.approved && ((poRecv[k] || 0) > 0 || (poPending[k] || 0) > 0)) getV(i.vendorId, i.vendorName).poKeys[k] = true; });
   (_mdpRows || []).forEach(r => {
     if (r.payTo !== 'Vendor') return;
     if (!(r.status && r.status.cat === 'completed')) return;
@@ -5125,7 +5217,19 @@ function _vplpCompute() {
     v.opening = o;
   });
   const list = Object.values(vendors).sort((a, b) => (a.unmapped - b.unmapped) || (a.name || '').localeCompare(b.name || ''));
-  return { vendors: list, poInfo, poRecv, poTaxA, poRcpt, bridge, obByKey };
+  // Flat list of every received StockIN line (with its review), for the GRN
+  // Review queue. Only lines that matched a PO item (have a rate) appear.
+  const grnLines = [];
+  Object.keys(poRcpt).forEach(k => {
+    const i = poInfo[k] || {};
+    (poRcpt[k] || []).forEach(rc => grnLines.push({
+      siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '',
+      qty: rc.qty || 0, poRate: rc.poRate || 0, useRate: rc.useRate || 0, addl: rc.addl || 0,
+      credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null,
+      poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
+    }));
+  });
+  return { vendors: list, poInfo, poRecv, poTaxA, poRcpt, poPending, bridge, obByKey, gateOn, grnLines };
 }
 // GRN + invoice sub-line for a credit (material-received) row. Each receipt's
 // GRN No links to its StockIN detail; invoice numbers are shown after.
@@ -5152,10 +5256,13 @@ function _vplpRenderBody() {
     <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
     <button onclick="_vplpSetView('flat')" class="btn btn-sm ${_vplpView === 'flat' ? 'btn-primary' : 'btn-secondary'}">&#128203; Flat List (all vendors)</button>
     <button onclick="_vplpSetView('openings')" class="btn btn-sm ${_vplpView === 'openings' ? 'btn-primary' : 'btn-secondary'}">&#128209; Opening Balances</button>
+    ${_grnTabHidden() ? '' : `<button onclick="_vplpSetView('grnreview')" class="btn btn-sm ${_vplpView === 'grnreview' ? 'btn-primary' : 'btn-secondary'}">&#128203; GRN Review</button>`}
     <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="margin-left:auto" title="Record a vendor's carried-forward opening balance">&#10133; Opening Balance</button>
   </div>`;
+  if (_vplpView === 'grnreview' && _grnTabHidden()) _vplpView = 'vendor';   // tab was hidden
   if (_vplpView === 'flat') { c.innerHTML = _vplpFlatList(toggle); return; }
   if (_vplpView === 'openings') { c.innerHTML = toggle + _vplpOBListView(); return; }
+  if (_vplpView === 'grnreview') { c.innerHTML = toggle + _vplpGRNReviewView(); return; }
   // Type-and-search vendor picker (347+ vendors → a combobox beats a native select).
   const selV = d.vendors.find(x => x.key === _vplpVendor);
   const selLabel = selV ? `${selV.name}${selV.vid ? ` [${selV.vid}]` : ''}` : '';
@@ -5178,6 +5285,128 @@ function _vplpRenderBody() {
   const headCard = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:1.4rem;align-items:center;flex-wrap:wrap">${picker}${summary}</div>`;
   c.innerHTML = toggle + headCard + _vplpLedger(v);
 }
+
+// ── GRN Review queue (Accounts) ──────────────────────────────────────────
+// Each received StockIN line comes here for Accounts review against the
+// invoice + PO. Accounts may edit the rate and add per-line additional
+// charges, then Approve (counts into the ledger) or Reject. Writes via
+// getExec('accounts') action 'saveGRNReview' (append; latest per SI ID wins).
+let _vplpGRNFilter = 'pending';   // 'pending' | 'approved' | 'rejected' | 'all'
+window._vplpGRNSetFilter = function(f) { _vplpGRNFilter = f; _vplpRenderBody(); };
+function _grnCanReview() {
+  const roleOk = (typeof _accCan !== 'function') || _accCan('update') || _accCan('verify') || _accCan('advance');
+  const statusOk = (typeof _accCanSetStatus !== 'function') || _accCanSetStatus('GRN Approved');
+  return roleOk && statusOk;
+}
+function _vplpGRNReviewView() {
+  _vplpEnsureLedgerStyle();
+  const esc = _mdpEsc, d = _vplpData || {};
+  const inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
+  const lines = (d.grnLines || []).slice();
+  const statusOf = l => l.rev && l.rev.status ? l.rev.status : 'Pending';
+  const isApp = l => /approv/i.test(statusOf(l)), isRej = l => /reject/i.test(statusOf(l));
+  const isPend = l => !isApp(l) && !isRej(l);
+  const counts = { pending: lines.filter(isPend).length, approved: lines.filter(isApp).length, rejected: lines.filter(isRej).length, all: lines.length };
+  const shown = _vplpGRNFilter === 'all' ? lines
+    : _vplpGRNFilter === 'approved' ? lines.filter(isApp)
+    : _vplpGRNFilter === 'rejected' ? lines.filter(isRej) : lines.filter(isPend);
+  // stash for the submit handler (index-addressed)
+  window._vplpGRNShown = shown;
+  const canReview = _grnCanReview();
+  const notCfg = !GRN_REVIEW_SHEET_ID;
+  const fbtn = (v, label, n) => `<button onclick="_vplpGRNSetFilter('${v}')" class="btn btn-sm ${_vplpGRNFilter === v ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 10px;font-size:.72rem">${label} (${n})</button>`;
+  const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
+  const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.55rem .8rem;display:flex;gap:.6rem 1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+      <span style="font-size:.8rem;font-weight:700;color:var(--g8)">&#128203; GRN Review</span>
+      ${fbtn('pending', 'Pending', counts.pending)}${fbtn('approved', 'Approved', counts.approved)}${fbtn('rejected', 'Rejected', counts.rejected)}${fbtn('all', 'All', counts.all)}
+    </div>
+    <div style="display:flex;gap:.9rem;align-items:center;flex-wrap:wrap">
+      ${isAdmin ? _grnModeControls() : `<span style="font-size:.66rem;color:var(--txt3)">Ledger Link: <b>${_grnMode() === 'on' ? 'On' : 'Off'}</b></span>`}
+      <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
+    </div>
+  </div>`;
+  const cfgWarn = notCfg ? `<div class="alert-strip" style="margin-bottom:.7rem;background:#fef3c7;border-color:#f59e0b"><span class="alert-icon">&#9888;&#65039;</span><span><b>GRN Review sheet not configured.</b> The ledger gate is OFF (every received line still counts as before). Set <code>GRN_REVIEW_SHEET_ID</code> to activate review-gating; you can preview the queue below but can't save until it's set.</span></div>` : '';
+  const permWarn = (!canReview && !notCfg) ? `<div class="alert-strip" style="margin-bottom:.7rem"><span class="alert-icon">&#128274;</span><span>You can view GRN reviews but only Accounts can approve/edit them.</span></div>` : '';
+  if (!shown.length) return header + cfgWarn + permWarn + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No GRN lines in this view.</div>';
+  const body = shown.map((l, i) => {
+    const st = statusOf(l);
+    const chip = isApp(l) ? '<span style="font-size:.66rem;font-weight:700;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9px">Approved</span>'
+      : isRej(l) ? '<span style="font-size:.66rem;font-weight:700;background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9px">Rejected</span>'
+      : '<span style="font-size:.66rem;font-weight:700;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px">Pending</span>';
+    const rateVal = (l.rev && l.rev.rate > 0) ? l.rev.rate : (l.poRate || '');
+    const addlVal = (l.rev && l.rev.addl) || '';
+    const ro = canReview ? '' : ' disabled';
+    // Value = the reviewed line value. Defaults to qty×rate + addl, but editable
+    // directly (an override wins over rate). Pre-set from the saved review.
+    const valDefault = (l.qty || 0) * ((l.rev && l.rev.rate > 0) ? l.rev.rate : l.poRate) + ((l.rev && l.rev.addl) || 0);
+    const valVal = (l.rev && l.rev.value > 0) ? l.rev.value : (valDefault ? Math.round(valDefault * 100) / 100 : '');
+    const valTouched = (l.rev && l.rev.value > 0) ? ' data-touched="1"' : '';
+    return `<tr>
+      <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
+      <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
+      <td style="padding:6px 9px">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</td>
+      <td style="padding:6px 9px;font-size:.74rem">${esc(l.part)}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
+      <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
+      <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-rate-${i}" type="number" step="0.01" value="${esc(rateVal)}"${ro} oninput="_vplpGRNCalc(${i})" style="width:88px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-addl-${i}" type="number" step="0.01" value="${esc(addlVal)}"${ro} oninput="_vplpGRNCalc(${i})" placeholder="0" style="width:80px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-val-${i}" type="number" step="0.01" value="${esc(valVal)}"${ro}${valTouched} oninput="this.dataset.touched=1" title="Edit the line value directly (overrides rate)" style="width:104px;text-align:right;font-weight:700;color:#15803d;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px">${chip}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${canReview ? `<button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : '—'}</td>
+    </tr>`;
+  }).join('');
+  return header + cfgWarn + permWarn + `<div class="card"><div style="overflow-x:auto">
+    <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
+      <thead><tr style="background:var(--g9);color:#fff;text-align:left">
+        <th style="padding:8px 9px">GRN</th><th style="padding:8px 9px">PO No</th><th style="padding:8px 9px">Vendor</th>
+        <th style="padding:8px 9px">Part</th><th style="padding:8px 9px">Invoice</th><th style="padding:8px 9px;text-align:right">Qty</th>
+        <th style="padding:8px 9px;text-align:right">PO Rate</th><th style="padding:8px 9px;text-align:right">Reviewed Rate</th>
+        <th style="padding:8px 9px;text-align:right">Add'l Charges</th><th style="padding:8px 9px;text-align:right">Value</th>
+        <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Review</th>
+      </tr></thead><tbody>${body}</tbody></table></div></div>`;
+}
+// Live-recompute the Value field from qty × rate + addl, unless the user has
+// typed a value directly (data-touched).
+window._vplpGRNCalc = function(i) {
+  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
+  const v = document.getElementById('grn-val-' + i); if (!v || v.dataset.touched) return;
+  const rate = parseFloat((document.getElementById('grn-rate-' + i) || {}).value) || 0;
+  const addl = parseFloat((document.getElementById('grn-addl-' + i) || {}).value) || 0;
+  v.value = (Math.round(((l.qty || 0) * rate + addl) * 100) / 100) || '';
+};
+window._vplpGRNSubmit = async function(i, action) {
+  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
+  if (!_grnCanReview()) { _accToast('🔒 Only Accounts can review GRNs.'); return; }
+  if (!l.siId) { _accToast('⚠ This StockIN line has no SI ID — cannot review.'); return; }
+  if (!GRN_REVIEW_SHEET_ID) { _accToast('⚠ GRN Review sheet not configured — set GRN_REVIEW_SHEET_ID to save.'); return; }
+  const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
+  const rate = num('grn-rate-' + i), addl = num('grn-addl-' + i), value = num('grn-val-' + i);
+  const email = (STATE.user && STATE.user.email) || '';
+  const row = {
+    'UUID': 'GRV-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    'SystemEmail': email, 'UserEmail': email,
+    'Timestamp': _accFmtDateTime(new Date()),
+    'Reviewed By': (STATE.user && (STATE.user.name || STATE.user.email)) || '',
+    'SI ID': l.siId, 'GRN No': l.grn, 'PO No': l.poNo, 'Vendor ID': l.vid, 'Part': l.part,
+    'Invoice No': l.inv, 'GRN Qty': l.qty, 'PO Rate': l.poRate,
+    'Reviewed Rate': isNaN(rate) ? (l.poRate || 0) : rate,
+    'Additional Charges': isNaN(addl) ? 0 : addl,
+    'Reviewed Value': isNaN(value) ? '' : value,
+    'Review Status': action, 'Comments': '',
+  };
+  const obSheet = (typeof _resolveSheetId === 'function') ? _resolveSheetId(GRN_REVIEW_SHEET_ID) : GRN_REVIEW_SHEET_ID;
+  const resp = await _accPostAwait({ action: 'saveGRNReview', sheetId: obSheet, tab: GRN_REVIEW_TAB, row });
+  if (resp && resp.success !== false) {
+    _accToast('✅ GRN ' + action.toLowerCase());
+    _vplpGRNReviewRows = null;
+    _vplpEnsure(true).then(() => _vplpRenderBody()).catch(() => {});
+  } else {
+    _accToast('⚠ ' + ((resp && resp.message) || 'Could not save the review'));
+  }
+};
+
 // Per-vendor Dr/Cr rows: credit = received goods (material + tax + charges),
 // debit = completed vendor payments, bal = credit − debit, status by sign.
 // Shared by the flat list and by PR bill-status lookups.
@@ -5299,7 +5528,8 @@ function _vplpFlatList(toggle) {
     <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${m(r.debit - r.opDebit)}</td>
     <td style="padding:6px 9px;text-align:right;font-weight:700;color:var(--g8)">${drcr(r.bal)}</td></tr>`).join('');
   const tfoot = `<tr style="background:var(--surface2);font-weight:700">
-    <td style="padding:7px 9px" colspan="2">Totals &middot; ${shown.length}</td>
+    <td style="padding:7px 9px">Totals &middot; ${shown.length}</td>
+    <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#4f46e5">${dc(Topen)}</td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(T.mat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(T.addl)}</td>
@@ -5424,7 +5654,7 @@ function _vplpVendorDetailsCard(v) {
   if (!bankCol && !addrCol && !contactCol) return '';
   return `<div class="card" style="margin-bottom:1rem">
     <div onclick="_vplpToggleVDetails(this)" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:.55rem .9rem;user-select:none">
-      <span style="font-size:.78rem;font-weight:700;color:var(--g8)">&#128203; Vendor Details${vm['Legal Name'] ? ` <span style="font-weight:400;color:var(--txt3);font-size:.72rem">&middot; ${esc(g(['Legal Name']))}</span>` : ''}</span>
+      <span style="font-size:.78rem;font-weight:700;color:var(--g8)">&#128203; Vendor Details${g(['Legal Name']) ? ` <span style="font-weight:400;color:var(--txt3);font-size:.72rem">&middot; Legal Name: ${esc(g(['Legal Name']))}</span>` : ''}</span>
       <span class="vd-caret" style="font-size:.78rem;color:var(--txt3);transition:transform .2s;display:inline-block">&#9656;</span>
     </div>
     <div class="vd-body" style="display:none;padding:0 .9rem .85rem">${inner}</div>
@@ -5457,8 +5687,18 @@ function _vplpLedger(v, embedOpts) {
     const i = d.poInfo[k] || {};
     const mat = d.poRecv[k] || 0, taxA = d.poTaxA[k] || 0, taxB = i.taxB || 0, addl = i.addl || 0;
     const credit = mat + addl + taxA + taxB;
-    if (credit <= 0) return;
-    all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: d.poRcpt[k] || [], poRaw: i.raw || null, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+    // Approved (counted) receipts — PO-level charges recognised only when there
+    // is approved material (gate on); gate off preserves the old credit>0 rule.
+    if (credit > 0 && (!d.gateOn || mat > 0)) {
+      const appRcpts = (d.poRcpt[k] || []).filter(rc => rc.approved !== false);
+      all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: appRcpts, poRaw: i.raw || null, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+    }
+    // Pending accounts review — shown but NOT counted (credit 0).
+    const pend = (d.poPending && d.poPending[k]) || 0;
+    if (pend > 0) {
+      const pendRcpts = (d.poRcpt[k] || []).filter(rc => rc.approved === false);
+      all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: pendRcpts, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pend, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
+    }
   });
   // Debit (payment) — this vendor's completed payments (vendor-level; orderNo not required).
   (_mdpRows || []).forEach(r => {
@@ -5553,11 +5793,16 @@ function _vplpLedger(v, embedOpts) {
       ? `<span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span>`
       : e.opening
         ? `<span style="font-size:.66rem;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:9px;font-weight:600">Opening</span>`
-        : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
-    return `<tr${click}>
+        : e.pending
+          ? `<span style="font-size:.66rem;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px;font-weight:700">Pending review</span>`
+          : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
+    const partic = e.pending
+      ? `<span style="color:var(--txt3)">${e.type} &middot; awaiting Accounts review</span> <span style="font-weight:700;color:#b45309;white-space:nowrap">(₹${Math.round(e.pendingAmt || 0).toLocaleString('en-IN')} pending)</span>`
+      : e.type;
+    return `<tr${click}${e.pending ? ' style="opacity:.85"' : ''}>
       <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(e.date)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(e.ref)}</td>
-      <td style="padding:6px 9px">${e.type}${e.kind === 'cr' ? _vplpRcptHtml(e.rcpts, esc) : ''}</td>
+      <td style="padding:6px 9px">${partic}${e.kind === 'cr' ? _vplpRcptHtml(e.rcpts, esc) : ''}</td>
       <td style="padding:6px 9px;text-align:right;color:#b45309">${m(e.mat)}</td>
       <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(e.addl)}</td>
       <td style="padding:6px 9px;text-align:right;color:#2563eb">${m(e.taxA)}</td>
@@ -5568,15 +5813,20 @@ function _vplpLedger(v, embedOpts) {
       <td style="padding:6px 9px">${statusCell}</td>${extraCells(e)}
     </tr>`;
   }).join('');
+  // One <td> per column (no colspan) so the totals row reorders/hides WITH the
+  // columns via the column manager; empty cells for the hidden extra columns.
+  const extraFoot = extraLabels.map(() => '<td></td>').join('');
   const tfoot = `<tr style="background:var(--surface2);font-weight:700">
-    <td style="padding:7px 9px" colspan="3">Totals</td>
+    <td style="padding:7px 9px">Totals</td>
+    <td style="padding:7px 9px"></td>
+    <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(totMat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(totAddl)}</td>
     <td style="padding:7px 9px;text-align:right;color:#2563eb">${m(totTaxA)}</td>
     <td style="padding:7px 9px;text-align:right;color:#0891b2">${m(totTaxB)}</td>
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
-    <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td></tr>`;
+    <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td>${extraFoot}</tr>`;
   return vmCard + controlRow + modeHint + fyBar + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
@@ -6638,6 +6888,16 @@ const VENDOR_MASTER_SHEET_ID = '1WhjqAGb5XNSQ-q-tPA7tGPQa-aPpgX2LHzzOy2HwTkA';
 const VENDOR_MASTER_TAB      = '7-VendorMaster_Actual';
 const VENDOR_OPENING_BAL_SHEET_ID = '1WhjqAGb5XNSQ-q-tPA7tGPQa-aPpgX2LHzzOy2HwTkA';
 const VENDOR_OPENING_BAL_TAB      = 'OpeningBalance';
+// GRN accounts review — each StockIN line (by SI ID) is reviewed by Accounts
+// against the invoice + PO before its value hits the Vendor Ledger. Accounts may
+// override the rate and add per-line additional charges. Stored in a dedicated
+// tab (schema: docs). PLACEHOLDER sheet ID → the whole gate is OFF until set
+// (ledger behaves exactly as before); once set, only Approved lines are counted
+// and un-reviewed lines show as "Pending review". Write posts via
+// getExec('accounts') action 'saveGRNReview' (header-mapped append; latest per
+// SI ID wins so a review is editable).
+const GRN_REVIEW_SHEET_ID = ''; // TODO: set the GRN Review sheet ID to activate the gate
+const GRN_REVIEW_TAB      = 'GRN_Review';
 
 // ══════════════════════════════════════════════════════════
 //  MRS DASHBOARD
@@ -9398,6 +9658,10 @@ function _accRowsInView(rows, id) {
 // the Quick Action button is therefore visible to Admin in all views.
 function _accCanAdvance(viewDef) {
   if (!viewDef || !viewDef.next) return false;
+  // Per-status people/role restriction wins for everyone (except super-admins,
+  // handled inside _accCanSetStatus) — so the Quick Action button hides for
+  // anyone not on the allow-list, including MD/admin.
+  if (typeof _accCanSetStatus === 'function' && !_accCanSetStatus(viewDef.next.status)) return false;
   if (typeof _accIsAdmin === 'function' && _accIsAdmin()) return true;
   return (viewDef.next.roles || []).includes((STATE.role || '').toLowerCase());
 }
@@ -11409,6 +11673,7 @@ async function _accUpdateFormSubmit(prUuid) {
   if (/pending due to queries/.test(norm) && !_accV('acc-up-reason')) errors.push('Pending Reason is required.');
   if (/payment completed/.test(norm) && !_accV('acc-up-utr')) errors.push('UTR Details are required to complete a payment.');
   if (/reject/.test(norm) && !_accV('acc-up-comments')) errors.push('Comments are required when rejecting.');
+  if (status && !_accCanSetStatus(status)) errors.push('You are not authorised to set the status “' + status + '”.');
   if (errors.length) { alert('Please fix the following:\n\n• ' + errors.join('\n• ')); return; }
 
   const btn = document.getElementById('acc-up-submit');
@@ -11467,11 +11732,53 @@ function _accCan(action) {
   return ['accounts','accounts-v2','accounts-worklist','accounts-dashboard','md-payments'].some(rt => userCan(rt, action));
 }
 
+// ── Per-status update access (Accounts) ──────────────────────────────────
+// Admins can restrict individual status transitions to specific PEOPLE (by
+// email or name) and/or roles, via Configuration → Status Access. Stored in
+// PortalConfig key 'acc_status_access' = { '<statusLabel>': {users:[],roles:[]} }.
+// A status with no rule (or an empty rule) is unrestricted → normal role checks
+// apply. Super-admins are never blocked (they configure the rules).
+const ACC_STATUS_ACCESS = [
+  { status: 'Verified, Move to MD Queue',        label: 'Move to MD Queue',               desc: 'Accounts verifies a request and moves it to the MD approval queue.' },
+  { status: 'Process Payment, Move to Accounts', label: 'Approve — Proceed with Payment',  desc: 'MD approves a request; it moves to Accounts to process payment.' },
+  { status: 'Payment Initiated',                 label: 'Initiate Payment (in bank)',      desc: 'Mark the payment as initiated in the bank.' },
+  { status: 'Paid (MD_ED)',                      label: 'Bank Transaction Completed',      desc: 'Confirm the bank transaction is completed.' },
+  { status: 'Payment Completed',                 label: 'Update UTR / Complete',           desc: 'Final completion of the payment (with UTR).' },
+  { status: 'Reject Payment (MD)',               label: 'Reject Payment',                  desc: 'Reject a payment request.' },
+  { status: 'GRN Approved',                      label: 'GRN Review — Approve / Edit',     desc: 'Accounts reviews a received GRN StockIN line (may edit rate + additional charges) and approves it into the ledger.' },
+];
+function _accStatusAccessCfg() { return (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {}); }
+function _accStatusRule(status) {
+  const r = _accStatusAccessCfg()[status];
+  if (!r) return null;
+  const users = (r.users || []).map(x => String(x || '').trim()).filter(Boolean);
+  const roles = (r.roles || []).map(x => String(x || '').trim()).filter(Boolean);
+  return (users.length || roles.length) ? { users, roles } : null;
+}
+// Can the current user set this status? true when unrestricted or allowed.
+function _accCanSetStatus(status) {
+  const rule = _accStatusRule(status);
+  if (!rule) return true;                                   // no restriction on this status
+  if (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) return true;
+  const me = (typeof STATE !== 'undefined' && STATE.user) || {};
+  const norm = s => String(s == null ? '' : s).toLowerCase().trim();
+  const mine = [norm(me.email), norm(me.name), norm(me.employeeRef), norm(me.empCode)].filter(Boolean);
+  const userMatch = rule.users.some(u => mine.includes(norm(u)));
+  const roleMatch = rule.roles.map(norm).includes(norm(typeof STATE !== 'undefined' && STATE.role));
+  return userMatch || roleMatch;
+}
+
 async function _accQuickStatus(uuid, status, comments, utr, silent, dedupeKey) {
   // Central write-path gate: a user with no Accounts action permission cannot
   // post status/advance updates when group access is enforced.
   if (!_accCan('update') && !_accCan('advance') && !_accCan('verify') && !_accCan('approve')) {
     if (!silent) _accToast('🔒 You do not have permission to update payments.');
+    return false;
+  }
+  // Per-status people/role restriction (Configuration → Status Access).
+  if (!_accCanSetStatus(status)) {
+    window._accLastQuickErr = 'Not authorised to set status: ' + status;
+    if (!silent) _accToast('🔒 You are not authorised to set “' + status + '”.');
     return false;
   }
   // Build the row ONCE (stable UUID + DedupeKey) so the retry loop below re-posts
@@ -13299,8 +13606,9 @@ function userCan(route, action) {
 
 // ── Tab bar + dispatcher ──────────────────────────────────────────────
 const CFG_TABS = [
-  { id:'config',  icon:'&#9881;',   label:'Portal Config' },
-  { id:'sheets',  icon:'&#128279;', label:'Sheet Linking' },
+  { id:'config',    icon:'&#9881;',   label:'Portal Config' },
+  { id:'sheets',    icon:'&#128279;', label:'Sheet Linking' },
+  { id:'accstatus', icon:'&#128272;', label:'Status Access' },
 ];
 function _cfgTabBar(active) {
   return `<div style="display:flex;gap:.3rem;flex-wrap:wrap;border-bottom:2px solid var(--border);margin-bottom:1.1rem">
@@ -13325,6 +13633,7 @@ function renderDevModePage(tab) {
   window._cfgActiveTab = tab || window._cfgActiveTab || 'config';
   const t = window._cfgActiveTab;
   if (t === 'sheets') return _cfgRenderSheets();
+  if (t === 'accstatus') return _cfgRenderAccStatus();
   // 'modules' (the old Modules & Roles tab) → Portal Config; its role matrix
   // is retired and its Live/Dev/Off status lives in Access & Pages.
   return _cfgRenderConfig();
@@ -13432,6 +13741,80 @@ function renderAccessPages() {
   }
   _cfgRenderAccess();
 }
+
+// ════════════════════════════════════════════════════════════════════
+//  TAB: ACCOUNTS STATUS ACCESS — restrict each status transition to people
+// ════════════════════════════════════════════════════════════════════
+const _ACS_ROLES = ['md', 'accounts', 'dept_head', 'purchase', 'hr', 'site'];
+function _cfgRenderAccStatus() {
+  const el = document.getElementById('mainContent');
+  const esc = _mdpEsc;
+  const cfg = (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {});
+  const card = (item, i) => {
+    const rule = cfg[item.status] || {};
+    const uVal = (rule.users || []).join(', ');
+    const rSet = new Set((rule.roles || []).map(x => String(x).toLowerCase()));
+    const restricted = (rule.users && rule.users.length) || (rule.roles && rule.roles.length);
+    const badge = restricted
+      ? '<span style="font-size:.6rem;background:#fee2e2;color:#b91c1c;padding:1px 8px;border-radius:9px;font-weight:700">RESTRICTED</span>'
+      : '<span style="font-size:.6rem;background:#dcfce7;color:#15803d;padding:1px 8px;border-radius:9px;font-weight:700">ANYONE (role default)</span>';
+    const roleChips = _ACS_ROLES.map(r => `<label style="display:inline-flex;align-items:center;gap:.3rem;font-size:.74rem;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:2px 10px;cursor:pointer">
+        <input type="checkbox" id="acs-role-${i}-${r}" ${rSet.has(r) ? 'checked' : ''} style="margin:0">${esc(r)}</label>`).join('');
+    return `<div class="card card-pad" style="margin-bottom:.8rem">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.6rem;flex-wrap:wrap">
+        <div><div style="font-weight:700;font-size:.9rem;color:var(--g8);display:flex;align-items:center;gap:.5rem">${esc(item.label)} ${badge}</div>
+        <div style="font-size:.72rem;color:var(--txt3);margin-top:2px">${esc(item.desc)}</div>
+        <div style="font-size:.64rem;color:var(--txt3);margin-top:1px">Sets status: <code>${esc(item.status)}</code></div></div>
+        <span id="acs-st-${i}" style="font-size:.72rem;color:var(--txt3)"></span>
+      </div>
+      <div style="margin-top:.7rem">
+        <label style="font-size:.64rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Allowed people (emails or names, comma-separated)</label>
+        <input id="acs-users-${i}" value="${esc(uVal)}" placeholder="e.g. manoj@evgcpl.com, nkm@evgcpl.com, Shanthini" style="width:100%;margin-top:.25rem;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface2);color:var(--txt)">
+      </div>
+      <div style="margin-top:.6rem;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+        <span style="font-size:.64rem;font-weight:700;color:var(--txt3);text-transform:uppercase">…or allow whole roles:</span>${roleChips}
+      </div>
+      <div style="margin-top:.7rem;display:flex;gap:.5rem">
+        <button onclick="_accStatusSave(${i})" class="btn btn-primary btn-sm" style="font-size:.74rem">&#128190; Save</button>
+        <button onclick="_accStatusClear(${i})" class="btn btn-secondary btn-sm" style="font-size:.74rem">Clear (allow anyone)</button>
+      </div>
+    </div>`;
+  };
+  el.innerHTML = `${_cfgTabBar('accstatus')}
+    <div class="page-header"><div class="page-header-row"><div>
+      <h1>&#128272; Accounts &mdash; Status Access</h1>
+      <p>Restrict who can move a payment request to each status &middot; by person (email/name) or role &middot; saved org-wide &middot; Admin only</p>
+    </div></div></div>
+    <div class="alert-strip" style="margin-bottom:1rem"><span class="alert-icon">&#8505;&#65039;</span>
+      <span>Leave a status blank to allow anyone with the usual role permission. Add people to lock it down &mdash; then <b>only</b> those people (or ticked roles) can set that status. Super-admins are always allowed.</span></div>
+    <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.8rem 1.2rem;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div><div style="font-weight:700;font-size:.86rem;color:var(--g8)">&#128203; GRN Review &mdash; Ledger Link</div>
+      <div style="font-size:.72rem;color:var(--txt3)">On = only Accounts-approved GRN lines credit the Vendor Ledger. Off = every received line counts (as before). Off + Hide also removes the GRN Review tab.${GRN_REVIEW_SHEET_ID ? '' : ' <b style="color:#b45309">GRN Review sheet not configured yet.</b>'}</div></div>
+      ${_grnModeControls()}
+    </div>
+    ${ACC_STATUS_ACCESS.map(card).join('')}`;
+}
+window._accStatusSave = async function(i) {
+  const item = ACC_STATUS_ACCESS[i]; if (!item) return;
+  const st = document.getElementById('acs-st-' + i);
+  const usersRaw = (document.getElementById('acs-users-' + i) || {}).value || '';
+  const users = usersRaw.split(/[,\n;]+/).map(s => s.trim()).filter(Boolean);
+  const roles = _ACS_ROLES.filter(r => { const e = document.getElementById('acs-role-' + i + '-' + r); return e && e.checked; });
+  const cfg = (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {});
+  if (users.length || roles.length) cfg[item.status] = { users, roles };
+  else delete cfg[item.status];
+  if (st) { st.textContent = 'Saving…'; st.style.color = '#92400e'; }
+  const res = await pcWriteJSON('acc_status_access', cfg);
+  if (st) { st.textContent = res.ok ? '✓ Saved org-wide' : '✗ ' + (res.message || 'failed'); st.style.color = res.ok ? '#16a34a' : '#dc2626'; }
+  if (res.ok) setTimeout(_cfgRenderAccStatus, 900);
+};
+window._accStatusClear = async function(i) {
+  const item = ACC_STATUS_ACCESS[i]; if (!item) return;
+  const cfg = (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {});
+  delete cfg[item.status];
+  await pcWriteJSON('acc_status_access', cfg);
+  _cfgRenderAccStatus();
+};
 
 function _cfgRenderAccess() {
   const el = document.getElementById('mainContent');
