@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.35.2';
-const PORTAL_BUILD    = 658;
-const PORTAL_BUILD_AT = '2026-07-04T16:15:27Z';
+const PORTAL_VERSION  = '4.36.0';
+const PORTAL_BUILD    = 659;
+const PORTAL_BUILD_AT = '2026-07-05T01:31:51Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -7912,6 +7912,131 @@ async function _pvLoadVendorLedger(r) {
     if (b) b.innerHTML = '<div style="color:var(--danger);font-size:.78rem">Could not load vendor ledger.</div>';
   }
 }
+// ── Purchase View approvals (SCM Head / MD) ──────────────────────────────
+// Buttons appear in the PO detail modal only when the PO's Lock field is
+// "Released for review", and each button is independently gated by an Access
+// action (approve-md / approve-scm / reject-md / reject-scm) on 'purchase-view'.
+// Approving/rejecting writes the PO Approval Status (PO_Actual col AG, matched
+// by UUID in col A) via the backend 'updateCell' action. Rejection first asks
+// for a reason from the (org-configurable) reason list.
+const PV_LOCK_GATE = 'Released for review';
+const PV_STATUS = {
+  'approve-md':  'Approved by MD',
+  'approve-scm': 'Approved by SCM Head',
+  'reject-md':   'Rejected by MD',
+  'reject-scm':  'Rejected by SCM Head',
+};
+const PV_DEFAULT_REJECT_REASONS = [
+  'Rate higher than market / last purchase',
+  'Incorrect vendor',
+  'Incorrect quantity',
+  'Incorrect specification / item',
+  'Budget not available',
+  'Duplicate PO',
+  'Incomplete / incorrect details',
+  'Other',
+];
+// Reason list — org override via PortalConfig 'po_reject_reasons' (JSON array).
+function _pvRejectReasons() {
+  const v = pcReadJSON('po_reject_reasons', null);
+  return (Array.isArray(v) && v.length) ? v.map(String) : PV_DEFAULT_REJECT_REASONS;
+}
+// Optional column to persist the rejection reason into (PO_Actual). Off unless
+// PortalConfig 'po_reject_reason_col' is set to a column letter (e.g. "AH").
+function _pvReasonCol() {
+  try { const v = (window._SHEET_CONFIG || {})['po_reject_reason_col']; if (typeof v === 'string' && /^[A-Za-z]{1,3}$/.test(v.trim())) return v.trim().toUpperCase(); } catch (e) {}
+  return '';
+}
+function _pvCan(action) { return (typeof userCan !== 'function') || userCan('purchase-view', action); }
+function _pvActionBar(r) {
+  if (((r.lock || '').trim().toLowerCase()) !== PV_LOCK_GATE.toLowerCase()) return '';
+  const esc = _mdpEsc, po = esc(r.poNo);
+  const btn = (action, bg, label) => _pvCan(action)
+    ? `<button onclick="_pv${action.startsWith('approve') ? 'Approve' : 'Reject'}('${po}','${action.endsWith('md') ? 'md' : 'scm'}')" class="btn btn-sm" style="background:${bg};color:#fff;border:none">${label}</button>`
+    : '';
+  const btns = [
+    btn('approve-md',  '#15803d', '&#10003; Approve (MD)'),
+    btn('approve-scm', '#16a34a', '&#10003; Approve (SCM Head)'),
+    btn('reject-md',   '#b91c1c', '&#10007; Reject (MD)'),
+    btn('reject-scm',  '#dc2626', '&#10007; Reject (SCM Head)'),
+  ].filter(Boolean);
+  if (!btns.length) return '';
+  return `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;background:var(--surface2)">
+    <span style="font-size:.7rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Approval</span>
+    ${btns.join('')}
+    <span id="pv-action-msg" style="font-size:.74rem;color:var(--txt3);margin-left:auto"></span>
+  </div>`;
+}
+async function _pvWriteCell(uuid, col, val) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'updateCell', sheetId: PO_SHEET_ID, tab: PO_TAB, matchCol: 'A', matchVal: uuid, updateCol: col, updateVal: val }),
+  });
+  const j = await res.json().catch(() => ({}));
+  return !!(j && (j.success || j.ok));
+}
+async function _pvApplyStatus(r, status, reason) {
+  const msg = document.getElementById('pv-action-msg');
+  if (msg) { msg.textContent = 'Saving…'; msg.style.color = 'var(--txt3)'; }
+  if (!r.uuid) { if (msg) { msg.textContent = 'No PO UUID — cannot write'; msg.style.color = 'var(--danger)'; } return; }
+  try {
+    const ok = await _pvWriteCell(r.uuid, 'AG', status);
+    if (!ok) throw new Error('write failed');
+    const rc = _pvReasonCol();
+    if (reason && rc) { try { await _pvWriteCell(r.uuid, rc, reason); } catch (e) {} }
+    r.status = status;
+    if (msg) { msg.textContent = 'Saved ✓'; msg.style.color = '#16a34a'; }
+    setTimeout(() => { try { _regCloseModal(); } catch (e) {} _pvLoad(true); }, 700);
+  } catch (e) {
+    if (msg) { msg.textContent = 'Save failed — check backend / sheet access'; msg.style.color = 'var(--danger)'; }
+  }
+}
+window._pvApprove = function(poNo, role) {
+  const r = _pvAllRows.find(x => x.poNo === poNo); if (!r) return;
+  const action = role === 'md' ? 'approve-md' : 'approve-scm';
+  if (!_pvCan(action)) { alert('You do not have permission for this action.'); return; }
+  const status = PV_STATUS[action];
+  if (!confirm(`Approve ${poNo}\n\nSet PO Approval Status to “${status}”?`)) return;
+  _pvApplyStatus(r, status, '');
+};
+window._pvReject = function(poNo, role) {
+  const r = _pvAllRows.find(x => x.poNo === poNo); if (!r) return;
+  const action = role === 'md' ? 'reject-md' : 'reject-scm';
+  if (!_pvCan(action)) { alert('You do not have permission for this action.'); return; }
+  const esc = _mdpEsc, reasons = _pvRejectReasons();
+  let ov = document.getElementById('pvRejectOverlay'); if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'pvRejectOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
+  ov.innerHTML = `<div class="card" style="max-width:440px;width:100%">
+    <div class="card-pad">
+      <div style="font-weight:700;font-size:1rem;margin-bottom:.15rem">Reject ${esc(poNo)}</div>
+      <div style="font-size:.76rem;color:var(--txt3);margin-bottom:.9rem">${role === 'md' ? 'Reject (MD)' : 'Reject (SCM Head)'}${r.vendor ? ' &middot; ' + esc(r.vendor) : ''}</div>
+      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">REJECTION REASON</label>
+      <select id="pvRejReason" style="width:100%;margin:.3rem 0 .8rem;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);font-size:.84rem">
+        ${reasons.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('')}
+      </select>
+      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">NOTE (optional)</label>
+      <textarea id="pvRejNote" rows="2" style="width:100%;margin-top:.3rem;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);font-size:.84rem;resize:vertical" placeholder="Add detail…"></textarea>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem">
+        <button onclick="document.getElementById('pvRejectOverlay').remove()" class="btn btn-sm btn-secondary">Cancel</button>
+        <button id="pvRejConfirm" onclick="_pvConfirmReject('${esc(poNo)}','${role}')" class="btn btn-sm" style="background:#dc2626;color:#fff;border:none">Confirm Reject</button>
+      </div>
+    </div>
+  </div>`;
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+};
+window._pvConfirmReject = function(poNo, role) {
+  const r = _pvAllRows.find(x => x.poNo === poNo); if (!r) return;
+  const action = role === 'md' ? 'reject-md' : 'reject-scm';
+  const reason = (document.getElementById('pvRejReason') || {}).value || '';
+  const note = ((document.getElementById('pvRejNote') || {}).value || '').trim();
+  const full = note ? `${reason} — ${note}` : reason;
+  const ov = document.getElementById('pvRejectOverlay'); if (ov) ov.remove();
+  _pvApplyStatus(r, PV_STATUS[action], full);
+};
+
 function renderPurchaseView() {
   const el = document.getElementById('mainContent');
   _pvFilter = 'all'; _pvSearch = ''; _pvSite = '';
@@ -8074,7 +8199,7 @@ window._pvToggle = function(poNo) {
   const headerExtra = `<a href="${_mdpEsc(appLink)}" target="_blank" class="btn btn-sm btn-secondary" style="font-size:.72rem;text-decoration:none">&#128279; AppSheet</a>`;
   const titleHtml = `${_mdpEsc(poNo)} <span style="background:${st.bg};color:${st.color};padding:.12rem .45rem;border-radius:20px;font-size:.68rem;font-weight:700;margin-left:.4rem">${st.label}</span>`;
   _pvLedgerFY = '';
-  _regOpenModal(titleHtml, _pvDetailBody(r), headerExtra);
+  _regOpenModal(titleHtml, _pvActionBar(r) + _pvDetailBody(r), headerExtra);
   _poLoadAttachments(_pvLastDocUUID, _pvLastPONo);
   _pvLoadVendorLedger(r);
 };
@@ -13399,6 +13524,7 @@ const MODULE_ACTIONS = {
   'mrs-list':          ['view','export'],
   'stores-stockout':   ['view','export'],
   'stores-stocktransfer': ['view','export'],
+  'purchase-view':     ['view','approve-md','approve-scm','reject-md','reject-scm'],
 };
 function uaActionsFor(route) { return MODULE_ACTIONS[route] || ['view']; }
 
