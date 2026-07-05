@@ -7948,18 +7948,29 @@ function _pvReasonCol() {
   return '';
 }
 function _pvCan(action) { return (typeof userCan !== 'function') || userCan('purchase-view', action); }
-function _pvActionBar(r) {
-  if (((r.lock || '').trim().toLowerCase()) !== PV_LOCK_GATE.toLowerCase()) return '';
-  const esc = _mdpEsc, po = esc(r.poNo);
+// A PO is eligible for the approve/reject buttons when its Lock field is
+// "Released for review" (per spec). Real POs may carry "Released for Approval"
+// for the same stage, so accept either, plus anything the Pending tab counts.
+const PV_LOCK_GATES = ['released for review', 'released for approval'];
+function _pvIsGated(r) {
+  const lk = (r.lock || '').trim().toLowerCase();
+  return r.isPending || PV_LOCK_GATES.indexOf(lk) !== -1;
+}
+function _pvActionButtons(r, fontSize) {
+  const po = _mdpEsc(r.poNo), fs = fontSize || '.74rem';
   const btn = (action, bg, label) => _pvCan(action)
-    ? `<button onclick="_pv${action.startsWith('approve') ? 'Approve' : 'Reject'}('${po}','${action.endsWith('md') ? 'md' : 'scm'}')" class="btn btn-sm" style="background:${bg};color:#fff;border:none">${label}</button>`
+    ? `<button onclick="event.stopPropagation();_pv${action.startsWith('approve') ? 'Approve' : 'Reject'}('${po}','${action.endsWith('md') ? 'md' : 'scm'}')" class="btn btn-sm" style="background:${bg};color:#fff;border:none;font-size:${fs}">${label}</button>`
     : '';
-  const btns = [
+  return [
     btn('approve-md',  '#15803d', '&#10003; Approve (MD)'),
     btn('approve-scm', '#16a34a', '&#10003; Approve (SCM Head)'),
     btn('reject-md',   '#b91c1c', '&#10007; Reject (MD)'),
     btn('reject-scm',  '#dc2626', '&#10007; Reject (SCM Head)'),
   ].filter(Boolean);
+}
+function _pvActionBar(r) {
+  if (!_pvIsGated(r)) return '';
+  const btns = _pvActionButtons(r);
   if (!btns.length) return '';
   return `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;background:var(--surface2)">
     <span style="font-size:.7rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Approval</span>
@@ -8186,6 +8197,7 @@ function _pvSummaryCard(r) {
         <button onclick="_pvToggle('${esc(r.poNo)}')" class="btn btn-sm btn-secondary" style="font-size:.72rem">&#128269; Verify PO</button>
         <a href="${esc(appLink)}" target="_blank" class="btn btn-sm btn-secondary" style="font-size:.72rem;text-decoration:none">&#128279; AppSheet</a>
       </div>
+      ${_pvIsGated(r) && _pvActionButtons(r, '.7rem').length ? `<div style="display:flex;gap:.4rem;margin-top:.5rem;flex-wrap:wrap;padding-top:.5rem;border-top:1px solid var(--border)">${_pvActionButtons(r, '.7rem').join('')}</div>` : ''}
     </div>
   </div>`;
 }
@@ -8292,6 +8304,9 @@ function _pvDetailBody(r) {
       const d = _pvRateDelta(rate, avg);
       rateBadge = `<span title="${tip}" style="background:${d.bg};color:${d.color};font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">${d.symbol}${d.text ? ' ' + d.text : ''}</span>`;
       rateHistoryItems.push({ desc: pr.partDesc || rawDesc || partKey || '—', thisRate: rate, avg, diff, sorted });
+    } else if (rate) {
+      // No prior purchase of this item at this site — say so explicitly.
+      rateBadge = `<span title="No previous purchase of this item at this site — first-time rate, nothing to compare against" style="background:#eef2ff;color:#4338ca;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#9737; No history</span>`;
     }
     const descHtml = (pr.partNo ? `<span style="font-family:monospace;font-size:.68rem;color:var(--g7)">${esc(pr.partNo)}</span> &middot; ` : '') + esc(pr.partDesc || '—');
     const td = 'padding:5px 8px;font-size:.77rem';
@@ -8449,7 +8464,11 @@ function _pvDetailBody(r) {
           </tr>`).join('');
         }).join('')}</tbody>
       </table></div>
-    </div>` : ''}
+    </div>` : `
+    ${H('Rate Comparison History')}
+    <div style="padding:0 1rem .5rem"><div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:.7rem .9rem;font-size:.8rem;color:#3730a3">
+      &#9737; <b>No previous purchase history</b> for these items at this site — these are first-time rates, so there is nothing to compare against.
+    </div></div>`}
 
     ${H('Vendor Ledger — ' + _mdpEsc(r.vendor || '—'))}
     <div style="padding:0 1rem 1rem"><div id="pvVendorLedgerBox" style="color:var(--txt3);font-size:.78rem;padding:.3rem 0">&#9203; Loading vendor ledger&hellip;</div></div>
