@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.30.1';
-const PORTAL_BUILD    = 647;
-const PORTAL_BUILD_AT = '2026-06-30T14:26:30Z';
+const PORTAL_VERSION  = '4.35.2';
+const PORTAL_BUILD    = 658;
+const PORTAL_BUILD_AT = '2026-07-04T16:15:27Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -243,7 +243,12 @@ const ROLES = {
 //  AUTH — Google OAuth + Vendor/SC Login
 // ══════════════════════════════════════════════════
 
+// Gmail / Google sign-in is DISABLED. Login is via Email & PIN (and the Vendor
+// flow) only. The one-tap auto-prompt is suppressed here; to re-enable Google
+// login, restore this body and the button in index.html.
+const GOOGLE_LOGIN_ENABLED = false;
 function initGoogleSignIn() {
+  if (!GOOGLE_LOGIN_ENABLED) return;
   if (typeof google === 'undefined' || !google.accounts) return;
   if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.startsWith('YOUR_')) return;
   google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
@@ -292,6 +297,10 @@ async function handleGoogleCredential(response) {
 }
 
 function handleGoogleLogin() {
+  if (!GOOGLE_LOGIN_ENABLED) {
+    console.warn('Google sign-in is disabled. Use Email & PIN login.');
+    return;
+  }
   if (GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('YOUR_') && typeof google !== 'undefined' && google.accounts) {
     google.accounts.id.prompt();
   } else {
@@ -1309,6 +1318,10 @@ function _tblColApply(table, sig) {
   };
   const htr = table.querySelector('thead tr'); if (htr) reorder(htr);
   table.querySelectorAll('tbody tr').forEach(reorder);
+  // Also reorder footer/totals rows so they follow the columns. The
+  // cell-count guard skips any colspan/empty-state footer (unchanged), so a
+  // totals row only tracks the columns if it has one <td> per column.
+  table.querySelectorAll('tfoot tr').forEach(reorder);
 }
 function _tblColInit(table) {
   if (table.dataset.evgCols === '1') {
@@ -3214,6 +3227,7 @@ function renderPage(page) {
     'schema':         renderSchemaPage,
     'reports':        renderReportsModule,
     'data-hub':       renderDataHub,
+    'masters':        renderMastersPage,
     // Vendor / SC external portal routes
     'my-portal':      renderExternalPortal,
     'my-orders':      renderVendorPOTracker,
@@ -4401,6 +4415,7 @@ function _mdpSelAll(on) {
 async function _mdpApproveSelected() {
   const ids = Object.keys(_mdpSel);
   if (!ids.length) return;
+  if (typeof _accCanSetStatus === 'function' && !_accCanSetStatus('Process Payment, Move to Accounts')) { alert('You are not authorised to approve payments (Proceed with Payment).\n\nThis action is restricted under Configuration → Status Access.'); return; }
   if (!confirm(`Approve ${ids.length} payment request(s) and move them to Accounts?`)) return;
   _mdpBulkPost(ids, 'Process Payment, Move to Accounts', 'Approved', '');
 }
@@ -4506,6 +4521,7 @@ function _mdpHistory(r) {
 }
 
 function _mdpApprove(uuid) {
+  if (typeof _accCanSetStatus === 'function' && !_accCanSetStatus('Process Payment, Move to Accounts')) { alert('You are not authorised to approve payments (Proceed with Payment).\n\nThis action is restricted under Configuration → Status Access.'); return; }
   if (!confirm('Approve this payment request and move it to Accounts for processing?')) return;
   _accClosePRDetail();
   _mdpBulkPost([uuid], 'Process Payment, Move to Accounts', 'Approved', '');
@@ -4961,8 +4977,66 @@ async function _vplpEnsure(force) {
       catch (e) { _vplpOBRows = []; }
     } else { _vplpOBRows = []; }
   }
+  if (force || !_vplpGRNReviewRows) {
+    // GRN accounts-review records (keyed by SI ID). Placeholder → empty → gate off.
+    if (GRN_REVIEW_SHEET_ID) {
+      try { _vplpGRNReviewRows = await fetchSheet(GRN_REVIEW_TAB, null, GRN_REVIEW_SHEET_ID, { rawId: true }) || []; }
+      catch (e) { _vplpGRNReviewRows = []; }
+    } else { _vplpGRNReviewRows = []; }
+  }
   _vplpData = _vplpCompute();
 }
+// GRN review "Ledger Link" mode — runtime toggle (PortalConfig 'grn_review_mode'):
+//   'on'     → only Accounts-approved GRN lines count in the ledger (gate active)
+//   'off'    → all received lines count (gate off); GRN Review tab still visible
+//   'hidden' → gate off AND the GRN Review tab is hidden
+// Default 'off' so configuring the sheet doesn't silently change balances.
+function _grnMode() { const c = (typeof pcReadJSON === 'function') ? (pcReadJSON('grn_review_mode', {}) || {}) : {}; const m = c.mode || 'off'; return (m === 'on' || m === 'hidden') ? m : 'off'; }
+function _grnGateOn() { return _grnMode() === 'on' && !!GRN_REVIEW_SHEET_ID; }
+function _grnTabHidden() { return _grnMode() === 'hidden'; }
+window._grnSetMode = async function(mode) {
+  const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
+  if (!isAdmin) { _accToast('🔒 Only admins can change the Ledger Link.'); return; }
+  await pcWriteJSON('grn_review_mode', { mode });
+  if (typeof _vplpEnsure === 'function') { try { await _vplpEnsure(true); } catch (e) {} }
+  if (typeof _vplpRenderBody === 'function' && document.getElementById('vplp-body')) _vplpRenderBody();
+  if (typeof _cfgRenderAccStatus === 'function' && window._cfgActiveTab === 'accstatus') _cfgRenderAccStatus();
+};
+// The On / Off / Off+Hide control (admin only elsewhere; render anywhere).
+function _grnModeControls() {
+  const m = _grnMode();
+  const b = (val, label, hint) => `<button onclick="_grnSetMode('${val}')" class="btn btn-sm ${m === val ? 'btn-primary' : 'btn-secondary'}" title="${hint}" style="font-size:.72rem;padding:3px 10px">${label}</button>`;
+  return `<div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+    <span style="font-size:.64rem;font-weight:700;color:var(--txt3)">LEDGER LINK</span>
+    ${b('on', 'On', 'Only Accounts-approved GRN lines count in the ledger')}
+    ${b('off', 'Off', 'All received lines count (review not enforced); GRN Review tab stays visible')}
+    ${b('hidden', 'Off + Hide tab', 'Gate off and hide the GRN Review tab')}
+  </div>`;
+}
+let _vplpGRNReviewRows = null;
+function _grnRVal(r, names) { for (const n of names) { const v = r[n]; if (v != null && String(v).trim() !== '') return String(v).trim(); } return ''; }
+// SI ID → latest review { status, rate, addl, value, by, ts, comments }.
+// Latest by Timestamp wins so a review is editable (append-only, like OB).
+function _grnReviewBySiId() {
+  const m = {};
+  (_vplpGRNReviewRows || []).forEach(r => {
+    const si = _opNorm(_grnRVal(r, ['SI ID', 'SIID', 'StockIN ID', 'SI Id']));
+    if (!si) return;
+    const ts = _mdpDateVal(_grnRVal(r, ['Timestamp'])) || 0;
+    const o = {
+      status: _grnRVal(r, ['Review Status', 'Status']) || 'Pending',
+      rate: _opNum(_grnRVal(r, ['Reviewed Rate', 'Rate'])),
+      addl: _opNum(_grnRVal(r, ['Additional Charges', 'Addl Charges', 'Additional Charge'])),
+      value: _opNum(_grnRVal(r, ['Reviewed Value', 'Value', 'Line Value'])),
+      by: _grnRVal(r, ['Reviewed By', 'Updated By']),
+      comments: _grnRVal(r, ['Comments', 'Remarks']),
+      ts,
+    };
+    if (!m[si] || ts >= m[si].ts) m[si] = o;
+  });
+  return m;
+}
+function _grnIsApproved(rev) { return !!(rev && /approv/i.test(rev.status || '')); }
 // Opening-balance rows from the OpeningBalance tab. Columns: UUID, SystemEmail,
 // UserEmail, Timestamp, Updated By, VendorKey(UUID), Vendor ID, Vendor Name,
 // Vendor Detail, Opening Balance, As On (Date), Remarks (If Any). Keyed into the
@@ -5037,13 +5111,22 @@ function _vplpCompute() {
   // StockIN receipts by (PO No (Key) || part) — the PO_Items join. Each receipt
   // carries its GRN No (StockIN ColAA direct, else the GRN_No-sheet join), its
   // invoice number, and its row index so the ledger can link to the detail.
+  // Per-StockIN-line, each with its own qty + SI ID + accounts review, so credit
+  // can honour the reviewed rate / additional charges and gate un-reviewed lines.
+  // Reviews are loaded for DISPLAY whenever the sheet is configured; they only
+  // drive the ledger credit when the gate is ON (Ledger Link = On).
+  const reviewBySi = GRN_REVIEW_SHEET_ID ? _grnReviewBySiId() : {};
+  const gateOn = _grnGateOn();
   const siAgg = {};
   _openPOStock.forEach((r, idx) => {
     const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey'])); if (!pk) return;
     const key = pk + '||' + _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
     const e = siAgg[key] = siAgg[key] || { qty: 0, rcpts: [] };
-    e.qty += _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
-    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx });
+    const qty = _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
+    const siId = _opGet(r, SC, ['SI ID', 'SIID', 'SI Id']);
+    const rev = reviewBySi[_opNorm(siId)] || null;
+    e.qty += qty;
+    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev });
   });
   // PO header: approval, vendor, date, Tax(b), Additional Charges(b). Keyed by
   // the normalised PO key (folds EGVE/EVGE spelling variants).
@@ -5061,19 +5144,36 @@ function _vplpCompute() {
   });
   // Received material (received qty × rate) + Tax(a) apportioned to the received
   // fraction of each line, per PO.
-  const poRecv = {}, poTaxA = {}, poRcpt = {};
+  // poRecv = COUNTED (approved, or all when the gate is off) received value;
+  // poPending = value of un-reviewed receipts, shown but NOT counted.
+  const poRecv = {}, poTaxA = {}, poRcpt = {}, poPending = {};
   _openPOItems.forEach(x => {
     const k = _opPOKey(_opGet(x, IC, ['PO No', 'Order No'])); if (!k) return;
     const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
     const cs = _opGet(x, IC, ['CheckSum', 'Check Sum']);
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
-    const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)] || { qty: 0, rcpts: [] };
-    if (m.qty <= 0) return;
-    poRecv[k] = (poRecv[k] || 0) + m.qty * rate;
+    const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)];
+    if (!m || !m.rcpts.length || m.qty <= 0) return;
     const oq = _opNum(_opGet(x, IC, ['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
     const lineTax = _opNum(_opGet(x, IC, ['Tax Amt', 'Tax Amount', 'Total Tax']));
-    poTaxA[k] = (poTaxA[k] || 0) + lineTax * (oq > 0 ? Math.min(m.qty / oq, 1) : 1);
-    const g = poRcpt[k] = poRcpt[k] || []; m.rcpts.forEach(rc => { if (!g.some(z => z.idx === rc.idx)) g.push(rc); });
+    let countedQty = 0;
+    m.rcpts.forEach(rc => {
+      // Reviewed values only drive credit when the gate is ON; gate off → PO
+      // values as before (everything counts).
+      const applied = gateOn ? rc.rev : null;
+      const approved = !gateOn || _grnIsApproved(rc.rev);
+      const useRate = (applied && applied.rate > 0) ? applied.rate : rate;
+      const addl = (applied && applied.addl) || 0;
+      // Accounts may set the line VALUE directly (overrides qty × rate + addl).
+      const lineCredit = (applied && applied.value > 0) ? applied.value : ((rc.qty || 0) * useRate + addl);
+      // stash for the ledger / review UI
+      rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.part = part;
+      if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; countedQty += (rc.qty || 0); }
+      else { poPending[k] = (poPending[k] || 0) + lineCredit; }
+      const g = poRcpt[k] = poRcpt[k] || []; if (!g.some(z => z.idx === rc.idx)) g.push(rc);
+    });
+    // Tax(a) apportioned to the COUNTED fraction of the line (matches old maths when gate off).
+    if (countedQty > 0) poTaxA[k] = (poTaxA[k] || 0) + lineTax * (oq > 0 ? Math.min(countedQty / oq, 1) : 1);
   });
   // Vendor Master bridge: name → Vendor ID and bank-account → Vendor ID. Lets a
   // payment (which carries only the selected vendor NAME + account, no Vendor ID)
@@ -5100,7 +5200,9 @@ function _vplpCompute() {
     if (vid && vendorById[vid]) v.name = vendorById[vid];
     return v;
   };
-  Object.keys(poInfo).forEach(k => { const i = poInfo[k]; if (i.approved && (poRecv[k] || 0) > 0) getV(i.vendorId, i.vendorName).poKeys[k] = true; });
+  // Include a PO if it has counted receipts OR pending-review receipts (so the
+  // vendor + the "Pending review" line still surface while un-reviewed).
+  Object.keys(poInfo).forEach(k => { const i = poInfo[k]; if (i.approved && ((poRecv[k] || 0) > 0 || (poPending[k] || 0) > 0)) getV(i.vendorId, i.vendorName).poKeys[k] = true; });
   (_mdpRows || []).forEach(r => {
     if (r.payTo !== 'Vendor') return;
     if (!(r.status && r.status.cat === 'completed')) return;
@@ -5115,7 +5217,19 @@ function _vplpCompute() {
     v.opening = o;
   });
   const list = Object.values(vendors).sort((a, b) => (a.unmapped - b.unmapped) || (a.name || '').localeCompare(b.name || ''));
-  return { vendors: list, poInfo, poRecv, poTaxA, poRcpt, bridge, obByKey };
+  // Flat list of every received StockIN line (with its review), for the GRN
+  // Review queue. Only lines that matched a PO item (have a rate) appear.
+  const grnLines = [];
+  Object.keys(poRcpt).forEach(k => {
+    const i = poInfo[k] || {};
+    (poRcpt[k] || []).forEach(rc => grnLines.push({
+      siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '',
+      qty: rc.qty || 0, poRate: rc.poRate || 0, useRate: rc.useRate || 0, addl: rc.addl || 0,
+      credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null,
+      poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
+    }));
+  });
+  return { vendors: list, poInfo, poRecv, poTaxA, poRcpt, poPending, bridge, obByKey, gateOn, grnLines };
 }
 // GRN + invoice sub-line for a credit (material-received) row. Each receipt's
 // GRN No links to its StockIN detail; invoice numbers are shown after.
@@ -5142,33 +5256,157 @@ function _vplpRenderBody() {
     <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
     <button onclick="_vplpSetView('flat')" class="btn btn-sm ${_vplpView === 'flat' ? 'btn-primary' : 'btn-secondary'}">&#128203; Flat List (all vendors)</button>
     <button onclick="_vplpSetView('openings')" class="btn btn-sm ${_vplpView === 'openings' ? 'btn-primary' : 'btn-secondary'}">&#128209; Opening Balances</button>
+    ${_grnTabHidden() ? '' : `<button onclick="_vplpSetView('grnreview')" class="btn btn-sm ${_vplpView === 'grnreview' ? 'btn-primary' : 'btn-secondary'}">&#128203; GRN Review</button>`}
     <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="margin-left:auto" title="Record a vendor's carried-forward opening balance">&#10133; Opening Balance</button>
   </div>`;
+  if (_vplpView === 'grnreview' && _grnTabHidden()) _vplpView = 'vendor';   // tab was hidden
   if (_vplpView === 'flat') { c.innerHTML = _vplpFlatList(toggle); return; }
   if (_vplpView === 'openings') { c.innerHTML = toggle + _vplpOBListView(); return; }
+  if (_vplpView === 'grnreview') { c.innerHTML = toggle + _vplpGRNReviewView(); return; }
   // Type-and-search vendor picker (347+ vendors → a combobox beats a native select).
   const selV = d.vendors.find(x => x.key === _vplpVendor);
   const selLabel = selV ? `${selV.name}${selV.vid ? ` [${selV.vid}]` : ''}` : '';
   const vendorItems = d.vendors.map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}${v.unmapped ? ' ·Unmapped' : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
-  const pickerRow = `<div style="display:flex;gap:.7rem;align-items:flex-end;flex-wrap:wrap">
-    <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:280px">
-      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR</label>
+  // Vendor picker (selection).
+  const picker = `<div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:240px;max-width:520px">
+      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR <span style="font-weight:400">&middot; ${d.vendors.length}</span></label>
       ${evgComboHtml({ id: 'vplp-vendor-search', items: vendorItems, value: selLabel, placeholder: 'Type a vendor name or ID…', onPick: '_vplpSetVendor' })}
-    </div>
-    <div style="font-size:.72rem;color:var(--txt3);padding-bottom:6px">${d.vendors.length} vendor(s)</div></div>`;
-  if (!_vplpVendor) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}</div>` + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
+    </div>`;
+  if (!_vplpVendor) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${picker}</div>` + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
   const v = d.vendors.find(x => x.key === _vplpVendor);
-  if (!v) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}</div>`; return; }
+  if (!v) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${picker}</div>`; return; }
   const obTag = v.opening ? ` &middot; <span style="color:#3730a3">Opening ${'₹' + Math.round((v.opening.credit || 0) - (v.opening.debit || 0)).toLocaleString('en-IN')} ${(v.opening.credit >= v.opening.debit) ? 'Cr' : 'Dr'}</span>` : '';
-  // Vendor picker + selected-vendor summary share one card to cut the vertical stacking.
-  const summaryRow = `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;margin-top:.85rem;padding-top:.85rem;border-top:1px solid var(--border)">
+  // Selection + selected-vendor summary, SIDE BY SIDE in one compact card.
+  const summary = `<div style="flex:2;min-width:260px;display:flex;justify-content:space-between;align-items:center;gap:.6rem;flex-wrap:wrap">
     <div><div style="font-weight:700;font-size:1rem">${esc(v.name)}${v.vid ? ` <span style="font-size:.72rem;color:var(--txt3)">[${esc(v.vid)}]</span>` : ''}</div>
-    <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) received &middot; ${v.payCount} payment(s)${obTag}</div></div>
+    <div style="font-size:.74rem;color:var(--txt3)">${v.unmapped ? 'Unmapped vendor &middot; ' : ''}${Object.keys(v.poKeys).length} PO(s) &middot; ${v.payCount} payment(s)${obTag}</div></div>
     <button onclick="_vplpOpenOB('${esc(v.key)}')" class="btn btn-sm btn-secondary" title="Record / edit this vendor's opening balance">${v.opening ? '&#9998; Edit Opening Balance' : '&#10133; Opening Balance'}</button>
   </div>`;
-  const headCard = `<div class="card card-pad" style="margin-bottom:1rem">${pickerRow}${summaryRow}</div>`;
+  const headCard = `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:1.4rem;align-items:center;flex-wrap:wrap">${picker}${summary}</div>`;
   c.innerHTML = toggle + headCard + _vplpLedger(v);
 }
+
+// ── GRN Review queue (Accounts) ──────────────────────────────────────────
+// Each received StockIN line comes here for Accounts review against the
+// invoice + PO. Accounts may edit the rate and add per-line additional
+// charges, then Approve (counts into the ledger) or Reject. Writes via
+// getExec('accounts') action 'saveGRNReview' (append; latest per SI ID wins).
+let _vplpGRNFilter = 'pending';   // 'pending' | 'approved' | 'rejected' | 'all'
+window._vplpGRNSetFilter = function(f) { _vplpGRNFilter = f; _vplpRenderBody(); };
+function _grnCanReview() {
+  const roleOk = (typeof _accCan !== 'function') || _accCan('update') || _accCan('verify') || _accCan('advance');
+  const statusOk = (typeof _accCanSetStatus !== 'function') || _accCanSetStatus('GRN Approved');
+  return roleOk && statusOk;
+}
+function _vplpGRNReviewView() {
+  _vplpEnsureLedgerStyle();
+  const esc = _mdpEsc, d = _vplpData || {};
+  const inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
+  const lines = (d.grnLines || []).slice();
+  const statusOf = l => l.rev && l.rev.status ? l.rev.status : 'Pending';
+  const isApp = l => /approv/i.test(statusOf(l)), isRej = l => /reject/i.test(statusOf(l));
+  const isPend = l => !isApp(l) && !isRej(l);
+  const counts = { pending: lines.filter(isPend).length, approved: lines.filter(isApp).length, rejected: lines.filter(isRej).length, all: lines.length };
+  const shown = _vplpGRNFilter === 'all' ? lines
+    : _vplpGRNFilter === 'approved' ? lines.filter(isApp)
+    : _vplpGRNFilter === 'rejected' ? lines.filter(isRej) : lines.filter(isPend);
+  // stash for the submit handler (index-addressed)
+  window._vplpGRNShown = shown;
+  const canReview = _grnCanReview();
+  const notCfg = !GRN_REVIEW_SHEET_ID;
+  const fbtn = (v, label, n) => `<button onclick="_vplpGRNSetFilter('${v}')" class="btn btn-sm ${_vplpGRNFilter === v ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 10px;font-size:.72rem">${label} (${n})</button>`;
+  const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
+  const header = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.55rem .8rem;display:flex;gap:.6rem 1rem;align-items:center;flex-wrap:wrap;justify-content:space-between">
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+      <span style="font-size:.8rem;font-weight:700;color:var(--g8)">&#128203; GRN Review</span>
+      ${fbtn('pending', 'Pending', counts.pending)}${fbtn('approved', 'Approved', counts.approved)}${fbtn('rejected', 'Rejected', counts.rejected)}${fbtn('all', 'All', counts.all)}
+    </div>
+    <div style="display:flex;gap:.9rem;align-items:center;flex-wrap:wrap">
+      ${isAdmin ? _grnModeControls() : `<span style="font-size:.66rem;color:var(--txt3)">Ledger Link: <b>${_grnMode() === 'on' ? 'On' : 'Off'}</b></span>`}
+      <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
+    </div>
+  </div>`;
+  const cfgWarn = notCfg ? `<div class="alert-strip" style="margin-bottom:.7rem;background:#fef3c7;border-color:#f59e0b"><span class="alert-icon">&#9888;&#65039;</span><span><b>GRN Review sheet not configured.</b> The ledger gate is OFF (every received line still counts as before). Set <code>GRN_REVIEW_SHEET_ID</code> to activate review-gating; you can preview the queue below but can't save until it's set.</span></div>` : '';
+  const permWarn = (!canReview && !notCfg) ? `<div class="alert-strip" style="margin-bottom:.7rem"><span class="alert-icon">&#128274;</span><span>You can view GRN reviews but only Accounts can approve/edit them.</span></div>` : '';
+  if (!shown.length) return header + cfgWarn + permWarn + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No GRN lines in this view.</div>';
+  const body = shown.map((l, i) => {
+    const st = statusOf(l);
+    const chip = isApp(l) ? '<span style="font-size:.66rem;font-weight:700;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9px">Approved</span>'
+      : isRej(l) ? '<span style="font-size:.66rem;font-weight:700;background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9px">Rejected</span>'
+      : '<span style="font-size:.66rem;font-weight:700;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px">Pending</span>';
+    const rateVal = (l.rev && l.rev.rate > 0) ? l.rev.rate : (l.poRate || '');
+    const addlVal = (l.rev && l.rev.addl) || '';
+    const ro = canReview ? '' : ' disabled';
+    // Value = the reviewed line value. Defaults to qty×rate + addl, but editable
+    // directly (an override wins over rate). Pre-set from the saved review.
+    const valDefault = (l.qty || 0) * ((l.rev && l.rev.rate > 0) ? l.rev.rate : l.poRate) + ((l.rev && l.rev.addl) || 0);
+    const valVal = (l.rev && l.rev.value > 0) ? l.rev.value : (valDefault ? Math.round(valDefault * 100) / 100 : '');
+    const valTouched = (l.rev && l.rev.value > 0) ? ' data-touched="1"' : '';
+    return `<tr>
+      <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
+      <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
+      <td style="padding:6px 9px">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</td>
+      <td style="padding:6px 9px;font-size:.74rem">${esc(l.part)}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
+      <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
+      <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-rate-${i}" type="number" step="0.01" value="${esc(rateVal)}"${ro} oninput="_vplpGRNCalc(${i})" style="width:88px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-addl-${i}" type="number" step="0.01" value="${esc(addlVal)}"${ro} oninput="_vplpGRNCalc(${i})" placeholder="0" style="width:80px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-val-${i}" type="number" step="0.01" value="${esc(valVal)}"${ro}${valTouched} oninput="this.dataset.touched=1" title="Edit the line value directly (overrides rate)" style="width:104px;text-align:right;font-weight:700;color:#15803d;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px">${chip}</td>
+      <td style="padding:6px 9px;white-space:nowrap">${canReview ? `<button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : '—'}</td>
+    </tr>`;
+  }).join('');
+  return header + cfgWarn + permWarn + `<div class="card"><div style="overflow-x:auto">
+    <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
+      <thead><tr style="background:var(--g9);color:#fff;text-align:left">
+        <th style="padding:8px 9px">GRN</th><th style="padding:8px 9px">PO No</th><th style="padding:8px 9px">Vendor</th>
+        <th style="padding:8px 9px">Part</th><th style="padding:8px 9px">Invoice</th><th style="padding:8px 9px;text-align:right">Qty</th>
+        <th style="padding:8px 9px;text-align:right">PO Rate</th><th style="padding:8px 9px;text-align:right">Reviewed Rate</th>
+        <th style="padding:8px 9px;text-align:right">Add'l Charges</th><th style="padding:8px 9px;text-align:right">Value</th>
+        <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Review</th>
+      </tr></thead><tbody>${body}</tbody></table></div></div>`;
+}
+// Live-recompute the Value field from qty × rate + addl, unless the user has
+// typed a value directly (data-touched).
+window._vplpGRNCalc = function(i) {
+  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
+  const v = document.getElementById('grn-val-' + i); if (!v || v.dataset.touched) return;
+  const rate = parseFloat((document.getElementById('grn-rate-' + i) || {}).value) || 0;
+  const addl = parseFloat((document.getElementById('grn-addl-' + i) || {}).value) || 0;
+  v.value = (Math.round(((l.qty || 0) * rate + addl) * 100) / 100) || '';
+};
+window._vplpGRNSubmit = async function(i, action) {
+  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
+  if (!_grnCanReview()) { _accToast('🔒 Only Accounts can review GRNs.'); return; }
+  if (!l.siId) { _accToast('⚠ This StockIN line has no SI ID — cannot review.'); return; }
+  if (!GRN_REVIEW_SHEET_ID) { _accToast('⚠ GRN Review sheet not configured — set GRN_REVIEW_SHEET_ID to save.'); return; }
+  const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
+  const rate = num('grn-rate-' + i), addl = num('grn-addl-' + i), value = num('grn-val-' + i);
+  const email = (STATE.user && STATE.user.email) || '';
+  const row = {
+    'UUID': 'GRV-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    'SystemEmail': email, 'UserEmail': email,
+    'Timestamp': _accFmtDateTime(new Date()),
+    'Reviewed By': (STATE.user && (STATE.user.name || STATE.user.email)) || '',
+    'SI ID': l.siId, 'GRN No': l.grn, 'PO No': l.poNo, 'Vendor ID': l.vid, 'Part': l.part,
+    'Invoice No': l.inv, 'GRN Qty': l.qty, 'PO Rate': l.poRate,
+    'Reviewed Rate': isNaN(rate) ? (l.poRate || 0) : rate,
+    'Additional Charges': isNaN(addl) ? 0 : addl,
+    'Reviewed Value': isNaN(value) ? '' : value,
+    'Review Status': action, 'Comments': '',
+  };
+  const obSheet = (typeof _resolveSheetId === 'function') ? _resolveSheetId(GRN_REVIEW_SHEET_ID) : GRN_REVIEW_SHEET_ID;
+  const resp = await _accPostAwait({ action: 'saveGRNReview', sheetId: obSheet, tab: GRN_REVIEW_TAB, row });
+  if (resp && resp.success !== false) {
+    _accToast('✅ GRN ' + action.toLowerCase());
+    _vplpGRNReviewRows = null;
+    _vplpEnsure(true).then(() => _vplpRenderBody()).catch(() => {});
+  } else {
+    _accToast('⚠ ' + ((resp && resp.message) || 'Could not save the review'));
+  }
+};
+
 // Per-vendor Dr/Cr rows: credit = received goods (material + tax + charges),
 // debit = completed vendor payments, bal = credit − debit, status by sign.
 // Shared by the flat list and by PR bill-status lookups.
@@ -5290,7 +5528,8 @@ function _vplpFlatList(toggle) {
     <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${m(r.debit - r.opDebit)}</td>
     <td style="padding:6px 9px;text-align:right;font-weight:700;color:var(--g8)">${drcr(r.bal)}</td></tr>`).join('');
   const tfoot = `<tr style="background:var(--surface2);font-weight:700">
-    <td style="padding:7px 9px" colspan="2">Totals &middot; ${shown.length}</td>
+    <td style="padding:7px 9px">Totals &middot; ${shown.length}</td>
+    <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#4f46e5">${dc(Topen)}</td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(T.mat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(T.addl)}</td>
@@ -5415,7 +5654,7 @@ function _vplpVendorDetailsCard(v) {
   if (!bankCol && !addrCol && !contactCol) return '';
   return `<div class="card" style="margin-bottom:1rem">
     <div onclick="_vplpToggleVDetails(this)" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:.55rem .9rem;user-select:none">
-      <span style="font-size:.78rem;font-weight:700;color:var(--g8)">&#128203; Vendor Details${vm['Legal Name'] ? ` <span style="font-weight:400;color:var(--txt3);font-size:.72rem">&middot; ${esc(g(['Legal Name']))}</span>` : ''}</span>
+      <span style="font-size:.78rem;font-weight:700;color:var(--g8)">&#128203; Vendor Details${g(['Legal Name']) ? ` <span style="font-weight:400;color:var(--txt3);font-size:.72rem">&middot; Legal Name: ${esc(g(['Legal Name']))}</span>` : ''}</span>
       <span class="vd-caret" style="font-size:.78rem;color:var(--txt3);transition:transform .2s;display:inline-block">&#9656;</span>
     </div>
     <div class="vd-body" style="display:none;padding:0 .9rem .85rem">${inner}</div>
@@ -5448,8 +5687,18 @@ function _vplpLedger(v, embedOpts) {
     const i = d.poInfo[k] || {};
     const mat = d.poRecv[k] || 0, taxA = d.poTaxA[k] || 0, taxB = i.taxB || 0, addl = i.addl || 0;
     const credit = mat + addl + taxA + taxB;
-    if (credit <= 0) return;
-    all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: d.poRcpt[k] || [], poRaw: i.raw || null, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+    // Approved (counted) receipts — PO-level charges recognised only when there
+    // is approved material (gate on); gate off preserves the old credit>0 rule.
+    if (credit > 0 && (!d.gateOn || mat > 0)) {
+      const appRcpts = (d.poRcpt[k] || []).filter(rc => rc.approved !== false);
+      all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: appRcpts, poRaw: i.raw || null, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+    }
+    // Pending accounts review — shown but NOT counted (credit 0).
+    const pend = (d.poPending && d.poPending[k]) || 0;
+    if (pend > 0) {
+      const pendRcpts = (d.poRcpt[k] || []).filter(rc => rc.approved === false);
+      all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: pendRcpts, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pend, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
+    }
   });
   // Debit (payment) — this vendor's completed payments (vendor-level; orderNo not required).
   (_mdpRows || []).forEach(r => {
@@ -5481,13 +5730,17 @@ function _vplpLedger(v, embedOpts) {
     </div>` : '<div></div>';
   const modeHint = (!embedOpts && hasClosed) ? `<div style="font-size:.68rem;color:var(--txt3);margin-bottom:.8rem">${showClosed ? 'Showing entries on/before ' + _mdpFmtDate(ob.date) + ' &mdash; already in the opening balance' : 'Opening balance as on ' + _mdpFmtDate(ob.date) + ' + entries posted after'}</div>` : '';
   if (!scope.length) return vmCard + (modeButtons !== '<div></div>' ? `<div class="card card-pad" style="margin-bottom:1rem">${modeButtons}${modeHint}</div>` : '') + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No entries in this view.</div>';
-  // Financial-year filter — slim, right-aligned, sits next to the table search.
-  const fySet = Array.from(new Set(scope.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
-  const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _fy ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
-  const fyBar = `<div style="display:flex;justify-content:flex-end;align-items:center;gap:.4rem;margin-bottom:.45rem">
-    <label style="font-size:.66rem;font-weight:700;color:var(--txt3)">FY</label>
-    <select onchange="${_onChangeFY}(this.value)" data-evg-nosearch style="font-size:.8rem;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--surface2)">${fyOpts}</select>
-  </div>`;
+  // Financial-year filter — removed from the main Vendor Ledger (minimal view).
+  // Kept only for the embedded ledgers (profile / vendor portal) that rely on it.
+  let fyBar = '';
+  if (embedOpts) {
+    const fySet = Array.from(new Set(scope.map(e => _vplpFYof(e.date)).filter(Boolean))).sort().reverse();
+    const fyOpts = `<option value="">All financial years</option>` + fySet.map(sy => `<option value="${sy}"${sy === _fy ? ' selected' : ''}>${_vplpFYLabel(sy)}</option>`).join('');
+    fyBar = `<div style="display:flex;justify-content:flex-end;align-items:center;gap:.4rem;margin-bottom:.45rem">
+      <label style="font-size:.66rem;font-weight:700;color:var(--txt3)">FY</label>
+      <select onchange="${_onChangeFY}(this.value)" data-evg-nosearch style="font-size:.8rem;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--surface2)">${fyOpts}</select>
+    </div>`;
+  }
   const entries = _fy ? scope.filter(e => _vplpFYof(e.date) === _fy) : scope;
   if (!entries.length) return vmCard + `<div class="card card-pad" style="margin-bottom:1rem">${modeButtons}${modeHint}</div>` + fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   // Opening balance always first; then chronological, same-day credits (receipt) before debits (payment).
@@ -5540,11 +5793,16 @@ function _vplpLedger(v, embedOpts) {
       ? `<span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span>`
       : e.opening
         ? `<span style="font-size:.66rem;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:9px;font-weight:600">Opening</span>`
-        : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
-    return `<tr${click}>
+        : e.pending
+          ? `<span style="font-size:.66rem;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px;font-weight:700">Pending review</span>`
+          : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
+    const partic = e.pending
+      ? `<span style="color:var(--txt3)">${e.type} &middot; awaiting Accounts review</span> <span style="font-weight:700;color:#b45309;white-space:nowrap">(₹${Math.round(e.pendingAmt || 0).toLocaleString('en-IN')} pending)</span>`
+      : e.type;
+    return `<tr${click}${e.pending ? ' style="opacity:.85"' : ''}>
       <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(e.date)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(e.ref)}</td>
-      <td style="padding:6px 9px">${e.type}${e.kind === 'cr' ? _vplpRcptHtml(e.rcpts, esc) : ''}</td>
+      <td style="padding:6px 9px">${partic}${e.kind === 'cr' ? _vplpRcptHtml(e.rcpts, esc) : ''}</td>
       <td style="padding:6px 9px;text-align:right;color:#b45309">${m(e.mat)}</td>
       <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(e.addl)}</td>
       <td style="padding:6px 9px;text-align:right;color:#2563eb">${m(e.taxA)}</td>
@@ -5555,15 +5813,20 @@ function _vplpLedger(v, embedOpts) {
       <td style="padding:6px 9px">${statusCell}</td>${extraCells(e)}
     </tr>`;
   }).join('');
+  // One <td> per column (no colspan) so the totals row reorders/hides WITH the
+  // columns via the column manager; empty cells for the hidden extra columns.
+  const extraFoot = extraLabels.map(() => '<td></td>').join('');
   const tfoot = `<tr style="background:var(--surface2);font-weight:700">
-    <td style="padding:7px 9px" colspan="3">Totals</td>
+    <td style="padding:7px 9px">Totals</td>
+    <td style="padding:7px 9px"></td>
+    <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(totMat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(totAddl)}</td>
     <td style="padding:7px 9px;text-align:right;color:#2563eb">${m(totTaxA)}</td>
     <td style="padding:7px 9px;text-align:right;color:#0891b2">${m(totTaxB)}</td>
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
-    <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td></tr>`;
+    <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td>${extraFoot}</tr>`;
   return vmCard + controlRow + modeHint + fyBar + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
@@ -6625,6 +6888,16 @@ const VENDOR_MASTER_SHEET_ID = '1WhjqAGb5XNSQ-q-tPA7tGPQa-aPpgX2LHzzOy2HwTkA';
 const VENDOR_MASTER_TAB      = '7-VendorMaster_Actual';
 const VENDOR_OPENING_BAL_SHEET_ID = '1WhjqAGb5XNSQ-q-tPA7tGPQa-aPpgX2LHzzOy2HwTkA';
 const VENDOR_OPENING_BAL_TAB      = 'OpeningBalance';
+// GRN accounts review — each StockIN line (by SI ID) is reviewed by Accounts
+// against the invoice + PO before its value hits the Vendor Ledger. Accounts may
+// override the rate and add per-line additional charges. Stored in a dedicated
+// tab (schema: docs). PLACEHOLDER sheet ID → the whole gate is OFF until set
+// (ledger behaves exactly as before); once set, only Approved lines are counted
+// and un-reviewed lines show as "Pending review". Write posts via
+// getExec('accounts') action 'saveGRNReview' (header-mapped append; latest per
+// SI ID wins so a review is editable).
+const GRN_REVIEW_SHEET_ID = ''; // TODO: set the GRN Review sheet ID to activate the gate
+const GRN_REVIEW_TAB      = 'GRN_Review';
 
 // ══════════════════════════════════════════════════════════
 //  MRS DASHBOARD
@@ -9510,6 +9783,10 @@ function _accRowsInView(rows, id) {
 // the Quick Action button is therefore visible to Admin in all views.
 function _accCanAdvance(viewDef) {
   if (!viewDef || !viewDef.next) return false;
+  // Per-status people/role restriction wins for everyone (except super-admins,
+  // handled inside _accCanSetStatus) — so the Quick Action button hides for
+  // anyone not on the allow-list, including MD/admin.
+  if (typeof _accCanSetStatus === 'function' && !_accCanSetStatus(viewDef.next.status)) return false;
   if (typeof _accIsAdmin === 'function' && _accIsAdmin()) return true;
   return (viewDef.next.roles || []).includes((STATE.role || '').toLowerCase());
 }
@@ -11521,6 +11798,7 @@ async function _accUpdateFormSubmit(prUuid) {
   if (/pending due to queries/.test(norm) && !_accV('acc-up-reason')) errors.push('Pending Reason is required.');
   if (/payment completed/.test(norm) && !_accV('acc-up-utr')) errors.push('UTR Details are required to complete a payment.');
   if (/reject/.test(norm) && !_accV('acc-up-comments')) errors.push('Comments are required when rejecting.');
+  if (status && !_accCanSetStatus(status)) errors.push('You are not authorised to set the status “' + status + '”.');
   if (errors.length) { alert('Please fix the following:\n\n• ' + errors.join('\n• ')); return; }
 
   const btn = document.getElementById('acc-up-submit');
@@ -11579,11 +11857,53 @@ function _accCan(action) {
   return ['accounts','accounts-v2','accounts-worklist','accounts-dashboard','md-payments'].some(rt => userCan(rt, action));
 }
 
+// ── Per-status update access (Accounts) ──────────────────────────────────
+// Admins can restrict individual status transitions to specific PEOPLE (by
+// email or name) and/or roles, via Configuration → Status Access. Stored in
+// PortalConfig key 'acc_status_access' = { '<statusLabel>': {users:[],roles:[]} }.
+// A status with no rule (or an empty rule) is unrestricted → normal role checks
+// apply. Super-admins are never blocked (they configure the rules).
+const ACC_STATUS_ACCESS = [
+  { status: 'Verified, Move to MD Queue',        label: 'Move to MD Queue',               desc: 'Accounts verifies a request and moves it to the MD approval queue.' },
+  { status: 'Process Payment, Move to Accounts', label: 'Approve — Proceed with Payment',  desc: 'MD approves a request; it moves to Accounts to process payment.' },
+  { status: 'Payment Initiated',                 label: 'Initiate Payment (in bank)',      desc: 'Mark the payment as initiated in the bank.' },
+  { status: 'Paid (MD_ED)',                      label: 'Bank Transaction Completed',      desc: 'Confirm the bank transaction is completed.' },
+  { status: 'Payment Completed',                 label: 'Update UTR / Complete',           desc: 'Final completion of the payment (with UTR).' },
+  { status: 'Reject Payment (MD)',               label: 'Reject Payment',                  desc: 'Reject a payment request.' },
+  { status: 'GRN Approved',                      label: 'GRN Review — Approve / Edit',     desc: 'Accounts reviews a received GRN StockIN line (may edit rate + additional charges) and approves it into the ledger.' },
+];
+function _accStatusAccessCfg() { return (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {}); }
+function _accStatusRule(status) {
+  const r = _accStatusAccessCfg()[status];
+  if (!r) return null;
+  const users = (r.users || []).map(x => String(x || '').trim()).filter(Boolean);
+  const roles = (r.roles || []).map(x => String(x || '').trim()).filter(Boolean);
+  return (users.length || roles.length) ? { users, roles } : null;
+}
+// Can the current user set this status? true when unrestricted or allowed.
+function _accCanSetStatus(status) {
+  const rule = _accStatusRule(status);
+  if (!rule) return true;                                   // no restriction on this status
+  if (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) return true;
+  const me = (typeof STATE !== 'undefined' && STATE.user) || {};
+  const norm = s => String(s == null ? '' : s).toLowerCase().trim();
+  const mine = [norm(me.email), norm(me.name), norm(me.employeeRef), norm(me.empCode)].filter(Boolean);
+  const userMatch = rule.users.some(u => mine.includes(norm(u)));
+  const roleMatch = rule.roles.map(norm).includes(norm(typeof STATE !== 'undefined' && STATE.role));
+  return userMatch || roleMatch;
+}
+
 async function _accQuickStatus(uuid, status, comments, utr, silent, dedupeKey) {
   // Central write-path gate: a user with no Accounts action permission cannot
   // post status/advance updates when group access is enforced.
   if (!_accCan('update') && !_accCan('advance') && !_accCan('verify') && !_accCan('approve')) {
     if (!silent) _accToast('🔒 You do not have permission to update payments.');
+    return false;
+  }
+  // Per-status people/role restriction (Configuration → Status Access).
+  if (!_accCanSetStatus(status)) {
+    window._accLastQuickErr = 'Not authorised to set status: ' + status;
+    if (!silent) _accToast('🔒 You are not authorised to set “' + status + '”.');
     return false;
   }
   // Build the row ONCE (stable UUID + DedupeKey) so the retry loop below re-posts
@@ -12008,6 +12328,7 @@ const MODULE_REGISTRY = [
   // ── Reports ───────────────────────────────────────────────────
   { route:'reports',           label:'Reports',                section:'Reports',          defStatus:'live', defRoles:['md','hr','purchase','accounts','dept_head'] },
   { route:'data-hub',          label:'Data Hub',               section:'Reports',          defStatus:'live', defRoles:['md','hr','purchase','accounts','dept_head'] },
+  { route:'masters',           label:'Masters',                section:'Reports',          defStatus:'live', defRoles:['md','hr','purchase','accounts','dept_head'] },
 
   // ── Quick Access ──────────────────────────────────────────────
   { route:'rewards',           label:'Rewards & Wall',         section:'Quick Access',     defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
@@ -13221,16 +13542,161 @@ function uaSeedGroups() {
     return { id:'role_'+r.key, name:r.label, desc:'Seeded from the "'+r.key+'" role', color:palette[i%palette.length], routes, actions };
   });
 }
+// Managed groups whose membership is stored compactly in emp_group_sync — it
+// must NEVER be materialised into access_config.users (that oversizes the cell
+// and breaks the write). Kept as literals to avoid const temporal-dead-zone.
+const _UA_MANAGED_GIDS = ['grp_users', 'grp_deactivated'];
+function _uaStripManaged(users) {
+  let changed = false;
+  for (const em of Object.keys(users || {})) {
+    const rec = users[em];
+    if (!rec || !Array.isArray(rec.groups)) continue;
+    const before = rec.groups.length;
+    rec.groups = rec.groups.filter(g => !_UA_MANAGED_GIDS.includes(g));
+    if (rec.groups.length !== before) changed = true;
+    if (!rec.groups.length) { delete users[em]; changed = true; }
+  }
+  return changed;
+}
 function uaGetDraft() {
   if (window._uaDraft) return window._uaDraft;
   let cfg = pcReadJSON('access_config', null);
   if (!cfg) cfg = { enforce:false, groups: uaSeedGroups(), users:{} };
   cfg.groups = cfg.groups || []; cfg.users = cfg.users || {};
   cfg.superAdmins = Array.isArray(cfg.superAdmins) ? cfg.superAdmins : [];
+  // Auto-managed memberships live in emp_group_sync — never keep them here.
+  _uaStripManaged(cfg.users);
   window._uaDraft = cfg;
   return cfg;
 }
 function uaGroup(gid) { return uaGetDraft().groups.find(g => g.id === gid); }
+
+// ── Auto-assign employees to the Users / Deactivated groups by default ──
+// Every employee in the Employee Register is mapped to an access group:
+//   Employee Status = Current   → "Users" group
+//   Employee Status <> Current  → "Deactivated User Profiles" group
+//
+// IMPORTANT: the per-employee membership is stored in its OWN compact config
+// key `emp_group_sync` = { at, map:{ email: 'u'|'d' } } — NOT inside
+// access_config. Cramming ~333 employees into access_config.users blew past
+// Google Sheets' 50,000-char-per-cell limit and the backend write failed
+// ("Failed to fetch"). Keeping it separate & compact keeps every write small.
+// access_config only holds the two GROUP DEFINITIONS (routes/actions). At read
+// time enforcement merges the auto map with any manual assignments.
+const UA_USERS_GID       = 'grp_users';
+const UA_DEACTIVATED_GID = 'grp_deactivated';
+const UA_AUTOSYNC_MS     = 24 * 60 * 60 * 1000;
+
+function _uaEnsureDefaultGroups(draft) {
+  let changed = false;
+  if (!draft.groups.some(g => g.id === UA_USERS_GID)) {
+    const cfg = loadPortalConfig();
+    const routes = MODULE_REGISTRY.filter(m => {
+      const mc = cfg.modules[m.route] || { status: m.defStatus, roles: m.defRoles };
+      return mc.status === 'live' && mc.roles.includes('employee');
+    }).map(m => m.route);
+    const actions = {}; routes.forEach(rt => { actions[rt] = ['view']; });
+    draft.groups.push({ id: UA_USERS_GID, name: 'Users', desc: 'All current employees (auto-managed)', color: '#0ea5e9', routes, actions });
+    changed = true;
+  }
+  if (!draft.groups.some(g => g.id === UA_DEACTIVATED_GID)) {
+    draft.groups.push({ id: UA_DEACTIVATED_GID, name: 'Deactivated User Profiles', desc: 'Employees whose status is not Current (auto-managed) — no access', color: '#dc2626', routes: [], actions: {} });
+    changed = true;
+  }
+  return changed;
+}
+
+// Build the compact { email: 'u'|'d' } map from the loaded Employee Register.
+function _uaBuildEmpMap() {
+  const emps = (STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
+  const map = {};
+  emps.forEach(u => {
+    const email = (u.email || '').trim().toLowerCase();
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
+    // status==='ACTIVE' is derived from Employee Status === 'CURRENT' (see loadAllMasters).
+    map[email] = (u.status === 'ACTIVE') ? 'u' : 'd';
+  });
+  return map;
+}
+
+// The auto-assigned group id for an email (or null), read from emp_group_sync.
+function _uaAutoGidForEmail(email) {
+  const s = pcReadJSON('emp_group_sync', null);
+  if (!s || !s.map) return null;
+  const v = s.map[(email || '').toLowerCase().trim()];
+  return v === 'u' ? UA_USERS_GID : v === 'd' ? UA_DEACTIVATED_GID : null;
+}
+
+// Effective group ids for an email = manual assignments (access_config.users)
+// ∪ the auto-assigned group. Used by enforcement and the Access page.
+function _uaGroupsForEmail(acc, email) {
+  email = (email || '').toLowerCase().trim();
+  const manual = (((acc && acc.users) || {})[email] || {}).groups || [];
+  const auto = _uaAutoGidForEmail(email);
+  return auto ? [...new Set([...manual, auto])] : manual.slice();
+}
+
+// All emails auto-assigned to a given managed group (for the Access page).
+function _uaAutoMembersOf(gid) {
+  const s = pcReadJSON('emp_group_sync', null);
+  if (!s || !s.map) return [];
+  const want = gid === UA_USERS_GID ? 'u' : gid === UA_DEACTIVATED_GID ? 'd' : null;
+  if (!want) return [];
+  return Object.keys(s.map).filter(e => s.map[e] === want);
+}
+
+// Reconcile + persist. Returns { ok, changed, skipped?, message?, at? }.
+async function _uaAutoSyncEmployees(opts) {
+  opts = opts || {};
+  const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || STATE.role === 'md';
+  if (!isAdmin) return { ok: false, skipped: 'not-admin' };
+  const emps = (STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
+  if (!emps.length) return { ok: false, skipped: 'no-employees' };
+
+  const sync = pcReadJSON('emp_group_sync', null) || {};
+  const last = Date.parse(sync.at || '') || 0;
+  if (!opts.force && (Date.now() - last) < UA_AUTOSYNC_MS) return { ok: true, skipped: 'throttled', at: sync.at };
+
+  // Ensure the two managed group DEFINITIONS exist in access_config, and MIGRATE
+  // away the old approach that stored every employee under access_config.users
+  // (that oversized the cell and broke the write). Strip the managed gids from
+  // manual assignments and drop now-empty entries so access_config stays small.
+  let cfg = pcReadJSON('access_config', null) || { enforce: false, groups: uaSeedGroups(), users: {} };
+  cfg.groups = cfg.groups || []; cfg.users = cfg.users || {};
+  cfg.superAdmins = Array.isArray(cfg.superAdmins) ? cfg.superAdmins : [];
+  let cfgChanged = _uaEnsureDefaultGroups(cfg);
+  if (_uaStripManaged(cfg.users)) cfgChanged = true;
+  if (cfgChanged) {
+    const r0 = await pcWriteJSON('access_config', cfg);
+    if (!r0.ok) return { ok: false, message: r0.message };
+    if (STATE.currentPage !== 'access-pages') window._uaDraft = null;
+  }
+
+  // Write the compact employee→group map in its own key.
+  const map = _uaBuildEmpMap();
+  const res = await pcWriteJSON('emp_group_sync', { at: new Date().toISOString(), map });
+  if (res.ok) {
+    try { applyPortalConfig(); if (typeof applyRoleNavRestrictions === 'function') applyRoleNavRestrictions(STATE.role); } catch (e) {}
+  }
+  return { ok: res.ok, changed: true, message: res.message };
+}
+
+// Install the periodic re-check (idempotent). Self-throttles to once per 24h
+// via emp_group_sync.at, so an hourly tick is cheap and guarantees the sync
+// fires roughly every 24h for any long-lived admin session.
+function _uaStartAutoSync() {
+  if (window._uaAutoSyncStarted) return;
+  window._uaAutoSyncStarted = true;
+  _uaAutoSyncEmployees().catch(() => {});
+  setInterval(() => { _uaAutoSyncEmployees().catch(() => {}); }, 60 * 60 * 1000);
+}
+
+function _uaLastSyncLabel() {
+  const s = pcReadJSON('emp_group_sync', null);
+  if (!s || !s.at) return 'never';
+  const d = new Date(s.at);
+  return isNaN(d.getTime()) ? 'never' : d.toLocaleString('en-IN');
+}
 
 // The access *super-admin* — the person who manages access groups. Identified
 // by email (or the dedicated admin account), NOT by the md role: a Director/
@@ -13278,10 +13744,10 @@ function _accessRouteSetForCurrentUser() {
   if (!acc || !acc.enforce) return null;
   const email = ((STATE && STATE.user && STATE.user.email) || '').toLowerCase().trim();
   if (!email) return null;
-  const u = (acc.users || {})[email];
-  if (!u || !Array.isArray(u.groups) || !u.groups.length) return null;
+  const groups = _uaGroupsForEmail(acc, email);
+  if (!groups.length) return null;
   const set = new Set(['dashboard','my-profile','my-documents']); // always-on core
-  u.groups.forEach(gid => {
+  groups.forEach(gid => {
     const g = (acc.groups || []).find(x => x.id === gid);
     if (g && Array.isArray(g.routes)) g.routes.forEach(rt => set.add(rt));
   });
@@ -13298,11 +13764,11 @@ function userCan(route, action) {
   const acc = pcReadJSON('access_config', null);
   if (!acc || !acc.enforce) return action === 'view' ? getRouteSet(role).has(route) : true;
   const email = ((STATE.user && STATE.user.email) || '').toLowerCase().trim();
-  const u = (acc.users || {})[email];
-  if (!u || !Array.isArray(u.groups) || !u.groups.length) {
+  const groups = _uaGroupsForEmail(acc, email);
+  if (!groups.length) {
     return action === 'view' ? getRouteSet(role).has(route) : true;
   }
-  for (const gid of u.groups) {
+  for (const gid of groups) {
     const g = (acc.groups || []).find(x => x.id === gid);
     if (!g) continue;
     if (action === 'view') { if ((g.routes || []).includes(route)) return true; }
@@ -13313,8 +13779,9 @@ function userCan(route, action) {
 
 // ── Tab bar + dispatcher ──────────────────────────────────────────────
 const CFG_TABS = [
-  { id:'config',  icon:'&#9881;',   label:'Portal Config' },
-  { id:'sheets',  icon:'&#128279;', label:'Sheet Linking' },
+  { id:'config',    icon:'&#9881;',   label:'Portal Config' },
+  { id:'sheets',    icon:'&#128279;', label:'Sheet Linking' },
+  { id:'accstatus', icon:'&#128272;', label:'Status Access' },
 ];
 function _cfgTabBar(active) {
   return `<div style="display:flex;gap:.3rem;flex-wrap:wrap;border-bottom:2px solid var(--border);margin-bottom:1.1rem">
@@ -13339,6 +13806,7 @@ function renderDevModePage(tab) {
   window._cfgActiveTab = tab || window._cfgActiveTab || 'config';
   const t = window._cfgActiveTab;
   if (t === 'sheets') return _cfgRenderSheets();
+  if (t === 'accstatus') return _cfgRenderAccStatus();
   // 'modules' (the old Modules & Roles tab) → Portal Config; its role matrix
   // is retired and its Live/Dev/Off status lives in Access & Pages.
   return _cfgRenderConfig();
@@ -13447,6 +13915,80 @@ function renderAccessPages() {
   _cfgRenderAccess();
 }
 
+// ════════════════════════════════════════════════════════════════════
+//  TAB: ACCOUNTS STATUS ACCESS — restrict each status transition to people
+// ════════════════════════════════════════════════════════════════════
+const _ACS_ROLES = ['md', 'accounts', 'dept_head', 'purchase', 'hr', 'site'];
+function _cfgRenderAccStatus() {
+  const el = document.getElementById('mainContent');
+  const esc = _mdpEsc;
+  const cfg = (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {});
+  const card = (item, i) => {
+    const rule = cfg[item.status] || {};
+    const uVal = (rule.users || []).join(', ');
+    const rSet = new Set((rule.roles || []).map(x => String(x).toLowerCase()));
+    const restricted = (rule.users && rule.users.length) || (rule.roles && rule.roles.length);
+    const badge = restricted
+      ? '<span style="font-size:.6rem;background:#fee2e2;color:#b91c1c;padding:1px 8px;border-radius:9px;font-weight:700">RESTRICTED</span>'
+      : '<span style="font-size:.6rem;background:#dcfce7;color:#15803d;padding:1px 8px;border-radius:9px;font-weight:700">ANYONE (role default)</span>';
+    const roleChips = _ACS_ROLES.map(r => `<label style="display:inline-flex;align-items:center;gap:.3rem;font-size:.74rem;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:2px 10px;cursor:pointer">
+        <input type="checkbox" id="acs-role-${i}-${r}" ${rSet.has(r) ? 'checked' : ''} style="margin:0">${esc(r)}</label>`).join('');
+    return `<div class="card card-pad" style="margin-bottom:.8rem">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.6rem;flex-wrap:wrap">
+        <div><div style="font-weight:700;font-size:.9rem;color:var(--g8);display:flex;align-items:center;gap:.5rem">${esc(item.label)} ${badge}</div>
+        <div style="font-size:.72rem;color:var(--txt3);margin-top:2px">${esc(item.desc)}</div>
+        <div style="font-size:.64rem;color:var(--txt3);margin-top:1px">Sets status: <code>${esc(item.status)}</code></div></div>
+        <span id="acs-st-${i}" style="font-size:.72rem;color:var(--txt3)"></span>
+      </div>
+      <div style="margin-top:.7rem">
+        <label style="font-size:.64rem;font-weight:700;color:var(--txt3);text-transform:uppercase">Allowed people (emails or names, comma-separated)</label>
+        <input id="acs-users-${i}" value="${esc(uVal)}" placeholder="e.g. manoj@evgcpl.com, nkm@evgcpl.com, Shanthini" style="width:100%;margin-top:.25rem;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface2);color:var(--txt)">
+      </div>
+      <div style="margin-top:.6rem;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+        <span style="font-size:.64rem;font-weight:700;color:var(--txt3);text-transform:uppercase">…or allow whole roles:</span>${roleChips}
+      </div>
+      <div style="margin-top:.7rem;display:flex;gap:.5rem">
+        <button onclick="_accStatusSave(${i})" class="btn btn-primary btn-sm" style="font-size:.74rem">&#128190; Save</button>
+        <button onclick="_accStatusClear(${i})" class="btn btn-secondary btn-sm" style="font-size:.74rem">Clear (allow anyone)</button>
+      </div>
+    </div>`;
+  };
+  el.innerHTML = `${_cfgTabBar('accstatus')}
+    <div class="page-header"><div class="page-header-row"><div>
+      <h1>&#128272; Accounts &mdash; Status Access</h1>
+      <p>Restrict who can move a payment request to each status &middot; by person (email/name) or role &middot; saved org-wide &middot; Admin only</p>
+    </div></div></div>
+    <div class="alert-strip" style="margin-bottom:1rem"><span class="alert-icon">&#8505;&#65039;</span>
+      <span>Leave a status blank to allow anyone with the usual role permission. Add people to lock it down &mdash; then <b>only</b> those people (or ticked roles) can set that status. Super-admins are always allowed.</span></div>
+    <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.8rem 1.2rem;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div><div style="font-weight:700;font-size:.86rem;color:var(--g8)">&#128203; GRN Review &mdash; Ledger Link</div>
+      <div style="font-size:.72rem;color:var(--txt3)">On = only Accounts-approved GRN lines credit the Vendor Ledger. Off = every received line counts (as before). Off + Hide also removes the GRN Review tab.${GRN_REVIEW_SHEET_ID ? '' : ' <b style="color:#b45309">GRN Review sheet not configured yet.</b>'}</div></div>
+      ${_grnModeControls()}
+    </div>
+    ${ACC_STATUS_ACCESS.map(card).join('')}`;
+}
+window._accStatusSave = async function(i) {
+  const item = ACC_STATUS_ACCESS[i]; if (!item) return;
+  const st = document.getElementById('acs-st-' + i);
+  const usersRaw = (document.getElementById('acs-users-' + i) || {}).value || '';
+  const users = usersRaw.split(/[,\n;]+/).map(s => s.trim()).filter(Boolean);
+  const roles = _ACS_ROLES.filter(r => { const e = document.getElementById('acs-role-' + i + '-' + r); return e && e.checked; });
+  const cfg = (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {});
+  if (users.length || roles.length) cfg[item.status] = { users, roles };
+  else delete cfg[item.status];
+  if (st) { st.textContent = 'Saving…'; st.style.color = '#92400e'; }
+  const res = await pcWriteJSON('acc_status_access', cfg);
+  if (st) { st.textContent = res.ok ? '✓ Saved org-wide' : '✗ ' + (res.message || 'failed'); st.style.color = res.ok ? '#16a34a' : '#dc2626'; }
+  if (res.ok) setTimeout(_cfgRenderAccStatus, 900);
+};
+window._accStatusClear = async function(i) {
+  const item = ACC_STATUS_ACCESS[i]; if (!item) return;
+  const cfg = (typeof pcReadJSON === 'function' ? (pcReadJSON('acc_status_access', {}) || {}) : {});
+  delete cfg[item.status];
+  await pcWriteJSON('acc_status_access', cfg);
+  _cfgRenderAccStatus();
+};
+
 function _cfgRenderAccess() {
   const el = document.getElementById('mainContent');
   const draft = uaGetDraft();
@@ -13469,7 +14011,7 @@ function _cfgRenderAccess() {
   const currentEmps = emps
     .filter(u => u.status === 'ACTIVE' && u.email)
     .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-  const _uaIsMember = (email) => !!(sel && draft.users[email] && (draft.users[email].groups || []).includes(sel.id));
+  const _uaIsMember = (email) => !!(sel && _uaGroupsForEmail(draft, email).includes(sel.id));
   // Searchable, click-to-add result list (filtered by name / email / dept).
   function empResultsHtml(q) {
     if (!currentEmps.length) return `<div style="padding:.8rem;text-align:center;color:var(--txt3);font-size:.74rem">${emps.length ? 'No current employees with a Mail ID' : 'Loading employees…'}</div>`;
@@ -13492,8 +14034,12 @@ function _cfgRenderAccess() {
   }
   const _uaQuery = window._uaEmpQuery || '';
 
-  // Member count per group
-  const memberCount = (gid) => Object.values(draft.users).filter(u => (u.groups || []).includes(gid)).length;
+  // Member count per group — manual assignments ∪ auto-assigned employees.
+  const memberCount = (gid) => {
+    const manual = Object.entries(draft.users).filter(([e, u]) => (u.groups || []).includes(gid)).map(([e]) => e);
+    const auto = _uaAutoMembersOf(gid);
+    return new Set([...manual, ...auto]).size;
+  };
 
   const groupListHtml = draft.groups.map(g => {
     const on = sel && g.id === sel.id;
@@ -13518,12 +14064,25 @@ function _cfgRenderAccess() {
     <div class="card card-pad" style="margin-bottom:1rem">
       <div style="font-weight:700;font-size:.82rem;color:var(--g9);margin-bottom:.5rem">&#128101; Members</div>
       <div id="uaMembers" style="display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.6rem">
-        ${Object.entries(draft.users).filter(([e,u])=>(u.groups||[]).includes(sel.id)).map(([e])=>{
-          const emp = emps.find(u => String(u.email).toLowerCase() === e);
-          const nm = emp ? (emp.name || emp.employeeRef || e) : e;
-          return `<span title="${e}" style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 6px 3px 10px;font-size:.74rem">
-            ${nm}<button onclick="uaRemoveUser('${e}','${sel.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px">&times;</button></span>`;}).join('')
-        || '<span style="font-size:.74rem;color:var(--txt3)">No users assigned yet</span>'}
+        ${(() => {
+          const manual = Object.entries(draft.users).filter(([e,u])=>(u.groups||[]).includes(sel.id)).map(([e])=>e);
+          const manualSet = new Set(manual);
+          const auto = _uaAutoMembersOf(sel.id).filter(e => !manualSet.has(e));
+          const CAP = 60;
+          const chip = (e, isAuto) => {
+            const emp = emps.find(u => String(u.email).toLowerCase() === e);
+            const nm = emp ? (emp.name || emp.employeeRef || e) : e;
+            // Auto members are managed by the 24h sync — no manual remove button.
+            const rm = isAuto ? '<span style="font-size:.6rem;color:var(--txt3);margin-left:2px">auto</span>'
+              : `<button onclick="uaRemoveUser('${e}','${sel.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px">&times;</button>`;
+            return `<span title="${e}" style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 6px 3px 10px;font-size:.74rem">${nm}${rm}</span>`;
+          };
+          const manualChips = manual.map(e => chip(e, false)).join('');
+          const autoShown = auto.slice(0, CAP).map(e => chip(e, true)).join('');
+          const moreNote = auto.length > CAP ? `<span style="font-size:.7rem;color:var(--txt3);align-self:center">+${auto.length - CAP} more auto-assigned</span>` : '';
+          const anything = manual.length || auto.length;
+          return anything ? (manualChips + autoShown + moreNote) : '<span style="font-size:.74rem;color:var(--txt3)">No users assigned yet</span>';
+        })()}
       </div>
       <input id="uaEmpSearch" value="${_uaQuery}" oninput="uaEmpFilter(this.value)" autocomplete="off"
         placeholder="&#128269; Search current employees by name, email or department…"
@@ -13609,6 +14168,18 @@ function _cfgRenderAccess() {
           onkeydown="if(event.key==='Enter'){event.preventDefault();uaAddSuperAdmin(this.value);}"
           style="flex:1;min-width:220px;padding:7px 11px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface2);color:var(--txt)">
         <button onclick="uaAddSuperAdmin(document.getElementById('uaSaEmail').value)" class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;padding:.5rem 1.1rem;font-weight:700">+ Add super admin</button>
+      </div>
+    </div>
+
+    <!-- Auto-assignment: Users / Deactivated User Profiles -->
+    <div class="card card-pad" style="margin-bottom:1.1rem;border-left:4px solid #0ea5e9">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:700;color:var(--g9)">&#128101; Auto-assign employees</div>
+          <div style="font-size:.78rem;color:var(--txt3);margin-top:.2rem">Every employee is added by default to a group based on Employee Register status: <strong>Current &rarr; Users</strong>, <strong>not Current &rarr; Deactivated User Profiles</strong>. Runs automatically every 24&nbsp;hours. Manual group assignments are left untouched.</div>
+          <div style="font-size:.72rem;color:var(--txt3);margin-top:.35rem">Last sync: <strong>${_uaLastSyncLabel()}</strong></div>
+        </div>
+        <button onclick="uaSyncEmployeesNow()" class="btn btn-sm" id="uaSyncNowBtn" style="background:#0ea5e9;color:#fff;border:none;padding:.55rem 1.2rem;font-weight:700;white-space:nowrap">&#8635; Sync now</button>
       </div>
     </div>
 
@@ -13700,6 +14271,22 @@ function _cfgRenderAccess() {
     uaDirty(); _cfgRenderAccess();
   };
   window.uaToggleEnforce = function(on) { uaGetDraft().enforce = !!on; uaDirty(); _cfgRenderAccess(); };
+  window.uaSyncEmployeesNow = async function() {
+    const b = document.getElementById('uaSyncNowBtn');
+    if (b) { b.disabled = true; b.textContent = 'Syncing…'; }
+    // Ensure the Employee Register is loaded before reconciling.
+    if ((!STATE.masters || !(STATE.masters.users || []).length) && typeof loadAllMasters === 'function') {
+      try { await loadAllMasters(); } catch (e) {}
+    }
+    const res = await _uaAutoSyncEmployees({ force: true });
+    if (res.ok) {
+      window._uaDraft = null;   // reload the editor with the new memberships
+      _cfgRenderAccess();
+    } else {
+      if (b) { b.disabled = false; b.textContent = '↻ Sync now'; }
+      alert('Sync failed: ' + (res.message || res.skipped || 'unknown error'));
+    }
+  };
   window.uaAddSuperAdmin = function(email) {
     email = (email || '').trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert('Enter a valid Mail ID, e.g. name@evgcpl.com'); return; }
@@ -13723,7 +14310,11 @@ function _cfgRenderAccess() {
   window.uaSave = async function() {
     const b = document.getElementById('uaSaveBtn');
     if (b) { b.innerHTML = 'Saving…'; b.style.background = '#92400e'; }
-    const res = await pcWriteJSON('access_config', uaGetDraft());
+    const draft = uaGetDraft();
+    // Never persist auto-managed memberships here — they live in emp_group_sync.
+    // Guards against a stale/bloated draft oversizing the cell (→ "Failed to fetch").
+    _uaStripManaged(draft.users);
+    const res = await pcWriteJSON('access_config', draft);
     if (res.ok) {
       try { applyPortalConfig(); applyRoleNavRestrictions(STATE.role); } catch (e) {}
       if (b) { b.innerHTML = '&#10003; Saved &amp; applied'; b.style.background = '#16a34a'; b.style.color = '#fff'; }
@@ -17354,6 +17945,296 @@ function renderReportsModule() {
 //  table — zero per-dataset configuration. Add a dataset by appending
 //  one row to DATAHUB_SOURCES.
 // ════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════
+//  MASTERS — browse every tab of the Master spreadsheet (SHEET_ID),
+//  export any master to CSV, and add/remove (show/hide) columns per tab.
+//  Route: 'masters'  ·  lives under Data Hub.
+// ════════════════════════════════════════════════════════════════════
+const MASTERS_TABS = [
+  '1-BillingMaster', 'PortalConfig', '2-UserMaster', '3-HeadMaster',
+  '2a-UserMaster-Site', '4-GRNMaster_Actual', '4-GRNMasterDetails', '5-SiteMaster',
+  'M_Attachments', 'Backup-GRNMaster5Jul25', '4A-Update-GRNMaster', '6-AssetMaster',
+  'v26-AssetMaster', '7-VendorMaster_Actual', '7-VendorMaster_Details', '8-UOMMaster',
+  '9-ModeMaster', '10-SubContractorMaster', '11-RejectionMaster', '12-Nature of Work',
+  'M13_Currency', 'M_13a_ConvertionRate', 'M14_PaymentTerms', '15-Dimension Master_Actual',
+  'M16_IDCMaster', 'M17_CostCenter',
+];
+
+// Most master tabs live on the main Master spreadsheet (SHEET_ID). A few masters
+// have moved to their own spreadsheet — map those tabs to the right sheet ID so
+// the Masters page reads them from the canonical source. The Vendor Master is
+// now on its own spreadsheet (VENDOR_MASTER_SHEET_ID), so its tab reads from
+// there, not from the legacy copy on the Master sheet.
+const MASTERS_TAB_SHEET = {
+  '7-VendorMaster_Actual': () => VENDOR_MASTER_SHEET_ID,
+};
+function _mastersSidFor(tab) {
+  const fn = MASTERS_TAB_SHEET[tab];
+  try { const sid = fn ? fn() : SHEET_ID; return sid || SHEET_ID; } catch (e) { return SHEET_ID; }
+}
+
+const _mastersCache = {};
+let _mastersState = { tab: null, rows: [], cols: [], q: '' };
+
+function _mastersHiddenKey(tab) { return 'masters_hidden_' + tab; }
+function _mastersGetHidden(tab) {
+  try { return new Set(JSON.parse(localStorage.getItem(_mastersHiddenKey(tab)) || '[]')); }
+  catch (e) { return new Set(); }
+}
+function _mastersSetHidden(tab, set) {
+  try { localStorage.setItem(_mastersHiddenKey(tab), JSON.stringify([...set])); } catch (e) {}
+}
+function _mastersVisibleCols(tab, cols) {
+  const hidden = _mastersGetHidden(tab);
+  return cols.filter(c => !hidden.has(c));
+}
+
+function renderMastersPage() {
+  const el = document.getElementById('mainContent');
+  if (!el) return;
+  _mastersInjectStyles();
+
+  const chips = MASTERS_TABS.map(t => `
+    <button class="mst-chip${_mastersState.tab === t ? ' active' : ''}" onclick="mastersSelect('${t.replace(/'/g, "\\'")}')">${_dhEsc(t)}</button>
+  `).join('');
+
+  el.innerHTML = `
+    <div class="mst-wrap">
+      <div class="mst-head">
+        <div>
+          <h1 class="mst-title">🗂️ Masters</h1>
+          <p class="mst-sub">Every tab of the Master spreadsheet. Pick a master to view, choose columns, and export to CSV.</p>
+        </div>
+        <div class="mst-head-btns">
+          <button class="mst-btn ghost" onclick="mastersExportAll()" id="mst-export-all" title="Download every master as one combined CSV">⬇ Export All Masters</button>
+          <button class="mst-btn ghost" onclick="mastersRefresh()" title="Reload the current master">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="mst-picker">${chips}</div>
+      <div id="mst-panel" class="mst-panel">
+        ${_mastersState.tab ? '' : '<div class="mst-empty">Pick a master above to view its data.</div>'}
+      </div>
+    </div>`;
+
+  if (_mastersState.tab) mastersSelect(_mastersState.tab, true);
+}
+
+window.mastersRefresh = function() {
+  if (_mastersState.tab) { delete _mastersCache[_mastersState.tab]; mastersSelect(_mastersState.tab); }
+};
+
+window.mastersSelect = function(tab, keepCache) {
+  _mastersState.tab = tab; _mastersState.q = '';
+  document.querySelectorAll('.mst-chip').forEach(b => b.classList.remove('active'));
+  const chip = [...document.querySelectorAll('.mst-chip')].find(b => (b.getAttribute('onclick') || '').includes(`'${tab.replace(/'/g, "\\'")}'`));
+  if (chip) chip.classList.add('active');
+
+  const panel = document.getElementById('mst-panel');
+  if (!panel) return;
+
+  if (_mastersCache[tab]) { _mastersRender(tab, _mastersCache[tab]); return; }
+
+  panel.innerHTML = `<div class="mst-loading">⏳ Loading <strong>${_dhEsc(tab)}</strong>…</div>`;
+  fetchSheet(tab, null, _mastersSidFor(tab), { rawId: true })
+    .then(rows => {
+      rows = rows || [];
+      const cols = rows.length ? Object.keys(rows[0]).filter(c => !String(c).startsWith('_')) : [];
+      _mastersCache[tab] = { rows, cols };
+      if (_mastersState.tab === tab) _mastersRender(tab, _mastersCache[tab]);
+    })
+    .catch(err => {
+      panel.innerHTML = `<div class="mst-err">Couldn't load ${_dhEsc(tab)} — ${_dhEsc(err && err.message || 'fetch failed')}.</div>`;
+    });
+};
+
+function _mastersRender(tab, data) {
+  const panel = document.getElementById('mst-panel');
+  if (!panel) return;
+  const { rows, cols } = data;
+  _mastersState.rows = rows; _mastersState.cols = cols;
+
+  if (!rows.length) { panel.innerHTML = `<div class="mst-err">${_dhEsc(tab)} returned no rows.</div>`; return; }
+
+  const vis = _mastersVisibleCols(tab, cols);
+  panel.innerHTML = `
+    <div class="mst-toolbar">
+      <span class="mst-meta"><strong>${_dhEsc(tab)}</strong> · ${rows.length.toLocaleString('en-IN')} rows · ${vis.length}/${cols.length} columns</span>
+      <div class="mst-tools">
+        <input class="mst-search" type="text" placeholder="Filter rows…" oninput="mastersFilter(this.value)"/>
+        <button class="mst-btn" onclick="mastersToggleCols()" title="Add / remove columns">⚙ Columns</button>
+        <button class="mst-btn primary" onclick="mastersExportOne()" title="Download this master as CSV">⬇ Export CSV</button>
+      </div>
+    </div>
+    <div id="mst-colpanel" class="mst-colpanel" style="display:none">
+      <div class="mst-colpanel-h">
+        <span>Show / hide columns</span>
+        <div>
+          <button class="mst-mini" onclick="mastersColsAll(true)">Select all</button>
+          <button class="mst-mini" onclick="mastersColsAll(false)">Clear all</button>
+        </div>
+      </div>
+      <div class="mst-colgrid">
+        ${cols.map(c => {
+          const shown = vis.includes(c);
+          return `<label class="mst-colitem"><input type="checkbox" ${shown ? 'checked' : ''} onchange="mastersColToggle('${c.replace(/'/g, "\\'")}', this.checked)"> ${_dhEsc(c)}</label>`;
+        }).join('')}
+      </div>
+    </div>
+    <div id="mst-table" class="mst-table-scroll">${_mastersTableHtml(tab, cols, rows, '')}</div>`;
+}
+
+function _mastersTableHtml(tab, cols, rows, q) {
+  const vis = _mastersVisibleCols(tab, cols);
+  if (!vis.length) return `<div class="mst-err">All columns are hidden — enable some via ⚙ Columns.</div>`;
+  let filtered = rows;
+  if (q) { const lc = q.toLowerCase(); filtered = rows.filter(r => vis.some(c => String(r[c] == null ? '' : r[c]).toLowerCase().includes(lc))); }
+  const cap = filtered.slice(0, 300);
+  const head = vis.map(c => `<th>${_dhEsc(c)}</th>`).join('');
+  const body = cap.map(r => `<tr>${vis.map(c => `<td>${_dhEsc(r[c])}</td>`).join('')}</tr>`).join('');
+  return `<table class="mst-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+    <div class="mst-table-foot">Showing ${cap.length.toLocaleString('en-IN')} of ${filtered.length.toLocaleString('en-IN')} rows</div>`;
+}
+
+window.mastersFilter = function(q) {
+  _mastersState.q = q;
+  const host = document.getElementById('mst-table');
+  if (host) host.innerHTML = _mastersTableHtml(_mastersState.tab, _mastersState.cols, _mastersState.rows, q);
+};
+
+window.mastersToggleCols = function() {
+  const p = document.getElementById('mst-colpanel');
+  if (p) p.style.display = (p.style.display === 'none') ? 'block' : 'none';
+};
+
+window.mastersColToggle = function(col, shown) {
+  const tab = _mastersState.tab;
+  const hidden = _mastersGetHidden(tab);
+  if (shown) hidden.delete(col); else hidden.add(col);
+  _mastersSetHidden(tab, hidden);
+  _mastersRefreshTable();
+};
+
+window.mastersColsAll = function(showAll) {
+  const tab = _mastersState.tab;
+  _mastersSetHidden(tab, showAll ? new Set() : new Set(_mastersState.cols));
+  _mastersRender(tab, _mastersCache[tab]);
+  const p = document.getElementById('mst-colpanel');
+  if (p) p.style.display = 'block';
+};
+
+function _mastersRefreshTable() {
+  const host = document.getElementById('mst-table');
+  if (host) host.innerHTML = _mastersTableHtml(_mastersState.tab, _mastersState.cols, _mastersState.rows, _mastersState.q);
+  // Refresh the meta count
+  const cache = _mastersCache[_mastersState.tab];
+  if (cache) {
+    const vis = _mastersVisibleCols(_mastersState.tab, cache.cols);
+    const meta = document.querySelector('.mst-meta');
+    if (meta) meta.innerHTML = `<strong>${_dhEsc(_mastersState.tab)}</strong> · ${cache.rows.length.toLocaleString('en-IN')} rows · ${vis.length}/${cache.cols.length} columns`;
+  }
+}
+
+// Build row objects containing only the visible columns (for CSV export).
+function _mastersVisibleRows(tab, cols, rows) {
+  const vis = _mastersVisibleCols(tab, cols);
+  return rows.map(r => { const o = {}; vis.forEach(c => { o[c] = r[c]; }); return o; });
+}
+
+window.mastersExportOne = function() {
+  const tab = _mastersState.tab;
+  const cache = _mastersCache[tab];
+  if (!cache || !cache.rows.length) { alert('No data to export.'); return; }
+  const out = _mastersVisibleRows(tab, cache.cols, cache.rows);
+  downloadCSV(out, `Master_${tab.replace(/[^\w.-]+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`);
+};
+
+// Fetch every master tab and download one combined CSV, each master as a
+// clearly-labelled section. Respects per-tab hidden columns where a tab has
+// already been viewed; otherwise exports all columns for that tab.
+window.mastersExportAll = async function() {
+  const btn = document.getElementById('mst-export-all');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Exporting… 0/' + MASTERS_TABS.length; }
+  const esc = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const sections = [];
+  let done = 0;
+  for (const tab of MASTERS_TABS) {
+    try {
+      let cache = _mastersCache[tab];
+      if (!cache) {
+        const rows = (await fetchSheet(tab, null, _mastersSidFor(tab), { rawId: true })) || [];
+        const cols = rows.length ? Object.keys(rows[0]).filter(c => !String(c).startsWith('_')) : [];
+        cache = { rows, cols };
+        _mastersCache[tab] = cache;
+      }
+      const vis = _mastersVisibleCols(tab, cache.cols);
+      sections.push('### ' + tab + ' (' + cache.rows.length + ' rows) ###');
+      if (cache.rows.length && vis.length) {
+        sections.push(vis.map(esc).join(','));
+        cache.rows.forEach(r => sections.push(vis.map(c => esc(r[c])).join(',')));
+      } else {
+        sections.push('(no data)');
+      }
+      sections.push(''); // blank line between masters
+    } catch (e) {
+      sections.push('### ' + tab + ' — ERROR: ' + (e && e.message || 'fetch failed') + ' ###', '');
+    }
+    done++;
+    if (btn) btn.textContent = '⏳ Exporting… ' + done + '/' + MASTERS_TABS.length;
+  }
+  const csv = sections.join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `All_Masters_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  if (btn) { btn.disabled = false; btn.textContent = '⬇ Export All Masters'; }
+};
+
+function _mastersInjectStyles() {
+  if (document.getElementById('mst-styles')) return;
+  const css = `
+    .mst-wrap{max-width:1280px;margin:0 auto}
+    .mst-head{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
+    .mst-title{font-size:1.5rem;font-weight:700;color:var(--txt1,#1a2b3c);margin:0}
+    .mst-sub{font-size:.85rem;color:var(--txt3,#64748b);margin:.25rem 0 0;max-width:680px}
+    .mst-head-btns{display:flex;gap:.5rem;flex-wrap:wrap}
+    .mst-btn{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:7px 14px;font-weight:600;cursor:pointer;font-size:.8rem;color:#334155;white-space:nowrap;font-family:inherit}
+    .mst-btn:hover{border-color:#1a6038;color:#1a6038}
+    .mst-btn.primary{background:#1a6038;border-color:#1a6038;color:#fff}
+    .mst-btn.primary:hover{background:#15502f;color:#fff}
+    .mst-btn.ghost{background:transparent}
+    .mst-btn:disabled{opacity:.6;cursor:default}
+    .mst-picker{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:1.2rem}
+    .mst-chip{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:5px 12px;font-size:.76rem;font-weight:600;color:#334155;cursor:pointer;transition:all .12s;font-family:inherit}
+    .mst-chip:hover{border-color:#1a6038;color:#1a6038}
+    .mst-chip.active{background:#1a6038;border-color:#1a6038;color:#fff}
+    .mst-panel{min-height:200px}
+    .mst-empty,.mst-loading,.mst-err{padding:3rem;text-align:center;color:var(--txt3,#64748b);background:#fff;border:1px dashed #e2e8f0;border-radius:14px}
+    .mst-err{color:#c0392b;border-color:#f3c0b8;background:#fdf3f1}
+    .mst-toolbar{display:flex;align-items:center;justify-content:space-between;gap:.7rem;margin-bottom:.7rem;flex-wrap:wrap}
+    .mst-meta{font-size:.8rem;color:var(--txt2,#475569)}
+    .mst-tools{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+    .mst-search{border:1px solid #e2e8f0;border-radius:8px;padding:6px 12px;font-size:.8rem;font-family:inherit;min-width:180px}
+    .mst-colpanel{background:#fff;border:1px solid #eef2f6;border-radius:12px;padding:.8rem 1rem;margin-bottom:.8rem}
+    .mst-colpanel-h{display:flex;align-items:center;justify-content:space-between;font-size:.8rem;font-weight:700;color:#1a2b3c;margin-bottom:.6rem}
+    .mst-mini{background:#f1f5f9;border:none;border-radius:6px;padding:3px 10px;font-size:.72rem;font-weight:600;color:#334155;cursor:pointer;margin-left:.4rem;font-family:inherit}
+    .mst-mini:hover{background:#e2e8f0}
+    .mst-colgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.35rem .8rem}
+    .mst-colitem{display:flex;align-items:center;gap:.4rem;font-size:.76rem;color:#334155;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .mst-table-scroll{overflow:auto;max-height:65vh;border:1px solid #eef2f6;border-radius:12px;background:#fff}
+    .mst-table{border-collapse:collapse;width:100%;font-size:.78rem}
+    .mst-table th{position:sticky;top:0;background:#1a6038;color:#fff;text-align:left;padding:8px 10px;white-space:nowrap;font-weight:600;z-index:1}
+    .mst-table td{padding:6px 10px;border-bottom:1px solid #eef2f6;white-space:nowrap;color:#334155}
+    .mst-table tbody tr:hover td,.mst-table tbody tr:hover td{background:#f8fafc}
+    .mst-table-foot{padding:.55rem .8rem;font-size:.72rem;color:#64748b;background:#f8fafc}
+  `;
+  const style = document.createElement('style');
+  style.id = 'mst-styles';
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+
 const DATAHUB_SOURCES = [
   { id:'payments',  label:'Payment Requests',   group:'Accounts', tab:'PaymentRequest',          sid:() => PAYMENT_SHEET_ID,       icon:'💳' },
   { id:'po',        label:'Purchase Orders',    group:'Purchase', tab:'PO_Actual',               sid:() => PO_SHEET_ID,            icon:'🧾' },
@@ -21174,6 +22055,9 @@ async function loadAllMasters() {
 
   STATE.mastersLoaded = true;
   console.log(`✅ Masters loaded — Sites:${STATE.masters.sites.length} Employees:${STATE.masters.users.length} Mess:${STATE.masters.mess.length} Assets:${STATE.masters.assets.length} Vendors:${STATE.masters.vendors.length} SCs:${STATE.masters.subcontractors.length}`);
+  // Employees are now loaded — start the 24h auto-assignment of employees to
+  // the Users / Deactivated User Profiles access groups (admin sessions only).
+  try { if (typeof _uaStartAutoSync === 'function') _uaStartAutoSync(); } catch (e) {}
 }
 
 // Legacy aliases
