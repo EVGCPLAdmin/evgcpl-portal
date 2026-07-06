@@ -5685,32 +5685,46 @@ function _vplpLedger(v, embedOpts) {
   if (ob && (ob.credit > 0 || ob.debit > 0)) {
     all.push({ date: ob.date || '', ref: 'Opening', type: 'Opening Balance' + (ob.details ? ' · ' + esc(ob.details) : ''), kind: ob.credit >= ob.debit ? 'cr' : 'dr', opening: true, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: ob.credit, debit: ob.debit, status: null, utr: '', uuid: '' });
   }
-  // Credit (goods received) — approved POs of this vendor with receipts. Credit =
-  // Material(a) + Additional(b) + Tax(a) + Tax(b).
+  // Credit (goods received) — ONE dated line per GRN receipt (grouped by GRN No),
+  // dated by its received date. PO-level Tax(a)/Tax(b)/Additional charges are
+  // apportioned across the PO's receipts by material value (totals preserved).
   Object.keys(v.poKeys).forEach(k => {
     const i = d.poInfo[k] || {};
-    const mat = d.poRecv[k] || 0, taxA = d.poTaxA[k] || 0, taxB = i.taxB || 0, addl = i.addl || 0;
-    const credit = mat + addl + taxA + taxB;
-    // Date the material-received line by the GRN (goods-received) date — the
-    // credit is recognised on receipt — not the PO date. Latest received date
-    // among the relevant receipts; falls back to the PO date.
-    const grnDate = rcpts => {
-      const ds = (rcpts || []).map(rc => rc.recvDate).filter(Boolean);
-      if (!ds.length) return i.date || '';
-      return ds.reduce((a, b) => _mdpDateVal(b) > _mdpDateVal(a) ? b : a);
-    };
-    // Approved (counted) receipts — PO-level charges recognised only when there
-    // is approved material (gate on); gate off preserves the old credit>0 rule.
-    if (credit > 0 && (!d.gateOn || mat > 0)) {
-      const appRcpts = (d.poRcpt[k] || []).filter(rc => rc.approved !== false);
-      all.push({ date: grnDate(appRcpts), ref: i.poNo || k, type: 'Material received', rcpts: appRcpts, poRaw: i.raw || null, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
-    }
-    // Pending accounts review — shown but NOT counted (credit 0).
-    const pend = (d.poPending && d.poPending[k]) || 0;
-    if (pend > 0) {
-      const pendRcpts = (d.poRcpt[k] || []).filter(rc => rc.approved === false);
-      all.push({ date: grnDate(pendRcpts), ref: i.poNo || k, type: 'Material received', rcpts: pendRcpts, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pend, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
-    }
+    const rcpts = d.poRcpt[k] || [];
+    if (!rcpts.length) return;
+    const poRecvTot = d.poRecv[k] || 0;                         // Σ approved material value
+    const taxATot = d.poTaxA[k] || 0, taxBTot = i.taxB || 0, poAddlTot = i.addl || 0;
+    const dv = s => _mdpDateVal(s) || 0;
+    // Group by GRN No (a physical receipt); blank-GRN lines stand alone.
+    const groups = {};
+    rcpts.forEach(rc => { const gk = rc.no ? ('G:' + rc.no) : ('S:' + rc.idx); (groups[gk] = groups[gk] || []).push(rc); });
+    const nGroups = Object.keys(groups).length;
+    Object.keys(groups).forEach(gk => {
+      const g = groups[gk];
+      const grnDate = g.map(rc => rc.recvDate).filter(Boolean).reduce((a, b) => dv(b) > dv(a) ? b : a, '') || i.date || '';
+      const ref = i.poNo || k;
+      // Approved lines of this receipt → one counted credit row.
+      const app = g.filter(rc => rc.approved !== false);
+      if (app.length) {
+        let baseMat = 0, lineAddl = 0, groupMat = 0;
+        app.forEach(rc => {
+          const hasVal = d.gateOn && rc.rev && rc.rev.value > 0;
+          baseMat += hasVal ? (rc.credit || 0) : (rc.qty || 0) * (rc.useRate || 0);
+          lineAddl += hasVal ? 0 : (rc.addl || 0);
+          groupMat += (rc.credit || 0);
+        });
+        const frac = poRecvTot > 0 ? groupMat / poRecvTot : 1 / nGroups;
+        const taxA = taxATot * frac, taxB = taxBTot * frac, poAddl = poAddlTot * frac;
+        const credit = baseMat + lineAddl + taxA + taxB + poAddl;
+        if (credit > 0) all.push({ date: grnDate, ref, type: 'Material received', rcpts: app, poRaw: i.raw || null, kind: 'cr', mat: baseMat, addl: lineAddl + poAddl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+      }
+      // Pending (un-reviewed) lines of this receipt → one pending, uncounted row.
+      const pen = g.filter(rc => rc.approved === false);
+      if (pen.length) {
+        const pendAmt = pen.reduce((s, rc) => s + (rc.credit || 0), 0);
+        if (pendAmt > 0) all.push({ date: grnDate, ref, type: 'Material received', rcpts: pen, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pendAmt, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
+      }
+    });
   });
   // Debit (payment) — this vendor's completed payments (vendor-level; orderNo not required).
   (_mdpRows || []).forEach(r => {
