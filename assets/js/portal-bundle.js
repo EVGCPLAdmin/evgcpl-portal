@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.39.1';
-const PORTAL_BUILD    = 666;
-const PORTAL_BUILD_AT = '2026-07-06T20:11:51Z';
+const PORTAL_VERSION  = '4.39.2';
+const PORTAL_BUILD    = 667;
+const PORTAL_BUILD_AT = '2026-07-06T20:18:27Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5136,10 +5136,10 @@ function _vplpCompute() {
     const qty = _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
     const siId = _opGet(r, SC, ['SI ID', 'SIID', 'SI Id']);
     const rev = reviewBySi[_opNorm(siId)] || null;
-    // Received date: StockIN's own column if present, else the GRN_No tab via
-    // CheckSum/UUID (that's where it actually lives). Never the PO date.
+    // Received date: StockIN's own "Received On (At Site)" column; else the
+    // GRN_No tab via CheckSum/UUID. Never the PO date.
     const csKey = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID'])).trim();
-    const recvDate = _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Received On', 'Received Date']) || grnDateMap[csKey] || '';
+    const recvDate = _opGet(r, SC, ['Received On (At Site)', 'Received On (At)', 'Received On', 'GRN Received On', 'Received Date']) || grnDateMap[csKey] || '';
     e.qty += qty;
     e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev, recvDate });
   });
@@ -5712,7 +5712,10 @@ function _vplpLedger(v, embedOpts) {
     const nGroups = Object.keys(groups).length;
     Object.keys(groups).forEach(gk => {
       const g = groups[gk];
-      const grnDate = g.map(rc => rc.recvDate).filter(Boolean).reduce((a, b) => dv(b) > dv(a) ? b : a, '') || i.date || '';
+      // GRN date only — NO PO-date fallback. If there's no received date the
+      // line is "undated" and grouped separately (see the sort + label).
+      const grnDate = g.map(rc => rc.recvDate).filter(Boolean).reduce((a, b) => dv(b) > dv(a) ? b : a, '');
+      const undated = !grnDate;
       const ref = i.poNo || k;
       // Approved lines of this receipt → one counted credit row.
       const app = g.filter(rc => rc.approved !== false);
@@ -5727,13 +5730,13 @@ function _vplpLedger(v, embedOpts) {
         const frac = poRecvTot > 0 ? groupMat / poRecvTot : 1 / nGroups;
         const taxA = taxATot * frac, taxB = taxBTot * frac, poAddl = poAddlTot * frac;
         const credit = baseMat + lineAddl + taxA + taxB + poAddl;
-        if (credit > 0) all.push({ date: grnDate, ref, type: 'Material received', rcpts: app, poRaw: i.raw || null, kind: 'cr', mat: baseMat, addl: lineAddl + poAddl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', mat: baseMat, addl: lineAddl + poAddl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
       }
       // Pending (un-reviewed) lines of this receipt → one pending, uncounted row.
       const pen = g.filter(rc => rc.approved === false);
       if (pen.length) {
         const pendAmt = pen.reduce((s, rc) => s + (rc.credit || 0), 0);
-        if (pendAmt > 0) all.push({ date: grnDate, ref, type: 'Material received', rcpts: pen, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pendAmt, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
+        if (pendAmt > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: pen, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pendAmt, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
       }
     });
   });
@@ -5781,7 +5784,8 @@ function _vplpLedger(v, embedOpts) {
   const entries = _fy ? scope.filter(e => _vplpFYof(e.date) === _fy) : scope;
   if (!entries.length) return vmCard + `<div class="card card-pad" style="margin-bottom:1rem">${modeButtons}${modeHint}</div>` + fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   // Opening balance always first; then chronological, same-day credits (receipt) before debits (payment).
-  entries.sort((a, b) => ((b.opening ? 1 : 0) - (a.opening ? 1 : 0)) || (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
+  // Opening first; undated StockIN entries clustered last; the rest chronological.
+  entries.sort((a, b) => ((b.opening ? 1 : 0) - (a.opening ? 1 : 0)) || ((a.undated ? 1 : 0) - (b.undated ? 1 : 0)) || (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
   let running = 0;
   entries.forEach(e => { running += e.credit - e.debit; e.balance = running; });
   const sum = key => entries.reduce((s, e) => s + e[key], 0);
