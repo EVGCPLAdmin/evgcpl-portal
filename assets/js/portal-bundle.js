@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.39.0';
-const PORTAL_BUILD    = 665;
-const PORTAL_BUILD_AT = '2026-07-06T20:03:38Z';
+const PORTAL_VERSION  = '4.39.1';
+const PORTAL_BUILD    = 666;
+const PORTAL_BUILD_AT = '2026-07-06T20:11:51Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4996,7 +4996,9 @@ async function _vplpEnsure(force) {
 // Default 'off' so configuring the sheet doesn't silently change balances.
 function _grnMode() { const c = (typeof pcReadJSON === 'function') ? (pcReadJSON('grn_review_mode', {}) || {}) : {}; const m = c.mode || 'off'; return (m === 'on' || m === 'hidden') ? m : 'off'; }
 function _grnGateOn() { return _grnMode() === 'on' && !!GRN_REVIEW_SHEET_ID; }
-function _grnTabHidden() { return _grnMode() === 'hidden'; }
+// Hidden when the admin chose 'Off + Hide', OR while the GRN Review sheet isn't
+// configured yet (feature parked/off) — so it stays out of the way until set up.
+function _grnTabHidden() { return _grnMode() === 'hidden' || !GRN_REVIEW_SHEET_ID; }
 window._grnSetMode = async function(mode) {
   const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
   if (!isAdmin) { _accToast('🔒 Only admins can change the Ledger Link.'); return; }
@@ -5109,8 +5111,14 @@ function _vplpResolveVid(r, bridge) {
 // Approved POs only; credit recognised on receipt (StockIN GRN Qty).
 function _vplpCompute() {
   const SC = _opColMap(_openPOStock), IC = _opColMap(_openPOItems), HC = _opColMap(_openPOHeaders);
-  const grnMap = {};
-  (_vplpGRNRows || []).forEach(r => { const u = String(r['UUID'] || r['CheckSum'] || '').trim(); if (u) grnMap[u] = (r['GRN No (Goods Receipt)'] || r['GRN No'] || '').toString().trim(); });
+  // GRN No + received date live on the GRN_No tab (keyed by UUID/CheckSum);
+  // StockIN rows join to it. The received date is NOT on the StockIN row.
+  const grnMap = {}, grnDateMap = {};
+  (_vplpGRNRows || []).forEach(r => {
+    const u = String(r['UUID'] || r['CheckSum'] || '').trim(); if (!u) return;
+    grnMap[u] = (r['GRN No (Goods Receipt)'] || r['GRN No'] || '').toString().trim();
+    grnDateMap[u] = (r['Received On (At)'] || r['Received On'] || r['GRN Date'] || r['Received Date'] || '').toString().trim();
+  });
   // StockIN receipts by (PO No (Key) || part) — the PO_Items join. Each receipt
   // carries its GRN No (StockIN ColAA direct, else the GRN_No-sheet join), its
   // invoice number, and its row index so the ledger can link to the detail.
@@ -5128,7 +5136,10 @@ function _vplpCompute() {
     const qty = _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
     const siId = _opGet(r, SC, ['SI ID', 'SIID', 'SI Id']);
     const rev = reviewBySi[_opNorm(siId)] || null;
-    const recvDate = _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Date', 'Received Date', 'Date']);
+    // Received date: StockIN's own column if present, else the GRN_No tab via
+    // CheckSum/UUID (that's where it actually lives). Never the PO date.
+    const csKey = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID'])).trim();
+    const recvDate = _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Received On', 'Received Date']) || grnDateMap[csKey] || '';
     e.qty += qty;
     e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev, recvDate });
   });
