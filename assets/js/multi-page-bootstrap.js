@@ -221,6 +221,7 @@
     'stores-levels':     'scm.html',
     'stores-stockout':   'scm.html',
     'stores-stocktransfer': 'scm.html',
+    'stock-recon':       'scm.html',
     'mrs-list':          'scm.html',
     'pending-pages':     'scm.html',
     'vendor':            'scm.html',
