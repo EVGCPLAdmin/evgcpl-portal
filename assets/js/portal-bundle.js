@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.37.0';
-const PORTAL_BUILD    = 661;
-const PORTAL_BUILD_AT = '2026-07-06T10:24:04Z';
+const PORTAL_VERSION  = '4.38.0';
+const PORTAL_BUILD    = 662;
+const PORTAL_BUILD_AT = '2026-07-06T10:54:58Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -35,12 +35,13 @@ const PIN_SHEET_ID     = '1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0'; // User
 //   2. Use it in code as: getExec('myKey')
 const EXEC_REGISTRY_DEFAULTS = {
   portalConfig:{ label: 'Portal Config Backend',  desc: 'Standalone backend for the PortalConfig sheet (savePortalConfig / getPortalConfig). Independent of other handlers — never changes.', defaultUrl: 'https://script.google.com/macros/s/AKfycbys4NPojiI-1nBKcfbreM4HO8sehBH76ebjv4nQ_TfHcT_IXueUTBBl1Ew0SGYtGVRW/exec' },
-  main:        { label: 'Main Backend (default)', desc: 'Most portal POSTs (DPR, Safety, PCC, Onboarding, Reports). Default for getExec().', defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
-  pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet.',                                          defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
-  aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
-  diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
+  main:        { label: 'Main Backend (default)', desc: 'Most portal POSTs (DPR, Safety, PCC, Onboarding, Reports). Default for getExec().', defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
+  pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet.',                                          defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
+  aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
+  diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
   pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
   accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app (Router.gs + AccountsHandlers.gs in one project): saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, createPRFolder, uploadPRAttachment, listPRAttachments. Override via the exec_accounts row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbyoh0Q5wfFWXNUz11U5KYjikHbO5tA0I8eIb5xos1ZmRINjn_N5WGIxq5xJrwsF3jLFYg/exec' },
+  safety:      { label: 'Safety Handler',         desc: 'SafetyHandler.gs web app — Safety module writes (Incidents, DailyChecks). Override via the exec_safety row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbyFq6zSKgn-W3qNQPNoDplqiJHDaQTrrKLSK7gecZNiHSnU7Y4Buav3RiGfcvXtn9B3/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
 
@@ -13333,6 +13334,7 @@ function renderExecEndpointsCard() {
           <button onclick="execTestAll()" class="btn btn-secondary btn-sm" style="font-size:.74rem">▶︎ Test all</button>
           <button onclick="execCopyDiagnostics()" class="btn btn-secondary btn-sm" style="font-size:.74rem" title="After Test all, copy detailed diagnostics for sharing">📋 Copy diag</button>
           <button onclick="execResetAll()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset all</button>
+          <button onclick="execForcePushSheets(this)" class="btn btn-secondary btn-sm" id="execForceBtn" style="font-size:.74rem;border-color:#f0a500;color:#b07000" title="Force the CODE default endpoint URLs into the PortalConfig sheet (T2, org-wide) AND this browser (T1), overriding any stale endpoint values everywhere">&#11015; Force update Sheets &amp; T1</button>
           <button onclick="execSaveAll()" class="btn btn-primary btn-sm" id="execSaveBtn" style="font-size:.74rem">&#10003; Save endpoints</button>
         </div>
       </div>
@@ -13381,6 +13383,32 @@ window.execSaveAll = function() {
     btn.style.background = '#16a34a';
     setTimeout(() => { renderDevModePage(); }, 900);
   }
+};
+
+// Force the compiled CODE default endpoint URLs into the PortalConfig sheet (T2,
+// org-wide) AND this browser's localStorage override (T1). This is what makes a
+// freshly-updated exec URL in code win everywhere — otherwise a stale T1/T2 value
+// keeps shadowing the new default (getExec: T1 → T2 → compiled default).
+window.execForcePushSheets = async function(btn) {
+  if (!confirm('Force the code default endpoint URLs into the PortalConfig sheet (org-wide) and this browser?\n\nThis overrides any custom/stale endpoint values everywhere so the latest code URLs take effect.')) return;
+  if (btn) { btn.dataset.t = btn.innerHTML; btn.disabled = true; btn.textContent = 'Pushing…'; }
+  const keys = Object.keys(EXEC_REGISTRY_DEFAULTS);
+  const map = {};
+  keys.forEach(k => { map[k] = EXEC_REGISTRY_DEFAULTS[k].defaultUrl; });
+  // T1 — localStorage override (this browser, instant)
+  setExecOverrides(map);
+  // T2 — PortalConfig sheet rows exec_<key> (org-wide, raw string)
+  let okN = 0; const fails = [];
+  for (const k of keys) {
+    const res = await _pcWriteRaw('exec_' + k, map[k]);
+    if (res.ok) okN++; else fails.push(k + ' (' + (res.message || '?') + ')');
+  }
+  try { eval('APPS_SCRIPT_URL = getExec(\'main\')'); eval('PIN_API_URL = getExec(\'pinReset\')'); } catch (e) {}
+  if (btn) { btn.disabled = false; btn.innerHTML = btn.dataset.t || '&#11015; Force update Sheets &amp; T1'; }
+  alert(fails.length
+    ? `Pushed ${okN}/${keys.length} to Sheets + T1.\nFailed: ${fails.join('; ')}\n\n(Check the PortalConfig backend URL is reachable.)`
+    : `✅ Force-pushed all ${okN} endpoint URLs to the PortalConfig sheet (org-wide) and this browser (T1). The latest code URLs now win everywhere.`);
+  try { renderDevModePage(); } catch (e) {}
 };
 
 window.execResetOne = function(key) {
@@ -13710,6 +13738,23 @@ async function pcWriteJSON(key, valueObj) {
     });
     const data = await r.json();
     return data.success ? { ok: true } : { ok: false, message: data.message || 'Save failed' };
+  } catch (e) { return { ok: false, message: e.message }; }
+}
+// Write a RAW string value (not JSON-wrapped) to a PortalConfig key. Used for
+// exec_* endpoint rows, which getExec() reads as a plain URL (never JSON-parsed).
+async function _pcWriteRaw(key, rawValue) {
+  try { localStorage.removeItem('pc_' + key); } catch (e) {}
+  if (window._SHEET_CONFIG) window._SHEET_CONFIG[key] = rawValue;
+  const url = _pcWriteUrl();
+  if (!url) return { ok: false, message: 'No PortalConfig backend URL set' };
+  try {
+    const r = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'savePortalConfig', key, value: rawValue,
+        updatedBy: (STATE && STATE.user && STATE.user.email) || 'unknown' }),
+    });
+    const d = await r.json();
+    return d.success ? { ok: true } : { ok: false, message: d.message || 'Save failed' };
   } catch (e) { return { ok: false, message: e.message }; }
 }
 
@@ -17221,7 +17266,7 @@ const SAFETY_SHEET_ID = '1B8P0PawV43ksazbzhKsil1X6-INOfxx9PFvGycNOvDY';
 // DailyChecks columns: A=Timestamp B=Site C=Date D=SubmittedBy E=Score F=TotalChecks G..P=check items
 async function safetyWriteToSheet(tab, rowData) {
   try {
-    const res = await fetch(APPS_SCRIPT_URL, {
+    const res = await fetch(getExec('safety'), {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ action: 'appendRow', sheetId: SAFETY_SHEET_ID, tab, row: rowData }),
@@ -17496,7 +17541,7 @@ function renderSafetyModule() {
 
     // Write-back to Safety Sheet via Apps Script — update Status column (Col I)
     try {
-      const res = await fetch(APPS_SCRIPT_URL, {
+      const res = await fetch(getExec('safety'), {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify({
