@@ -5125,8 +5125,9 @@ function _vplpCompute() {
     const qty = _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
     const siId = _opGet(r, SC, ['SI ID', 'SIID', 'SI Id']);
     const rev = reviewBySi[_opNorm(siId)] || null;
+    const recvDate = _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Date', 'Received Date', 'Date']);
     e.qty += qty;
-    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev });
+    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev, recvDate });
   });
   // PO header: approval, vendor, date, Tax(b), Additional Charges(b). Keyed by
   // the normalised PO key (folds EGVE/EVGE spelling variants).
@@ -5687,17 +5688,25 @@ function _vplpLedger(v, embedOpts) {
     const i = d.poInfo[k] || {};
     const mat = d.poRecv[k] || 0, taxA = d.poTaxA[k] || 0, taxB = i.taxB || 0, addl = i.addl || 0;
     const credit = mat + addl + taxA + taxB;
+    // Date the material-received line by the GRN (goods-received) date — the
+    // credit is recognised on receipt — not the PO date. Latest received date
+    // among the relevant receipts; falls back to the PO date.
+    const grnDate = rcpts => {
+      const ds = (rcpts || []).map(rc => rc.recvDate).filter(Boolean);
+      if (!ds.length) return i.date || '';
+      return ds.reduce((a, b) => _mdpDateVal(b) > _mdpDateVal(a) ? b : a);
+    };
     // Approved (counted) receipts — PO-level charges recognised only when there
     // is approved material (gate on); gate off preserves the old credit>0 rule.
     if (credit > 0 && (!d.gateOn || mat > 0)) {
       const appRcpts = (d.poRcpt[k] || []).filter(rc => rc.approved !== false);
-      all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: appRcpts, poRaw: i.raw || null, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+      all.push({ date: grnDate(appRcpts), ref: i.poNo || k, type: 'Material received', rcpts: appRcpts, poRaw: i.raw || null, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
     }
     // Pending accounts review — shown but NOT counted (credit 0).
     const pend = (d.poPending && d.poPending[k]) || 0;
     if (pend > 0) {
       const pendRcpts = (d.poRcpt[k] || []).filter(rc => rc.approved === false);
-      all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: pendRcpts, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pend, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
+      all.push({ date: grnDate(pendRcpts), ref: i.poNo || k, type: 'Material received', rcpts: pendRcpts, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pend, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
     }
   });
   // Debit (payment) — this vendor's completed payments (vendor-level; orderNo not required).
