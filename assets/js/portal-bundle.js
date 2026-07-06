@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.34.0';
-const PORTAL_BUILD    = 655;
-const PORTAL_BUILD_AT = '2026-07-04T14:44:35Z';
+const PORTAL_VERSION  = '4.38.1';
+const PORTAL_BUILD    = 663;
+const PORTAL_BUILD_AT = '2026-07-06T10:57:46Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -35,12 +35,13 @@ const PIN_SHEET_ID     = '1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0'; // User
 //   2. Use it in code as: getExec('myKey')
 const EXEC_REGISTRY_DEFAULTS = {
   portalConfig:{ label: 'Portal Config Backend',  desc: 'Standalone backend for the PortalConfig sheet (savePortalConfig / getPortalConfig). Independent of other handlers — never changes.', defaultUrl: 'https://script.google.com/macros/s/AKfycbys4NPojiI-1nBKcfbreM4HO8sehBH76ebjv4nQ_TfHcT_IXueUTBBl1Ew0SGYtGVRW/exec' },
-  main:        { label: 'Main Backend (default)', desc: 'Most portal POSTs (DPR, Safety, PCC, Onboarding, Reports). Default for getExec().', defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
-  pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet.',                                          defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
-  aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
-  diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbxajuscM46AlJe2iMtDg0nJjfuzidEZwnOy_o2TZXQIbh_e2hGu79CNxAzvUu11tPJP/exec' },
+  main:        { label: 'Main Backend (default)', desc: 'Most portal POSTs (DPR, Safety, PCC, Onboarding, Reports). Default for getExec().', defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
+  pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet.',                                          defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
+  aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
+  diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
   pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
   accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app (Router.gs + AccountsHandlers.gs in one project): saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, createPRFolder, uploadPRAttachment, listPRAttachments. Override via the exec_accounts row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbyoh0Q5wfFWXNUz11U5KYjikHbO5tA0I8eIb5xos1ZmRINjn_N5WGIxq5xJrwsF3jLFYg/exec' },
+  safety:      { label: 'Safety Handler',         desc: 'SafetyHandler.gs web app — Safety module writes (Incidents, DailyChecks). Override via the exec_safety row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbyFq6zSKgn-W3qNQPNoDplqiJHDaQTrrKLSK7gecZNiHSnU7Y4Buav3RiGfcvXtn9B3/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
 
@@ -2831,6 +2832,7 @@ const NAV_SUBMENUS = {
       { route:'stores-stockout',      label:'StockOut Register', status:'live', badge:{ text:'New', cls:'live' } },
       { route:'stores-stocktransfer', label:'StockTransfer',     status:'live', badge:{ text:'New', cls:'live' } },
       { route:'stores-levels',        label:'Stock Level',       status:'live' },
+      { route:'stock-recon',          label:'Stock Reconciliation', status:'live', badge:{ text:'New', cls:'live' } },
     ],
   },
   // Ledgers parent → each ledger is its own level-3 sub-page. The parent route
@@ -3186,6 +3188,7 @@ function renderPage(page) {
     'stores-levels':  () => { window._pstPendingTab = 'levels';  renderProcurementStores(); },
     'stores-stockout':     renderStockOutRegister,
     'stores-stocktransfer': renderStockTransferRegister,
+    'stock-recon':    renderStockRecon,
     'pending-pages':  renderPendingPages,
     'purchase':       renderPurchaseDashboard,
     'purchase-view':      renderPurchaseView,
@@ -7921,6 +7924,142 @@ async function _pvLoadVendorLedger(r) {
     if (b) b.innerHTML = '<div style="color:var(--danger);font-size:.78rem">Could not load vendor ledger.</div>';
   }
 }
+// ── Purchase View approvals (SCM Head / MD) ──────────────────────────────
+// Buttons appear in the PO detail modal only when the PO's Lock field is
+// "Released for review", and each button is independently gated by an Access
+// action (approve-md / approve-scm / reject-md / reject-scm) on 'purchase-view'.
+// Approving/rejecting writes the PO Approval Status (PO_Actual col AG, matched
+// by UUID in col A) via the backend 'updateCell' action. Rejection first asks
+// for a reason from the (org-configurable) reason list.
+const PV_LOCK_GATE = 'Released for review';
+const PV_STATUS = {
+  'approve-md':  'Approved by MD',
+  'approve-scm': 'Approved by SCM Head',
+  'reject-md':   'Rejected by MD',
+  'reject-scm':  'Rejected by SCM Head',
+};
+const PV_DEFAULT_REJECT_REASONS = [
+  'Rate higher than market / last purchase',
+  'Incorrect vendor',
+  'Incorrect quantity',
+  'Incorrect specification / item',
+  'Budget not available',
+  'Duplicate PO',
+  'Incomplete / incorrect details',
+  'Other',
+];
+// Reason list — org override via PortalConfig 'po_reject_reasons' (JSON array).
+function _pvRejectReasons() {
+  const v = pcReadJSON('po_reject_reasons', null);
+  return (Array.isArray(v) && v.length) ? v.map(String) : PV_DEFAULT_REJECT_REASONS;
+}
+// Optional column to persist the rejection reason into (PO_Actual). Off unless
+// PortalConfig 'po_reject_reason_col' is set to a column letter (e.g. "AH").
+function _pvReasonCol() {
+  try { const v = (window._SHEET_CONFIG || {})['po_reject_reason_col']; if (typeof v === 'string' && /^[A-Za-z]{1,3}$/.test(v.trim())) return v.trim().toUpperCase(); } catch (e) {}
+  return '';
+}
+function _pvCan(action) { return (typeof userCan !== 'function') || userCan('purchase-view', action); }
+// A PO is eligible for the approve/reject buttons when its Lock field is
+// "Released for review" (per spec). Real POs may carry "Released for Approval"
+// for the same stage, so accept either, plus anything the Pending tab counts.
+const PV_LOCK_GATES = ['released for review', 'released for approval'];
+function _pvIsGated(r) {
+  const lk = (r.lock || '').trim().toLowerCase();
+  return r.isPending || PV_LOCK_GATES.indexOf(lk) !== -1;
+}
+function _pvActionButtons(r, fontSize) {
+  const po = _mdpEsc(r.poNo), fs = fontSize || '.74rem';
+  const btn = (action, bg, label) => _pvCan(action)
+    ? `<button onclick="event.stopPropagation();_pv${action.startsWith('approve') ? 'Approve' : 'Reject'}('${po}','${action.endsWith('md') ? 'md' : 'scm'}')" class="btn btn-sm" style="background:${bg};color:#fff;border:none;font-size:${fs}">${label}</button>`
+    : '';
+  return [
+    btn('approve-md',  '#15803d', '&#10003; Approve (MD)'),
+    btn('approve-scm', '#16a34a', '&#10003; Approve (SCM Head)'),
+    btn('reject-md',   '#b91c1c', '&#10007; Reject (MD)'),
+    btn('reject-scm',  '#dc2626', '&#10007; Reject (SCM Head)'),
+  ].filter(Boolean);
+}
+function _pvActionBar(r) {
+  if (!_pvIsGated(r)) return '';
+  const btns = _pvActionButtons(r);
+  if (!btns.length) return '';
+  return `<div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;background:var(--surface2)">
+    <span style="font-size:.7rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.04em">Approval</span>
+    ${btns.join('')}
+    <span id="pv-action-msg" style="font-size:.74rem;color:var(--txt3);margin-left:auto"></span>
+  </div>`;
+}
+async function _pvWriteCell(uuid, col, val) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'updateCell', sheetId: PO_SHEET_ID, tab: PO_TAB, matchCol: 'A', matchVal: uuid, updateCol: col, updateVal: val }),
+  });
+  const j = await res.json().catch(() => ({}));
+  return !!(j && (j.success || j.ok));
+}
+async function _pvApplyStatus(r, status, reason) {
+  const msg = document.getElementById('pv-action-msg');
+  if (msg) { msg.textContent = 'Saving…'; msg.style.color = 'var(--txt3)'; }
+  if (!r.uuid) { if (msg) { msg.textContent = 'No PO UUID — cannot write'; msg.style.color = 'var(--danger)'; } return; }
+  try {
+    const ok = await _pvWriteCell(r.uuid, 'AG', status);
+    if (!ok) throw new Error('write failed');
+    const rc = _pvReasonCol();
+    if (reason && rc) { try { await _pvWriteCell(r.uuid, rc, reason); } catch (e) {} }
+    r.status = status;
+    if (msg) { msg.textContent = 'Saved ✓'; msg.style.color = '#16a34a'; }
+    setTimeout(() => { try { _regCloseModal(); } catch (e) {} _pvLoad(true); }, 700);
+  } catch (e) {
+    if (msg) { msg.textContent = 'Save failed — check backend / sheet access'; msg.style.color = 'var(--danger)'; }
+  }
+}
+window._pvApprove = function(poNo, role) {
+  const r = _pvAllRows.find(x => x.poNo === poNo); if (!r) return;
+  const action = role === 'md' ? 'approve-md' : 'approve-scm';
+  if (!_pvCan(action)) { alert('You do not have permission for this action.'); return; }
+  const status = PV_STATUS[action];
+  if (!confirm(`Approve ${poNo}\n\nSet PO Approval Status to “${status}”?`)) return;
+  _pvApplyStatus(r, status, '');
+};
+window._pvReject = function(poNo, role) {
+  const r = _pvAllRows.find(x => x.poNo === poNo); if (!r) return;
+  const action = role === 'md' ? 'reject-md' : 'reject-scm';
+  if (!_pvCan(action)) { alert('You do not have permission for this action.'); return; }
+  const esc = _mdpEsc, reasons = _pvRejectReasons();
+  let ov = document.getElementById('pvRejectOverlay'); if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'pvRejectOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
+  ov.innerHTML = `<div class="card" style="max-width:440px;width:100%">
+    <div class="card-pad">
+      <div style="font-weight:700;font-size:1rem;margin-bottom:.15rem">Reject ${esc(poNo)}</div>
+      <div style="font-size:.76rem;color:var(--txt3);margin-bottom:.9rem">${role === 'md' ? 'Reject (MD)' : 'Reject (SCM Head)'}${r.vendor ? ' &middot; ' + esc(r.vendor) : ''}</div>
+      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">REJECTION REASON</label>
+      <select id="pvRejReason" style="width:100%;margin:.3rem 0 .8rem;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);font-size:.84rem">
+        ${reasons.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('')}
+      </select>
+      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">NOTE (optional)</label>
+      <textarea id="pvRejNote" rows="2" style="width:100%;margin-top:.3rem;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);font-size:.84rem;resize:vertical" placeholder="Add detail…"></textarea>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem">
+        <button onclick="document.getElementById('pvRejectOverlay').remove()" class="btn btn-sm btn-secondary">Cancel</button>
+        <button id="pvRejConfirm" onclick="_pvConfirmReject('${esc(poNo)}','${role}')" class="btn btn-sm" style="background:#dc2626;color:#fff;border:none">Confirm Reject</button>
+      </div>
+    </div>
+  </div>`;
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+};
+window._pvConfirmReject = function(poNo, role) {
+  const r = _pvAllRows.find(x => x.poNo === poNo); if (!r) return;
+  const action = role === 'md' ? 'reject-md' : 'reject-scm';
+  const reason = (document.getElementById('pvRejReason') || {}).value || '';
+  const note = ((document.getElementById('pvRejNote') || {}).value || '').trim();
+  const full = note ? `${reason} — ${note}` : reason;
+  const ov = document.getElementById('pvRejectOverlay'); if (ov) ov.remove();
+  _pvApplyStatus(r, PV_STATUS[action], full);
+};
+
 function renderPurchaseView() {
   const el = document.getElementById('mainContent');
   _pvFilter = 'all'; _pvSearch = ''; _pvSite = '';
@@ -8070,6 +8209,7 @@ function _pvSummaryCard(r) {
         <button onclick="_pvToggle('${esc(r.poNo)}')" class="btn btn-sm btn-secondary" style="font-size:.72rem">&#128269; Verify PO</button>
         <a href="${esc(appLink)}" target="_blank" class="btn btn-sm btn-secondary" style="font-size:.72rem;text-decoration:none">&#128279; AppSheet</a>
       </div>
+      ${_pvIsGated(r) && _pvActionButtons(r, '.7rem').length ? `<div style="display:flex;gap:.4rem;margin-top:.5rem;flex-wrap:wrap;padding-top:.5rem;border-top:1px solid var(--border)">${_pvActionButtons(r, '.7rem').join('')}</div>` : ''}
     </div>
   </div>`;
 }
@@ -8083,7 +8223,7 @@ window._pvToggle = function(poNo) {
   const headerExtra = `<a href="${_mdpEsc(appLink)}" target="_blank" class="btn btn-sm btn-secondary" style="font-size:.72rem;text-decoration:none">&#128279; AppSheet</a>`;
   const titleHtml = `${_mdpEsc(poNo)} <span style="background:${st.bg};color:${st.color};padding:.12rem .45rem;border-radius:20px;font-size:.68rem;font-weight:700;margin-left:.4rem">${st.label}</span>`;
   _pvLedgerFY = '';
-  _regOpenModal(titleHtml, _pvDetailBody(r), headerExtra);
+  _regOpenModal(titleHtml, _pvActionBar(r) + _pvDetailBody(r), headerExtra);
   _poLoadAttachments(_pvLastDocUUID, _pvLastPONo);
   _pvLoadVendorLedger(r);
 };
@@ -8176,6 +8316,9 @@ function _pvDetailBody(r) {
       const d = _pvRateDelta(rate, avg);
       rateBadge = `<span title="${tip}" style="background:${d.bg};color:${d.color};font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">${d.symbol}${d.text ? ' ' + d.text : ''}</span>`;
       rateHistoryItems.push({ desc: pr.partDesc || rawDesc || partKey || '—', thisRate: rate, avg, diff, sorted });
+    } else if (rate) {
+      // No prior purchase of this item at this site — say so explicitly.
+      rateBadge = `<span title="No previous purchase of this item at this site — first-time rate, nothing to compare against" style="background:#eef2ff;color:#4338ca;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:9px;margin-left:.3rem;cursor:help">&#9737; No history</span>`;
     }
     const descHtml = (pr.partNo ? `<span style="font-family:monospace;font-size:.68rem;color:var(--g7)">${esc(pr.partNo)}</span> &middot; ` : '') + esc(pr.partDesc || '—');
     const td = 'padding:5px 8px;font-size:.77rem';
@@ -8333,7 +8476,11 @@ function _pvDetailBody(r) {
           </tr>`).join('');
         }).join('')}</tbody>
       </table></div>
-    </div>` : ''}
+    </div>` : `
+    ${H('Rate Comparison History')}
+    <div style="padding:0 1rem .5rem"><div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:.7rem .9rem;font-size:.8rem;color:#3730a3">
+      &#9737; <b>No previous purchase history</b> for these items at this site — these are first-time rates, so there is nothing to compare against.
+    </div></div>`}
 
     ${H('Vendor Ledger — ' + _mdpEsc(r.vendor || '—'))}
     <div style="padding:0 1rem 1rem"><div id="pvVendorLedgerBox" style="color:var(--txt3);font-size:.78rem;padding:.3rem 0">&#9203; Loading vendor ledger&hellip;</div></div>
@@ -9006,6 +9153,230 @@ function renderPendingPages() {
       ${card('vendor', '&#127970;', 'Vendor Portal', 'Vendor master, ledgers and PO history')}
       ${card('subcontractor', '&#128119;', 'Subcontractor', 'Subcontractor portal and work orders')}
     </div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  STOCK RECONCILIATION (route 'stock-recon')
+//  Edit the StockIN GRN Qty with a full audit trail. Every change writes:
+//   1. the new GRN Qty back into the StockIN tab (v2_Stores), and
+//   2. an audit row into the "AuditTrail" tab (v2_Stores) capturing old value,
+//      new value, who, when, GRN No and GRN CheckSum + Module="StockIN".
+//  The AuditTrail schema is generic so Stock Out / Stock Transfer reuse it.
+//  Column letters for the StockIN write are resolved at runtime from the sheet's
+//  own header row (gviz cols), so a column reorder can't send a write astray.
+//  Backend actions used (already in the main Apps Script): updateCell, appendRow.
+//  AuditTrail row order (11 cols):
+//   Timestamp | User Email | User Name | Module | Action | Ref No (GRN No)
+//   | CheckSum | Field | Old Value | New Value | Remarks
+// ════════════════════════════════════════════════════════════════
+let _srkView = 'reconcile';   // 'reconcile' | 'audit'
+let _srkSearch = '';
+let _srkRows = null;
+let _srkColsCache = null;
+let _srkAudit = null;
+
+function _colToLetter(i) { let n = Number(i) + 1, s = ''; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; }
+// Header → column-letter map for the StockIN tab, read straight from gviz cols
+// (index = real sheet column, robust to blank-header columns).
+function _srkLoadColMap(force) {
+  if (_srkColsCache && !force) return Promise.resolve(_srkColsCache);
+  return new Promise(resolve => {
+    const reqId = String(++_gvizReqId);
+    const finish = (m) => { _srkColsCache = m; resolve(m); };
+    const timer = setTimeout(() => { delete _gvizHandlers[reqId]; finish({}); }, 20000);
+    _gvizHandlers[reqId] = (json) => {
+      clearTimeout(timer);
+      const m = {};
+      try { (json.table.cols || []).forEach((c, i) => { const l = String(c.label || '').trim(); if (l && !(l in m)) m[l] = _colToLetter(i); }); } catch (e) {}
+      finish(m);
+    };
+    const s = document.createElement('script');
+    s.onerror = () => { clearTimeout(timer); delete _gvizHandlers[reqId]; finish({}); };
+    s.src = `https://docs.google.com/spreadsheets/d/${STORES_SHEET_ID}/gviz/tq?tqx=out:json;reqId:${reqId}&sheet=StockIN`;
+    document.head.appendChild(s);
+  });
+}
+function _srkColLetter(cands) {
+  const m = _srkColsCache || {};
+  for (const c of cands) if (m[c]) return m[c];
+  const low = {}; Object.keys(m).forEach(k => low[k.toLowerCase().trim()] = m[k]);
+  for (const c of cands) { const v = low[c.toLowerCase().trim()]; if (v) return v; }
+  return '';
+}
+function _srkBuildRows() {
+  const SC = _opColMap(_openPOStock || []);
+  const grnMap = _siGRNMapBuild();
+  const matMap = _opMatMap();
+  return (_openPOStock || []).map((r, idx) => {
+    const checksum = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID']) || '').trim();
+    const partRaw = _opGet(r, SC, ['Material Description', 'Part Details', 'Part Description', 'Material', 'Description']);
+    const part = (_opPartReadable(partRaw, matMap).text) || partRaw || '';
+    return {
+      idx, checksum,
+      grnNo:    _siGRNResolve(r, SC, grnMap),
+      received: _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Date', 'Date']),
+      site:     _opGet(r, SC, ['Site Name', 'Site']),
+      vendor:   _opGet(r, SC, ['Vendor Name', 'Vendor']),
+      poNo:     _opGet(r, SC, ['PO No', 'PO No (Key)']),
+      part:     part || '—',
+      qty:      _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty'])),
+    };
+  }).filter(x => x.checksum || x.grnNo);
+}
+
+function renderStockRecon() {
+  const el = document.getElementById('mainContent'); if (!el) return;
+  _srkView = 'reconcile'; _srkSearch = '';
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+    <div><h1>&#9878; Stock Reconciliation</h1><p>Edit received GRN Qty (StockIN) &middot; every change is audit-logged to the AuditTrail tab</p></div>
+    <button class="btn btn-secondary btn-sm" onclick="_srkReload(this)">&#8635; Refresh</button>
+  </div></div>
+  <div style="display:flex;gap:.35rem;margin-bottom:1rem;flex-wrap:wrap">
+    <button id="srk-tab-reconcile" onclick="_srkSetView('reconcile')" class="btn btn-sm btn-primary">Reconcile</button>
+    <button id="srk-tab-audit" onclick="_srkSetView('audit')" class="btn btn-sm btn-secondary">&#128220; Audit Trail</button>
+  </div>
+  <div id="srk-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading StockIN data&hellip;</div></div>`;
+  Promise.all([_regEnsure(), _srkLoadColMap()]).then(() => { _srkRows = _srkBuildRows(); _srkRender(); })
+    .catch(() => { const b = document.getElementById('srk-body'); if (b) b.innerHTML = '<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load StockIN data.</div>'; });
+}
+window._srkReload = function(btn) { if (btn) { btn.disabled = true; btn.textContent = '⏳'; } Promise.all([_regEnsure(true), _srkLoadColMap(true)]).then(() => { _srkRows = _srkBuildRows(); _srkAudit = null; _srkRender(); }).catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }); };
+window._srkSetView = function(v) {
+  _srkView = v;
+  ['reconcile', 'audit'].forEach(k => { const b = document.getElementById('srk-tab-' + k); if (b) b.className = 'btn btn-sm ' + (k === v ? 'btn-primary' : 'btn-secondary'); });
+  _srkRender();
+};
+window._srkSetSearch = function(v) { _srkSearch = v; if (_srkView === 'reconcile') _srkFill(); };
+
+function _srkRender() {
+  const body = document.getElementById('srk-body'); if (!body) return;
+  if (_srkView === 'audit') { _srkRenderAudit(body); return; }
+  const canEdit = typeof userCan !== 'function' || userCan('stock-recon', 'edit');
+  const colWarn = (!_srkColLetter(['GRN Qty', 'GRN Quantity', 'Received Qty']) || !_srkColLetter(['CheckSum', 'Check Sum', 'UUID', 'SI ID']))
+    ? `<div class="card card-pad" style="margin-bottom:1rem;background:#fff3e0;color:#9a3412;font-size:.78rem">&#9888; Could not resolve the StockIN <b>GRN Qty</b> / <b>CheckSum</b> columns from the sheet header — editing is disabled until those headers exist in StockIN.</div>`
+    : '';
+  body.innerHTML = `${colWarn}
+    <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+      <input id="srkSearch" type="text" value="${_mdpEsc(_srkSearch)}" oninput="_srkSetSearch(this.value)" placeholder="Search GRN / PO / part / vendor / site&hellip;"
+        style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+      <span id="srkCount" style="font-size:.72rem;color:var(--txt3)"></span>
+    </div>
+    <div class="card"><table class="data-table" id="srkTable">
+      <thead><tr>
+        <th>GRN No</th><th>Received</th><th>Part</th><th>Site</th><th>Vendor</th>
+        <th style="text-align:right">GRN Qty</th>${canEdit ? '<th></th>' : ''}
+      </tr></thead>
+      <tbody id="srkTbody"></tbody>
+    </table></div>`;
+  _srkFill();
+  try { applyTableFeatures(); } catch (e) {}
+}
+function _srkVisible() {
+  let rows = _srkRows || [];
+  const q = _srkSearch.trim().toLowerCase();
+  if (q) rows = rows.filter(r => (r.grnNo + ' ' + r.poNo + ' ' + r.part + ' ' + r.vendor + ' ' + r.site).toLowerCase().includes(q));
+  return rows;
+}
+function _srkFill() {
+  const tb = document.getElementById('srkTbody'); if (!tb) return;
+  const esc = _mdpEsc;
+  const canEdit = typeof userCan !== 'function' || userCan('stock-recon', 'edit');
+  const rows = _srkVisible();
+  const cnt = document.getElementById('srkCount'); if (cnt) cnt.textContent = rows.length + ' receipt(s)';
+  const cols = canEdit ? 7 : 6;
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="${cols}" style="text-align:center;color:var(--txt3);padding:1.5rem">No StockIN records match.</td></tr>`; return; }
+  tb.innerHTML = rows.map(r => `<tr>
+    <td style="font-weight:600;color:var(--g7);font-family:monospace;font-size:.76rem">${esc(r.grnNo) || '—'}</td>
+    <td style="font-size:.78rem;white-space:nowrap">${_mdpFmtDate(r.received) || '—'}</td>
+    <td style="font-size:.8rem">${esc(r.part) || '—'}</td>
+    <td style="font-size:.78rem">${esc(r.site) || '—'}</td>
+    <td style="font-size:.78rem">${esc(r.vendor) || '—'}</td>
+    <td style="text-align:right;font-weight:600">${(r.qty || 0).toLocaleString('en-IN')}</td>
+    ${canEdit ? `<td style="text-align:right"><button onclick="_srkEdit('${esc(r.checksum)}')" class="btn btn-sm btn-secondary" style="font-size:.7rem">&#9998; Edit</button></td>` : ''}
+  </tr>`).join('');
+  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+}
+
+window._srkEdit = function(checksum) {
+  if (typeof userCan === 'function' && !userCan('stock-recon', 'edit')) { alert('You do not have permission to edit stock.'); return; }
+  const r = (_srkRows || []).find(x => x.checksum === checksum); if (!r) return;
+  const esc = _mdpEsc;
+  let ov = document.getElementById('srkEditOverlay'); if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'srkEditOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
+  ov.innerHTML = `<div class="card" style="max-width:460px;width:100%">
+    <div class="card-pad">
+      <div style="font-weight:700;font-size:1rem;margin-bottom:.15rem">Edit GRN Qty</div>
+      <div style="font-size:.76rem;color:var(--txt3);margin-bottom:.8rem">${esc(r.grnNo) || '(no GRN)'}${r.part ? ' &middot; ' + esc(r.part) : ''}</div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:.25rem .8rem;font-size:.76rem;margin-bottom:.9rem;color:var(--txt2)">
+        <span style="color:var(--txt3)">Site</span><span>${esc(r.site) || '—'}</span>
+        <span style="color:var(--txt3)">Vendor</span><span>${esc(r.vendor) || '—'}</span>
+        <span style="color:var(--txt3)">CheckSum</span><span style="font-family:monospace;font-size:.7rem;word-break:break-all">${esc(r.checksum) || '—'}</span>
+        <span style="color:var(--txt3)">Current Qty</span><span style="font-weight:700">${(r.qty || 0).toLocaleString('en-IN')}</span>
+      </div>
+      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">NEW GRN QTY</label>
+      <input id="srkNewQty" type="number" step="any" value="${r.qty}" style="width:100%;margin:.3rem 0 .8rem;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);font-size:.9rem;font-weight:600">
+      <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">REASON / REMARK (optional)</label>
+      <textarea id="srkRemark" rows="2" style="width:100%;margin-top:.3rem;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);font-size:.84rem;resize:vertical" placeholder="Why is this being corrected?"></textarea>
+      <div id="srkEditMsg" style="font-size:.74rem;color:var(--txt3);margin-top:.5rem;min-height:1em"></div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.6rem">
+        <button onclick="document.getElementById('srkEditOverlay').remove()" class="btn btn-sm btn-secondary">Cancel</button>
+        <button id="srkSaveBtn" onclick="_srkSave('${esc(r.checksum)}')" class="btn btn-sm" style="background:#15803d;color:#fff;border:none">Save &amp; Log</button>
+      </div>
+    </div>
+  </div>`;
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+  setTimeout(() => { const i = document.getElementById('srkNewQty'); if (i) { i.focus(); i.select(); } }, 40);
+};
+
+async function _srkPost(payload) {
+  const res = await fetch(APPS_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+  const j = await res.json().catch(() => ({}));
+  return !!(j && (j.success || j.ok));
+}
+window._srkSave = async function(checksum) {
+  const r = (_srkRows || []).find(x => x.checksum === checksum); if (!r) return;
+  const msg = document.getElementById('srkEditMsg');
+  const setMsg = (t, c) => { if (msg) { msg.textContent = t; msg.style.color = c || 'var(--txt3)'; } };
+  const inp = document.getElementById('srkNewQty');
+  const newQty = _opNum(inp && inp.value);
+  if (inp && (inp.value === '' || isNaN(parseFloat(inp.value)))) { setMsg('Enter a valid number.', 'var(--danger)'); return; }
+  if (newQty === (r.qty || 0)) { setMsg('New value is the same as current.', 'var(--danger)'); return; }
+  const qtyCol = _srkColLetter(['GRN Qty', 'GRN Quantity', 'Received Qty']);
+  const keyCol = _srkColLetter(['CheckSum', 'Check Sum', 'UUID', 'SI ID']);
+  if (!qtyCol || !keyCol) { setMsg('StockIN GRN Qty / CheckSum column not found in sheet header.', 'var(--danger)'); return; }
+  if (!r.checksum) { setMsg('This row has no CheckSum key — cannot match it safely.', 'var(--danger)'); return; }
+  const remark = (document.getElementById('srkRemark') || {}).value || '';
+  const btn = document.getElementById('srkSaveBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  setMsg('Writing to StockIN…');
+  try {
+    const ok = await _srkPost({ action: 'updateCell', sheetId: STORES_SHEET_ID, tab: 'StockIN', matchCol: keyCol, matchVal: r.checksum, updateCol: qtyCol, updateVal: String(newQty) });
+    if (!ok) throw new Error('stockin-write-failed');
+    // Audit row (generic schema — reused by Stock Out / Stock Transfer later).
+    const u = STATE.user || {};
+    const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', r.grnNo || '', r.checksum || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
+    await _srkPost({ action: 'appendRow', sheetId: STORES_SHEET_ID, tab: 'AuditTrail', row: auditRow });
+    r.qty = newQty;                       // reflect locally
+    _srkAudit = null;                     // audit view will re-fetch
+    const ov = document.getElementById('srkEditOverlay'); if (ov) ov.remove();
+    _srkFill();
+    if (typeof _accToast === 'function') _accToast(`GRN Qty updated to ${newQty.toLocaleString('en-IN')} and logged.`);
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Save &amp; Log'; }
+    setMsg('Save failed — check backend / sheet access.', 'var(--danger)');
+  }
+};
+
+async function _srkRenderAudit(body) {
+  body.innerHTML = `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading audit trail&hellip;</div>`;
+  if (!_srkAudit) {
+    try { _srkAudit = await fetchSheet('AuditTrail', null, STORES_SHEET_ID, { rawId: true }) || []; }
+    catch (e) { _srkAudit = []; }
+  }
+  const rows = (_srkAudit || []).slice().reverse();   // newest first
+  body.innerHTML = `<div id="srk-audit-box"></div>`;
+  _procRegRender('srk-audit-box', rows, null, 'No audit-trail entries yet.');
 }
 
 // ── ACCOUNTS STATUS MASTER ──────────────────────────────
@@ -12179,6 +12550,7 @@ const MODULE_REGISTRY = [
   { route:'stores-openpo',     label:'Open PO Report',         section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-stockout',   label:'Stores · StockOut Register',  section:'Procurement', defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-stocktransfer', label:'Stores · StockTransfer', section:'Procurement',   defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
+  { route:'stock-recon',       label:'Stock Reconciliation',   section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'stores-levels',     label:'Stores · Stock Levels',  section:'Procurement',      defStatus:'live', defRoles:['md','purchase','site','dept_head'] },
   { route:'vendor',            label:'Vendor Portal',          section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts','dept_head'] },
   { route:'subcontractor',     label:'Subcontractor Portal',   section:'Procurement',      defStatus:'live', defRoles:['md','purchase','accounts'] },
@@ -12971,6 +13343,7 @@ function renderExecEndpointsCard() {
           <button onclick="execTestAll()" class="btn btn-secondary btn-sm" style="font-size:.74rem">▶︎ Test all</button>
           <button onclick="execCopyDiagnostics()" class="btn btn-secondary btn-sm" style="font-size:.74rem" title="After Test all, copy detailed diagnostics for sharing">📋 Copy diag</button>
           <button onclick="execResetAll()" class="btn btn-secondary btn-sm" style="font-size:.74rem">Reset all</button>
+          <button onclick="execForcePushSheets(this)" class="btn btn-secondary btn-sm" id="execForceBtn" style="font-size:.74rem;border-color:#f0a500;color:#b07000" title="Force the CODE default endpoint URLs into the PortalConfig sheet (T2, org-wide) AND this browser (T1), overriding any stale endpoint values everywhere">&#11015; Force update Sheets &amp; T1</button>
           <button onclick="execSaveAll()" class="btn btn-primary btn-sm" id="execSaveBtn" style="font-size:.74rem">&#10003; Save endpoints</button>
         </div>
       </div>
@@ -13019,6 +13392,32 @@ window.execSaveAll = function() {
     btn.style.background = '#16a34a';
     setTimeout(() => { renderDevModePage(); }, 900);
   }
+};
+
+// Force the compiled CODE default endpoint URLs into the PortalConfig sheet (T2,
+// org-wide) AND this browser's localStorage override (T1). This is what makes a
+// freshly-updated exec URL in code win everywhere — otherwise a stale T1/T2 value
+// keeps shadowing the new default (getExec: T1 → T2 → compiled default).
+window.execForcePushSheets = async function(btn) {
+  if (!confirm('Force the code default endpoint URLs into the PortalConfig sheet (org-wide) and this browser?\n\nThis overrides any custom/stale endpoint values everywhere so the latest code URLs take effect.')) return;
+  if (btn) { btn.dataset.t = btn.innerHTML; btn.disabled = true; btn.textContent = 'Pushing…'; }
+  const keys = Object.keys(EXEC_REGISTRY_DEFAULTS);
+  const map = {};
+  keys.forEach(k => { map[k] = EXEC_REGISTRY_DEFAULTS[k].defaultUrl; });
+  // T1 — localStorage override (this browser, instant)
+  setExecOverrides(map);
+  // T2 — PortalConfig sheet rows exec_<key> (org-wide, raw string)
+  let okN = 0; const fails = [];
+  for (const k of keys) {
+    const res = await _pcWriteRaw('exec_' + k, map[k]);
+    if (res.ok) okN++; else fails.push(k + ' (' + (res.message || '?') + ')');
+  }
+  try { eval('APPS_SCRIPT_URL = getExec(\'main\')'); eval('PIN_API_URL = getExec(\'pinReset\')'); } catch (e) {}
+  if (btn) { btn.disabled = false; btn.innerHTML = btn.dataset.t || '&#11015; Force update Sheets &amp; T1'; }
+  alert(fails.length
+    ? `Pushed ${okN}/${keys.length} to Sheets + T1.\nFailed: ${fails.join('; ')}\n\n(Check the PortalConfig backend URL is reachable.)`
+    : `✅ Force-pushed all ${okN} endpoint URLs to the PortalConfig sheet (org-wide) and this browser (T1). The latest code URLs now win everywhere.`);
+  try { renderDevModePage(); } catch (e) {}
 };
 
 window.execResetOne = function(key) {
@@ -13350,6 +13749,23 @@ async function pcWriteJSON(key, valueObj) {
     return data.success ? { ok: true } : { ok: false, message: data.message || 'Save failed' };
   } catch (e) { return { ok: false, message: e.message }; }
 }
+// Write a RAW string value (not JSON-wrapped) to a PortalConfig key. Used for
+// exec_* endpoint rows, which getExec() reads as a plain URL (never JSON-parsed).
+async function _pcWriteRaw(key, rawValue) {
+  try { localStorage.removeItem('pc_' + key); } catch (e) {}
+  if (window._SHEET_CONFIG) window._SHEET_CONFIG[key] = rawValue;
+  const url = _pcWriteUrl();
+  if (!url) return { ok: false, message: 'No PortalConfig backend URL set' };
+  try {
+    const r = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'savePortalConfig', key, value: rawValue,
+        updatedBy: (STATE && STATE.user && STATE.user.email) || 'unknown' }),
+    });
+    const d = await r.json();
+    return d.success ? { ok: true } : { ok: false, message: d.message || 'Save failed' };
+  } catch (e) { return { ok: false, message: e.message }; }
+}
 
 // ── Sheet linking: editable {id, tab} per data source, consumed live ──
 // Every Google Sheet the portal reads, grouped by source spreadsheet. Each
@@ -13408,6 +13824,8 @@ const MODULE_ACTIONS = {
   'mrs-list':          ['view','export'],
   'stores-stockout':   ['view','export'],
   'stores-stocktransfer': ['view','export'],
+  'stock-recon':       ['view','edit'],
+  'purchase-view':     ['view','approve-md','approve-scm','reject-md','reject-scm'],
 };
 function uaActionsFor(route) { return MODULE_ACTIONS[route] || ['view']; }
 
@@ -13425,16 +13843,161 @@ function uaSeedGroups() {
     return { id:'role_'+r.key, name:r.label, desc:'Seeded from the "'+r.key+'" role', color:palette[i%palette.length], routes, actions };
   });
 }
+// Managed groups whose membership is stored compactly in emp_group_sync — it
+// must NEVER be materialised into access_config.users (that oversizes the cell
+// and breaks the write). Kept as literals to avoid const temporal-dead-zone.
+const _UA_MANAGED_GIDS = ['grp_users', 'grp_deactivated'];
+function _uaStripManaged(users) {
+  let changed = false;
+  for (const em of Object.keys(users || {})) {
+    const rec = users[em];
+    if (!rec || !Array.isArray(rec.groups)) continue;
+    const before = rec.groups.length;
+    rec.groups = rec.groups.filter(g => !_UA_MANAGED_GIDS.includes(g));
+    if (rec.groups.length !== before) changed = true;
+    if (!rec.groups.length) { delete users[em]; changed = true; }
+  }
+  return changed;
+}
 function uaGetDraft() {
   if (window._uaDraft) return window._uaDraft;
   let cfg = pcReadJSON('access_config', null);
   if (!cfg) cfg = { enforce:false, groups: uaSeedGroups(), users:{} };
   cfg.groups = cfg.groups || []; cfg.users = cfg.users || {};
   cfg.superAdmins = Array.isArray(cfg.superAdmins) ? cfg.superAdmins : [];
+  // Auto-managed memberships live in emp_group_sync — never keep them here.
+  _uaStripManaged(cfg.users);
   window._uaDraft = cfg;
   return cfg;
 }
 function uaGroup(gid) { return uaGetDraft().groups.find(g => g.id === gid); }
+
+// ── Auto-assign employees to the Users / Deactivated groups by default ──
+// Every employee in the Employee Register is mapped to an access group:
+//   Employee Status = Current   → "Users" group
+//   Employee Status <> Current  → "Deactivated User Profiles" group
+//
+// IMPORTANT: the per-employee membership is stored in its OWN compact config
+// key `emp_group_sync` = { at, map:{ email: 'u'|'d' } } — NOT inside
+// access_config. Cramming ~333 employees into access_config.users blew past
+// Google Sheets' 50,000-char-per-cell limit and the backend write failed
+// ("Failed to fetch"). Keeping it separate & compact keeps every write small.
+// access_config only holds the two GROUP DEFINITIONS (routes/actions). At read
+// time enforcement merges the auto map with any manual assignments.
+const UA_USERS_GID       = 'grp_users';
+const UA_DEACTIVATED_GID = 'grp_deactivated';
+const UA_AUTOSYNC_MS     = 24 * 60 * 60 * 1000;
+
+function _uaEnsureDefaultGroups(draft) {
+  let changed = false;
+  if (!draft.groups.some(g => g.id === UA_USERS_GID)) {
+    const cfg = loadPortalConfig();
+    const routes = MODULE_REGISTRY.filter(m => {
+      const mc = cfg.modules[m.route] || { status: m.defStatus, roles: m.defRoles };
+      return mc.status === 'live' && mc.roles.includes('employee');
+    }).map(m => m.route);
+    const actions = {}; routes.forEach(rt => { actions[rt] = ['view']; });
+    draft.groups.push({ id: UA_USERS_GID, name: 'Users', desc: 'All current employees (auto-managed)', color: '#0ea5e9', routes, actions });
+    changed = true;
+  }
+  if (!draft.groups.some(g => g.id === UA_DEACTIVATED_GID)) {
+    draft.groups.push({ id: UA_DEACTIVATED_GID, name: 'Deactivated User Profiles', desc: 'Employees whose status is not Current (auto-managed) — no access', color: '#dc2626', routes: [], actions: {} });
+    changed = true;
+  }
+  return changed;
+}
+
+// Build the compact { email: 'u'|'d' } map from the loaded Employee Register.
+function _uaBuildEmpMap() {
+  const emps = (STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
+  const map = {};
+  emps.forEach(u => {
+    const email = (u.email || '').trim().toLowerCase();
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
+    // status==='ACTIVE' is derived from Employee Status === 'CURRENT' (see loadAllMasters).
+    map[email] = (u.status === 'ACTIVE') ? 'u' : 'd';
+  });
+  return map;
+}
+
+// The auto-assigned group id for an email (or null), read from emp_group_sync.
+function _uaAutoGidForEmail(email) {
+  const s = pcReadJSON('emp_group_sync', null);
+  if (!s || !s.map) return null;
+  const v = s.map[(email || '').toLowerCase().trim()];
+  return v === 'u' ? UA_USERS_GID : v === 'd' ? UA_DEACTIVATED_GID : null;
+}
+
+// Effective group ids for an email = manual assignments (access_config.users)
+// ∪ the auto-assigned group. Used by enforcement and the Access page.
+function _uaGroupsForEmail(acc, email) {
+  email = (email || '').toLowerCase().trim();
+  const manual = (((acc && acc.users) || {})[email] || {}).groups || [];
+  const auto = _uaAutoGidForEmail(email);
+  return auto ? [...new Set([...manual, auto])] : manual.slice();
+}
+
+// All emails auto-assigned to a given managed group (for the Access page).
+function _uaAutoMembersOf(gid) {
+  const s = pcReadJSON('emp_group_sync', null);
+  if (!s || !s.map) return [];
+  const want = gid === UA_USERS_GID ? 'u' : gid === UA_DEACTIVATED_GID ? 'd' : null;
+  if (!want) return [];
+  return Object.keys(s.map).filter(e => s.map[e] === want);
+}
+
+// Reconcile + persist. Returns { ok, changed, skipped?, message?, at? }.
+async function _uaAutoSyncEmployees(opts) {
+  opts = opts || {};
+  const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || STATE.role === 'md';
+  if (!isAdmin) return { ok: false, skipped: 'not-admin' };
+  const emps = (STATE.masters && Array.isArray(STATE.masters.users)) ? STATE.masters.users : [];
+  if (!emps.length) return { ok: false, skipped: 'no-employees' };
+
+  const sync = pcReadJSON('emp_group_sync', null) || {};
+  const last = Date.parse(sync.at || '') || 0;
+  if (!opts.force && (Date.now() - last) < UA_AUTOSYNC_MS) return { ok: true, skipped: 'throttled', at: sync.at };
+
+  // Ensure the two managed group DEFINITIONS exist in access_config, and MIGRATE
+  // away the old approach that stored every employee under access_config.users
+  // (that oversized the cell and broke the write). Strip the managed gids from
+  // manual assignments and drop now-empty entries so access_config stays small.
+  let cfg = pcReadJSON('access_config', null) || { enforce: false, groups: uaSeedGroups(), users: {} };
+  cfg.groups = cfg.groups || []; cfg.users = cfg.users || {};
+  cfg.superAdmins = Array.isArray(cfg.superAdmins) ? cfg.superAdmins : [];
+  let cfgChanged = _uaEnsureDefaultGroups(cfg);
+  if (_uaStripManaged(cfg.users)) cfgChanged = true;
+  if (cfgChanged) {
+    const r0 = await pcWriteJSON('access_config', cfg);
+    if (!r0.ok) return { ok: false, message: r0.message };
+    if (STATE.currentPage !== 'access-pages') window._uaDraft = null;
+  }
+
+  // Write the compact employee→group map in its own key.
+  const map = _uaBuildEmpMap();
+  const res = await pcWriteJSON('emp_group_sync', { at: new Date().toISOString(), map });
+  if (res.ok) {
+    try { applyPortalConfig(); if (typeof applyRoleNavRestrictions === 'function') applyRoleNavRestrictions(STATE.role); } catch (e) {}
+  }
+  return { ok: res.ok, changed: true, message: res.message };
+}
+
+// Install the periodic re-check (idempotent). Self-throttles to once per 24h
+// via emp_group_sync.at, so an hourly tick is cheap and guarantees the sync
+// fires roughly every 24h for any long-lived admin session.
+function _uaStartAutoSync() {
+  if (window._uaAutoSyncStarted) return;
+  window._uaAutoSyncStarted = true;
+  _uaAutoSyncEmployees().catch(() => {});
+  setInterval(() => { _uaAutoSyncEmployees().catch(() => {}); }, 60 * 60 * 1000);
+}
+
+function _uaLastSyncLabel() {
+  const s = pcReadJSON('emp_group_sync', null);
+  if (!s || !s.at) return 'never';
+  const d = new Date(s.at);
+  return isNaN(d.getTime()) ? 'never' : d.toLocaleString('en-IN');
+}
 
 // The access *super-admin* — the person who manages access groups. Identified
 // by email (or the dedicated admin account), NOT by the md role: a Director/
@@ -13482,10 +14045,10 @@ function _accessRouteSetForCurrentUser() {
   if (!acc || !acc.enforce) return null;
   const email = ((STATE && STATE.user && STATE.user.email) || '').toLowerCase().trim();
   if (!email) return null;
-  const u = (acc.users || {})[email];
-  if (!u || !Array.isArray(u.groups) || !u.groups.length) return null;
+  const groups = _uaGroupsForEmail(acc, email);
+  if (!groups.length) return null;
   const set = new Set(['dashboard','my-profile','my-documents']); // always-on core
-  u.groups.forEach(gid => {
+  groups.forEach(gid => {
     const g = (acc.groups || []).find(x => x.id === gid);
     if (g && Array.isArray(g.routes)) g.routes.forEach(rt => set.add(rt));
   });
@@ -13502,11 +14065,11 @@ function userCan(route, action) {
   const acc = pcReadJSON('access_config', null);
   if (!acc || !acc.enforce) return action === 'view' ? getRouteSet(role).has(route) : true;
   const email = ((STATE.user && STATE.user.email) || '').toLowerCase().trim();
-  const u = (acc.users || {})[email];
-  if (!u || !Array.isArray(u.groups) || !u.groups.length) {
+  const groups = _uaGroupsForEmail(acc, email);
+  if (!groups.length) {
     return action === 'view' ? getRouteSet(role).has(route) : true;
   }
-  for (const gid of u.groups) {
+  for (const gid of groups) {
     const g = (acc.groups || []).find(x => x.id === gid);
     if (!g) continue;
     if (action === 'view') { if ((g.routes || []).includes(route)) return true; }
@@ -13749,7 +14312,7 @@ function _cfgRenderAccess() {
   const currentEmps = emps
     .filter(u => u.status === 'ACTIVE' && u.email)
     .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-  const _uaIsMember = (email) => !!(sel && draft.users[email] && (draft.users[email].groups || []).includes(sel.id));
+  const _uaIsMember = (email) => !!(sel && _uaGroupsForEmail(draft, email).includes(sel.id));
   // Searchable, click-to-add result list (filtered by name / email / dept).
   function empResultsHtml(q) {
     if (!currentEmps.length) return `<div style="padding:.8rem;text-align:center;color:var(--txt3);font-size:.74rem">${emps.length ? 'No current employees with a Mail ID' : 'Loading employees…'}</div>`;
@@ -13772,8 +14335,12 @@ function _cfgRenderAccess() {
   }
   const _uaQuery = window._uaEmpQuery || '';
 
-  // Member count per group
-  const memberCount = (gid) => Object.values(draft.users).filter(u => (u.groups || []).includes(gid)).length;
+  // Member count per group — manual assignments ∪ auto-assigned employees.
+  const memberCount = (gid) => {
+    const manual = Object.entries(draft.users).filter(([e, u]) => (u.groups || []).includes(gid)).map(([e]) => e);
+    const auto = _uaAutoMembersOf(gid);
+    return new Set([...manual, ...auto]).size;
+  };
 
   const groupListHtml = draft.groups.map(g => {
     const on = sel && g.id === sel.id;
@@ -13798,12 +14365,25 @@ function _cfgRenderAccess() {
     <div class="card card-pad" style="margin-bottom:1rem">
       <div style="font-weight:700;font-size:.82rem;color:var(--g9);margin-bottom:.5rem">&#128101; Members</div>
       <div id="uaMembers" style="display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.6rem">
-        ${Object.entries(draft.users).filter(([e,u])=>(u.groups||[]).includes(sel.id)).map(([e])=>{
-          const emp = emps.find(u => String(u.email).toLowerCase() === e);
-          const nm = emp ? (emp.name || emp.employeeRef || e) : e;
-          return `<span title="${e}" style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 6px 3px 10px;font-size:.74rem">
-            ${nm}<button onclick="uaRemoveUser('${e}','${sel.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px">&times;</button></span>`;}).join('')
-        || '<span style="font-size:.74rem;color:var(--txt3)">No users assigned yet</span>'}
+        ${(() => {
+          const manual = Object.entries(draft.users).filter(([e,u])=>(u.groups||[]).includes(sel.id)).map(([e])=>e);
+          const manualSet = new Set(manual);
+          const auto = _uaAutoMembersOf(sel.id).filter(e => !manualSet.has(e));
+          const CAP = 60;
+          const chip = (e, isAuto) => {
+            const emp = emps.find(u => String(u.email).toLowerCase() === e);
+            const nm = emp ? (emp.name || emp.employeeRef || e) : e;
+            // Auto members are managed by the 24h sync — no manual remove button.
+            const rm = isAuto ? '<span style="font-size:.6rem;color:var(--txt3);margin-left:2px">auto</span>'
+              : `<button onclick="uaRemoveUser('${e}','${sel.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px">&times;</button>`;
+            return `<span title="${e}" style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 6px 3px 10px;font-size:.74rem">${nm}${rm}</span>`;
+          };
+          const manualChips = manual.map(e => chip(e, false)).join('');
+          const autoShown = auto.slice(0, CAP).map(e => chip(e, true)).join('');
+          const moreNote = auto.length > CAP ? `<span style="font-size:.7rem;color:var(--txt3);align-self:center">+${auto.length - CAP} more auto-assigned</span>` : '';
+          const anything = manual.length || auto.length;
+          return anything ? (manualChips + autoShown + moreNote) : '<span style="font-size:.74rem;color:var(--txt3)">No users assigned yet</span>';
+        })()}
       </div>
       <input id="uaEmpSearch" value="${_uaQuery}" oninput="uaEmpFilter(this.value)" autocomplete="off"
         placeholder="&#128269; Search current employees by name, email or department…"
@@ -13889,6 +14469,18 @@ function _cfgRenderAccess() {
           onkeydown="if(event.key==='Enter'){event.preventDefault();uaAddSuperAdmin(this.value);}"
           style="flex:1;min-width:220px;padding:7px 11px;border:1px solid var(--border);border-radius:7px;font-size:.8rem;background:var(--surface2);color:var(--txt)">
         <button onclick="uaAddSuperAdmin(document.getElementById('uaSaEmail').value)" class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;padding:.5rem 1.1rem;font-weight:700">+ Add super admin</button>
+      </div>
+    </div>
+
+    <!-- Auto-assignment: Users / Deactivated User Profiles -->
+    <div class="card card-pad" style="margin-bottom:1.1rem;border-left:4px solid #0ea5e9">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:700;color:var(--g9)">&#128101; Auto-assign employees</div>
+          <div style="font-size:.78rem;color:var(--txt3);margin-top:.2rem">Every employee is added by default to a group based on Employee Register status: <strong>Current &rarr; Users</strong>, <strong>not Current &rarr; Deactivated User Profiles</strong>. Runs automatically every 24&nbsp;hours. Manual group assignments are left untouched.</div>
+          <div style="font-size:.72rem;color:var(--txt3);margin-top:.35rem">Last sync: <strong>${_uaLastSyncLabel()}</strong></div>
+        </div>
+        <button onclick="uaSyncEmployeesNow()" class="btn btn-sm" id="uaSyncNowBtn" style="background:#0ea5e9;color:#fff;border:none;padding:.55rem 1.2rem;font-weight:700;white-space:nowrap">&#8635; Sync now</button>
       </div>
     </div>
 
@@ -13980,6 +14572,22 @@ function _cfgRenderAccess() {
     uaDirty(); _cfgRenderAccess();
   };
   window.uaToggleEnforce = function(on) { uaGetDraft().enforce = !!on; uaDirty(); _cfgRenderAccess(); };
+  window.uaSyncEmployeesNow = async function() {
+    const b = document.getElementById('uaSyncNowBtn');
+    if (b) { b.disabled = true; b.textContent = 'Syncing…'; }
+    // Ensure the Employee Register is loaded before reconciling.
+    if ((!STATE.masters || !(STATE.masters.users || []).length) && typeof loadAllMasters === 'function') {
+      try { await loadAllMasters(); } catch (e) {}
+    }
+    const res = await _uaAutoSyncEmployees({ force: true });
+    if (res.ok) {
+      window._uaDraft = null;   // reload the editor with the new memberships
+      _cfgRenderAccess();
+    } else {
+      if (b) { b.disabled = false; b.textContent = '↻ Sync now'; }
+      alert('Sync failed: ' + (res.message || res.skipped || 'unknown error'));
+    }
+  };
   window.uaAddSuperAdmin = function(email) {
     email = (email || '').trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert('Enter a valid Mail ID, e.g. name@evgcpl.com'); return; }
@@ -14003,7 +14611,11 @@ function _cfgRenderAccess() {
   window.uaSave = async function() {
     const b = document.getElementById('uaSaveBtn');
     if (b) { b.innerHTML = 'Saving…'; b.style.background = '#92400e'; }
-    const res = await pcWriteJSON('access_config', uaGetDraft());
+    const draft = uaGetDraft();
+    // Never persist auto-managed memberships here — they live in emp_group_sync.
+    // Guards against a stale/bloated draft oversizing the cell (→ "Failed to fetch").
+    _uaStripManaged(draft.users);
+    const res = await pcWriteJSON('access_config', draft);
     if (res.ok) {
       try { applyPortalConfig(); applyRoleNavRestrictions(STATE.role); } catch (e) {}
       if (b) { b.innerHTML = '&#10003; Saved &amp; applied'; b.style.background = '#16a34a'; b.style.color = '#fff'; }
@@ -16663,7 +17275,7 @@ const SAFETY_SHEET_ID = '1B8P0PawV43ksazbzhKsil1X6-INOfxx9PFvGycNOvDY';
 // DailyChecks columns: A=Timestamp B=Site C=Date D=SubmittedBy E=Score F=TotalChecks G..P=check items
 async function safetyWriteToSheet(tab, rowData) {
   try {
-    const res = await fetch(APPS_SCRIPT_URL, {
+    const res = await fetch(getExec('safety'), {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ action: 'appendRow', sheetId: SAFETY_SHEET_ID, tab, row: rowData }),
@@ -16938,7 +17550,7 @@ function renderSafetyModule() {
 
     // Write-back to Safety Sheet via Apps Script — update Status column (Col I)
     try {
-      const res = await fetch(APPS_SCRIPT_URL, {
+      const res = await fetch(getExec('safety'), {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify({
@@ -21744,6 +22356,9 @@ async function loadAllMasters() {
 
   STATE.mastersLoaded = true;
   console.log(`✅ Masters loaded — Sites:${STATE.masters.sites.length} Employees:${STATE.masters.users.length} Mess:${STATE.masters.mess.length} Assets:${STATE.masters.assets.length} Vendors:${STATE.masters.vendors.length} SCs:${STATE.masters.subcontractors.length}`);
+  // Employees are now loaded — start the 24h auto-assignment of employees to
+  // the Users / Deactivated User Profiles access groups (admin sessions only).
+  try { if (typeof _uaStartAutoSync === 'function') _uaStartAutoSync(); } catch (e) {}
 }
 
 // Legacy aliases
