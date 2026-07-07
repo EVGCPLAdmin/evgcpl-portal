@@ -5349,14 +5349,12 @@ function _vplpGRNReviewView() {
     const chip = isApp(l) ? '<span style="font-size:.66rem;font-weight:700;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9px">Approved</span>'
       : isRej(l) ? '<span style="font-size:.66rem;font-weight:700;background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9px">Rejected</span>'
       : '<span style="font-size:.66rem;font-weight:700;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px">Pending</span>';
-    const rateVal = (l.rev && l.rev.rate > 0) ? l.rev.rate : (l.poRate || '');
-    const addlVal = (l.rev && l.rev.addl) || '';
     const ro = canReview ? '' : ' disabled';
-    // Value = the reviewed line value. Defaults to qty×rate + addl, but editable
-    // directly (an override wins over rate). Pre-set from the saved review.
-    const valDefault = (l.qty || 0) * ((l.rev && l.rev.rate > 0) ? l.rev.rate : l.poRate) + ((l.rev && l.rev.addl) || 0);
-    const valVal = (l.rev && l.rev.value > 0) ? l.rev.value : (valDefault ? Math.round(valDefault * 100) / 100 : '');
-    const valTouched = (l.rev && l.rev.value > 0) ? ' data-touched="1"' : '';
+    // Only the FINAL VALUE (amount) is editable. Rate + PO Amount are read-only
+    // reference; the value defaults to the PO amount (qty × PO rate) or the
+    // saved reviewed value.
+    const poAmt = (l.qty || 0) * (l.poRate || 0);
+    const valVal = (l.rev && l.rev.value > 0) ? l.rev.value : (poAmt ? Math.round(poAmt * 100) / 100 : '');
     return `<tr>
       <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
@@ -5365,9 +5363,8 @@ function _vplpGRNReviewView() {
       <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
       <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
-      <td style="padding:6px 9px;text-align:right"><input id="grn-rate-${i}" type="number" step="0.01" value="${esc(rateVal)}"${ro} oninput="_vplpGRNCalc(${i})" style="width:88px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
-      <td style="padding:6px 9px;text-align:right"><input id="grn-addl-${i}" type="number" step="0.01" value="${esc(addlVal)}"${ro} oninput="_vplpGRNCalc(${i})" placeholder="0" style="width:80px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
-      <td style="padding:6px 9px;text-align:right"><input id="grn-val-${i}" type="number" step="0.01" value="${esc(valVal)}"${ro}${valTouched} oninput="this.dataset.touched=1" title="Edit the line value directly (overrides rate)" style="width:104px;text-align:right;font-weight:700;color:#15803d;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(poAmt)}</td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-val-${i}" type="number" step="0.01" value="${esc(valVal)}"${ro} title="Final amount for this item (what credits the ledger)" style="width:108px;text-align:right;font-weight:700;color:#15803d;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
       <td style="padding:6px 9px">${chip}</td>
       <td style="padding:6px 9px;white-space:nowrap">${canReview ? `<button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : '—'}</td>
     </tr>`;
@@ -5377,27 +5374,21 @@ function _vplpGRNReviewView() {
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">GRN</th><th style="padding:8px 9px">PO No</th><th style="padding:8px 9px">Vendor</th>
         <th style="padding:8px 9px">Part</th><th style="padding:8px 9px">Invoice</th><th style="padding:8px 9px;text-align:right">Qty</th>
-        <th style="padding:8px 9px;text-align:right">PO Rate</th><th style="padding:8px 9px;text-align:right">Reviewed Rate</th>
-        <th style="padding:8px 9px;text-align:right">Add'l Charges</th><th style="padding:8px 9px;text-align:right">Value</th>
+        <th style="padding:8px 9px;text-align:right">PO Rate</th><th style="padding:8px 9px;text-align:right">PO Amount</th>
+        <th style="padding:8px 9px;text-align:right">Final Value</th>
         <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Review</th>
       </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 // Live-recompute the Value field from qty × rate + addl, unless the user has
 // typed a value directly (data-touched).
-window._vplpGRNCalc = function(i) {
-  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
-  const v = document.getElementById('grn-val-' + i); if (!v || v.dataset.touched) return;
-  const rate = parseFloat((document.getElementById('grn-rate-' + i) || {}).value) || 0;
-  const addl = parseFloat((document.getElementById('grn-addl-' + i) || {}).value) || 0;
-  v.value = (Math.round(((l.qty || 0) * rate + addl) * 100) / 100) || '';
-};
 window._vplpGRNSubmit = async function(i, action) {
   const l = (window._vplpGRNShown || [])[i]; if (!l) return;
   if (!_grnCanReview()) { _accToast('🔒 Only Accounts can review GRNs.'); return; }
   if (!l.siId) { _accToast('⚠ This StockIN line has no SI ID — cannot review.'); return; }
   if (!GRN_REVIEW_SHEET_ID) { _accToast('⚠ GRN Review sheet not configured — set GRN_REVIEW_SHEET_ID to save.'); return; }
   const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
-  const rate = num('grn-rate-' + i), addl = num('grn-addl-' + i), value = num('grn-val-' + i);
+  const value = num('grn-val-' + i);   // the ONLY editable field — final amount
+  if (/approv/i.test(action) && !(value > 0)) { _accToast('⚠ Enter the final amount for this item.'); return; }
   const email = (STATE.user && STATE.user.email) || '';
   const row = {
     'UUID': 'GRV-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -5406,8 +5397,7 @@ window._vplpGRNSubmit = async function(i, action) {
     'Reviewed By': (STATE.user && (STATE.user.name || STATE.user.email)) || '',
     'SI ID': l.siId, 'GRN No': l.grn, 'PO No': l.poNo, 'Vendor ID': l.vid, 'Part': l.part,
     'Invoice No': l.inv, 'GRN Qty': l.qty, 'PO Rate': l.poRate,
-    'Reviewed Rate': isNaN(rate) ? (l.poRate || 0) : rate,
-    'Additional Charges': isNaN(addl) ? 0 : addl,
+    'Reviewed Rate': '', 'Additional Charges': '',
     'Reviewed Value': isNaN(value) ? '' : value,
     'Review Status': action, 'Comments': '',
   };

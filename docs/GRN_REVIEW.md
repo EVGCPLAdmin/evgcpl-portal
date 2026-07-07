@@ -32,9 +32,11 @@ PO No | Vendor ID | Part | Invoice No | GRN Qty | PO Rate | Reviewed Rate |
 Additional Charges | Reviewed Value | Review Status | Comments
 ```
 
-- **`Reviewed Value`** — Accounts may set the line value **directly** (overrides
-  `qty × Reviewed Rate + Additional Charges`). Leave it blank to let the value be
-  computed from the rate. When present (> 0) it is what credits the ledger.
+- **`Reviewed Value`** — the **only** field Accounts edit in the queue: the final
+  amount for that item (what credits the ledger). It defaults to the PO amount
+  (`GRN Qty × PO Rate`), shown read-only alongside. `Reviewed Rate` /
+  `Additional Charges` are no longer entered via the UI (kept in the schema for
+  older records); PO Rate + PO Amount are display-only reference.
 
 - **`SI ID`** is the join key — the StockIN line's own ID (the portal reads it
   from the StockIN `SI ID` column). One review per SI ID; the **latest** row per
