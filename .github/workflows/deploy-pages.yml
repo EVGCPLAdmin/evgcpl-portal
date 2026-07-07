@@ -3,8 +3,19 @@ name: Deploy to GitHub Pages
 # Replaces the managed "Deploy from a branch" pipeline, which had no concurrency
 # control: rapid successive pushes to main triggered overlapping Pages
 # deployments, and GitHub Pages (one deployment in flight at a time) failed the
-# loser with "Deployment failed, try again later." The `concurrency` group below
-# serialises deploys so each completes instead of colliding.
+# loser with "Deployment failed, try again later."
+#
+# Two-part fix for that error:
+#  1. concurrency `cancel-in-progress: true` — squash-merges to main often land
+#     seconds apart; we only ever need the LATEST commit live, so a newer push
+#     cancels the older queued/in-flight run instead of piling up back-to-back
+#     Pages deployments that race each other. Pages swaps are atomic server-side,
+#     so cancelling a superseded run never leaves the site half-deployed.
+#  2. An automatic retry on the deploy step. Even serialised, the Pages backend
+#     needs a few seconds to finalise the previous deployment; if a new one is
+#     created during that window the first status poll returns "try again later"
+#     and actions/deploy-pages@v4 gives up immediately. We let that first attempt
+#     fail soft, wait, and deploy once more — which clears the transient error.
 #
 # ONE-TIME REPO SETTING REQUIRED: Settings → Pages → Build and deployment →
 # Source → "GitHub Actions" (so this workflow owns the deploy instead of the
@@ -20,17 +31,18 @@ permissions:
   pages: write
   id-token: write
 
-# Only one Pages deployment at a time. Do NOT cancel an in-progress deploy —
-# let production deployments finish; newer queued runs wait their turn.
+# Collapse rapid successive pushes to main down to the newest commit: a newer
+# run cancels an older superseded one rather than queueing another Pages
+# deployment behind it. Only the latest main needs to be live.
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -41,6 +53,18 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
+      # First attempt. Fail soft so a transient "try again later" from the Pages
+      # backend doesn't turn the run red — the retry below clears it.
       - name: Deploy to GitHub Pages
         id: deployment
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+      # Give the Pages backend time to finish finalising any just-completed
+      # deployment before we create another one.
+      - name: Wait before retry
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 30
+      - name: Deploy to GitHub Pages (retry)
+        id: deployment_retry
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4
