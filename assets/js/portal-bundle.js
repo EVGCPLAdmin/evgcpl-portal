@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.39.3';
-const PORTAL_BUILD    = 668;
-const PORTAL_BUILD_AT = '2026-07-07T02:38:31Z';
+const PORTAL_VERSION  = '4.39.4';
+const PORTAL_BUILD    = 669;
+const PORTAL_BUILD_AT = '2026-07-07T02:57:54Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -9359,10 +9359,24 @@ window._srkEdit = function(checksum) {
   setTimeout(() => { const i = document.getElementById('srkNewQty'); if (i) { i.focus(); i.select(); } }, 40);
 };
 
+// Returns { ok, error, raw } so the caller can surface the *real* backend
+// message instead of a generic failure. Accepts the several success shapes the
+// Apps Script handlers use (success / ok / updated / status:'success').
 async function _srkPost(payload) {
-  const res = await fetch(APPS_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
-  const j = await res.json().catch(() => ({}));
-  return !!(j && (j.success || j.ok));
+  let res, txt = '';
+  try {
+    res = await fetch(APPS_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+    txt = await res.text();
+  } catch (e) { return { ok: false, error: 'Network error reaching backend (' + (e && e.message || 'fetch failed') + ')', raw: null }; }
+  let j = null; try { j = JSON.parse(txt); } catch (e) {}
+  const ok = !!(j && (j.success === true || j.ok === true || j.updated || j.status === 'success' || j.result === 'success'));
+  let error = '';
+  if (!ok) {
+    error = (j && (j.error || j.message || j.reason)) ||
+            (j && j.updated === 0 ? 'No matching row found for that CheckSum in ' + (payload.tab || 'the tab') + '.' : '') ||
+            (txt ? String(txt).replace(/<[^>]+>/g, ' ').trim().slice(0, 200) : 'Empty response from backend.');
+  }
+  return { ok, error, raw: j };
 }
 window._srkSave = async function(checksum) {
   const r = (_srkRows || []).find(x => x.checksum === checksum); if (!r) return;
@@ -9379,21 +9393,26 @@ window._srkSave = async function(checksum) {
   const remark = (document.getElementById('srkRemark') || {}).value || '';
   const btn = document.getElementById('srkSaveBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   setMsg('Writing to StockIN…');
-  try {
-    const ok = await _srkPost({ action: 'updateCell', sheetId: STORES_SHEET_ID, tab: 'StockIN', matchCol: keyCol, matchVal: r.checksum, updateCol: qtyCol, updateVal: String(newQty) });
-    if (!ok) throw new Error('stockin-write-failed');
-    // Audit row (generic schema — reused by Stock Out / Stock Transfer later).
-    const u = STATE.user || {};
-    const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', r.grnNo || '', r.checksum || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
-    await _srkPost({ action: 'appendRow', sheetId: STORES_SHEET_ID, tab: 'AuditTrail', row: auditRow });
-    r.qty = newQty;                       // reflect locally
-    _srkAudit = null;                     // audit view will re-fetch
-    const ov = document.getElementById('srkEditOverlay'); if (ov) ov.remove();
-    _srkFill();
+  const restoreBtn = () => { if (btn) { btn.disabled = false; btn.innerHTML = 'Save &amp; Log'; } };
+  // 1) Write the new GRN Qty back into StockIN.
+  const up = await _srkPost({ action: 'updateCell', sheetId: STORES_SHEET_ID, tab: 'StockIN', matchCol: keyCol, matchVal: r.checksum, updateCol: qtyCol, updateVal: String(newQty) });
+  if (!up.ok) { restoreBtn(); setMsg('StockIN not updated: ' + (up.error || 'backend rejected the write.'), 'var(--danger)'); return; }
+  // 2) Append the audit row (generic schema — reused by Stock Out / Transfer).
+  setMsg('Logging to AuditTrail…');
+  const u = (typeof STATE === 'object' && STATE.user) || {};
+  const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', r.grnNo || '', r.checksum || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
+  const au = await _srkPost({ action: 'appendRow', sheetId: STORES_SHEET_ID, tab: 'AuditTrail', row: auditRow });
+  r.qty = newQty;                       // StockIN write already succeeded — reflect locally
+  _srkAudit = null;                     // audit view will re-fetch
+  const ov = document.getElementById('srkEditOverlay'); if (ov) ov.remove();
+  _srkFill();
+  if (au.ok) {
     if (typeof _accToast === 'function') _accToast(`GRN Qty updated to ${newQty.toLocaleString('en-IN')} and logged.`);
-  } catch (e) {
-    if (btn) { btn.disabled = false; btn.innerHTML = 'Save &amp; Log'; }
-    setMsg('Save failed — check backend / sheet access.', 'var(--danger)');
+  } else {
+    // The stock value DID change; only the audit log failed — say so clearly
+    // rather than pretending it was logged.
+    if (typeof _accToast === 'function') _accToast(`GRN Qty updated to ${newQty.toLocaleString('en-IN')}, but AuditTrail log failed: ${au.error || 'check the AuditTrail tab exists in v2_Stores'}.`);
+    else alert('GRN Qty updated, but audit logging failed: ' + (au.error || 'AuditTrail tab may be missing.'));
   }
 };
 
