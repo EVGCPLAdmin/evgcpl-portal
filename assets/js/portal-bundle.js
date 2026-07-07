@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.38.1';
-const PORTAL_BUILD    = 663;
-const PORTAL_BUILD_AT = '2026-07-06T10:57:46Z';
+const PORTAL_VERSION  = '4.39.3';
+const PORTAL_BUILD    = 668;
+const PORTAL_BUILD_AT = '2026-07-07T02:38:31Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4996,7 +4996,9 @@ async function _vplpEnsure(force) {
 // Default 'off' so configuring the sheet doesn't silently change balances.
 function _grnMode() { const c = (typeof pcReadJSON === 'function') ? (pcReadJSON('grn_review_mode', {}) || {}) : {}; const m = c.mode || 'off'; return (m === 'on' || m === 'hidden') ? m : 'off'; }
 function _grnGateOn() { return _grnMode() === 'on' && !!GRN_REVIEW_SHEET_ID; }
-function _grnTabHidden() { return _grnMode() === 'hidden'; }
+// Hidden when the admin chose 'Off + Hide', OR while the GRN Review sheet isn't
+// configured yet (feature parked/off) — so it stays out of the way until set up.
+function _grnTabHidden() { return _grnMode() === 'hidden' || !GRN_REVIEW_SHEET_ID; }
 window._grnSetMode = async function(mode) {
   const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
   if (!isAdmin) { _accToast('🔒 Only admins can change the Ledger Link.'); return; }
@@ -5109,8 +5111,14 @@ function _vplpResolveVid(r, bridge) {
 // Approved POs only; credit recognised on receipt (StockIN GRN Qty).
 function _vplpCompute() {
   const SC = _opColMap(_openPOStock), IC = _opColMap(_openPOItems), HC = _opColMap(_openPOHeaders);
-  const grnMap = {};
-  (_vplpGRNRows || []).forEach(r => { const u = String(r['UUID'] || r['CheckSum'] || '').trim(); if (u) grnMap[u] = (r['GRN No (Goods Receipt)'] || r['GRN No'] || '').toString().trim(); });
+  // GRN No + received date live on the GRN_No tab (keyed by UUID/CheckSum);
+  // StockIN rows join to it. The received date is NOT on the StockIN row.
+  const grnMap = {}, grnDateMap = {};
+  (_vplpGRNRows || []).forEach(r => {
+    const u = String(r['UUID'] || r['CheckSum'] || '').trim(); if (!u) return;
+    grnMap[u] = (r['GRN No (Goods Receipt)'] || r['GRN No'] || '').toString().trim();
+    grnDateMap[u] = (r['Received On (At)'] || r['Received On'] || r['GRN Date'] || r['Received Date'] || '').toString().trim();
+  });
   // StockIN receipts by (PO No (Key) || part) — the PO_Items join. Each receipt
   // carries its GRN No (StockIN ColAA direct, else the GRN_No-sheet join), its
   // invoice number, and its row index so the ledger can link to the detail.
@@ -5128,8 +5136,12 @@ function _vplpCompute() {
     const qty = _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
     const siId = _opGet(r, SC, ['SI ID', 'SIID', 'SI Id']);
     const rev = reviewBySi[_opNorm(siId)] || null;
+    // Received date: StockIN's own "Received On (At Site)" column; else the
+    // GRN_No tab via CheckSum/UUID. Never the PO date.
+    const csKey = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID'])).trim();
+    const recvDate = _opGet(r, SC, ['Received On (At Site)', 'Received On (At)', 'Received On', 'GRN Received On', 'Received Date']) || grnDateMap[csKey] || '';
     e.qty += qty;
-    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev });
+    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev, recvDate });
   });
   // PO header: approval, vendor, date, Tax(b), Additional Charges(b). Keyed by
   // the normalised PO key (folds EGVE/EVGE spelling variants).
@@ -5684,24 +5696,49 @@ function _vplpLedger(v, embedOpts) {
   if (ob && (ob.credit > 0 || ob.debit > 0)) {
     all.push({ date: ob.date || '', ref: 'Opening', type: 'Opening Balance' + (ob.details ? ' · ' + esc(ob.details) : ''), kind: ob.credit >= ob.debit ? 'cr' : 'dr', opening: true, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: ob.credit, debit: ob.debit, status: null, utr: '', uuid: '' });
   }
-  // Credit (goods received) — approved POs of this vendor with receipts. Credit =
-  // Material(a) + Additional(b) + Tax(a) + Tax(b).
+  // Credit (goods received) — ONE dated line per GRN receipt (grouped by GRN No),
+  // dated by its received date. PO-level Tax(a)/Tax(b)/Additional charges are
+  // apportioned across the PO's receipts by material value (totals preserved).
   Object.keys(v.poKeys).forEach(k => {
     const i = d.poInfo[k] || {};
-    const mat = d.poRecv[k] || 0, taxA = d.poTaxA[k] || 0, taxB = i.taxB || 0, addl = i.addl || 0;
-    const credit = mat + addl + taxA + taxB;
-    // Approved (counted) receipts — PO-level charges recognised only when there
-    // is approved material (gate on); gate off preserves the old credit>0 rule.
-    if (credit > 0 && (!d.gateOn || mat > 0)) {
-      const appRcpts = (d.poRcpt[k] || []).filter(rc => rc.approved !== false);
-      all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: appRcpts, poRaw: i.raw || null, kind: 'cr', mat, addl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
-    }
-    // Pending accounts review — shown but NOT counted (credit 0).
-    const pend = (d.poPending && d.poPending[k]) || 0;
-    if (pend > 0) {
-      const pendRcpts = (d.poRcpt[k] || []).filter(rc => rc.approved === false);
-      all.push({ date: i.date || '', ref: i.poNo || k, type: 'Material received', rcpts: pendRcpts, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pend, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
-    }
+    const rcpts = d.poRcpt[k] || [];
+    if (!rcpts.length) return;
+    const poRecvTot = d.poRecv[k] || 0;                         // Σ approved material value
+    const taxATot = d.poTaxA[k] || 0, taxBTot = i.taxB || 0, poAddlTot = i.addl || 0;
+    const dv = s => _mdpDateVal(s) || 0;
+    // Group by GRN No (a physical receipt); blank-GRN lines stand alone.
+    const groups = {};
+    rcpts.forEach(rc => { const gk = rc.no ? ('G:' + rc.no) : ('S:' + rc.idx); (groups[gk] = groups[gk] || []).push(rc); });
+    const nGroups = Object.keys(groups).length;
+    Object.keys(groups).forEach(gk => {
+      const g = groups[gk];
+      // GRN date only — NO PO-date fallback. If there's no received date the
+      // line is "undated" and grouped separately (see the sort + label).
+      const grnDate = g.map(rc => rc.recvDate).filter(Boolean).reduce((a, b) => dv(b) > dv(a) ? b : a, '');
+      const undated = !grnDate;
+      const ref = i.poNo || k;
+      // Approved lines of this receipt → one counted credit row.
+      const app = g.filter(rc => rc.approved !== false);
+      if (app.length) {
+        let baseMat = 0, lineAddl = 0, groupMat = 0;
+        app.forEach(rc => {
+          const hasVal = d.gateOn && rc.rev && rc.rev.value > 0;
+          baseMat += hasVal ? (rc.credit || 0) : (rc.qty || 0) * (rc.useRate || 0);
+          lineAddl += hasVal ? 0 : (rc.addl || 0);
+          groupMat += (rc.credit || 0);
+        });
+        const frac = poRecvTot > 0 ? groupMat / poRecvTot : 1 / nGroups;
+        const taxA = taxATot * frac, taxB = taxBTot * frac, poAddl = poAddlTot * frac;
+        const credit = baseMat + lineAddl + taxA + taxB + poAddl;
+        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', mat: baseMat, addl: lineAddl + poAddl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+      }
+      // Pending (un-reviewed) lines of this receipt → one pending, uncounted row.
+      const pen = g.filter(rc => rc.approved === false);
+      if (pen.length) {
+        const pendAmt = pen.reduce((s, rc) => s + (rc.credit || 0), 0);
+        if (pendAmt > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: pen, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pendAmt, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
+      }
+    });
   });
   // Debit (payment) — this vendor's completed payments (vendor-level; orderNo not required).
   (_mdpRows || []).forEach(r => {
@@ -5747,7 +5784,8 @@ function _vplpLedger(v, embedOpts) {
   const entries = _fy ? scope.filter(e => _vplpFYof(e.date) === _fy) : scope;
   if (!entries.length) return vmCard + `<div class="card card-pad" style="margin-bottom:1rem">${modeButtons}${modeHint}</div>` + fyBar + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No transactions in this financial year.</div>';
   // Opening balance always first; then chronological, same-day credits (receipt) before debits (payment).
-  entries.sort((a, b) => ((b.opening ? 1 : 0) - (a.opening ? 1 : 0)) || (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
+  // Opening first; undated StockIN entries clustered last; the rest chronological.
+  entries.sort((a, b) => ((b.opening ? 1 : 0) - (a.opening ? 1 : 0)) || ((a.undated ? 1 : 0) - (b.undated ? 1 : 0)) || (_mdpDateVal(a.date) - _mdpDateVal(b.date)) || ((a.kind === 'cr' ? 0 : 1) - (b.kind === 'cr' ? 0 : 1)));
   let running = 0;
   entries.forEach(e => { running += e.credit - e.debit; e.balance = running; });
   const sum = key => entries.reduce((s, e) => s + e[key], 0);
@@ -20063,9 +20101,19 @@ function _openPOMakeResizable(table) {
     h.addEventListener('mousedown', e => {
       e.preventDefault(); e.stopPropagation();
       const col = cols[i]; const startX = e.pageX; const startW = parseInt(col.style.width) || col.offsetWidth || 110;
-      const move = ev => { const w = Math.max(50, startW + (ev.pageX - startX)); col.style.width = w + 'px';
-        table.style.width = cols.reduce((s, c) => s + (parseInt(c.style.width) || 110), 0) + 'px'; };
+      // Coalesce layout writes to one per animation frame. Writing col/table
+      // width on every mousemove forces a full reflow of this table-layout:fixed
+      // table; Open PO runs to thousands of rows, so per-event reflow floods the
+      // main thread and the tab hangs. rAF caps it at ~one reflow per frame.
+      const total = () => cols.reduce((s, c) => s + (parseInt(c.style.width) || 110), 0);
+      let pendingW = startW, raf = 0;
+      const apply = () => { raf = 0; col.style.width = pendingW + 'px'; table.style.width = total() + 'px'; };
+      const move = ev => { pendingW = Math.max(50, startW + (ev.pageX - startX)); if (!raf) raf = requestAnimationFrame(apply); };
+      const prevSel = document.body.style.userSelect;
+      document.body.style.userSelect = 'none';
       const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+        if (raf) { cancelAnimationFrame(raf); raf = 0; } apply();
+        document.body.style.userSelect = prevSel;
         const widths = _openPOColWGet(); widths[col.dataset.k] = parseInt(col.style.width) || 110; _openPOColWSet(widths); };
       document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
     });
