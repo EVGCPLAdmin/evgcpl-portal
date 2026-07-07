@@ -21,7 +21,7 @@ in this order:
 | C | User Name   | `Neuroloom` |
 | D | Module      | `StockIN` (later: `StockOut`, `StockTransfer`) |
 | E | Action      | `Edit GRN Qty` |
-| F | Ref No      | GRN No, e.g. `GRN/1413/25-26` |
+| F | Ref No      | GRN No + SI ID, e.g. `GRN/1413/25-26 · SI:SI-000123` |
 | G | CheckSum    | the StockIN CheckSum of the edited row |
 | H | Field       | `GRN Qty` |
 | I | Old Value   | value before the edit |
