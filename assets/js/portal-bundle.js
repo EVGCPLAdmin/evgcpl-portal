@@ -5165,6 +5165,13 @@ function _vplpCompute() {
   _openPOItems.forEach(x => {
     const k = _opPOKey(_opGet(x, IC, ['PO No', 'Order No'])); if (!k) return;
     const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
+    // Readable Part No + Description live in Material Description as "PartNo | Desc"
+    // (same split the Open-PO report uses). `part` stays the raw Part Details key
+    // so receipt matching below is unaffected.
+    const matDesc  = String(_opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name', 'Material']) || part || '');
+    const pipe     = matDesc.indexOf('|');
+    const partNo   = pipe >= 0 ? matDesc.slice(0, pipe).trim() : '';
+    const partDesc = pipe >= 0 ? matDesc.slice(pipe + 1).trim() : matDesc.trim();
     const cs = _opGet(x, IC, ['CheckSum', 'Check Sum']);
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
     const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)];
@@ -5182,7 +5189,7 @@ function _vplpCompute() {
       // Accounts may set the line VALUE directly (overrides qty × rate + addl).
       const lineCredit = (applied && applied.value > 0) ? applied.value : ((rc.qty || 0) * useRate + addl);
       // stash for the ledger / review UI
-      rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.part = part;
+      rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.part = part; rc.partNo = partNo; rc.partDesc = partDesc;
       if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; countedQty += (rc.qty || 0); }
       else { poPending[k] = (poPending[k] || 0) + lineCredit; }
       const g = poRcpt[k] = poRcpt[k] || []; if (!g.some(z => z.idx === rc.idx)) g.push(rc);
@@ -5238,7 +5245,7 @@ function _vplpCompute() {
   Object.keys(poRcpt).forEach(k => {
     const i = poInfo[k] || {};
     (poRcpt[k] || []).forEach(rc => grnLines.push({
-      siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '',
+      siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '', partNo: rc.partNo || '', partDesc: rc.partDesc || '',
       qty: rc.qty || 0, poRate: rc.poRate || 0, useRate: rc.useRate || 0, addl: rc.addl || 0,
       credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null,
       poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
@@ -5359,7 +5366,7 @@ function _vplpGRNReviewView() {
       <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
       <td style="padding:6px 9px">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</td>
-      <td style="padding:6px 9px;font-size:.74rem">${esc(l.part)}</td>
+      <td style="padding:6px 9px;font-size:.74rem">${l.partNo ? `<span style="font-weight:600">${esc(l.partNo)}</span>; ` : ''}${esc(l.partDesc || l.part)}</td>
       <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
       <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
@@ -5373,7 +5380,7 @@ function _vplpGRNReviewView() {
     <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">GRN</th><th style="padding:8px 9px">PO No</th><th style="padding:8px 9px">Vendor</th>
-        <th style="padding:8px 9px">Part</th><th style="padding:8px 9px">Invoice</th><th style="padding:8px 9px;text-align:right">Qty</th>
+        <th style="padding:8px 9px">Part No; Description</th><th style="padding:8px 9px">Invoice</th><th style="padding:8px 9px;text-align:right">Qty</th>
         <th style="padding:8px 9px;text-align:right">PO Rate</th><th style="padding:8px 9px;text-align:right">PO Amount</th>
         <th style="padding:8px 9px;text-align:right">Final Value</th>
         <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Review</th>
