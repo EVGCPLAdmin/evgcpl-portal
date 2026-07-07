@@ -20044,9 +20044,19 @@ function _openPOMakeResizable(table) {
     h.addEventListener('mousedown', e => {
       e.preventDefault(); e.stopPropagation();
       const col = cols[i]; const startX = e.pageX; const startW = parseInt(col.style.width) || col.offsetWidth || 110;
-      const move = ev => { const w = Math.max(50, startW + (ev.pageX - startX)); col.style.width = w + 'px';
-        table.style.width = cols.reduce((s, c) => s + (parseInt(c.style.width) || 110), 0) + 'px'; };
+      // Coalesce layout writes to one per animation frame. Writing col/table
+      // width on every mousemove forces a full reflow of this table-layout:fixed
+      // table; Open PO runs to thousands of rows, so per-event reflow floods the
+      // main thread and the tab hangs. rAF caps it at ~one reflow per frame.
+      const total = () => cols.reduce((s, c) => s + (parseInt(c.style.width) || 110), 0);
+      let pendingW = startW, raf = 0;
+      const apply = () => { raf = 0; col.style.width = pendingW + 'px'; table.style.width = total() + 'px'; };
+      const move = ev => { pendingW = Math.max(50, startW + (ev.pageX - startX)); if (!raf) raf = requestAnimationFrame(apply); };
+      const prevSel = document.body.style.userSelect;
+      document.body.style.userSelect = 'none';
       const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+        if (raf) { cancelAnimationFrame(raf); raf = 0; } apply();
+        document.body.style.userSelect = prevSel;
         const widths = _openPOColWGet(); widths[col.dataset.k] = parseInt(col.style.width) || 110; _openPOColWSet(widths); };
       document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
     });
