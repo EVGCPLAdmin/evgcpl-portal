@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.39.6';
-const PORTAL_BUILD    = 671;
-const PORTAL_BUILD_AT = '2026-07-07T03:27:20Z';
+const PORTAL_VERSION  = '4.39.7';
+const PORTAL_BUILD    = 672;
+const PORTAL_BUILD_AT = '2026-07-07T09:41:15Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -35,10 +35,10 @@ const PIN_SHEET_ID     = '1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0'; // User
 //   2. Use it in code as: getExec('myKey')
 const EXEC_REGISTRY_DEFAULTS = {
   portalConfig:{ label: 'Portal Config Backend',  desc: 'Standalone backend for the PortalConfig sheet (savePortalConfig / getPortalConfig). Independent of other handlers — never changes.', defaultUrl: 'https://script.google.com/macros/s/AKfycbys4NPojiI-1nBKcfbreM4HO8sehBH76ebjv4nQ_TfHcT_IXueUTBBl1Ew0SGYtGVRW/exec' },
-  main:        { label: 'Main Backend (default)', desc: 'Most portal POSTs (DPR, Safety, PCC, Onboarding, Reports). Default for getExec().', defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
-  pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet.',                                          defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
-  aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
-  diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
+  main:        { label: 'Main Backend (default)', desc: 'Most portal POSTs (DPR, Safety, PCC, Onboarding, Reports). Default for getExec().', defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
+  pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet.',                                          defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
+  aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
+  diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
   accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app (Router.gs + AccountsHandlers.gs in one project): saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, createPRFolder, uploadPRAttachment, listPRAttachments. Override via the exec_accounts row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbyoh0Q5wfFWXNUz11U5KYjikHbO5tA0I8eIb5xos1ZmRINjn_N5WGIxq5xJrwsF3jLFYg/exec' },
   safety:      { label: 'Safety Handler',         desc: 'SafetyHandler.gs web app — Safety module writes (Incidents, DailyChecks). Override via the exec_safety row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbyFq6zSKgn-W3qNQPNoDplqiJHDaQTrrKLSK7gecZNiHSnU7Y4Buav3RiGfcvXtn9B3/exec' },
