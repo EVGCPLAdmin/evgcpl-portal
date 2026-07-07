@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.39.4';
-const PORTAL_BUILD    = 669;
-const PORTAL_BUILD_AT = '2026-07-07T02:57:54Z';
+const PORTAL_VERSION  = '4.39.5';
+const PORTAL_BUILD    = 670;
+const PORTAL_BUILD_AT = '2026-07-07T03:03:40Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5411,8 +5411,7 @@ window._vplpGRNSubmit = async function(i, action) {
     'Reviewed Value': isNaN(value) ? '' : value,
     'Review Status': action, 'Comments': '',
   };
-  const obSheet = (typeof _resolveSheetId === 'function') ? _resolveSheetId(GRN_REVIEW_SHEET_ID) : GRN_REVIEW_SHEET_ID;
-  const resp = await _accPostAwait({ action: 'saveGRNReview', sheetId: obSheet, tab: GRN_REVIEW_TAB, row });
+  const resp = await _accPostAwait({ action: 'saveGRNReview', sheetId: GRN_REVIEW_SHEET_ID, tab: GRN_REVIEW_TAB, row });
   if (resp && resp.success !== false) {
     _accToast('✅ GRN ' + action.toLowerCase());
     _vplpGRNReviewRows = null;
@@ -6937,7 +6936,7 @@ const VENDOR_OPENING_BAL_TAB      = 'OpeningBalance';
 // and un-reviewed lines show as "Pending review". Write posts via
 // getExec('accounts') action 'saveGRNReview' (header-mapped append; latest per
 // SI ID wins so a review is editable).
-const GRN_REVIEW_SHEET_ID = ''; // TODO: set the GRN Review sheet ID to activate the gate
+const GRN_REVIEW_SHEET_ID = STORES_SHEET_ID; // v2_Stores — GRN_Review tab (alongside StockIN / GRN_No)
 const GRN_REVIEW_TAB      = 'GRN_Review';
 
 // ══════════════════════════════════════════════════════════
