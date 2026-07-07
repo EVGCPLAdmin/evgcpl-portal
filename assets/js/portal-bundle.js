@@ -9184,7 +9184,7 @@ function renderPendingPages() {
 //  own header row (gviz cols), so a column reorder can't send a write astray.
 //  Backend actions used (already in the main Apps Script): updateCell, appendRow.
 //  AuditTrail row order (11 cols):
-//   Timestamp | User Email | User Name | Module | Action | Ref No (GRN No)
+//   Timestamp | User Email | User Name | Module | Action | Ref No (GRN No · SI:<SI ID>)
 //   | CheckSum | Field | Old Value | New Value | Remarks
 // ════════════════════════════════════════════════════════════════
 let _srkView = 'reconcile';   // 'reconcile' | 'audit'
@@ -9231,6 +9231,7 @@ function _srkBuildRows() {
     const part = (_opPartReadable(partRaw, matMap).text) || partRaw || '';
     return {
       idx, checksum,
+      siId:     String(_opGet(r, SC, ['SI ID', 'SIID', 'SI Id', 'SI No', 'StockIN ID']) || '').trim(),
       grnNo:    _siGRNResolve(r, SC, grnMap),
       received: _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Date', 'Date']),
       site:     _opGet(r, SC, ['Site Name', 'Site']),
@@ -9389,7 +9390,10 @@ window._srkSave = async function(checksum) {
   // 2) Append the audit row (generic schema — reused by Stock Out / Transfer).
   setMsg('Logging to AuditTrail…');
   const u = (typeof STATE === 'object' && STATE.user) || {};
-  const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', r.grnNo || '', r.checksum || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
+  // Ref No carries the GRN No plus the SI ID (StockIN row id) so the audit
+  // trail is traceable back to the exact StockIN line, not just the GRN.
+  const refNo = [r.grnNo, r.siId ? 'SI:' + r.siId : ''].filter(Boolean).join(' · ');
+  const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', refNo, r.checksum || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
   const au = await _srkPost({ action: 'appendRow', sheetId: STORES_SHEET_ID, tab: 'AuditTrail', row: auditRow });
   r.qty = newQty;                       // StockIN write already succeeded — reflect locally
   _srkAudit = null;                     // audit view will re-fetch
