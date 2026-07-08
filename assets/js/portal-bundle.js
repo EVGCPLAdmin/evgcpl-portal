@@ -19252,11 +19252,20 @@ async function pstLoad() {
 
   // rawId bypass: always read the canonical Stores sheet, ignoring any stale
   // STORES sheet-link override that was redirecting StockIN to an empty sheet.
-  const [stockRows, grnRows, levelRows] = await Promise.all([
+  const [stockRows, grnRows, levelRows, grnMasterRows] = await Promise.all([
     fetchSheet('StockIN', 'SELECT A,B,C,D,E,F,G,H,K,L,M,N,O,P,Q,U,V,W', STORES_SHEET_ID, { rawId: true }),
     fetchSheet('GRN_No',  'SELECT A,B,C,D,E,F,G,H,I,J,K,L,M', STORES_SHEET_ID, { rawId: true }),
-    fetchSheet('v3StockLevels', 'SELECT A,B,C,D,E,F,G,H', STORES_SHEET_ID, { rawId: true }),
+    // Fetch every column (no SELECT range) so Old_SL and Stock Transfer (From)
+    // resolve by header name alongside the previously-used A–H columns.
+    fetchSheet('v3StockLevels', null, STORES_SHEET_ID, { rawId: true }),
+    // GRN master (Master spreadsheet) supplies readable Part No / Part Description
+    // keyed by UUID — the Stock Levels "Part Details" column IS that UUID.
+    fetchSheetSafe('4-GRNMaster_Actual', SHEET_ID, { rawId: true }).catch(() => []),
   ]);
+
+  // Build the UUID → { partNo, partDesc } lookup used by the Stock Levels tab.
+  // Guard against a transient empty read wiping an already-populated map.
+  if (grnMasterRows && grnMasterRows.length) _psiBuildPartMap(grnMasterRows);
 
   if (!stockRows.length && !levelRows.length) {
     // Only warn if GRN_No also returned nothing — genuine access error
@@ -19371,12 +19380,24 @@ window.pstDownloadCSV = function(tab) {
     downloadCSV(flat, `OpenPO_${new Date().toISOString().slice(0,10)}.csv`);
   } else if (tab === 'levels') {
     const rows = (site ? _pstLevels.filter(r => r['Site Name'] === site) : _pstLevels)
-      .filter(r => !q || (r['Part Details'] || r['Site & Code'] || '').toLowerCase().includes(q) || (r['Site Name'] || '').toLowerCase().includes(q));
-    downloadCSV(rows.map(r => ({
-      'SNo': r['SNo'] || '', 'Site': r['Site Name'] || '', 'Part Details': r['Part Details'] || r['Site & Code'] || '',
-      'Stock IN': r['StockIN'] || '0', 'Stock Transfer': r['Stock Transfer (To)'] || '0',
-      'Stock Out': r['Stock Out'] || '0', 'Site Stock': r['Site Stock'] || '0',
-    })), `StockLevels_${site||'all'}_${new Date().toISOString().slice(0,10)}.csv`);
+      .filter(r => {
+        if (!q) return true;
+        const pm = _pstLevelPart(r);
+        return (r['Part Details'] || r['Site & Code'] || '').toLowerCase().includes(q) ||
+          (pm.partNo || '').toLowerCase().includes(q) ||
+          (pm.partDesc || '').toLowerCase().includes(q) ||
+          (r['Site Name'] || '').toLowerCase().includes(q);
+      });
+    downloadCSV(rows.map(r => {
+      const L = _pstLevelRow(r);
+      return {
+        'SNo': r['SNo'] || '', 'Site': r['Site Name'] || '', 'Part Details': r['Part Details'] || r['Site & Code'] || '',
+        'Part No': L.partNo || '', 'Part Description': L.partDesc || '',
+        'Old SL (+)': L.oldSL, 'Stock IN (+)': L.stockIN, 'Received - Stock Transfer (+)': L.transferTo,
+        'Stock Out (-)': L.stockOut, 'StockOut - Stock Transfer (-)': L.transferFrom,
+        'Site Stock (Current)': L.siteStock,
+      };
+    }), `StockLevels_${site||'all'}_${new Date().toISOString().slice(0,10)}.csv`);
   }
 };
 
@@ -20594,6 +20615,46 @@ window._grnOpenDetail = function(i) {
 };
 
 /* ── STOCK LEVELS TAB ─────────────────────────────── */
+// Resolve readable Part No / Part Description for a Stock Levels row from the
+// GRN master map (_psiPartMap, keyed by UUID). The Stock Levels "Part Details"
+// column IS that UUID, so normalise it the same way before the lookup.
+function _pstLevelPart(r) {
+  const pm = _psiPartMap[_psiKey(r['Part Details'] || r['Site & Code'] || '')] || {};
+  return { partNo: pm.partNo || '', partDesc: pm.partDesc || '' };
+}
+
+// Read a Stock Levels quantity column, tolerating header-name variants across
+// sheet revisions. Blank / missing → '0'.
+function _pstLvlVal(r, keys) {
+  for (const k of keys) {
+    const v = r[k];
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '0';
+}
+const _PSTLVL_COLS = {
+  oldSL:        ['Old_SL', 'Old SL', 'OldSL', 'Opening Stock', 'Opening'],
+  stockIN:      ['StockIN', 'Stock IN', 'Stock In'],
+  transferTo:   ['Stock Transfer (To)', 'Stock Transfer(To)', 'Stock Transfer To'],
+  stockOut:     ['Stock Out', 'StockOut'],
+  transferFrom: ['Stock Transfer (From)', 'Stock Transfer(From)', 'Stock Transfer From'],
+  siteStock:    ['Site Stock', 'Current Stock', 'Current Stock Level'],
+};
+// One flattened row of the Stock Levels quantities + resolved part fields.
+function _pstLevelRow(r) {
+  const pm = _pstLevelPart(r);
+  return {
+    partNo:       pm.partNo,
+    partDesc:     pm.partDesc,
+    oldSL:        _pstLvlVal(r, _PSTLVL_COLS.oldSL),
+    stockIN:      _pstLvlVal(r, _PSTLVL_COLS.stockIN),
+    transferTo:   _pstLvlVal(r, _PSTLVL_COLS.transferTo),
+    stockOut:     _pstLvlVal(r, _PSTLVL_COLS.stockOut),
+    transferFrom: _pstLvlVal(r, _PSTLVL_COLS.transferFrom),
+    siteStock:    _pstLvlVal(r, _PSTLVL_COLS.siteStock),
+  };
+}
+
 function pstRenderLevels(c, q) {
   let rows = _pstSiteFilter
     ? _pstLevels.filter(r => r['Site Name'] === _pstSiteFilter)
@@ -20601,10 +20662,13 @@ function pstRenderLevels(c, q) {
 
   if (q) {
     const lq = q.toLowerCase();
-    rows = rows.filter(r =>
-      (r['Part Details'] || r['Site & Code'] || '').toLowerCase().includes(lq) ||
-      (r['Site Name'] || '').toLowerCase().includes(lq)
-    );
+    rows = rows.filter(r => {
+      const pm = _pstLevelPart(r);
+      return (r['Part Details'] || r['Site & Code'] || '').toLowerCase().includes(lq) ||
+        (pm.partNo || '').toLowerCase().includes(lq) ||
+        (pm.partDesc || '').toLowerCase().includes(lq) ||
+        (r['Site Name'] || '').toLowerCase().includes(lq);
+    });
   }
 
   if (!rows.length) {
@@ -20640,22 +20704,29 @@ function pstRenderLevels(c, q) {
   <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
   <table class="vpi-tbl">
     <thead><tr>
-      <th>#</th><th>Site</th><th>Part Details</th>
-      <th style="text-align:right">Stock IN</th>
-      <th style="text-align:right">Stock Transfer</th>
-      <th style="text-align:right">Stock Out</th>
-      <th style="text-align:right;background:#e8f5e9;color:#2e7d32">Site Stock</th>
+      <th>#</th><th>Site</th><th>Part Details</th><th>Part No</th><th>Part Description</th>
+      <th style="text-align:right" title="Opening stock — adds to stock (+)">Old SL <span style="color:#2e7d32">(+)</span></th>
+      <th style="text-align:right" title="Stock received in — adds to stock (+)">Stock IN <span style="color:#2e7d32">(+)</span></th>
+      <th style="text-align:right" title="Received as part of Stock Transfer — adds to stock (+)">Received<span style="font-size:.66rem;font-weight:400;color:var(--txt3)"> · Transfer</span> <span style="color:#2e7d32">(+)</span></th>
+      <th style="text-align:right" title="Stock issued out — reduces stock (−)">Stock Out <span style="color:#c62828">(−)</span></th>
+      <th style="text-align:right" title="StockOut as part of Stock Transfer — reduces stock (−)">StockOut<span style="font-size:.66rem;font-weight:400;color:var(--txt3)"> · Transfer</span> <span style="color:#c62828">(−)</span></th>
+      <th style="text-align:right;background:#e8f5e9;color:#2e7d32" title="Current Stock Level at Site">Site Stock</th>
     </tr></thead>
     <tbody>${rows.map((r, i) => {
-      const stock = parseFloat(r['Site Stock'] || r['StockIN'] || 0);
+      const L = _pstLevelRow(r);
+      const stock = parseFloat(L.siteStock || 0);
       const stockColor = stock <= 0 ? '#c62828' : stock <= 2 ? '#b07000' : '#2e7d32';
       return `<tr>
         <td style="color:var(--txt3);font-size:.74rem">${r['SNo'] || i + 1}</td>
         <td style="font-size:.78rem">${r['Site Name'] || '—'}</td>
         <td style="font-size:.8rem;max-width:200px;white-space:normal">${r['Part Details'] || r['Site & Code'] || '—'}</td>
-        <td style="text-align:right">${r['StockIN'] || '0'}</td>
-        <td style="text-align:right">${r['Stock Transfer (To)'] || '0'}</td>
-        <td style="text-align:right">${r['Stock Out'] || '0'}</td>
+        <td style="font-size:.8rem">${L.partNo || '—'}</td>
+        <td style="font-size:.8rem;max-width:240px;white-space:normal">${L.partDesc || '—'}</td>
+        <td style="text-align:right">${L.oldSL}</td>
+        <td style="text-align:right">${L.stockIN}</td>
+        <td style="text-align:right">${L.transferTo}</td>
+        <td style="text-align:right">${L.stockOut}</td>
+        <td style="text-align:right">${L.transferFrom}</td>
         <td style="text-align:right;font-weight:700;color:${stockColor};background:#f9fef9">${stock}</td>
       </tr>`;
     }).join('')}</tbody>
