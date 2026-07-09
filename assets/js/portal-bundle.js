@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.41.0';
-const PORTAL_BUILD    = 675;
-const PORTAL_BUILD_AT = '2026-07-08T08:52:14Z';
+const PORTAL_VERSION  = '4.41.1';
+const PORTAL_BUILD    = 676;
+const PORTAL_BUILD_AT = '2026-07-09T09:32:40Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4997,8 +4997,15 @@ async function _vplpEnsure(force) {
 function _grnMode() { const c = (typeof pcReadJSON === 'function') ? (pcReadJSON('grn_review_mode', {}) || {}) : {}; const m = c.mode || 'off'; return (m === 'on' || m === 'hidden') ? m : 'off'; }
 function _grnGateOn() { return _grnMode() === 'on' && !!GRN_REVIEW_SHEET_ID; }
 // Hidden when the admin chose 'Off + Hide', OR while the GRN Review sheet isn't
-// configured yet (feature parked/off) — so it stays out of the way until set up.
-function _grnTabHidden() { return _grnMode() === 'hidden' || !GRN_REVIEW_SHEET_ID; }
+// configured yet. BUT super-admins / admins always see the tab when the sheet is
+// configured — so they can always reach the review queue + the Ledger Link
+// control (a stale local 'hidden' or org 'hidden' never locks them out).
+function _grnTabHidden() {
+  if (!GRN_REVIEW_SHEET_ID) return true;                       // not configured → hidden for all
+  const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
+  if (isAdmin) return false;                                   // admins always see it
+  return _grnMode() === 'hidden';
+}
 window._grnSetMode = async function(mode) {
   const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
   if (!isAdmin) { _accToast('🔒 Only admins can change the Ledger Link.'); return; }
