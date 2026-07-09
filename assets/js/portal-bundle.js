@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.41.1';
-const PORTAL_BUILD    = 676;
-const PORTAL_BUILD_AT = '2026-07-09T09:32:40Z';
+const PORTAL_VERSION  = '4.42.0';
+const PORTAL_BUILD    = 677;
+const PORTAL_BUILD_AT = '2026-07-09T13:26:51Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -3207,6 +3207,7 @@ function renderPage(page) {
     'accounts-dashboard': () => renderAccountsWorkspace('dashboard'),
     'accounts-worklist':  () => renderAccountsWorkspace('worklist'),
     'accounts-kpi':   () => renderAccountsWorkspace('dashboard'),
+    'salary-processing': renderSalaryProcessing,
     'planning':          () => navigate('budgeting'),
     'planning-overview': () => navigate('budgeting'),
     'planning-setup':    () => navigate('budgeting'),
@@ -6566,6 +6567,269 @@ window._siLoadAttachments = async function(checksum, directUrls) {
   files.forEach(f => cards.push(_regAttCard(f.url, f.name, f.matchedOn || 'Drive', f.mimeType, f.size)));
   if (!cards.length) { box.innerHTML = `<div style="color:var(--txt3);font-size:.78rem;padding:.5rem">No invoice attachments found. <span style="font-size:.7rem">(searched Drive by CheckSum ${esc(checksum || '—')})</span></div>`; return; }
   box.innerHTML = cards.join('');
+};
+
+// ════════════════════════════════════════════════════════════════
+//  SALARY PROCESSING  (route: salary-processing · Accounts section)
+//
+//  Read-only compute + review of the monthly payroll run. Source of
+//  truth is the SalarySheet_Employee tab — one row per employee per
+//  Salary Month, with attendance + earnings + deductions already
+//  captured. Per verified data, the net is:
+//    Net = (Salary per Day × Days Taken for Salary) + Credit
+//          − Advance − Loan − (Advance & Loan) − PF 12%
+//          − Medical Insurance − TDS
+//  "Days Taken for Salary" is an editable input that live-recomputes
+//  Gross + Net (and the KPI total) in the browser — nothing is written
+//  back to the sheet. Roles: md + accounts.
+// ════════════════════════════════════════════════════════════════
+const SALARY_SHEET_ID = '1fKhSIE-3AElGVCvEhooD3A1kiZFFGRwc60PQOl0Opqo'; // SalarySheet_Employee workbook
+const SALARY_TAB      = 'SalarySheet_Employee';
+const _salState = { loaded:false, loading:false, all:[], month:'', payroll:'all', site:'all', q:'', rows:[] };
+
+function _salNum(v) {
+  if (v == null) return 0;
+  const n = parseFloat(String(v).replace(/[₹,\s]/g, '').replace(/[^0-9.\-]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+// Normalise a Salary Month cell (gviz "Date(2026,0,30)", ISO, "MMM , YYYY") → "YYYY-MM".
+function _salMonthKey(v) {
+  const s = String(v || '').trim(); if (!s) return '';
+  let m = s.match(/^Date\((\d+),(\d+),(\d+)/);
+  if (m) return m[1] + '-' + String(+m[2] + 1).padStart(2, '0');
+  m = s.match(/^(\d{4})[.\-\/](\d{1,2})/);
+  if (m) return m[1] + '-' + String(+m[2]).padStart(2, '0');
+  m = s.match(/([A-Za-z]{3,})\s*,?\s*(\d{4})/);
+  if (m) { const mi = _MDP_MON.findIndex(x => x.toLowerCase() === m[1].slice(0, 3).toLowerCase()); if (mi >= 0) return m[2] + '-' + String(mi + 1).padStart(2, '0'); }
+  const t = _mdpDateVal(s); if (t) { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+  return '';
+}
+function _salMonthLabel(key) {
+  const m = String(key || '').match(/^(\d{4})-(\d{2})$/); if (!m) return key || '—';
+  return _MDP_MON[+m[2] - 1] + ' ' + m[1];
+}
+
+function renderSalaryProcessing() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+      <div><h1>&#128176; Salary Processing</h1><p>Monthly payroll run &middot; review earnings, attendance &amp; deductions &middot; read-only</p></div>
+      <button class="btn btn-secondary btn-sm" onclick="_salReload(this)">&#8635; Refresh</button>
+    </div></div>
+    <div id="sal-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading salary sheet&hellip;</div></div>`;
+  _salLoad().then(() => _salBuild()).catch(() => {
+    const b = document.getElementById('sal-body');
+    if (b) b.innerHTML = `<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load the salary sheet.<div style="font-size:.72rem;color:var(--txt3);margin-top:.4rem">The <strong>SalarySheet_Employee</strong> sheet must be shared as “Anyone with the link can view”.</div></div>`;
+  });
+}
+
+async function _salLoad(force) {
+  if (_salState.loaded && !force) return;
+  if (_salState.loading) return;
+  _salState.loading = true;
+  try {
+    const rows = await fetchSheet(SALARY_TAB, null, SALARY_SHEET_ID);
+    _salState.all = (rows || []).map(r => {
+      const g = (keys) => { for (const k of keys) { if (r[k] != null && String(r[k]).trim() !== '') return String(r[k]).trim(); } return ''; };
+      const totalDays = _salNum(g(['Total days in month']));
+      const fixed     = _salNum(g(['Fixed Salary']));
+      let perDay      = _salNum(g(['Salary per Day']));
+      if (!perDay && totalDays) perDay = fixed / totalDays;
+      const daysTaken = _salNum(g(['Days Taken for Salary']));
+      const credit    = _salNum(g(['Credit']));
+      const advance   = _salNum(g(['Advance']));
+      const loan      = _salNum(g(['Loan']));
+      const advLoan   = _salNum(g(['Advance & Loan']));
+      const pf        = _salNum(g(['PF 12%', 'PF']));
+      const ins       = _salNum(g(['Medical Insurance']));
+      const tds       = _salNum(g(['TDS']));
+      const recovery  = advance + loan + advLoan;
+      const gross     = perDay * daysTaken;
+      return {
+        raw: r,
+        monthKey: _salMonthKey(g(['Salary Month'])),
+        salaryMonth: g(['Salary Month']),
+        code: g(['Employee Code']), name: g(['Employee Name']),
+        desig: g(['Designation']), site: g(['Site']) || '—',
+        payroll: g(['PayRoll']) || '—',
+        doj: g(['DOJ']), doe: g(['DOE']),
+        totalDays, present: _salNum(g(['Present(P)'])),
+        weekoff: _salNum(g(['WeekOff(WO)'])), holiday: _salNum(g(['Holiday(HOL)'])),
+        absent: _salNum(g(['Absent(A)'])), od: _salNum(g(['On Duty(OD)'])),
+        compoff: _salNum(g(['Comp Off(CO)'])), lop: _salNum(g(['Absent(LOP)'])),
+        availLeave: g(['Available Leave']),
+        fixed, perDay, daysTaken0: daysTaken, daysTaken,
+        credit, advance, loan, advLoan, recovery, pf, ins, tds,
+        gross, net: gross + credit - recovery - pf - ins - tds,
+        storedNet: _salNum(g(['Net Salary'])),
+        status: g(['Status']) || '—', currency: g(['Currency']) || 'INR',
+        acHolder: g(['A/C HOLDER NAME']), acNo: g(['A/C NUMBER']),
+        ifsc: g(['IFSC CODE']), bank: g(['BANK NAME']),
+        processedBy: g(['Processed By']), processedOn: g(['Processed On']),
+      };
+    }).filter(r => r.code && r.code.toLowerCase() !== 'dummy');
+    _salState.loaded = true;
+  } finally { _salState.loading = false; }
+}
+
+function _salMonths() {
+  const set = new Set(_salState.all.map(r => r.monthKey).filter(Boolean));
+  return Array.from(set).sort().reverse();
+}
+function _salDistinct(field) {
+  const set = new Set(_salState.all.map(r => r[field]).filter(v => v && v !== '—'));
+  return Array.from(set).sort();
+}
+
+function _salBuild() {
+  const c = document.getElementById('sal-body'); if (!c) return;
+  const months = _salMonths();
+  if (!months.length) { c.innerHTML = `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No salary rows found in the sheet.</div>`; return; }
+  if (!_salState.month || !months.includes(_salState.month)) _salState.month = months[0];
+  const esc = _mdpEsc;
+  const monthOpts   = months.map(m => `<option value="${m}"${m === _salState.month ? ' selected' : ''}>${_salMonthLabel(m)}</option>`).join('');
+  const payrollOpts = ['all', ..._salDistinct('payroll')].map(p => `<option value="${esc(p)}"${p === _salState.payroll ? ' selected' : ''}>${p === 'all' ? 'All Payroll Entities' : esc(p)}</option>`).join('');
+  const siteOpts    = ['all', ..._salDistinct('site')].map(s => `<option value="${esc(s)}"${s === _salState.site ? ' selected' : ''}>${s === 'all' ? 'All Sites' : esc(s)}</option>`).join('');
+  c.innerHTML = `
+    <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+      <label style="font-size:.72rem;font-weight:700;color:var(--txt2)">Salary Month</label>
+      <select id="salMonth" onchange="_salSetMonth(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${monthOpts}</select>
+      <select id="salPayroll" onchange="_salSetPayroll(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${payrollOpts}</select>
+      <select id="salSite" onchange="_salSetSite(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${siteOpts}</select>
+      <input id="salSearch" type="text" value="${esc(_salState.q)}" oninput="_salSetSearch(this.value)" placeholder="Search code / name / designation…" style="flex:1;min-width:200px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+    </div>
+    <div id="sal-kpis" class="evg-kpi-grid" style="margin-bottom:1rem"></div>
+    <div class="card card-pad">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:.4rem">
+        <span id="salCount" style="font-size:.74rem;color:var(--txt3)"></span>
+        <span style="font-size:.7rem;color:var(--txt3)">Tip: edit <strong>Days for Salary</strong> to see Net recompute live (not saved).</span>
+      </div>
+      <div style="overflow:auto;max-height:66vh;border:1px solid var(--border);border-radius:8px">
+        <table class="data-table" data-evg-defaults="off" style="width:100%;font-size:.78rem">
+          <thead style="position:sticky;top:0;z-index:2"><tr>
+            <th>Code</th><th>Name</th><th>Designation</th><th>Site</th>
+            <th style="text-align:right">Total Days</th><th style="text-align:right">Present</th><th style="text-align:right">Days for Salary</th>
+            <th style="text-align:right">Fixed</th><th style="text-align:right">/Day</th><th style="text-align:right">Gross</th>
+            <th style="text-align:right">Credit</th><th style="text-align:right">Advance</th><th style="text-align:right">Loan</th>
+            <th style="text-align:right">PF</th><th style="text-align:right">Insurance</th><th style="text-align:right">TDS</th>
+            <th style="text-align:right">Net Pay</th><th>Status</th>
+          </tr></thead>
+          <tbody id="salTbody"></tbody>
+        </table>
+      </div>
+    </div>`;
+  _salFill();
+}
+
+function _salFilteredRows() {
+  const q = _salState.q.trim().toLowerCase();
+  return _salState.all.filter(r =>
+    r.monthKey === _salState.month
+    && (_salState.payroll === 'all' || r.payroll === _salState.payroll)
+    && (_salState.site === 'all' || r.site === _salState.site)
+    && (!q || (r.code + ' ' + r.name + ' ' + r.desig).toLowerCase().includes(q))
+  );
+}
+
+function _salFill() {
+  const tb = document.getElementById('salTbody'); if (!tb) return;
+  const esc = _mdpEsc;
+  _salState.rows = _salFilteredRows();
+  const rows = _salState.rows;
+  const cnt = document.getElementById('salCount'); if (cnt) cnt.textContent = rows.length + ' employee(s) · ' + _salMonthLabel(_salState.month);
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="18" style="text-align:center;color:var(--txt3);padding:1.5rem">No salary rows match.</td></tr>`; _salRenderKpis(); return; }
+  const R = _regINR;
+  tb.innerHTML = rows.map((r, i) => `<tr>
+    <td style="font-family:monospace;font-weight:600;color:var(--g7);cursor:pointer" onclick="_salOpenPayslip(${i})">${esc(r.code)}</td>
+    <td style="cursor:pointer" onclick="_salOpenPayslip(${i})">${esc(r.name)}</td>
+    <td>${esc(r.desig) || '—'}</td><td>${esc(r.site)}</td>
+    <td style="text-align:right">${r.totalDays || '—'}</td>
+    <td style="text-align:right">${r.present || 0}</td>
+    <td style="text-align:right"><input type="number" step="0.5" min="0" value="${r.daysTaken}" data-i="${i}" oninput="_salRecalc(${i}, this.value)" style="width:64px;text-align:right;font-size:.76rem;border:1px solid var(--border);border-radius:5px;padding:3px 5px;background:var(--surface2)"></td>
+    <td style="text-align:right">${R(r.fixed)}</td>
+    <td style="text-align:right;color:var(--txt3)">${R(r.perDay)}</td>
+    <td style="text-align:right;font-weight:600" id="sal-gross-${i}">${R(r.gross)}</td>
+    <td style="text-align:right;color:${r.credit < 0 ? 'var(--danger)' : 'var(--txt2)'}">${r.credit ? R(r.credit) : '—'}</td>
+    <td style="text-align:right">${r.advance ? R(r.advance) : '—'}</td>
+    <td style="text-align:right">${(r.loan + r.advLoan) ? R(r.loan + r.advLoan) : '—'}</td>
+    <td style="text-align:right">${r.pf ? R(r.pf) : '—'}</td>
+    <td style="text-align:right">${r.ins ? R(r.ins) : '—'}</td>
+    <td style="text-align:right">${r.tds ? R(r.tds) : '—'}</td>
+    <td style="text-align:right;font-weight:700;color:var(--g9)" id="sal-net-${i}">${R(r.net)}</td>
+    <td><span style="font-size:.68rem;padding:2px 7px;border-radius:10px;background:var(--surface2);color:var(--txt2)">${esc(r.status)}</span></td>
+  </tr>`).join('');
+  _salRenderKpis();
+}
+
+function _salRenderKpis() {
+  const box = document.getElementById('sal-kpis'); if (!box) return;
+  const rows = _salState.rows;
+  const sum = (f) => rows.reduce((s, r) => s + (typeof f === 'function' ? f(r) : r[f]), 0);
+  const gross = sum('gross'), net = sum('net');
+  const deductions = sum(r => r.recovery + r.pf + r.ins + r.tds);
+  box.innerHTML = [
+    evgKpiCard({ icon: '👥', value: rows.length,          label: 'Employees' }),
+    evgKpiCard({ icon: '💵', value: _regINR(gross),        label: 'Gross Earnings' }),
+    evgKpiCard({ icon: '➖', value: _regINR(deductions),   label: 'Deductions (Adv/Loan/PF/Ins/TDS)', accent: '#c0392b' }),
+    evgKpiCard({ icon: '🏦', value: _regINR(net),          label: 'Net Payable', accent: '#1a6038' }),
+  ].join('');
+}
+
+window._salRecalc = function(i, val) {
+  const r = _salState.rows[i]; if (!r) return;
+  r.daysTaken = _salNum(val);
+  r.gross = r.perDay * r.daysTaken;
+  r.net = r.gross + r.credit - r.recovery - r.pf - r.ins - r.tds;
+  const gEl = document.getElementById('sal-gross-' + i); if (gEl) gEl.textContent = _regINR(r.gross);
+  const nEl = document.getElementById('sal-net-' + i); if (nEl) nEl.textContent = _regINR(r.net);
+  _salRenderKpis();
+};
+window._salSetMonth   = function(v) { _salState.month = v; _salFill(); };
+window._salSetPayroll = function(v) { _salState.payroll = v; _salFill(); };
+window._salSetSite    = function(v) { _salState.site = v; _salFill(); };
+window._salSetSearch  = function(v) { _salState.q = v; _salFill(); };
+window._salReload = function(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  _salLoad(true).then(() => _salBuild()).catch(() => {}).finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } });
+};
+
+window._salOpenPayslip = function(i) {
+  const r = _salState.rows[i]; if (!r) return;
+  const esc = _mdpEsc, R = _regINR;
+  const att = [
+    ['Total Days in Month', r.totalDays], ['Present (P)', r.present], ['Week Off (WO)', r.weekoff],
+    ['Holiday (HOL)', r.holiday], ['On Duty (OD)', r.od], ['Comp Off (CO)', r.compoff],
+    ['Absent (A)', r.absent], ['LOP', r.lop], ['Days Taken for Salary', r.daysTaken], ['Available Leave', r.availLeave || 0],
+  ];
+  const earn = [
+    ['Fixed Salary', R(r.fixed)], ['Salary / Day', R(r.perDay)],
+    ['Days Taken for Salary', r.daysTaken], ['Gross Earned', R(r.gross)],
+    ['Credit / Adjustment', (r.credit < 0 ? '– ' : '') + R(Math.abs(r.credit))],
+  ];
+  const ded = [
+    ['Advance', R(r.advance)], ['Loan', R(r.loan + r.advLoan)], ['PF 12%', R(r.pf)],
+    ['Medical Insurance', R(r.ins)], ['TDS', R(r.tds)],
+    ['Total Deductions', R(r.recovery + r.pf + r.ins + r.tds)],
+  ];
+  const bank = [
+    ['A/C Holder', r.acHolder || '—'], ['A/C Number', r.acNo || '—'],
+    ['IFSC', r.ifsc || '—'], ['Bank', r.bank || '—'], ['Currency', r.currency || 'INR'],
+  ];
+  const section = (title, pairs) => `<h4 style="font-size:.78rem;font-weight:700;color:var(--g9);margin:.7rem 0 .4rem">${title}</h4>${_regKV(pairs)}`;
+  const body = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.5rem;margin-bottom:.3rem">
+      <div style="font-size:.8rem;color:var(--txt2)">${esc(r.desig)} · ${esc(r.site)} · ${esc(r.payroll)}</div>
+      <div style="font-size:.74rem;color:var(--txt3)">${_salMonthLabel(r.monthKey)}</div>
+    </div>
+    ${section('🗓 Attendance', att)}
+    ${section('💵 Earnings', earn)}
+    ${section('➖ Deductions', ded)}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:.8rem 0;padding:.7rem 1rem;background:var(--surface2);border-radius:10px">
+      <span style="font-size:.82rem;font-weight:700;color:var(--txt2)">Net Payable</span>
+      <span style="font-size:1.25rem;font-weight:800;color:var(--g9)">${R(r.net)}</span>
+    </div>
+    ${r.storedNet && Math.abs(r.storedNet - r.net) > 2 ? `<div style="font-size:.72rem;color:var(--gold);margin-bottom:.4rem">⚠ Sheet's stored Net was ${R(r.storedNet)} (differs — you edited Days for Salary).</div>` : ''}
+    ${section('🏦 Bank', bank)}`;
+  _regOpenModal('Payslip · ' + esc(r.name) + ' (' + esc(r.code) + ')', body);
 };
 
 function renderMDCommand() {
@@ -12626,6 +12890,7 @@ const MODULE_REGISTRY = [
   { route:'accounts-worklist', label:'Accounts Worklist',      section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-v2',       label:'Accounts Workspace',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-kpi',      label:'Accounts KPI Cards',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
+  { route:'salary-processing', label:'Salary Processing',      section:'Accounts',         defStatus:'live', defRoles:['md','accounts'] },
 
   // ── Planning ──────────────────────────────────────────────────
   { route:'budgeting',         label:'Budgeting',              section:'Planning',         defStatus:'live', defRoles:['md','hr','site','accounts','purchase','employee','dept_head'] },
