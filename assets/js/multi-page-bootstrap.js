@@ -245,6 +245,7 @@
     'accounts-dashboard':'accounts.html',
     'accounts-worklist': 'accounts.html',
     'accounts-kpi':      'accounts.html',
+    'salary-processing': 'accounts.html',
     'ledgers':           'accounts.html',
     'ledger-sc':         'accounts.html',
     'vendor-ledger-po':  'accounts.html',
