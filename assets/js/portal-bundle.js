@@ -4997,8 +4997,15 @@ async function _vplpEnsure(force) {
 function _grnMode() { const c = (typeof pcReadJSON === 'function') ? (pcReadJSON('grn_review_mode', {}) || {}) : {}; const m = c.mode || 'off'; return (m === 'on' || m === 'hidden') ? m : 'off'; }
 function _grnGateOn() { return _grnMode() === 'on' && !!GRN_REVIEW_SHEET_ID; }
 // Hidden when the admin chose 'Off + Hide', OR while the GRN Review sheet isn't
-// configured yet (feature parked/off) — so it stays out of the way until set up.
-function _grnTabHidden() { return _grnMode() === 'hidden' || !GRN_REVIEW_SHEET_ID; }
+// configured yet. BUT super-admins / admins always see the tab when the sheet is
+// configured — so they can always reach the review queue + the Ledger Link
+// control (a stale local 'hidden' or org 'hidden' never locks them out).
+function _grnTabHidden() {
+  if (!GRN_REVIEW_SHEET_ID) return true;                       // not configured → hidden for all
+  const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
+  if (isAdmin) return false;                                   // admins always see it
+  return _grnMode() === 'hidden';
+}
 window._grnSetMode = async function(mode) {
   const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
   if (!isAdmin) { _accToast('🔒 Only admins can change the Ledger Link.'); return; }
