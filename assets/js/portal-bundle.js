@@ -5672,7 +5672,7 @@ function _vplpVendorDetailsCard(v) {
   if (!bankCol && !addrCol && !contactCol) return '';
   return `<div class="card" style="margin-bottom:1rem">
     <div onclick="_vplpToggleVDetails(this)" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:.55rem .9rem;user-select:none">
-      <span style="font-size:.78rem;font-weight:700;color:var(--g8)">&#128203; Vendor Details${g(['Legal Name']) ? ` <span style="font-weight:400;color:var(--txt3);font-size:.72rem">&middot; Legal Name: ${esc(g(['Legal Name']))}</span>` : ''}</span>
+      <span style="font-size:.78rem;font-weight:700;color:var(--g8)">&#128203; Vendor Details${g(['Vendor Name', 'Legal Name']) ? ` <span style="font-weight:400;color:var(--txt3);font-size:.72rem">&middot; ${esc(g(['Vendor Name', 'Legal Name']))}</span>` : ''}</span>
       <span class="vd-caret" style="font-size:.78rem;color:var(--txt3);transition:transform .2s;display:inline-block">&#9656;</span>
     </div>
     <div class="vd-body" style="display:none;padding:0 .9rem .85rem">${inner}</div>
