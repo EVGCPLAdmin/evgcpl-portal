@@ -5222,12 +5222,16 @@ function _vplpCompute() {
   });
   // Vendors keyed by Vendor ID; payments that still don't resolve stay Unmapped.
   const vendors = {};
+  // ALWAYS take the vendor name from the Vendor Master (by Vendor ID) — it's the
+  // authoritative record. The PO's typed Vendor Name is only a fallback when the
+  // ID isn't in the master (e.g. MV353 is "Anas Stone Crusher" in the master even
+  // if a PO was raised under it with a different name).
   const getV = (vid, name, acc) => {
     const key = vid ? vid : ('UNMAP:' + _opNorm(name || '?'));
     let v = vendors[key];
-    if (!v) v = vendors[key] = { key, vid: vid || '', name: (vid && (vendorById[vid] || bridge.vidToName[vid])) || name || '(Unmapped)', acc: acc || '', uuid: (vid && bridge.vidToUuid[vid]) || '', detail: (vid && bridge.vidToDetail[vid]) || '', poKeys: {}, payCount: 0, unmapped: !vid };
+    if (!v) v = vendors[key] = { key, vid: vid || '', name: (vid && (bridge.vidToName[vid] || vendorById[vid])) || name || '(Unmapped)', acc: acc || '', uuid: (vid && bridge.vidToUuid[vid]) || '', detail: (vid && bridge.vidToDetail[vid]) || '', poKeys: {}, payCount: 0, unmapped: !vid };
     if (acc && !v.acc) v.acc = acc;
-    if (vid && vendorById[vid]) v.name = vendorById[vid];
+    if (vid && (bridge.vidToName[vid] || vendorById[vid])) v.name = bridge.vidToName[vid] || vendorById[vid];
     return v;
   };
   // Include a PO if it has counted receipts OR pending-review receipts (so the
