@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.42.2';
-const PORTAL_BUILD    = 679;
-const PORTAL_BUILD_AT = '2026-07-14T07:43:53Z';
+const PORTAL_VERSION  = '4.43.0';
+const PORTAL_BUILD    = 680;
+const PORTAL_BUILD_AT = '2026-07-14T07:49:41Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -18441,6 +18441,14 @@ const REPORT_CATALOGUE = [
     source: 'invoice',
     roles: ['md','purchase','accounts'],
   },
+  {
+    id: 'po_vendor_mismatch',
+    name: '⚠️ PO – Vendor Name Mismatch',
+    desc: 'POs whose Vendor ID / name (Vendor Details key) does not match the Vendor Master',
+    filters: [],
+    source: 'po_vendor_mismatch',
+    roles: ['md','purchase','accounts'],
+  },
 ];
 
 let _rptSelectedId  = null;
@@ -19285,6 +19293,45 @@ window.rptRun = async function() {
       if (vendor) rows = rows.filter(r=>r.vendor.toLowerCase().includes(vendor.toLowerCase()));
       _rptResultRows = rows.map(r=>({'GRN No':r.grnNo||'Pending','SI ID':r.siId,'Site':r.siteName,'PO No':r.poNo,'Vendor':r.vendor,'Invoice/ST No':r.invNo,'Part Description':r.partDesc,'MR Qty':r.mrQty,'Invoice Qty':r.invQty,'GRN Qty':r.grnQty,'Received On':r.receivedOn?fmtDate(r.receivedOn):''}));
       rptRenderTable(['GRN No','SI ID','Site','PO No','Vendor','Invoice/ST No','Part Description','MR Qty','Invoice Qty','GRN Qty','Received On']);
+    }
+
+    // ── PO – VENDOR NAME MISMATCH ──────────────────────────
+    // Flags POs where the Vendor ID / name (or the Vendor Details key) doesn't
+    // match the Vendor Master by Vendor ID.
+    else if (id === 'po_vendor_mismatch') {
+      if (!_rptRawData.po_vmm) {
+        await _openPOEnsure();
+        let vm = [];
+        try { vm = await fetchSheet(VENDOR_MASTER_TAB, null, VENDOR_MASTER_SHEET_ID) || []; } catch (e) { vm = []; }
+        const vmById = {};
+        vm.forEach(r => { const vid = String(r['Vendor ID'] || '').toUpperCase().trim(); if (vid && !vmById[vid]) vmById[vid] = String(r['Vendor Name'] || r['Legal Name'] || '').trim(); });
+        const HC = _opColMap(_openPOHeaders);
+        const norm = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, '');
+        const out = [];
+        _openPOHeaders.forEach(r => {
+          const poNo = String(_opGet(r, HC, ['PO No']) || '').trim();
+          if (!poNo || /dummy/i.test(poNo)) return;
+          const poVid  = String(_opGet(r, HC, ['Vendor ID']) || '').toUpperCase().trim();
+          const poName = String(_opGet(r, HC, ['Vendor Name']) || '').trim();
+          const poKey  = String(_opGet(r, HC, ['Vendor Details', 'Vendor Detail', 'Vendor Key', 'Vendor Details (Key)']) || '').trim();
+          const issues = [];
+          // Vendor Details key encodes "VID|Name" — check its ID + name vs the Vendor ID column / master.
+          let keyId = '', keyName = '';
+          if (poKey.indexOf('|') > -1) { const p = poKey.split('|'); keyId = String(p[0] || '').toUpperCase().trim(); keyName = String(p.slice(1).join('|') || '').trim(); }
+          if (!poVid && !keyId) { issues.push('No Vendor ID on PO'); }
+          const vid = poVid || keyId;
+          const masterName = vid ? vmById[vid] : '';
+          if (vid && !masterName) issues.push('Vendor ID ' + vid + ' not in Master');
+          if (keyId && poVid && keyId !== poVid) issues.push('Key ID (' + keyId + ') ≠ Vendor ID (' + poVid + ')');
+          if (masterName && poName && norm(poName) !== norm(masterName)) issues.push('PO name ≠ Master name');
+          if (masterName && keyName && norm(keyName) !== norm(masterName)) issues.push('Key name ≠ Master name');
+          if (issues.length) out.push({ 'PO No': poNo, 'Vendor ID': poVid || keyId || '—', 'PO Vendor Name': poName || '—', 'Vendor Details (Key)': poKey || '—', 'Master Vendor Name': masterName || '—', 'Issue': issues.join('; ') });
+        });
+        out.sort((a, b) => String(a['Vendor ID']).localeCompare(String(b['Vendor ID'])));
+        _rptRawData.po_vmm = out;
+      }
+      _rptResultRows = _rptRawData.po_vmm;
+      rptRenderTable(['PO No', 'Vendor ID', 'PO Vendor Name', 'Vendor Details (Key)', 'Master Vendor Name', 'Issue']);
     }
 
     // ── EMPLOYEE HEADCOUNT ─────────────────────────────────
