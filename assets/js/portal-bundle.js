@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.42.0';
-const PORTAL_BUILD    = 677;
-const PORTAL_BUILD_AT = '2026-07-09T13:26:51Z';
+const PORTAL_VERSION  = '4.42.1';
+const PORTAL_BUILD    = 678;
+const PORTAL_BUILD_AT = '2026-07-14T07:31:32Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5673,7 +5673,7 @@ function _vplpVendorDetailsCard(v) {
   if (!bankCol && !addrCol && !contactCol) return '';
   return `<div class="card" style="margin-bottom:1rem">
     <div onclick="_vplpToggleVDetails(this)" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:.55rem .9rem;user-select:none">
-      <span style="font-size:.78rem;font-weight:700;color:var(--g8)">&#128203; Vendor Details${g(['Legal Name']) ? ` <span style="font-weight:400;color:var(--txt3);font-size:.72rem">&middot; Legal Name: ${esc(g(['Legal Name']))}</span>` : ''}</span>
+      <span style="font-size:.78rem;font-weight:700;color:var(--g8)">&#128203; Vendor Details${g(['Vendor Name', 'Legal Name']) ? ` <span style="font-weight:400;color:var(--txt3);font-size:.72rem">&middot; ${esc(g(['Vendor Name', 'Legal Name']))}</span>` : ''}</span>
       <span class="vd-caret" style="font-size:.78rem;color:var(--txt3);transition:transform .2s;display:inline-block">&#9656;</span>
     </div>
     <div class="vd-body" style="display:none;padding:0 .9rem .85rem">${inner}</div>
