@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.43.0';
-const PORTAL_BUILD    = 680;
-const PORTAL_BUILD_AT = '2026-07-14T07:49:41Z';
+const PORTAL_VERSION  = '4.43.1';
+const PORTAL_BUILD    = 681;
+const PORTAL_BUILD_AT = '2026-07-14T07:53:08Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -19314,6 +19314,8 @@ window.rptRun = async function() {
           const poVid  = String(_opGet(r, HC, ['Vendor ID']) || '').toUpperCase().trim();
           const poName = String(_opGet(r, HC, ['Vendor Name']) || '').trim();
           const poKey  = String(_opGet(r, HC, ['Vendor Details', 'Vendor Detail', 'Vendor Key', 'Vendor Details (Key)']) || '').trim();
+          // Skip dummy / placeholder vendors entirely.
+          if (/dummy/i.test(poVid) || /dummy/i.test(poName) || /dummy/i.test(poKey)) return;
           const issues = [];
           // Vendor Details key encodes "VID|Name" — check its ID + name vs the Vendor ID column / master.
           let keyId = '', keyName = '';
