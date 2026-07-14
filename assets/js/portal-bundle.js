@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.42.1';
-const PORTAL_BUILD    = 678;
-const PORTAL_BUILD_AT = '2026-07-14T07:31:32Z';
+const PORTAL_VERSION  = '4.42.2';
+const PORTAL_BUILD    = 679;
+const PORTAL_BUILD_AT = '2026-07-14T07:43:53Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5222,12 +5222,16 @@ function _vplpCompute() {
   });
   // Vendors keyed by Vendor ID; payments that still don't resolve stay Unmapped.
   const vendors = {};
+  // ALWAYS take the vendor name from the Vendor Master (by Vendor ID) — it's the
+  // authoritative record. The PO's typed Vendor Name is only a fallback when the
+  // ID isn't in the master (e.g. MV353 is "Anas Stone Crusher" in the master even
+  // if a PO was raised under it with a different name).
   const getV = (vid, name, acc) => {
     const key = vid ? vid : ('UNMAP:' + _opNorm(name || '?'));
     let v = vendors[key];
-    if (!v) v = vendors[key] = { key, vid: vid || '', name: (vid && (vendorById[vid] || bridge.vidToName[vid])) || name || '(Unmapped)', acc: acc || '', uuid: (vid && bridge.vidToUuid[vid]) || '', detail: (vid && bridge.vidToDetail[vid]) || '', poKeys: {}, payCount: 0, unmapped: !vid };
+    if (!v) v = vendors[key] = { key, vid: vid || '', name: (vid && (bridge.vidToName[vid] || vendorById[vid])) || name || '(Unmapped)', acc: acc || '', uuid: (vid && bridge.vidToUuid[vid]) || '', detail: (vid && bridge.vidToDetail[vid]) || '', poKeys: {}, payCount: 0, unmapped: !vid };
     if (acc && !v.acc) v.acc = acc;
-    if (vid && vendorById[vid]) v.name = vendorById[vid];
+    if (vid && (bridge.vidToName[vid] || vendorById[vid])) v.name = bridge.vidToName[vid] || vendorById[vid];
     return v;
   };
   // Include a PO if it has counted receipts OR pending-review receipts (so the
