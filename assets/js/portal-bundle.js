@@ -5038,9 +5038,10 @@ function _grnReviewBySiId() {
     const ts = _mdpDateVal(_grnRVal(r, ['Timestamp'])) || 0;
     const o = {
       status: _grnRVal(r, ['Review Status', 'Status']) || 'Pending',
-      rate: _opNum(_grnRVal(r, ['Reviewed Rate', 'Rate'])),
-      addl: _opNum(_grnRVal(r, ['Additional Charges', 'Addl Charges', 'Additional Charge'])),
-      value: _opNum(_grnRVal(r, ['Reviewed Value', 'Value', 'Line Value'])),
+      rate: _opNum(_grnRVal(r, ['Reviewed Rate', 'Final Rate', 'Rate'])),
+      tax: _opNum(_grnRVal(r, ['Reviewed Tax', 'Final Tax', 'Tax'])),
+      addl: _opNum(_grnRVal(r, ['Additional Charges', 'Final Additional Charges', 'Addl Charges', 'Additional Charge'])),
+      value: _opNum(_grnRVal(r, ['Reviewed Value', 'Final Value', 'Value', 'Line Value'])),
       by: _grnRVal(r, ['Reviewed By', 'Updated By']),
       comments: _grnRVal(r, ['Comments', 'Remarks']),
       ts,
@@ -5192,12 +5193,15 @@ function _vplpCompute() {
       // values as before (everything counts).
       const applied = gateOn ? rc.rev : null;
       const approved = !gateOn || _grnIsApproved(rc.rev);
+      // Reviewed final Rate / Tax / Additional Charges (per line); the reviewer
+      // may also set the final VALUE directly (overrides Rate × Qty + Tax + Addl).
       const useRate = (applied && applied.rate > 0) ? applied.rate : rate;
+      const rTax = (applied && applied.tax) || 0;
       const addl = (applied && applied.addl) || 0;
-      // Accounts may set the line VALUE directly (overrides qty × rate + addl).
-      const lineCredit = (applied && applied.value > 0) ? applied.value : ((rc.qty || 0) * useRate + addl);
+      const rMat = (rc.qty || 0) * useRate;
+      const lineCredit = (applied && applied.value > 0) ? applied.value : (rMat + rTax + addl);
       // stash for the ledger / review UI
-      rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.part = part; rc.partNo = partNo; rc.partDesc = partDesc;
+      rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.rMat = rMat; rc.rTax = rTax; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.reviewed = !!applied; rc.part = part; rc.partNo = partNo; rc.partDesc = partDesc;
       if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; countedQty += (rc.qty || 0); }
       else { poPending[k] = (poPending[k] || 0) + lineCredit; }
       const g = poRcpt[k] = poRcpt[k] || []; if (!g.some(z => z.idx === rc.idx)) g.push(rc);
@@ -5369,11 +5373,16 @@ function _vplpGRNReviewView() {
       : isRej(l) ? '<span style="font-size:.66rem;font-weight:700;background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9px">Rejected</span>'
       : '<span style="font-size:.66rem;font-weight:700;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px">Pending</span>';
     const ro = canReview ? '' : ' disabled';
-    // Only the FINAL VALUE (amount) is editable. Rate + PO Amount are read-only
-    // reference; the value defaults to the PO amount (qty × PO rate) or the
-    // saved reviewed value.
-    const poAmt = (l.qty || 0) * (l.poRate || 0);
-    const valVal = (l.rev && l.rev.value > 0) ? l.rev.value : (poAmt ? Math.round(poAmt * 100) / 100 : '');
+    // Editable final Rate / Tax / Additional Charges / Value. Value auto-computes
+    // from qty × Rate + Tax + Addl but can be overridden directly. Defaults from
+    // the saved review, else the PO rate / amount.
+    const poAmt   = (l.qty || 0) * (l.poRate || 0);
+    const rateVal = (l.rev && l.rev.rate > 0) ? l.rev.rate : (l.poRate || '');
+    const taxVal  = (l.rev && l.rev.tax) || '';
+    const addlVal = (l.rev && l.rev.addl) || '';
+    const valDef  = (l.qty || 0) * (Number(rateVal) || 0) + (Number(taxVal) || 0) + (Number(addlVal) || 0);
+    const valVal  = (l.rev && l.rev.value > 0) ? l.rev.value : (valDef ? Math.round(valDef * 100) / 100 : '');
+    const numInput = (fid, v, w, extra) => `<input id="grn-${fid}-${i}" type="number" step="0.01" value="${esc(v)}"${ro} ${extra || ''} style="width:${w}px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)">`;
     return `<tr>
       <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
@@ -5382,8 +5391,10 @@ function _vplpGRNReviewView() {
       <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
       <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
-      <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(poAmt)}</td>
-      <td style="padding:6px 9px;text-align:right"><input id="grn-val-${i}" type="number" step="0.01" value="${esc(valVal)}"${ro} title="Final amount for this item (what credits the ledger)" style="width:108px;text-align:right;font-weight:700;color:#15803d;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px;text-align:right">${numInput('rate', rateVal, 84, `oninput="_vplpGRNCalc(${i})"`)}</td>
+      <td style="padding:6px 9px;text-align:right">${numInput('tax', taxVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
+      <td style="padding:6px 9px;text-align:right">${numInput('addl', addlVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-val-${i}" type="number" step="0.01" value="${esc(valVal)}"${ro}${(l.rev && l.rev.value > 0) ? ' data-touched="1"' : ''} title="Final amount for this item (what credits the ledger). Auto = Qty×Rate + Tax + Addl; edit to override." oninput="this.dataset.touched=1" style="width:104px;text-align:right;font-weight:700;color:#15803d;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
       <td style="padding:6px 9px">${chip}</td>
       <td style="padding:6px 9px;white-space:nowrap">${canReview ? `<button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : '—'}</td>
     </tr>`;
@@ -5393,20 +5404,27 @@ function _vplpGRNReviewView() {
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">GRN</th><th style="padding:8px 9px">PO No</th><th style="padding:8px 9px">Vendor</th>
         <th style="padding:8px 9px">Part No; Description</th><th style="padding:8px 9px">Invoice</th><th style="padding:8px 9px;text-align:right">Qty</th>
-        <th style="padding:8px 9px;text-align:right">PO Rate</th><th style="padding:8px 9px;text-align:right">PO Amount</th>
-        <th style="padding:8px 9px;text-align:right">Final Value</th>
+        <th style="padding:8px 9px;text-align:right">PO Rate</th>
+        <th style="padding:8px 9px;text-align:right">Final Rate</th><th style="padding:8px 9px;text-align:right">Final Tax</th>
+        <th style="padding:8px 9px;text-align:right">Final Add'l</th><th style="padding:8px 9px;text-align:right">Final Value</th>
         <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Review</th>
       </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
-// Live-recompute the Value field from qty × rate + addl, unless the user has
-// typed a value directly (data-touched).
+// Live-recompute the Final Value from Qty × Rate + Tax + Addl, unless the user
+// has typed a value directly (data-touched).
+window._vplpGRNCalc = function(i) {
+  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
+  const v = document.getElementById('grn-val-' + i); if (!v || v.dataset.touched) return;
+  const n = id => parseFloat((document.getElementById('grn-' + id + '-' + i) || {}).value) || 0;
+  v.value = (Math.round(((l.qty || 0) * n('rate') + n('tax') + n('addl')) * 100) / 100) || '';
+};
 window._vplpGRNSubmit = async function(i, action) {
   const l = (window._vplpGRNShown || [])[i]; if (!l) return;
   if (!_grnCanReview()) { _accToast('🔒 Only Accounts can review GRNs.'); return; }
   if (!l.siId) { _accToast('⚠ This StockIN line has no SI ID — cannot review.'); return; }
   if (!GRN_REVIEW_SHEET_ID) { _accToast('⚠ GRN Review sheet not configured — set GRN_REVIEW_SHEET_ID to save.'); return; }
   const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
-  const value = num('grn-val-' + i);   // the ONLY editable field — final amount
+  const rate = num('grn-rate-' + i), tax = num('grn-tax-' + i), addl = num('grn-addl-' + i), value = num('grn-val-' + i);
   if (/approv/i.test(action) && !(value > 0)) { _accToast('⚠ Enter the final amount for this item.'); return; }
   const email = (STATE.user && STATE.user.email) || '';
   const row = {
@@ -5416,7 +5434,9 @@ window._vplpGRNSubmit = async function(i, action) {
     'Reviewed By': (STATE.user && (STATE.user.name || STATE.user.email)) || '',
     'SI ID': l.siId, 'GRN No': l.grn, 'PO No': l.poNo, 'Vendor ID': l.vid, 'Part': l.part,
     'Invoice No': l.inv, 'GRN Qty': l.qty, 'PO Rate': l.poRate,
-    'Reviewed Rate': '', 'Additional Charges': '',
+    'Reviewed Rate': isNaN(rate) ? '' : rate,
+    'Reviewed Tax': isNaN(tax) ? '' : tax,
+    'Additional Charges': isNaN(addl) ? '' : addl,
     'Reviewed Value': isNaN(value) ? '' : value,
     'Review Status': action, 'Comments': '',
   };
@@ -5728,17 +5748,21 @@ function _vplpLedger(v, embedOpts) {
       // Approved lines of this receipt → one counted credit row.
       const app = g.filter(rc => rc.approved !== false);
       if (app.length) {
-        let baseMat = 0, lineAddl = 0, groupMat = 0;
-        app.forEach(rc => {
-          const hasVal = d.gateOn && rc.rev && rc.rev.value > 0;
-          baseMat += hasVal ? (rc.credit || 0) : (rc.qty || 0) * (rc.useRate || 0);
-          lineAddl += hasVal ? 0 : (rc.addl || 0);
-          groupMat += (rc.credit || 0);
-        });
-        const frac = poRecvTot > 0 ? groupMat / poRecvTot : 1 / nGroups;
-        const taxA = taxATot * frac, taxB = taxBTot * frac, poAddl = poAddlTot * frac;
-        const credit = baseMat + lineAddl + taxA + taxB + poAddl;
-        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', mat: baseMat, addl: lineAddl + poAddl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+        let mat = 0, addlC = 0, taxA = 0, taxB = 0, credit = 0;
+        if (d.gateOn) {
+          // Gate ON: each reviewed line carries its OWN final Rate/Tax/Addl/Value.
+          // PO-apportioned tax/charges are ignored (the review is authoritative).
+          app.forEach(rc => { mat += rc.rMat || 0; taxA += rc.rTax || 0; addlC += rc.addl || 0; credit += rc.credit || 0; });
+        } else {
+          // Gate OFF: PO rate + PO-apportioned Tax(a)/Tax(b)/Additional (unchanged).
+          let baseMat = 0, lineAddl = 0, groupMat = 0;
+          app.forEach(rc => { baseMat += (rc.qty || 0) * (rc.useRate || 0); lineAddl += (rc.addl || 0); groupMat += (rc.credit || 0); });
+          const frac = poRecvTot > 0 ? groupMat / poRecvTot : 1 / nGroups;
+          taxA = taxATot * frac; taxB = taxBTot * frac;
+          mat = baseMat; addlC = lineAddl + poAddlTot * frac;
+          credit = mat + addlC + taxA + taxB;
+        }
+        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', mat, addl: addlC, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
       }
       // Pending (un-reviewed) lines of this receipt → one pending, uncounted row.
       const pen = g.filter(rc => rc.approved === false);

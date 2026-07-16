@@ -29,14 +29,17 @@ backend appends by header name):
 ```
 UUID | SystemEmail | UserEmail | Timestamp | Reviewed By | SI ID | GRN No |
 PO No | Vendor ID | Part | Invoice No | GRN Qty | PO Rate | Reviewed Rate |
-Additional Charges | Reviewed Value | Review Status | Comments
+Reviewed Tax | Additional Charges | Reviewed Value | Review Status | Comments
 ```
 
-- **`Reviewed Value`** — the **only** field Accounts edit in the queue: the final
-  amount for that item (what credits the ledger). It defaults to the PO amount
-  (`GRN Qty × PO Rate`), shown read-only alongside. `Reviewed Rate` /
-  `Additional Charges` are no longer entered via the UI (kept in the schema for
-  older records); PO Rate + PO Amount are display-only reference.
+- Accounts enter, per line: **Final Rate** (`Reviewed Rate`), **Final Tax**
+  (`Reviewed Tax`), **Final Additional Charges** (`Additional Charges`), and
+  **Final Value** (`Reviewed Value`). Final Value **auto-computes** as
+  `Qty × Rate + Tax + Addl` but can be **overridden** directly.
+- **`Reviewed Value`** is what credits the ledger. When the gate (Ledger Link) is
+  **On**, each approved line uses its own final Rate/Tax/Addl for the Material /
+  Tax / Add'l columns and Final Value for the credit (PO-apportioned tax/charges
+  are ignored for reviewed lines). `PO Rate` is display-only reference.
 
 - **`SI ID`** is the join key — the StockIN line's own ID (the portal reads it
   from the StockIN `SI ID` column). One review per SI ID; the **latest** row per
