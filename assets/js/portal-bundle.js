@@ -5290,11 +5290,14 @@ function _vplpRenderBody() {
   const c = document.getElementById('vplp-body'); if (!c) return;
   const d = _vplpData; if (!d) return;
   const esc = _mdpEsc;
+  // Portal-wide count of GRN lines still awaiting Accounts review (gate on).
+  const _grnPend = _grnGateOn() ? (d.grnLines || []).filter(l => l.approved === false).length : 0;
+  const _grnBadge = _grnPend ? ` <span style="background:#f59e0b;color:#fff;border-radius:9px;padding:0 7px;font-size:.66rem;font-weight:700">${_grnPend}</span>` : '';
   const toggle = `<div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
     <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
     <button onclick="_vplpSetView('flat')" class="btn btn-sm ${_vplpView === 'flat' ? 'btn-primary' : 'btn-secondary'}">&#128203; Flat List (all vendors)</button>
     <button onclick="_vplpSetView('openings')" class="btn btn-sm ${_vplpView === 'openings' ? 'btn-primary' : 'btn-secondary'}">&#128209; Opening Balances</button>
-    ${_grnTabHidden() ? '' : `<button onclick="_vplpSetView('grnreview')" class="btn btn-sm ${_vplpView === 'grnreview' ? 'btn-primary' : 'btn-secondary'}">&#128203; GRN Review</button>`}
+    ${_grnTabHidden() ? '' : `<button onclick="_vplpSetView('grnreview')" class="btn btn-sm ${_vplpView === 'grnreview' ? 'btn-primary' : 'btn-secondary'}">&#128203; GRN Review${_grnBadge}</button>`}
     <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="margin-left:auto" title="Record a vendor's carried-forward opening balance">&#10133; Opening Balance</button>
   </div>`;
   if (_vplpView === 'grnreview' && _grnTabHidden()) _vplpView = 'vendor';   // tab was hidden
@@ -5900,7 +5903,13 @@ function _vplpLedger(v, embedOpts) {
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td>${extraFoot}</tr>`;
-  return vmCard + controlRow + modeHint + fyBar + `<div class="card"><div style="overflow-x:auto">
+  // Pending-review banner — how much of this vendor's received material is still
+  // awaiting Accounts approval (excluded from the balance until approved).
+  const _pend = all.filter(e => e.pending);
+  const _pendTot = _pend.reduce((s, e) => s + (e.pendingAmt || 0), 0);
+  const _pendLines = _pend.reduce((s, e) => s + ((e.rcpts && e.rcpts.length) || 1), 0);
+  const pendBanner = _pendTot > 0 ? `<div class="alert-strip" style="margin-bottom:.7rem;background:#fef3c7;border-color:#f59e0b;cursor:pointer" onclick="_vplpSetView('grnreview')"><span class="alert-icon">&#9203;</span><span><b>Pending accounts review:</b> ₹${Math.round(_pendTot).toLocaleString('en-IN')} across ${_pendLines} line${_pendLines === 1 ? '' : 's'} &mdash; not counted in the balance until approved in <b>GRN Review</b>.</span></div>` : '';
+  return vmCard + pendBanner + controlRow + modeHint + fyBar + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
