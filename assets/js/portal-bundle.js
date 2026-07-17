@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.44.0';
-const PORTAL_BUILD    = 682;
-const PORTAL_BUILD_AT = '2026-07-16T17:37:29Z';
+const PORTAL_VERSION  = '4.44.1';
+const PORTAL_BUILD    = 683;
+const PORTAL_BUILD_AT = '2026-07-17T04:19:50Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4994,8 +4994,8 @@ async function _vplpEnsure(force) {
 //   'on'     → only Accounts-approved GRN lines count in the ledger (gate active)
 //   'off'    → all received lines count (gate off); GRN Review tab still visible
 //   'hidden' → gate off AND the GRN Review tab is hidden
-// Default 'off' so configuring the sheet doesn't silently change balances.
-function _grnMode() { const c = (typeof pcReadJSON === 'function') ? (pcReadJSON('grn_review_mode', {}) || {}) : {}; const m = c.mode || 'off'; return (m === 'on' || m === 'hidden') ? m : 'off'; }
+// Default 'on' — the gate is active unless an admin explicitly turns it Off/Hide.
+function _grnMode() { const c = (typeof pcReadJSON === 'function') ? (pcReadJSON('grn_review_mode', {}) || {}) : {}; const m = c.mode; return (m === 'off' || m === 'hidden') ? m : 'on'; }
 function _grnGateOn() { return _grnMode() === 'on' && !!GRN_REVIEW_SHEET_ID; }
 // Hidden when the admin chose 'Off + Hide', OR while the GRN Review sheet isn't
 // configured yet. BUT super-admins / admins always see the tab when the sheet is
