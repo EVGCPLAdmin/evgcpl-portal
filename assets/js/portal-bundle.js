@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.44.5';
-const PORTAL_BUILD    = 687;
-const PORTAL_BUILD_AT = '2026-07-18T13:54:30Z';
+const PORTAL_VERSION  = '4.44.6';
+const PORTAL_BUILD    = 688;
+const PORTAL_BUILD_AT = '2026-07-18T14:02:46Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5418,15 +5418,18 @@ function _vplpGRNReviewView() {
       <td style="padding:6px 9px;white-space:nowrap">${canReview ? `<button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : '—'}</td>
     </tr>`;
   }).join('');
-  return header + cfgWarn + permWarn + capNote + `<div class="card"><div style="overflow-x:auto">
+  // ~10 rows tall, then scroll vertically. Header stays pinned (sticky th).
+  const th = 'padding:8px 9px;position:sticky;top:0;background:var(--g9);z-index:2';
+  const thR = th + ';text-align:right';
+  return header + cfgWarn + permWarn + capNote + `<div class="card"><div style="overflow:auto;max-height:380px">
     <table class="evg-ledger-tbl" data-evg-defaults="off" style="width:100%;border-collapse:collapse;font-size:.78rem">
-      <thead><tr style="background:var(--g9);color:#fff;text-align:left">
-        <th style="padding:8px 9px">GRN</th><th style="padding:8px 9px">PO No</th><th style="padding:8px 9px">Vendor</th>
-        <th style="padding:8px 9px">Part No; Description</th><th style="padding:8px 9px">Invoice</th><th style="padding:8px 9px;text-align:right">Qty</th>
-        <th style="padding:8px 9px;text-align:right">PO Rate</th>
-        <th style="padding:8px 9px;text-align:right">Final Rate</th><th style="padding:8px 9px;text-align:right">Final Tax</th>
-        <th style="padding:8px 9px;text-align:right">Final Add'l</th><th style="padding:8px 9px;text-align:right">Final Value</th>
-        <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Review</th>
+      <thead><tr style="color:#fff;text-align:left">
+        <th style="${th}">GRN</th><th style="${th}">PO No</th><th style="${th}">Vendor</th>
+        <th style="${th}">Part No; Description</th><th style="${th}">Invoice</th><th style="${thR}">Qty</th>
+        <th style="${thR}">PO Rate</th>
+        <th style="${thR}">Final Rate</th><th style="${thR}">Final Tax</th>
+        <th style="${thR}">Final Add'l</th><th style="${thR}">Final Value</th>
+        <th style="${th}">Status</th><th style="${th}">Review</th>
       </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 // Live-recompute the Final Value from Qty × Rate + Tax + Addl, unless the user
@@ -5451,21 +5454,24 @@ window._vplpGRNSubmit = async function(i, action) {
     'SystemEmail': email, 'UserEmail': email,
     'Timestamp': _accFmtDateTime(new Date()),
     'Reviewed By': (STATE.user && (STATE.user.name || STATE.user.email)) || '',
-    'SI ID': l.siId, 'GRN No': l.grn, 'PO No': l.poNo, 'Vendor ID': l.vid, 'Part': l.part,
+    'SI ID': l.siId, 'SIID': l.siId,
+    'GRN No': l.grn, 'PO No': l.poNo, 'Vendor ID': l.vid, 'Part': l.part,
     'Invoice No': l.inv, 'GRN Qty': l.qty, 'PO Rate': l.poRate,
-    'Reviewed Rate': isNaN(rate) ? '' : rate,
-    'Reviewed Tax': isNaN(tax) ? '' : tax,
-    'Additional Charges': isNaN(addl) ? '' : addl,
-    'Reviewed Value': isNaN(value) ? '' : value,
-    'Review Status': action, 'Comments': '',
+    'Reviewed Rate': isNaN(rate) ? '' : rate, 'Final Rate': isNaN(rate) ? '' : rate,
+    'Reviewed Tax': isNaN(tax) ? '' : tax, 'Final Tax': isNaN(tax) ? '' : tax,
+    'Additional Charges': isNaN(addl) ? '' : addl, 'Final Additional Charges': isNaN(addl) ? '' : addl,
+    'Reviewed Value': isNaN(value) ? '' : value, 'Final Value': isNaN(value) ? '' : value,
+    'Review Status': action, 'Status': action, 'Comments': '',
   };
   const resp = await _accPostAwait({ action: 'saveGRNReview', sheetId: GRN_REVIEW_SHEET_ID, tab: GRN_REVIEW_TAB, row });
   if (resp && resp.success !== false) {
-    // If the tab is missing key columns, the append silently skipped them → the
-    // status/amount never persists. Surface that so it can be fixed.
-    const um = (resp.unmatched || []).map(x => String(x).toLowerCase());
-    const missing = ['SI ID', 'Review Status', 'Reviewed Value'].filter(cN => um.includes(cN.toLowerCase()));
-    if (missing.length) _accToast('⚠ Saved, but the GRN_Review tab is missing column(s): ' + missing.join(', ') + '. Add them or it won\'t stick.');
+    // If the tab is missing a key column, the append silently skipped it → the
+    // status/amount never persists (nothing attaches → gate shows all pending).
+    // A field is missing only if NONE of its accepted header names matched.
+    const um = new Set((resp.unmatched || []).map(x => String(x).toLowerCase()));
+    const groups = { 'SI ID': ['SI ID', 'SIID'], 'Review Status': ['Review Status', 'Status'], 'Reviewed Value': ['Reviewed Value', 'Final Value'] };
+    const missing = Object.keys(groups).filter(lbl => groups[lbl].every(k => um.has(k.toLowerCase())));
+    if (missing.length) _accToast('⚠ Saved, but the GRN_Review tab has no column for: ' + missing.join(', ') + '. Add it or the review won\'t stick.');
     else _accToast('✅ GRN ' + action.toLowerCase());
     // Optimistic: reflect immediately (gviz caches an append for a while, so a
     // fresh read wouldn't yet show the new status). Latest Timestamp wins, so the
