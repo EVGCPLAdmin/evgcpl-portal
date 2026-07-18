@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.44.4';
-const PORTAL_BUILD    = 686;
-const PORTAL_BUILD_AT = '2026-07-18T13:48:08Z';
+const PORTAL_VERSION  = '4.44.5';
+const PORTAL_BUILD    = 687;
+const PORTAL_BUILD_AT = '2026-07-18T13:54:30Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5461,9 +5461,19 @@ window._vplpGRNSubmit = async function(i, action) {
   };
   const resp = await _accPostAwait({ action: 'saveGRNReview', sheetId: GRN_REVIEW_SHEET_ID, tab: GRN_REVIEW_TAB, row });
   if (resp && resp.success !== false) {
-    _accToast('✅ GRN ' + action.toLowerCase());
-    _vplpGRNReviewRows = null;
-    _vplpEnsure(true).then(() => _vplpRenderBody()).catch(() => {});
+    // If the tab is missing key columns, the append silently skipped them → the
+    // status/amount never persists. Surface that so it can be fixed.
+    const um = (resp.unmatched || []).map(x => String(x).toLowerCase());
+    const missing = ['SI ID', 'Review Status', 'Reviewed Value'].filter(cN => um.includes(cN.toLowerCase()));
+    if (missing.length) _accToast('⚠ Saved, but the GRN_Review tab is missing column(s): ' + missing.join(', ') + '. Add them or it won\'t stick.');
+    else _accToast('✅ GRN ' + action.toLowerCase());
+    // Optimistic: reflect immediately (gviz caches an append for a while, so a
+    // fresh read wouldn't yet show the new status). Latest Timestamp wins, so the
+    // pushed row supersedes any earlier review for this SI ID.
+    if (!Array.isArray(_vplpGRNReviewRows)) _vplpGRNReviewRows = [];
+    _vplpGRNReviewRows.push(row);
+    try { _vplpData = _vplpCompute(); } catch (e) {}
+    _vplpRenderBody();
   } else {
     _accToast('⚠ ' + ((resp && resp.message) || 'Could not save the review'));
   }
