@@ -5333,7 +5333,18 @@ function _vplpRenderBody() {
 // charges, then Approve (counts into the ledger) or Reject. Writes via
 // getExec('accounts') action 'saveGRNReview' (append; latest per SI ID wins).
 let _vplpGRNFilter = 'pending';   // 'pending' | 'approved' | 'rejected' | 'all'
+let _vplpGRNSearch = '';
+const _GRN_CAP = 150;             // cap rendered rows — the queue can be thousands
 window._vplpGRNSetFilter = function(f) { _vplpGRNFilter = f; _vplpRenderBody(); };
+let _grnSearchTimer = null;
+window._vplpGRNSearchInput = function(val) {
+  _vplpGRNSearch = val;
+  clearTimeout(_grnSearchTimer);
+  _grnSearchTimer = setTimeout(() => {
+    _vplpRenderBody();
+    const s = document.getElementById('grn-search'); if (s) { s.focus(); try { s.setSelectionRange(s.value.length, s.value.length); } catch (e) {} }
+  }, 300);
+};
 function _grnCanReview() {
   const roleOk = (typeof _accCan !== 'function') || _accCan('update') || _accCan('verify') || _accCan('advance');
   const statusOk = (typeof _accCanSetStatus !== 'function') || _accCanSetStatus('GRN Approved');
@@ -5348,9 +5359,12 @@ function _vplpGRNReviewView() {
   const isApp = l => /approv/i.test(statusOf(l)), isRej = l => /reject/i.test(statusOf(l));
   const isPend = l => !isApp(l) && !isRej(l);
   const counts = { pending: lines.filter(isPend).length, approved: lines.filter(isApp).length, rejected: lines.filter(isRej).length, all: lines.length };
-  const shown = _vplpGRNFilter === 'all' ? lines
+  let filtered = _vplpGRNFilter === 'all' ? lines
     : _vplpGRNFilter === 'approved' ? lines.filter(isApp)
     : _vplpGRNFilter === 'rejected' ? lines.filter(isRej) : lines.filter(isPend);
+  const q = _vplpGRNSearch.trim().toLowerCase();
+  if (q) filtered = filtered.filter(l => (l.vendorName + ' ' + l.vid + ' ' + l.poNo + ' ' + l.grn + ' ' + (l.partDesc || l.part || '') + ' ' + (l.inv || '')).toLowerCase().includes(q));
+  const shown = filtered.slice(0, _GRN_CAP);   // cap rendered rows to keep it responsive
   // stash for the submit handler (index-addressed)
   window._vplpGRNShown = shown;
   const canReview = _grnCanReview();
@@ -5363,10 +5377,12 @@ function _vplpGRNReviewView() {
       ${fbtn('pending', 'Pending', counts.pending)}${fbtn('approved', 'Approved', counts.approved)}${fbtn('rejected', 'Rejected', counts.rejected)}${fbtn('all', 'All', counts.all)}
     </div>
     <div style="display:flex;gap:.9rem;align-items:center;flex-wrap:wrap">
+      <input id="grn-search" value="${esc(_vplpGRNSearch)}" oninput="_vplpGRNSearchInput(this.value)" placeholder="Search vendor / PO / GRN / part…" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 10px;background:var(--surface2);min-width:230px">
       ${isAdmin ? _grnModeControls() : `<span style="font-size:.66rem;color:var(--txt3)">Ledger Link: <b>${_grnMode() === 'on' ? 'On' : 'Off'}</b></span>`}
       <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
     </div>
   </div>`;
+  const capNote = filtered.length > _GRN_CAP ? `<div style="font-size:.72rem;color:#b45309;margin-bottom:.5rem">Showing first ${_GRN_CAP} of ${filtered.length.toLocaleString('en-IN')} &mdash; use <b>Search</b> to narrow.</div>` : '';
   const cfgWarn = notCfg ? `<div class="alert-strip" style="margin-bottom:.7rem;background:#fef3c7;border-color:#f59e0b"><span class="alert-icon">&#9888;&#65039;</span><span><b>GRN Review sheet not configured.</b> The ledger gate is OFF (every received line still counts as before). Set <code>GRN_REVIEW_SHEET_ID</code> to activate review-gating; you can preview the queue below but can't save until it's set.</span></div>` : '';
   const permWarn = (!canReview && !notCfg) ? `<div class="alert-strip" style="margin-bottom:.7rem"><span class="alert-icon">&#128274;</span><span>You can view GRN reviews but only Accounts can approve/edit them.</span></div>` : '';
   if (!shown.length) return header + cfgWarn + permWarn + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No GRN lines in this view.</div>';
@@ -5402,8 +5418,8 @@ function _vplpGRNReviewView() {
       <td style="padding:6px 9px;white-space:nowrap">${canReview ? `<button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : '—'}</td>
     </tr>`;
   }).join('');
-  return header + cfgWarn + permWarn + `<div class="card"><div style="overflow-x:auto">
-    <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
+  return header + cfgWarn + permWarn + capNote + `<div class="card"><div style="overflow-x:auto">
+    <table class="evg-ledger-tbl" data-evg-defaults="off" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">GRN</th><th style="padding:8px 9px">PO No</th><th style="padding:8px 9px">Vendor</th>
         <th style="padding:8px 9px">Part No; Description</th><th style="padding:8px 9px">Invoice</th><th style="padding:8px 9px;text-align:right">Qty</th>
