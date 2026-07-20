@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.44.9';
-const PORTAL_BUILD    = 691;
-const PORTAL_BUILD_AT = '2026-07-20T15:28:17Z';
+const PORTAL_VERSION  = '4.44.10';
+const PORTAL_BUILD    = 692;
+const PORTAL_BUILD_AT = '2026-07-20T15:45:46Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5039,7 +5039,23 @@ let _vplpGRNReviewRows = null;
 // every refetch so a just-approved line never reverts to Pending while gviz
 // still serves the pre-append snapshot.
 let _vplpGRNLocalSaves = [];
-function _grnRVal(r, names) { for (const n of names) { const v = r[n]; if (v != null && String(v).trim() !== '') return String(v).trim(); } return ''; }
+// Read a review-row field by any of `names`. Exact key first, then a
+// normalised-key fallback (case/whitespace/punctuation-insensitive) — gviz can
+// hand back a header label with stray spaces or a non-breaking space, so
+// r['SI ID'] misses even though the SI-ID column is right there.
+function _grnNormKeyMap(r) {
+  if (r && r.__nk) return r.__nk;
+  const nk = {};
+  Object.keys(r || {}).forEach(k => { const kn = _opNorm(k); if (kn && !(kn in nk)) nk[kn] = r[k]; });
+  try { Object.defineProperty(r, '__nk', { value: nk, enumerable: false }); } catch (e) {}
+  return nk;
+}
+function _grnRVal(r, names) {
+  for (const n of names) { const v = r[n]; if (v != null && String(v).trim() !== '') return String(v).trim(); }
+  const nk = _grnNormKeyMap(r);
+  for (const n of names) { const v = nk[_opNorm(n)]; if (v != null && String(v).trim() !== '') return String(v).trim(); }
+  return '';
+}
 // SI ID → latest review { status, rate, addl, value, by, ts, comments }.
 // Latest by Timestamp wins so a review is editable (append-only, like OB).
 function _grnReviewBySiId() {
