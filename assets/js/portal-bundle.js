@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.44.8';
-const PORTAL_BUILD    = 690;
-const PORTAL_BUILD_AT = '2026-07-20T14:26:02Z';
+const PORTAL_VERSION  = '4.44.9';
+const PORTAL_BUILD    = 691;
+const PORTAL_BUILD_AT = '2026-07-20T15:28:17Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5044,9 +5044,15 @@ function _grnRVal(r, names) { for (const n of names) { const v = r[n]; if (v != 
 // Latest by Timestamp wins so a review is editable (append-only, like OB).
 function _grnReviewBySiId() {
   const m = {};
-  (_vplpGRNReviewRows || []).forEach(r => {
+  const rows = _vplpGRNReviewRows || [];
+  let withSi = 0;
+  // Diagnostic: if rows loaded but none carry an SI ID key, gviz handed back
+  // letter-labelled columns (header mis-detect) — surfaced in the queue header.
+  const _hasKeyed = rows.length && !rows[0].hasOwnProperty('SI ID') && rows[0].hasOwnProperty('');
+  rows.forEach(r => {
     const si = _opNorm(_grnRVal(r, ['SI ID', 'SIID', 'StockIN ID', 'SI Id']));
     if (!si) return;
+    withSi++;
     const ts = _mdpDateVal(_grnRVal(r, ['Timestamp'])) || 0;
     const o = {
       status: _grnRVal(r, ['Review Status', 'Status']) || 'Pending',
@@ -5060,6 +5066,7 @@ function _grnReviewBySiId() {
     };
     if (!m[si] || ts >= m[si].ts) m[si] = o;
   });
+  window._grnReviewStats = { rows: rows.length, withSi, keyed: Object.keys(m).length, headerBad: !!_hasKeyed };
   return m;
 }
 function _grnIsApproved(rev) { return !!(rev && /approv/i.test(rev.status || '')); }
@@ -5394,10 +5401,18 @@ function _vplpGRNReviewView() {
       <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
     </div>
   </div>`;
+  // Read diagnostic — pinpoints where the join breaks when reviews don't show:
+  //   rows 0            → the GRN_Review tab isn't being read (name/sharing/cache)
+  //   rows N, keyed 0   → header mis-detected (letter columns) — hard-refresh
+  //   keyed N, matched 0→ SI IDs on the sheet don't match any StockIN SI ID
+  const _gs = window._grnReviewStats || { rows: 0, keyed: 0, headerBad: false };
+  const _matched = lines.filter(l => l.rev).length;
+  const _diagBad = _gs.rows > 0 && _matched === 0;
+  const diagNote = `<div style="font-size:.68rem;color:${_diagBad ? '#b91c1c' : 'var(--txt3)'};margin-bottom:.5rem">Reviews on file: <b>${_gs.rows}</b> &middot; keyed by SI ID: <b>${_gs.keyed}</b> &middot; matched to lines: <b>${_matched}</b>${_gs.headerBad ? ' &middot; <b>header not detected — hard-refresh the page</b>' : ''}${_diagBad && !_gs.headerBad ? ' &middot; <b>SI IDs do not match any StockIN line — check the SI ID column</b>' : ''}</div>`;
   const capNote = filtered.length > _GRN_CAP ? `<div style="font-size:.72rem;color:#b45309;margin-bottom:.5rem">Showing first ${_GRN_CAP} of ${filtered.length.toLocaleString('en-IN')} &mdash; use <b>Search</b> to narrow.</div>` : '';
   const cfgWarn = notCfg ? `<div class="alert-strip" style="margin-bottom:.7rem;background:#fef3c7;border-color:#f59e0b"><span class="alert-icon">&#9888;&#65039;</span><span><b>GRN Review sheet not configured.</b> The ledger gate is OFF (every received line still counts as before). Set <code>GRN_REVIEW_SHEET_ID</code> to activate review-gating; you can preview the queue below but can't save until it's set.</span></div>` : '';
   const permWarn = (!canReview && !notCfg) ? `<div class="alert-strip" style="margin-bottom:.7rem"><span class="alert-icon">&#128274;</span><span>You can view GRN reviews but only Accounts can approve/edit them.</span></div>` : '';
-  if (!shown.length) return header + cfgWarn + permWarn + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No GRN lines in this view.</div>';
+  if (!shown.length) return header + cfgWarn + permWarn + diagNote + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No GRN lines in this view.</div>';
   const body = shown.map((l, i) => {
     const st = statusOf(l);
     const chip = isApp(l) ? '<span style="font-size:.66rem;font-weight:700;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9px">Approved</span>'
@@ -5433,7 +5448,7 @@ function _vplpGRNReviewView() {
   // ~10 rows tall, then scroll vertically. Header stays pinned (sticky th).
   const th = 'padding:8px 9px;position:sticky;top:0;background:var(--g9);z-index:2';
   const thR = th + ';text-align:right';
-  return header + cfgWarn + permWarn + capNote + `<div class="card"><div style="overflow:auto;max-height:380px">
+  return header + cfgWarn + permWarn + diagNote + capNote + `<div class="card"><div style="overflow:auto;max-height:380px">
     <table class="evg-ledger-tbl" data-evg-defaults="off" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="color:#fff;text-align:left">
         <th style="${th}">GRN</th><th style="${th}">PO No</th><th style="${th}">Vendor</th>
