@@ -4983,10 +4983,18 @@ async function _vplpEnsure(force) {
   }
   if (force || !_vplpGRNReviewRows) {
     // GRN accounts-review records (keyed by SI ID). Placeholder → empty → gate off.
+    // headers:1 FORCES gviz to treat row 1 as the header — without it gviz can
+    // mis-detect the header on this tab (numeric/date-looking cells) and hand back
+    // letter-labelled columns, so SI ID never matches and every reviewed line
+    // silently reverts to Pending on refresh.
     if (GRN_REVIEW_SHEET_ID) {
-      try { _vplpGRNReviewRows = await fetchSheet(GRN_REVIEW_TAB, null, GRN_REVIEW_SHEET_ID, { rawId: true }) || []; }
+      try { _vplpGRNReviewRows = await fetchSheet(GRN_REVIEW_TAB, null, GRN_REVIEW_SHEET_ID, { rawId: true, headers: 1 }) || []; }
       catch (e) { _vplpGRNReviewRows = []; }
     } else { _vplpGRNReviewRows = []; }
+    // Re-attach reviews saved this session that the freshly-fetched snapshot may
+    // not reflect yet (gviz lags an append by a few seconds) so approvals don't
+    // visually bounce back to Pending. Latest-ts-per-SI-ID dedup handles overlap.
+    if (_vplpGRNLocalSaves.length) _vplpGRNReviewRows = _vplpGRNReviewRows.concat(_vplpGRNLocalSaves);
   }
   _vplpData = _vplpCompute();
 }
@@ -5027,6 +5035,10 @@ function _grnModeControls() {
   </div>`;
 }
 let _vplpGRNReviewRows = null;
+// Reviews saved during this session — re-merged into _vplpGRNReviewRows after
+// every refetch so a just-approved line never reverts to Pending while gviz
+// still serves the pre-append snapshot.
+let _vplpGRNLocalSaves = [];
 function _grnRVal(r, names) { for (const n of names) { const v = r[n]; if (v != null && String(v).trim() !== '') return String(v).trim(); } return ''; }
 // SI ID → latest review { status, rate, addl, value, by, ts, comments }.
 // Latest by Timestamp wins so a review is editable (append-only, like OB).
@@ -5478,6 +5490,7 @@ window._vplpGRNSubmit = async function(i, action) {
     // pushed row supersedes any earlier review for this SI ID.
     if (!Array.isArray(_vplpGRNReviewRows)) _vplpGRNReviewRows = [];
     _vplpGRNReviewRows.push(row);
+    _vplpGRNLocalSaves.push(row);   // survives a refetch until gviz catches up
     try { _vplpData = _vplpCompute(); } catch (e) {}
     _vplpRenderBody();
   } else {
