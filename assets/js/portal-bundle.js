@@ -5503,6 +5503,10 @@ window._vplpGRNSubmit = async function(i, action) {
 // Shared by the flat list and by PR bill-status lookups.
 // Opening-balance "as on" date value for a vendor (0 = none).
 function _vplpOBDateVal(v) { return (v && v.opening && v.opening.date) ? _mdpDateVal(v.opening.date) : 0; }
+// Date a payment posts to the vendor ledger — the Accounts Date (when the payment
+// was actually processed), falling back to the Date Of Request when a completed
+// payment has no Accounts Date so it never becomes undated.
+function _vplpPayDate(r) { return (r && r.accDate) ? r.accDate : (r ? r.date : ''); }
 function _vplpVendorRows() {
   const d = _vplpData;
   if (!d) return [];
@@ -5514,7 +5518,7 @@ function _vplpVendorRows() {
     if (!(r.status && r.status.cat === 'completed')) return;
     const vid = _vplpResolveVid(r);
     const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
-    (payByKey[key] = payByKey[key] || []).push({ dv: _mdpDateVal(r.date), amt: r.amount });
+    (payByKey[key] = payByKey[key] || []).push({ dv: _mdpDateVal(_vplpPayDate(r)), amt: r.amount });
   });
   return d.vendors.map(v => {
     // Opening balance rolls up everything up to its date; count only what's
@@ -5827,7 +5831,7 @@ function _vplpLedger(v, embedOpts) {
     const vid = _vplpResolveVid(r);
     const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
     if (key !== v.key) return;
-    all.push({ date: r.date, ref: r.requestId || r.uuid, type: 'Payment' + (r.orderNo ? ' · ' + esc(r.orderNo) : ''), payRaw: r.raw || null, kind: 'dr', mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
+    all.push({ date: _vplpPayDate(r), ref: r.requestId || r.uuid, type: 'Payment' + (r.orderNo ? ' · ' + esc(r.orderNo) : ''), payRaw: r.raw || null, kind: 'dr', mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
   });
   if (!all.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No approved-PO receipts or completed payments for this vendor.</div>';
   // Active vs Closed split. An opening balance already rolls up everything up to
