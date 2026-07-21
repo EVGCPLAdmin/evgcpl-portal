@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.39.3';
-const PORTAL_BUILD    = 668;
-const PORTAL_BUILD_AT = '2026-07-07T02:38:31Z';
+const PORTAL_VERSION  = '4.44.10';
+const PORTAL_BUILD    = 692;
+const PORTAL_BUILD_AT = '2026-07-20T15:45:46Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -35,12 +35,12 @@ const PIN_SHEET_ID     = '1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0'; // User
 //   2. Use it in code as: getExec('myKey')
 const EXEC_REGISTRY_DEFAULTS = {
   portalConfig:{ label: 'Portal Config Backend',  desc: 'Standalone backend for the PortalConfig sheet (savePortalConfig / getPortalConfig). Independent of other handlers — never changes.', defaultUrl: 'https://script.google.com/macros/s/AKfycbys4NPojiI-1nBKcfbreM4HO8sehBH76ebjv4nQ_TfHcT_IXueUTBBl1Ew0SGYtGVRW/exec' },
-  main:        { label: 'Main Backend (default)', desc: 'Most portal POSTs (DPR, Safety, PCC, Onboarding, Reports). Default for getExec().', defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
-  pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet.',                                          defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
-  aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
-  diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbwyx2sx480z8BrCg99OZVHvdsFVZxKxVzTuQ0s0M8Gt392b4RCjqCrxTn_2jlTA_ldNuw/exec' },
+  main:        { label: 'Main Backend (default)', desc: 'Most portal POSTs (DPR, Safety, PCC, Onboarding, Reports). Default for getExec().', defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
+  pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet.',                                          defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
+  aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
+  diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
-  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app (Router.gs + AccountsHandlers.gs in one project): saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, createPRFolder, uploadPRAttachment, listPRAttachments. Override via the exec_accounts row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbyoh0Q5wfFWXNUz11U5KYjikHbO5tA0I8eIb5xos1ZmRINjn_N5WGIxq5xJrwsF3jLFYg/exec' },
+  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app (Router.gs + AccountsHandlers.gs in one project): saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments. Override via the exec_accounts row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbzPVT26VtTBKHCMHr_KR2wCdj1zfuFhCQUJnIFumkwpvqbVzRjJ2J7uTOQt5yNBuxW0pQ/exec' },
   safety:      { label: 'Safety Handler',         desc: 'SafetyHandler.gs web app — Safety module writes (Incidents, DailyChecks). Override via the exec_safety row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbyFq6zSKgn-W3qNQPNoDplqiJHDaQTrrKLSK7gecZNiHSnU7Y4Buav3RiGfcvXtn9B3/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
@@ -3207,6 +3207,7 @@ function renderPage(page) {
     'accounts-dashboard': () => renderAccountsWorkspace('dashboard'),
     'accounts-worklist':  () => renderAccountsWorkspace('worklist'),
     'accounts-kpi':   () => renderAccountsWorkspace('dashboard'),
+    'salary-processing': renderSalaryProcessing,
     'planning':          () => navigate('budgeting'),
     'planning-overview': () => navigate('budgeting'),
     'planning-setup':    () => navigate('budgeting'),
@@ -4982,10 +4983,18 @@ async function _vplpEnsure(force) {
   }
   if (force || !_vplpGRNReviewRows) {
     // GRN accounts-review records (keyed by SI ID). Placeholder → empty → gate off.
+    // headers:1 FORCES gviz to treat row 1 as the header — without it gviz can
+    // mis-detect the header on this tab (numeric/date-looking cells) and hand back
+    // letter-labelled columns, so SI ID never matches and every reviewed line
+    // silently reverts to Pending on refresh.
     if (GRN_REVIEW_SHEET_ID) {
-      try { _vplpGRNReviewRows = await fetchSheet(GRN_REVIEW_TAB, null, GRN_REVIEW_SHEET_ID, { rawId: true }) || []; }
+      try { _vplpGRNReviewRows = await fetchSheet(GRN_REVIEW_TAB, null, GRN_REVIEW_SHEET_ID, { rawId: true, headers: 1 }) || []; }
       catch (e) { _vplpGRNReviewRows = []; }
     } else { _vplpGRNReviewRows = []; }
+    // Re-attach reviews saved this session that the freshly-fetched snapshot may
+    // not reflect yet (gviz lags an append by a few seconds) so approvals don't
+    // visually bounce back to Pending. Latest-ts-per-SI-ID dedup handles overlap.
+    if (_vplpGRNLocalSaves.length) _vplpGRNReviewRows = _vplpGRNReviewRows.concat(_vplpGRNLocalSaves);
   }
   _vplpData = _vplpCompute();
 }
@@ -4993,12 +5002,19 @@ async function _vplpEnsure(force) {
 //   'on'     → only Accounts-approved GRN lines count in the ledger (gate active)
 //   'off'    → all received lines count (gate off); GRN Review tab still visible
 //   'hidden' → gate off AND the GRN Review tab is hidden
-// Default 'off' so configuring the sheet doesn't silently change balances.
-function _grnMode() { const c = (typeof pcReadJSON === 'function') ? (pcReadJSON('grn_review_mode', {}) || {}) : {}; const m = c.mode || 'off'; return (m === 'on' || m === 'hidden') ? m : 'off'; }
+// Default 'on' — the gate is active unless an admin explicitly turns it Off/Hide.
+function _grnMode() { const c = (typeof pcReadJSON === 'function') ? (pcReadJSON('grn_review_mode', {}) || {}) : {}; const m = c.mode; return (m === 'off' || m === 'hidden') ? m : 'on'; }
 function _grnGateOn() { return _grnMode() === 'on' && !!GRN_REVIEW_SHEET_ID; }
 // Hidden when the admin chose 'Off + Hide', OR while the GRN Review sheet isn't
-// configured yet (feature parked/off) — so it stays out of the way until set up.
-function _grnTabHidden() { return _grnMode() === 'hidden' || !GRN_REVIEW_SHEET_ID; }
+// configured yet. BUT super-admins / admins always see the tab when the sheet is
+// configured — so they can always reach the review queue + the Ledger Link
+// control (a stale local 'hidden' or org 'hidden' never locks them out).
+function _grnTabHidden() {
+  if (!GRN_REVIEW_SHEET_ID) return true;                       // not configured → hidden for all
+  const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
+  if (isAdmin) return false;                                   // admins always see it
+  return _grnMode() === 'hidden';
+}
 window._grnSetMode = async function(mode) {
   const isAdmin = (typeof _accessIsSuperAdmin === 'function' && _accessIsSuperAdmin()) || (typeof _accIsAdmin === 'function' && _accIsAdmin());
   if (!isAdmin) { _accToast('🔒 Only admins can change the Ledger Link.'); return; }
@@ -5019,26 +5035,54 @@ function _grnModeControls() {
   </div>`;
 }
 let _vplpGRNReviewRows = null;
-function _grnRVal(r, names) { for (const n of names) { const v = r[n]; if (v != null && String(v).trim() !== '') return String(v).trim(); } return ''; }
+// Reviews saved during this session — re-merged into _vplpGRNReviewRows after
+// every refetch so a just-approved line never reverts to Pending while gviz
+// still serves the pre-append snapshot.
+let _vplpGRNLocalSaves = [];
+// Read a review-row field by any of `names`. Exact key first, then a
+// normalised-key fallback (case/whitespace/punctuation-insensitive) — gviz can
+// hand back a header label with stray spaces or a non-breaking space, so
+// r['SI ID'] misses even though the SI-ID column is right there.
+function _grnNormKeyMap(r) {
+  if (r && r.__nk) return r.__nk;
+  const nk = {};
+  Object.keys(r || {}).forEach(k => { const kn = _opNorm(k); if (kn && !(kn in nk)) nk[kn] = r[k]; });
+  try { Object.defineProperty(r, '__nk', { value: nk, enumerable: false }); } catch (e) {}
+  return nk;
+}
+function _grnRVal(r, names) {
+  for (const n of names) { const v = r[n]; if (v != null && String(v).trim() !== '') return String(v).trim(); }
+  const nk = _grnNormKeyMap(r);
+  for (const n of names) { const v = nk[_opNorm(n)]; if (v != null && String(v).trim() !== '') return String(v).trim(); }
+  return '';
+}
 // SI ID → latest review { status, rate, addl, value, by, ts, comments }.
 // Latest by Timestamp wins so a review is editable (append-only, like OB).
 function _grnReviewBySiId() {
   const m = {};
-  (_vplpGRNReviewRows || []).forEach(r => {
+  const rows = _vplpGRNReviewRows || [];
+  let withSi = 0;
+  // Diagnostic: if rows loaded but none carry an SI ID key, gviz handed back
+  // letter-labelled columns (header mis-detect) — surfaced in the queue header.
+  const _hasKeyed = rows.length && !rows[0].hasOwnProperty('SI ID') && rows[0].hasOwnProperty('');
+  rows.forEach(r => {
     const si = _opNorm(_grnRVal(r, ['SI ID', 'SIID', 'StockIN ID', 'SI Id']));
     if (!si) return;
+    withSi++;
     const ts = _mdpDateVal(_grnRVal(r, ['Timestamp'])) || 0;
     const o = {
       status: _grnRVal(r, ['Review Status', 'Status']) || 'Pending',
-      rate: _opNum(_grnRVal(r, ['Reviewed Rate', 'Rate'])),
-      addl: _opNum(_grnRVal(r, ['Additional Charges', 'Addl Charges', 'Additional Charge'])),
-      value: _opNum(_grnRVal(r, ['Reviewed Value', 'Value', 'Line Value'])),
+      rate: _opNum(_grnRVal(r, ['Reviewed Rate', 'Final Rate', 'Rate'])),
+      tax: _opNum(_grnRVal(r, ['Reviewed Tax', 'Final Tax', 'Tax'])),
+      addl: _opNum(_grnRVal(r, ['Additional Charges', 'Final Additional Charges', 'Addl Charges', 'Additional Charge'])),
+      value: _opNum(_grnRVal(r, ['Reviewed Value', 'Final Value', 'Value', 'Line Value'])),
       by: _grnRVal(r, ['Reviewed By', 'Updated By']),
       comments: _grnRVal(r, ['Comments', 'Remarks']),
       ts,
     };
     if (!m[si] || ts >= m[si].ts) m[si] = o;
   });
+  window._grnReviewStats = { rows: rows.length, withSi, keyed: Object.keys(m).length, headerBad: !!_hasKeyed };
   return m;
 }
 function _grnIsApproved(rev) { return !!(rev && /approv/i.test(rev.status || '')); }
@@ -5165,6 +5209,13 @@ function _vplpCompute() {
   _openPOItems.forEach(x => {
     const k = _opPOKey(_opGet(x, IC, ['PO No', 'Order No'])); if (!k) return;
     const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
+    // Readable Part No + Description live in Material Description as "PartNo | Desc"
+    // (same split the Open-PO report uses). `part` stays the raw Part Details key
+    // so receipt matching below is unaffected.
+    const matDesc  = String(_opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name', 'Material']) || part || '');
+    const pipe     = matDesc.indexOf('|');
+    const partNo   = pipe >= 0 ? matDesc.slice(0, pipe).trim() : '';
+    const partDesc = pipe >= 0 ? matDesc.slice(pipe + 1).trim() : matDesc.trim();
     const cs = _opGet(x, IC, ['CheckSum', 'Check Sum']);
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
     const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)];
@@ -5177,12 +5228,15 @@ function _vplpCompute() {
       // values as before (everything counts).
       const applied = gateOn ? rc.rev : null;
       const approved = !gateOn || _grnIsApproved(rc.rev);
+      // Reviewed final Rate / Tax / Additional Charges (per line); the reviewer
+      // may also set the final VALUE directly (overrides Rate × Qty + Tax + Addl).
       const useRate = (applied && applied.rate > 0) ? applied.rate : rate;
+      const rTax = (applied && applied.tax) || 0;
       const addl = (applied && applied.addl) || 0;
-      // Accounts may set the line VALUE directly (overrides qty × rate + addl).
-      const lineCredit = (applied && applied.value > 0) ? applied.value : ((rc.qty || 0) * useRate + addl);
+      const rMat = (rc.qty || 0) * useRate;
+      const lineCredit = (applied && applied.value > 0) ? applied.value : (rMat + rTax + addl);
       // stash for the ledger / review UI
-      rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.part = part;
+      rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.rMat = rMat; rc.rTax = rTax; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.reviewed = !!applied; rc.part = part; rc.partNo = partNo; rc.partDesc = partDesc;
       if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; countedQty += (rc.qty || 0); }
       else { poPending[k] = (poPending[k] || 0) + lineCredit; }
       const g = poRcpt[k] = poRcpt[k] || []; if (!g.some(z => z.idx === rc.idx)) g.push(rc);
@@ -5207,12 +5261,16 @@ function _vplpCompute() {
   });
   // Vendors keyed by Vendor ID; payments that still don't resolve stay Unmapped.
   const vendors = {};
+  // ALWAYS take the vendor name from the Vendor Master (by Vendor ID) — it's the
+  // authoritative record. The PO's typed Vendor Name is only a fallback when the
+  // ID isn't in the master (e.g. MV353 is "Anas Stone Crusher" in the master even
+  // if a PO was raised under it with a different name).
   const getV = (vid, name, acc) => {
     const key = vid ? vid : ('UNMAP:' + _opNorm(name || '?'));
     let v = vendors[key];
-    if (!v) v = vendors[key] = { key, vid: vid || '', name: (vid && (vendorById[vid] || bridge.vidToName[vid])) || name || '(Unmapped)', acc: acc || '', uuid: (vid && bridge.vidToUuid[vid]) || '', detail: (vid && bridge.vidToDetail[vid]) || '', poKeys: {}, payCount: 0, unmapped: !vid };
+    if (!v) v = vendors[key] = { key, vid: vid || '', name: (vid && (bridge.vidToName[vid] || vendorById[vid])) || name || '(Unmapped)', acc: acc || '', uuid: (vid && bridge.vidToUuid[vid]) || '', detail: (vid && bridge.vidToDetail[vid]) || '', poKeys: {}, payCount: 0, unmapped: !vid };
     if (acc && !v.acc) v.acc = acc;
-    if (vid && vendorById[vid]) v.name = vendorById[vid];
+    if (vid && (bridge.vidToName[vid] || vendorById[vid])) v.name = bridge.vidToName[vid] || vendorById[vid];
     return v;
   };
   // Include a PO if it has counted receipts OR pending-review receipts (so the
@@ -5238,7 +5296,7 @@ function _vplpCompute() {
   Object.keys(poRcpt).forEach(k => {
     const i = poInfo[k] || {};
     (poRcpt[k] || []).forEach(rc => grnLines.push({
-      siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '',
+      siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '', partNo: rc.partNo || '', partDesc: rc.partDesc || '',
       qty: rc.qty || 0, poRate: rc.poRate || 0, useRate: rc.useRate || 0, addl: rc.addl || 0,
       credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null,
       poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
@@ -5267,11 +5325,14 @@ function _vplpRenderBody() {
   const c = document.getElementById('vplp-body'); if (!c) return;
   const d = _vplpData; if (!d) return;
   const esc = _mdpEsc;
+  // Portal-wide count of GRN lines still awaiting Accounts review (gate on).
+  const _grnPend = _grnGateOn() ? (d.grnLines || []).filter(l => l.approved === false).length : 0;
+  const _grnBadge = _grnPend ? ` <span style="background:#f59e0b;color:#fff;border-radius:9px;padding:0 7px;font-size:.66rem;font-weight:700">${_grnPend}</span>` : '';
   const toggle = `<div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
     <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
     <button onclick="_vplpSetView('flat')" class="btn btn-sm ${_vplpView === 'flat' ? 'btn-primary' : 'btn-secondary'}">&#128203; Flat List (all vendors)</button>
     <button onclick="_vplpSetView('openings')" class="btn btn-sm ${_vplpView === 'openings' ? 'btn-primary' : 'btn-secondary'}">&#128209; Opening Balances</button>
-    ${_grnTabHidden() ? '' : `<button onclick="_vplpSetView('grnreview')" class="btn btn-sm ${_vplpView === 'grnreview' ? 'btn-primary' : 'btn-secondary'}">&#128203; GRN Review</button>`}
+    ${_grnTabHidden() ? '' : `<button onclick="_vplpSetView('grnreview')" class="btn btn-sm ${_vplpView === 'grnreview' ? 'btn-primary' : 'btn-secondary'}">&#128203; GRN Review${_grnBadge}</button>`}
     <button onclick="_vplpOpenOB()" class="btn btn-sm btn-secondary" style="margin-left:auto" title="Record a vendor's carried-forward opening balance">&#10133; Opening Balance</button>
   </div>`;
   if (_vplpView === 'grnreview' && _grnTabHidden()) _vplpView = 'vendor';   // tab was hidden
@@ -5307,7 +5368,18 @@ function _vplpRenderBody() {
 // charges, then Approve (counts into the ledger) or Reject. Writes via
 // getExec('accounts') action 'saveGRNReview' (append; latest per SI ID wins).
 let _vplpGRNFilter = 'pending';   // 'pending' | 'approved' | 'rejected' | 'all'
+let _vplpGRNSearch = '';
+const _GRN_CAP = 150;             // cap rendered rows — the queue can be thousands
 window._vplpGRNSetFilter = function(f) { _vplpGRNFilter = f; _vplpRenderBody(); };
+let _grnSearchTimer = null;
+window._vplpGRNSearchInput = function(val) {
+  _vplpGRNSearch = val;
+  clearTimeout(_grnSearchTimer);
+  _grnSearchTimer = setTimeout(() => {
+    _vplpRenderBody();
+    const s = document.getElementById('grn-search'); if (s) { s.focus(); try { s.setSelectionRange(s.value.length, s.value.length); } catch (e) {} }
+  }, 300);
+};
 function _grnCanReview() {
   const roleOk = (typeof _accCan !== 'function') || _accCan('update') || _accCan('verify') || _accCan('advance');
   const statusOk = (typeof _accCanSetStatus !== 'function') || _accCanSetStatus('GRN Approved');
@@ -5322,9 +5394,12 @@ function _vplpGRNReviewView() {
   const isApp = l => /approv/i.test(statusOf(l)), isRej = l => /reject/i.test(statusOf(l));
   const isPend = l => !isApp(l) && !isRej(l);
   const counts = { pending: lines.filter(isPend).length, approved: lines.filter(isApp).length, rejected: lines.filter(isRej).length, all: lines.length };
-  const shown = _vplpGRNFilter === 'all' ? lines
+  let filtered = _vplpGRNFilter === 'all' ? lines
     : _vplpGRNFilter === 'approved' ? lines.filter(isApp)
     : _vplpGRNFilter === 'rejected' ? lines.filter(isRej) : lines.filter(isPend);
+  const q = _vplpGRNSearch.trim().toLowerCase();
+  if (q) filtered = filtered.filter(l => (l.vendorName + ' ' + l.vid + ' ' + l.poNo + ' ' + l.grn + ' ' + (l.partDesc || l.part || '') + ' ' + (l.inv || '')).toLowerCase().includes(q));
+  const shown = filtered.slice(0, _GRN_CAP);   // cap rendered rows to keep it responsive
   // stash for the submit handler (index-addressed)
   window._vplpGRNShown = shown;
   const canReview = _grnCanReview();
@@ -5337,59 +5412,76 @@ function _vplpGRNReviewView() {
       ${fbtn('pending', 'Pending', counts.pending)}${fbtn('approved', 'Approved', counts.approved)}${fbtn('rejected', 'Rejected', counts.rejected)}${fbtn('all', 'All', counts.all)}
     </div>
     <div style="display:flex;gap:.9rem;align-items:center;flex-wrap:wrap">
+      <input id="grn-search" value="${esc(_vplpGRNSearch)}" oninput="_vplpGRNSearchInput(this.value)" placeholder="Search vendor / PO / GRN / part…" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 10px;background:var(--surface2);min-width:230px">
       ${isAdmin ? _grnModeControls() : `<span style="font-size:.66rem;color:var(--txt3)">Ledger Link: <b>${_grnMode() === 'on' ? 'On' : 'Off'}</b></span>`}
       <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
     </div>
   </div>`;
+  // Read diagnostic — pinpoints where the join breaks when reviews don't show:
+  //   rows 0            → the GRN_Review tab isn't being read (name/sharing/cache)
+  //   rows N, keyed 0   → header mis-detected (letter columns) — hard-refresh
+  //   keyed N, matched 0→ SI IDs on the sheet don't match any StockIN SI ID
+  const _gs = window._grnReviewStats || { rows: 0, keyed: 0, headerBad: false };
+  const _matched = lines.filter(l => l.rev).length;
+  const _diagBad = _gs.rows > 0 && _matched === 0;
+  const diagNote = `<div style="font-size:.68rem;color:${_diagBad ? '#b91c1c' : 'var(--txt3)'};margin-bottom:.5rem">Reviews on file: <b>${_gs.rows}</b> &middot; keyed by SI ID: <b>${_gs.keyed}</b> &middot; matched to lines: <b>${_matched}</b>${_gs.headerBad ? ' &middot; <b>header not detected — hard-refresh the page</b>' : ''}${_diagBad && !_gs.headerBad ? ' &middot; <b>SI IDs do not match any StockIN line — check the SI ID column</b>' : ''}</div>`;
+  const capNote = filtered.length > _GRN_CAP ? `<div style="font-size:.72rem;color:#b45309;margin-bottom:.5rem">Showing first ${_GRN_CAP} of ${filtered.length.toLocaleString('en-IN')} &mdash; use <b>Search</b> to narrow.</div>` : '';
   const cfgWarn = notCfg ? `<div class="alert-strip" style="margin-bottom:.7rem;background:#fef3c7;border-color:#f59e0b"><span class="alert-icon">&#9888;&#65039;</span><span><b>GRN Review sheet not configured.</b> The ledger gate is OFF (every received line still counts as before). Set <code>GRN_REVIEW_SHEET_ID</code> to activate review-gating; you can preview the queue below but can't save until it's set.</span></div>` : '';
   const permWarn = (!canReview && !notCfg) ? `<div class="alert-strip" style="margin-bottom:.7rem"><span class="alert-icon">&#128274;</span><span>You can view GRN reviews but only Accounts can approve/edit them.</span></div>` : '';
-  if (!shown.length) return header + cfgWarn + permWarn + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No GRN lines in this view.</div>';
+  if (!shown.length) return header + cfgWarn + permWarn + diagNote + '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No GRN lines in this view.</div>';
   const body = shown.map((l, i) => {
     const st = statusOf(l);
     const chip = isApp(l) ? '<span style="font-size:.66rem;font-weight:700;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9px">Approved</span>'
       : isRej(l) ? '<span style="font-size:.66rem;font-weight:700;background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9px">Rejected</span>'
       : '<span style="font-size:.66rem;font-weight:700;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px">Pending</span>';
-    const rateVal = (l.rev && l.rev.rate > 0) ? l.rev.rate : (l.poRate || '');
-    const addlVal = (l.rev && l.rev.addl) || '';
     const ro = canReview ? '' : ' disabled';
-    // Value = the reviewed line value. Defaults to qty×rate + addl, but editable
-    // directly (an override wins over rate). Pre-set from the saved review.
-    const valDefault = (l.qty || 0) * ((l.rev && l.rev.rate > 0) ? l.rev.rate : l.poRate) + ((l.rev && l.rev.addl) || 0);
-    const valVal = (l.rev && l.rev.value > 0) ? l.rev.value : (valDefault ? Math.round(valDefault * 100) / 100 : '');
-    const valTouched = (l.rev && l.rev.value > 0) ? ' data-touched="1"' : '';
+    // Editable final Rate / Tax / Additional Charges / Value. Value auto-computes
+    // from qty × Rate + Tax + Addl but can be overridden directly. Defaults from
+    // the saved review, else the PO rate / amount.
+    const poAmt   = (l.qty || 0) * (l.poRate || 0);
+    const rateVal = (l.rev && l.rev.rate > 0) ? l.rev.rate : (l.poRate || '');
+    const taxVal  = (l.rev && l.rev.tax) || '';
+    const addlVal = (l.rev && l.rev.addl) || '';
+    const valDef  = (l.qty || 0) * (Number(rateVal) || 0) + (Number(taxVal) || 0) + (Number(addlVal) || 0);
+    const valVal  = (l.rev && l.rev.value > 0) ? l.rev.value : (valDef ? Math.round(valDef * 100) / 100 : '');
+    const numInput = (fid, v, w, extra) => `<input id="grn-${fid}-${i}" type="number" step="0.01" value="${esc(v)}"${ro} ${extra || ''} style="width:${w}px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)">`;
     return `<tr>
       <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
       <td style="padding:6px 9px">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</td>
-      <td style="padding:6px 9px;font-size:.74rem">${esc(l.part)}</td>
+      <td style="padding:6px 9px;font-size:.74rem">${l.partNo ? `<span style="font-weight:600">${esc(l.partNo)}</span>; ` : ''}${esc(l.partDesc || l.part)}</td>
       <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
       <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
-      <td style="padding:6px 9px;text-align:right"><input id="grn-rate-${i}" type="number" step="0.01" value="${esc(rateVal)}"${ro} oninput="_vplpGRNCalc(${i})" style="width:88px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
-      <td style="padding:6px 9px;text-align:right"><input id="grn-addl-${i}" type="number" step="0.01" value="${esc(addlVal)}"${ro} oninput="_vplpGRNCalc(${i})" placeholder="0" style="width:80px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
-      <td style="padding:6px 9px;text-align:right"><input id="grn-val-${i}" type="number" step="0.01" value="${esc(valVal)}"${ro}${valTouched} oninput="this.dataset.touched=1" title="Edit the line value directly (overrides rate)" style="width:104px;text-align:right;font-weight:700;color:#15803d;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
+      <td style="padding:6px 9px;text-align:right">${numInput('rate', rateVal, 84, `oninput="_vplpGRNCalc(${i})"`)}</td>
+      <td style="padding:6px 9px;text-align:right">${numInput('tax', taxVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
+      <td style="padding:6px 9px;text-align:right">${numInput('addl', addlVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
+      <td style="padding:6px 9px;text-align:right"><input id="grn-val-${i}" type="number" step="0.01" value="${esc(valVal)}"${ro}${(l.rev && l.rev.value > 0) ? ' data-touched="1"' : ''} title="Final amount for this item (what credits the ledger). Auto = Qty×Rate + Tax + Addl; edit to override." oninput="this.dataset.touched=1" style="width:104px;text-align:right;font-weight:700;color:#15803d;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
       <td style="padding:6px 9px">${chip}</td>
       <td style="padding:6px 9px;white-space:nowrap">${canReview ? `<button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : '—'}</td>
     </tr>`;
   }).join('');
-  return header + cfgWarn + permWarn + `<div class="card"><div style="overflow-x:auto">
-    <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
-      <thead><tr style="background:var(--g9);color:#fff;text-align:left">
-        <th style="padding:8px 9px">GRN</th><th style="padding:8px 9px">PO No</th><th style="padding:8px 9px">Vendor</th>
-        <th style="padding:8px 9px">Part</th><th style="padding:8px 9px">Invoice</th><th style="padding:8px 9px;text-align:right">Qty</th>
-        <th style="padding:8px 9px;text-align:right">PO Rate</th><th style="padding:8px 9px;text-align:right">Reviewed Rate</th>
-        <th style="padding:8px 9px;text-align:right">Add'l Charges</th><th style="padding:8px 9px;text-align:right">Value</th>
-        <th style="padding:8px 9px">Status</th><th style="padding:8px 9px">Review</th>
+  // ~10 rows tall, then scroll vertically. Header stays pinned (sticky th).
+  const th = 'padding:8px 9px;position:sticky;top:0;background:var(--g9);z-index:2';
+  const thR = th + ';text-align:right';
+  return header + cfgWarn + permWarn + diagNote + capNote + `<div class="card"><div style="overflow:auto;max-height:380px">
+    <table class="evg-ledger-tbl" data-evg-defaults="off" style="width:100%;border-collapse:collapse;font-size:.78rem">
+      <thead><tr style="color:#fff;text-align:left">
+        <th style="${th}">GRN</th><th style="${th}">PO No</th><th style="${th}">Vendor</th>
+        <th style="${th}">Part No; Description</th><th style="${th}">Invoice</th><th style="${thR}">Qty</th>
+        <th style="${thR}">PO Rate</th>
+        <th style="${thR}">Final Rate</th><th style="${thR}">Final Tax</th>
+        <th style="${thR}">Final Add'l</th><th style="${thR}">Final Value</th>
+        <th style="${th}">Status</th><th style="${th}">Review</th>
       </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
-// Live-recompute the Value field from qty × rate + addl, unless the user has
-// typed a value directly (data-touched).
+// Live-recompute the Final Value from Qty × Rate + Tax + Addl, unless the user
+// has typed a value directly (data-touched).
 window._vplpGRNCalc = function(i) {
   const l = (window._vplpGRNShown || [])[i]; if (!l) return;
   const v = document.getElementById('grn-val-' + i); if (!v || v.dataset.touched) return;
-  const rate = parseFloat((document.getElementById('grn-rate-' + i) || {}).value) || 0;
-  const addl = parseFloat((document.getElementById('grn-addl-' + i) || {}).value) || 0;
-  v.value = (Math.round(((l.qty || 0) * rate + addl) * 100) / 100) || '';
+  const n = id => parseFloat((document.getElementById('grn-' + id + '-' + i) || {}).value) || 0;
+  v.value = (Math.round(((l.qty || 0) * n('rate') + n('tax') + n('addl')) * 100) / 100) || '';
 };
 window._vplpGRNSubmit = async function(i, action) {
   const l = (window._vplpGRNShown || [])[i]; if (!l) return;
@@ -5397,26 +5489,41 @@ window._vplpGRNSubmit = async function(i, action) {
   if (!l.siId) { _accToast('⚠ This StockIN line has no SI ID — cannot review.'); return; }
   if (!GRN_REVIEW_SHEET_ID) { _accToast('⚠ GRN Review sheet not configured — set GRN_REVIEW_SHEET_ID to save.'); return; }
   const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
-  const rate = num('grn-rate-' + i), addl = num('grn-addl-' + i), value = num('grn-val-' + i);
+  const rate = num('grn-rate-' + i), tax = num('grn-tax-' + i), addl = num('grn-addl-' + i), value = num('grn-val-' + i);
+  if (/approv/i.test(action) && !(value > 0)) { _accToast('⚠ Enter the final amount for this item.'); return; }
   const email = (STATE.user && STATE.user.email) || '';
   const row = {
     'UUID': 'GRV-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     'SystemEmail': email, 'UserEmail': email,
     'Timestamp': _accFmtDateTime(new Date()),
     'Reviewed By': (STATE.user && (STATE.user.name || STATE.user.email)) || '',
-    'SI ID': l.siId, 'GRN No': l.grn, 'PO No': l.poNo, 'Vendor ID': l.vid, 'Part': l.part,
+    'SI ID': l.siId, 'SIID': l.siId,
+    'GRN No': l.grn, 'PO No': l.poNo, 'Vendor ID': l.vid, 'Part': l.part,
     'Invoice No': l.inv, 'GRN Qty': l.qty, 'PO Rate': l.poRate,
-    'Reviewed Rate': isNaN(rate) ? (l.poRate || 0) : rate,
-    'Additional Charges': isNaN(addl) ? 0 : addl,
-    'Reviewed Value': isNaN(value) ? '' : value,
-    'Review Status': action, 'Comments': '',
+    'Reviewed Rate': isNaN(rate) ? '' : rate, 'Final Rate': isNaN(rate) ? '' : rate,
+    'Reviewed Tax': isNaN(tax) ? '' : tax, 'Final Tax': isNaN(tax) ? '' : tax,
+    'Additional Charges': isNaN(addl) ? '' : addl, 'Final Additional Charges': isNaN(addl) ? '' : addl,
+    'Reviewed Value': isNaN(value) ? '' : value, 'Final Value': isNaN(value) ? '' : value,
+    'Review Status': action, 'Status': action, 'Comments': '',
   };
-  const obSheet = (typeof _resolveSheetId === 'function') ? _resolveSheetId(GRN_REVIEW_SHEET_ID) : GRN_REVIEW_SHEET_ID;
-  const resp = await _accPostAwait({ action: 'saveGRNReview', sheetId: obSheet, tab: GRN_REVIEW_TAB, row });
+  const resp = await _accPostAwait({ action: 'saveGRNReview', sheetId: GRN_REVIEW_SHEET_ID, tab: GRN_REVIEW_TAB, row });
   if (resp && resp.success !== false) {
-    _accToast('✅ GRN ' + action.toLowerCase());
-    _vplpGRNReviewRows = null;
-    _vplpEnsure(true).then(() => _vplpRenderBody()).catch(() => {});
+    // If the tab is missing a key column, the append silently skipped it → the
+    // status/amount never persists (nothing attaches → gate shows all pending).
+    // A field is missing only if NONE of its accepted header names matched.
+    const um = new Set((resp.unmatched || []).map(x => String(x).toLowerCase()));
+    const groups = { 'SI ID': ['SI ID', 'SIID'], 'Review Status': ['Review Status', 'Status'], 'Reviewed Value': ['Reviewed Value', 'Final Value'] };
+    const missing = Object.keys(groups).filter(lbl => groups[lbl].every(k => um.has(k.toLowerCase())));
+    if (missing.length) _accToast('⚠ Saved, but the GRN_Review tab has no column for: ' + missing.join(', ') + '. Add it or the review won\'t stick.');
+    else _accToast('✅ GRN ' + action.toLowerCase());
+    // Optimistic: reflect immediately (gviz caches an append for a while, so a
+    // fresh read wouldn't yet show the new status). Latest Timestamp wins, so the
+    // pushed row supersedes any earlier review for this SI ID.
+    if (!Array.isArray(_vplpGRNReviewRows)) _vplpGRNReviewRows = [];
+    _vplpGRNReviewRows.push(row);
+    _vplpGRNLocalSaves.push(row);   // survives a refetch until gviz catches up
+    try { _vplpData = _vplpCompute(); } catch (e) {}
+    _vplpRenderBody();
   } else {
     _accToast('⚠ ' + ((resp && resp.message) || 'Could not save the review'));
   }
@@ -5427,6 +5534,10 @@ window._vplpGRNSubmit = async function(i, action) {
 // Shared by the flat list and by PR bill-status lookups.
 // Opening-balance "as on" date value for a vendor (0 = none).
 function _vplpOBDateVal(v) { return (v && v.opening && v.opening.date) ? _mdpDateVal(v.opening.date) : 0; }
+// Date a payment posts to the vendor ledger — the Accounts Date (when the payment
+// was actually processed), falling back to the Date Of Request when a completed
+// payment has no Accounts Date so it never becomes undated.
+function _vplpPayDate(r) { return (r && r.accDate) ? r.accDate : (r ? r.date : ''); }
 function _vplpVendorRows() {
   const d = _vplpData;
   if (!d) return [];
@@ -5438,7 +5549,7 @@ function _vplpVendorRows() {
     if (!(r.status && r.status.cat === 'completed')) return;
     const vid = _vplpResolveVid(r);
     const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
-    (payByKey[key] = payByKey[key] || []).push({ dv: _mdpDateVal(r.date), amt: r.amount });
+    (payByKey[key] = payByKey[key] || []).push({ dv: _mdpDateVal(_vplpPayDate(r)), amt: r.amount });
   });
   return d.vendors.map(v => {
     // Opening balance rolls up everything up to its date; count only what's
@@ -5669,7 +5780,7 @@ function _vplpVendorDetailsCard(v) {
   if (!bankCol && !addrCol && !contactCol) return '';
   return `<div class="card" style="margin-bottom:1rem">
     <div onclick="_vplpToggleVDetails(this)" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:.55rem .9rem;user-select:none">
-      <span style="font-size:.78rem;font-weight:700;color:var(--g8)">&#128203; Vendor Details${g(['Legal Name']) ? ` <span style="font-weight:400;color:var(--txt3);font-size:.72rem">&middot; Legal Name: ${esc(g(['Legal Name']))}</span>` : ''}</span>
+      <span style="font-size:.78rem;font-weight:700;color:var(--g8)">&#128203; Vendor Details${g(['Vendor Name', 'Legal Name']) ? ` <span style="font-weight:400;color:var(--txt3);font-size:.72rem">&middot; ${esc(g(['Vendor Name', 'Legal Name']))}</span>` : ''}</span>
       <span class="vd-caret" style="font-size:.78rem;color:var(--txt3);transition:transform .2s;display:inline-block">&#9656;</span>
     </div>
     <div class="vd-body" style="display:none;padding:0 .9rem .85rem">${inner}</div>
@@ -5720,17 +5831,21 @@ function _vplpLedger(v, embedOpts) {
       // Approved lines of this receipt → one counted credit row.
       const app = g.filter(rc => rc.approved !== false);
       if (app.length) {
-        let baseMat = 0, lineAddl = 0, groupMat = 0;
-        app.forEach(rc => {
-          const hasVal = d.gateOn && rc.rev && rc.rev.value > 0;
-          baseMat += hasVal ? (rc.credit || 0) : (rc.qty || 0) * (rc.useRate || 0);
-          lineAddl += hasVal ? 0 : (rc.addl || 0);
-          groupMat += (rc.credit || 0);
-        });
-        const frac = poRecvTot > 0 ? groupMat / poRecvTot : 1 / nGroups;
-        const taxA = taxATot * frac, taxB = taxBTot * frac, poAddl = poAddlTot * frac;
-        const credit = baseMat + lineAddl + taxA + taxB + poAddl;
-        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', mat: baseMat, addl: lineAddl + poAddl, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+        let mat = 0, addlC = 0, taxA = 0, taxB = 0, credit = 0;
+        if (d.gateOn) {
+          // Gate ON: each reviewed line carries its OWN final Rate/Tax/Addl/Value.
+          // PO-apportioned tax/charges are ignored (the review is authoritative).
+          app.forEach(rc => { mat += rc.rMat || 0; taxA += rc.rTax || 0; addlC += rc.addl || 0; credit += rc.credit || 0; });
+        } else {
+          // Gate OFF: PO rate + PO-apportioned Tax(a)/Tax(b)/Additional (unchanged).
+          let baseMat = 0, lineAddl = 0, groupMat = 0;
+          app.forEach(rc => { baseMat += (rc.qty || 0) * (rc.useRate || 0); lineAddl += (rc.addl || 0); groupMat += (rc.credit || 0); });
+          const frac = poRecvTot > 0 ? groupMat / poRecvTot : 1 / nGroups;
+          taxA = taxATot * frac; taxB = taxBTot * frac;
+          mat = baseMat; addlC = lineAddl + poAddlTot * frac;
+          credit = mat + addlC + taxA + taxB;
+        }
+        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', mat, addl: addlC, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
       }
       // Pending (un-reviewed) lines of this receipt → one pending, uncounted row.
       const pen = g.filter(rc => rc.approved === false);
@@ -5747,7 +5862,7 @@ function _vplpLedger(v, embedOpts) {
     const vid = _vplpResolveVid(r);
     const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
     if (key !== v.key) return;
-    all.push({ date: r.date, ref: r.requestId || r.uuid, type: 'Payment' + (r.orderNo ? ' · ' + esc(r.orderNo) : ''), payRaw: r.raw || null, kind: 'dr', mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
+    all.push({ date: _vplpPayDate(r), ref: r.requestId || r.uuid, type: 'Payment' + (r.orderNo ? ' · ' + esc(r.orderNo) : ''), payRaw: r.raw || null, kind: 'dr', mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
   });
   if (!all.length) return '<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No approved-PO receipts or completed payments for this vendor.</div>';
   // Active vs Closed split. An opening balance already rolls up everything up to
@@ -5868,7 +5983,13 @@ function _vplpLedger(v, embedOpts) {
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td>${extraFoot}</tr>`;
-  return vmCard + controlRow + modeHint + fyBar + `<div class="card"><div style="overflow-x:auto">
+  // Pending-review banner — how much of this vendor's received material is still
+  // awaiting Accounts approval (excluded from the balance until approved).
+  const _pend = all.filter(e => e.pending);
+  const _pendTot = _pend.reduce((s, e) => s + (e.pendingAmt || 0), 0);
+  const _pendLines = _pend.reduce((s, e) => s + ((e.rcpts && e.rcpts.length) || 1), 0);
+  const pendBanner = _pendTot > 0 ? `<div class="alert-strip" style="margin-bottom:.7rem;background:#fef3c7;border-color:#f59e0b;cursor:pointer" onclick="_vplpSetView('grnreview')"><span class="alert-icon">&#9203;</span><span><b>Pending accounts review:</b> ₹${Math.round(_pendTot).toLocaleString('en-IN')} across ${_pendLines} line${_pendLines === 1 ? '' : 's'} &mdash; not counted in the balance until approved in <b>GRN Review</b>.</span></div>` : '';
+  return vmCard + pendBanner + controlRow + modeHint + fyBar + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
@@ -6565,6 +6686,269 @@ window._siLoadAttachments = async function(checksum, directUrls) {
   box.innerHTML = cards.join('');
 };
 
+// ════════════════════════════════════════════════════════════════
+//  SALARY PROCESSING  (route: salary-processing · Accounts section)
+//
+//  Read-only compute + review of the monthly payroll run. Source of
+//  truth is the SalarySheet_Employee tab — one row per employee per
+//  Salary Month, with attendance + earnings + deductions already
+//  captured. Per verified data, the net is:
+//    Net = (Salary per Day × Days Taken for Salary) + Credit
+//          − Advance − Loan − (Advance & Loan) − PF 12%
+//          − Medical Insurance − TDS
+//  "Days Taken for Salary" is an editable input that live-recomputes
+//  Gross + Net (and the KPI total) in the browser — nothing is written
+//  back to the sheet. Roles: md + accounts.
+// ════════════════════════════════════════════════════════════════
+const SALARY_SHEET_ID = '1fKhSIE-3AElGVCvEhooD3A1kiZFFGRwc60PQOl0Opqo'; // SalarySheet_Employee workbook
+const SALARY_TAB      = 'SalarySheet_Employee';
+const _salState = { loaded:false, loading:false, all:[], month:'', payroll:'all', site:'all', q:'', rows:[] };
+
+function _salNum(v) {
+  if (v == null) return 0;
+  const n = parseFloat(String(v).replace(/[₹,\s]/g, '').replace(/[^0-9.\-]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+// Normalise a Salary Month cell (gviz "Date(2026,0,30)", ISO, "MMM , YYYY") → "YYYY-MM".
+function _salMonthKey(v) {
+  const s = String(v || '').trim(); if (!s) return '';
+  let m = s.match(/^Date\((\d+),(\d+),(\d+)/);
+  if (m) return m[1] + '-' + String(+m[2] + 1).padStart(2, '0');
+  m = s.match(/^(\d{4})[.\-\/](\d{1,2})/);
+  if (m) return m[1] + '-' + String(+m[2]).padStart(2, '0');
+  m = s.match(/([A-Za-z]{3,})\s*,?\s*(\d{4})/);
+  if (m) { const mi = _MDP_MON.findIndex(x => x.toLowerCase() === m[1].slice(0, 3).toLowerCase()); if (mi >= 0) return m[2] + '-' + String(mi + 1).padStart(2, '0'); }
+  const t = _mdpDateVal(s); if (t) { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+  return '';
+}
+function _salMonthLabel(key) {
+  const m = String(key || '').match(/^(\d{4})-(\d{2})$/); if (!m) return key || '—';
+  return _MDP_MON[+m[2] - 1] + ' ' + m[1];
+}
+
+function renderSalaryProcessing() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `<div class="page-header"><div class="page-header-row">
+      <div><h1>&#128176; Salary Processing</h1><p>Monthly payroll run &middot; review earnings, attendance &amp; deductions &middot; read-only</p></div>
+      <button class="btn btn-secondary btn-sm" onclick="_salReload(this)">&#8635; Refresh</button>
+    </div></div>
+    <div id="sal-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading salary sheet&hellip;</div></div>`;
+  _salLoad().then(() => _salBuild()).catch(() => {
+    const b = document.getElementById('sal-body');
+    if (b) b.innerHTML = `<div class="card card-pad" style="color:var(--danger);text-align:center;padding:2.5rem">&#9888; Could not load the salary sheet.<div style="font-size:.72rem;color:var(--txt3);margin-top:.4rem">The <strong>SalarySheet_Employee</strong> sheet must be shared as “Anyone with the link can view”.</div></div>`;
+  });
+}
+
+async function _salLoad(force) {
+  if (_salState.loaded && !force) return;
+  if (_salState.loading) return;
+  _salState.loading = true;
+  try {
+    const rows = await fetchSheet(SALARY_TAB, null, SALARY_SHEET_ID);
+    _salState.all = (rows || []).map(r => {
+      const g = (keys) => { for (const k of keys) { if (r[k] != null && String(r[k]).trim() !== '') return String(r[k]).trim(); } return ''; };
+      const totalDays = _salNum(g(['Total days in month']));
+      const fixed     = _salNum(g(['Fixed Salary']));
+      let perDay      = _salNum(g(['Salary per Day']));
+      if (!perDay && totalDays) perDay = fixed / totalDays;
+      const daysTaken = _salNum(g(['Days Taken for Salary']));
+      const credit    = _salNum(g(['Credit']));
+      const advance   = _salNum(g(['Advance']));
+      const loan      = _salNum(g(['Loan']));
+      const advLoan   = _salNum(g(['Advance & Loan']));
+      const pf        = _salNum(g(['PF 12%', 'PF']));
+      const ins       = _salNum(g(['Medical Insurance']));
+      const tds       = _salNum(g(['TDS']));
+      const recovery  = advance + loan + advLoan;
+      const gross     = perDay * daysTaken;
+      return {
+        raw: r,
+        monthKey: _salMonthKey(g(['Salary Month'])),
+        salaryMonth: g(['Salary Month']),
+        code: g(['Employee Code']), name: g(['Employee Name']),
+        desig: g(['Designation']), site: g(['Site']) || '—',
+        payroll: g(['PayRoll']) || '—',
+        doj: g(['DOJ']), doe: g(['DOE']),
+        totalDays, present: _salNum(g(['Present(P)'])),
+        weekoff: _salNum(g(['WeekOff(WO)'])), holiday: _salNum(g(['Holiday(HOL)'])),
+        absent: _salNum(g(['Absent(A)'])), od: _salNum(g(['On Duty(OD)'])),
+        compoff: _salNum(g(['Comp Off(CO)'])), lop: _salNum(g(['Absent(LOP)'])),
+        availLeave: g(['Available Leave']),
+        fixed, perDay, daysTaken0: daysTaken, daysTaken,
+        credit, advance, loan, advLoan, recovery, pf, ins, tds,
+        gross, net: gross + credit - recovery - pf - ins - tds,
+        storedNet: _salNum(g(['Net Salary'])),
+        status: g(['Status']) || '—', currency: g(['Currency']) || 'INR',
+        acHolder: g(['A/C HOLDER NAME']), acNo: g(['A/C NUMBER']),
+        ifsc: g(['IFSC CODE']), bank: g(['BANK NAME']),
+        processedBy: g(['Processed By']), processedOn: g(['Processed On']),
+      };
+    }).filter(r => r.code && r.code.toLowerCase() !== 'dummy');
+    _salState.loaded = true;
+  } finally { _salState.loading = false; }
+}
+
+function _salMonths() {
+  const set = new Set(_salState.all.map(r => r.monthKey).filter(Boolean));
+  return Array.from(set).sort().reverse();
+}
+function _salDistinct(field) {
+  const set = new Set(_salState.all.map(r => r[field]).filter(v => v && v !== '—'));
+  return Array.from(set).sort();
+}
+
+function _salBuild() {
+  const c = document.getElementById('sal-body'); if (!c) return;
+  const months = _salMonths();
+  if (!months.length) { c.innerHTML = `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">No salary rows found in the sheet.</div>`; return; }
+  if (!_salState.month || !months.includes(_salState.month)) _salState.month = months[0];
+  const esc = _mdpEsc;
+  const monthOpts   = months.map(m => `<option value="${m}"${m === _salState.month ? ' selected' : ''}>${_salMonthLabel(m)}</option>`).join('');
+  const payrollOpts = ['all', ..._salDistinct('payroll')].map(p => `<option value="${esc(p)}"${p === _salState.payroll ? ' selected' : ''}>${p === 'all' ? 'All Payroll Entities' : esc(p)}</option>`).join('');
+  const siteOpts    = ['all', ..._salDistinct('site')].map(s => `<option value="${esc(s)}"${s === _salState.site ? ' selected' : ''}>${s === 'all' ? 'All Sites' : esc(s)}</option>`).join('');
+  c.innerHTML = `
+    <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+      <label style="font-size:.72rem;font-weight:700;color:var(--txt2)">Salary Month</label>
+      <select id="salMonth" onchange="_salSetMonth(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${monthOpts}</select>
+      <select id="salPayroll" onchange="_salSetPayroll(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${payrollOpts}</select>
+      <select id="salSite" onchange="_salSetSite(this.value)" style="font-size:.82rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">${siteOpts}</select>
+      <input id="salSearch" type="text" value="${esc(_salState.q)}" oninput="_salSetSearch(this.value)" placeholder="Search code / name / designation…" style="flex:1;min-width:200px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
+    </div>
+    <div id="sal-kpis" class="evg-kpi-grid" style="margin-bottom:1rem"></div>
+    <div class="card card-pad">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:.4rem">
+        <span id="salCount" style="font-size:.74rem;color:var(--txt3)"></span>
+        <span style="font-size:.7rem;color:var(--txt3)">Tip: edit <strong>Days for Salary</strong> to see Net recompute live (not saved).</span>
+      </div>
+      <div style="overflow:auto;max-height:66vh;border:1px solid var(--border);border-radius:8px">
+        <table class="data-table" data-evg-defaults="off" style="width:100%;font-size:.78rem">
+          <thead style="position:sticky;top:0;z-index:2"><tr>
+            <th>Code</th><th>Name</th><th>Designation</th><th>Site</th>
+            <th style="text-align:right">Total Days</th><th style="text-align:right">Present</th><th style="text-align:right">Days for Salary</th>
+            <th style="text-align:right">Fixed</th><th style="text-align:right">/Day</th><th style="text-align:right">Gross</th>
+            <th style="text-align:right">Credit</th><th style="text-align:right">Advance</th><th style="text-align:right">Loan</th>
+            <th style="text-align:right">PF</th><th style="text-align:right">Insurance</th><th style="text-align:right">TDS</th>
+            <th style="text-align:right">Net Pay</th><th>Status</th>
+          </tr></thead>
+          <tbody id="salTbody"></tbody>
+        </table>
+      </div>
+    </div>`;
+  _salFill();
+}
+
+function _salFilteredRows() {
+  const q = _salState.q.trim().toLowerCase();
+  return _salState.all.filter(r =>
+    r.monthKey === _salState.month
+    && (_salState.payroll === 'all' || r.payroll === _salState.payroll)
+    && (_salState.site === 'all' || r.site === _salState.site)
+    && (!q || (r.code + ' ' + r.name + ' ' + r.desig).toLowerCase().includes(q))
+  );
+}
+
+function _salFill() {
+  const tb = document.getElementById('salTbody'); if (!tb) return;
+  const esc = _mdpEsc;
+  _salState.rows = _salFilteredRows();
+  const rows = _salState.rows;
+  const cnt = document.getElementById('salCount'); if (cnt) cnt.textContent = rows.length + ' employee(s) · ' + _salMonthLabel(_salState.month);
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="18" style="text-align:center;color:var(--txt3);padding:1.5rem">No salary rows match.</td></tr>`; _salRenderKpis(); return; }
+  const R = _regINR;
+  tb.innerHTML = rows.map((r, i) => `<tr>
+    <td style="font-family:monospace;font-weight:600;color:var(--g7);cursor:pointer" onclick="_salOpenPayslip(${i})">${esc(r.code)}</td>
+    <td style="cursor:pointer" onclick="_salOpenPayslip(${i})">${esc(r.name)}</td>
+    <td>${esc(r.desig) || '—'}</td><td>${esc(r.site)}</td>
+    <td style="text-align:right">${r.totalDays || '—'}</td>
+    <td style="text-align:right">${r.present || 0}</td>
+    <td style="text-align:right"><input type="number" step="0.5" min="0" value="${r.daysTaken}" data-i="${i}" oninput="_salRecalc(${i}, this.value)" style="width:64px;text-align:right;font-size:.76rem;border:1px solid var(--border);border-radius:5px;padding:3px 5px;background:var(--surface2)"></td>
+    <td style="text-align:right">${R(r.fixed)}</td>
+    <td style="text-align:right;color:var(--txt3)">${R(r.perDay)}</td>
+    <td style="text-align:right;font-weight:600" id="sal-gross-${i}">${R(r.gross)}</td>
+    <td style="text-align:right;color:${r.credit < 0 ? 'var(--danger)' : 'var(--txt2)'}">${r.credit ? R(r.credit) : '—'}</td>
+    <td style="text-align:right">${r.advance ? R(r.advance) : '—'}</td>
+    <td style="text-align:right">${(r.loan + r.advLoan) ? R(r.loan + r.advLoan) : '—'}</td>
+    <td style="text-align:right">${r.pf ? R(r.pf) : '—'}</td>
+    <td style="text-align:right">${r.ins ? R(r.ins) : '—'}</td>
+    <td style="text-align:right">${r.tds ? R(r.tds) : '—'}</td>
+    <td style="text-align:right;font-weight:700;color:var(--g9)" id="sal-net-${i}">${R(r.net)}</td>
+    <td><span style="font-size:.68rem;padding:2px 7px;border-radius:10px;background:var(--surface2);color:var(--txt2)">${esc(r.status)}</span></td>
+  </tr>`).join('');
+  _salRenderKpis();
+}
+
+function _salRenderKpis() {
+  const box = document.getElementById('sal-kpis'); if (!box) return;
+  const rows = _salState.rows;
+  const sum = (f) => rows.reduce((s, r) => s + (typeof f === 'function' ? f(r) : r[f]), 0);
+  const gross = sum('gross'), net = sum('net');
+  const deductions = sum(r => r.recovery + r.pf + r.ins + r.tds);
+  box.innerHTML = [
+    evgKpiCard({ icon: '👥', value: rows.length,          label: 'Employees' }),
+    evgKpiCard({ icon: '💵', value: _regINR(gross),        label: 'Gross Earnings' }),
+    evgKpiCard({ icon: '➖', value: _regINR(deductions),   label: 'Deductions (Adv/Loan/PF/Ins/TDS)', accent: '#c0392b' }),
+    evgKpiCard({ icon: '🏦', value: _regINR(net),          label: 'Net Payable', accent: '#1a6038' }),
+  ].join('');
+}
+
+window._salRecalc = function(i, val) {
+  const r = _salState.rows[i]; if (!r) return;
+  r.daysTaken = _salNum(val);
+  r.gross = r.perDay * r.daysTaken;
+  r.net = r.gross + r.credit - r.recovery - r.pf - r.ins - r.tds;
+  const gEl = document.getElementById('sal-gross-' + i); if (gEl) gEl.textContent = _regINR(r.gross);
+  const nEl = document.getElementById('sal-net-' + i); if (nEl) nEl.textContent = _regINR(r.net);
+  _salRenderKpis();
+};
+window._salSetMonth   = function(v) { _salState.month = v; _salFill(); };
+window._salSetPayroll = function(v) { _salState.payroll = v; _salFill(); };
+window._salSetSite    = function(v) { _salState.site = v; _salFill(); };
+window._salSetSearch  = function(v) { _salState.q = v; _salFill(); };
+window._salReload = function(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  _salLoad(true).then(() => _salBuild()).catch(() => {}).finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } });
+};
+
+window._salOpenPayslip = function(i) {
+  const r = _salState.rows[i]; if (!r) return;
+  const esc = _mdpEsc, R = _regINR;
+  const att = [
+    ['Total Days in Month', r.totalDays], ['Present (P)', r.present], ['Week Off (WO)', r.weekoff],
+    ['Holiday (HOL)', r.holiday], ['On Duty (OD)', r.od], ['Comp Off (CO)', r.compoff],
+    ['Absent (A)', r.absent], ['LOP', r.lop], ['Days Taken for Salary', r.daysTaken], ['Available Leave', r.availLeave || 0],
+  ];
+  const earn = [
+    ['Fixed Salary', R(r.fixed)], ['Salary / Day', R(r.perDay)],
+    ['Days Taken for Salary', r.daysTaken], ['Gross Earned', R(r.gross)],
+    ['Credit / Adjustment', (r.credit < 0 ? '– ' : '') + R(Math.abs(r.credit))],
+  ];
+  const ded = [
+    ['Advance', R(r.advance)], ['Loan', R(r.loan + r.advLoan)], ['PF 12%', R(r.pf)],
+    ['Medical Insurance', R(r.ins)], ['TDS', R(r.tds)],
+    ['Total Deductions', R(r.recovery + r.pf + r.ins + r.tds)],
+  ];
+  const bank = [
+    ['A/C Holder', r.acHolder || '—'], ['A/C Number', r.acNo || '—'],
+    ['IFSC', r.ifsc || '—'], ['Bank', r.bank || '—'], ['Currency', r.currency || 'INR'],
+  ];
+  const section = (title, pairs) => `<h4 style="font-size:.78rem;font-weight:700;color:var(--g9);margin:.7rem 0 .4rem">${title}</h4>${_regKV(pairs)}`;
+  const body = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.5rem;margin-bottom:.3rem">
+      <div style="font-size:.8rem;color:var(--txt2)">${esc(r.desig)} · ${esc(r.site)} · ${esc(r.payroll)}</div>
+      <div style="font-size:.74rem;color:var(--txt3)">${_salMonthLabel(r.monthKey)}</div>
+    </div>
+    ${section('🗓 Attendance', att)}
+    ${section('💵 Earnings', earn)}
+    ${section('➖ Deductions', ded)}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:.8rem 0;padding:.7rem 1rem;background:var(--surface2);border-radius:10px">
+      <span style="font-size:.82rem;font-weight:700;color:var(--txt2)">Net Payable</span>
+      <span style="font-size:1.25rem;font-weight:800;color:var(--g9)">${R(r.net)}</span>
+    </div>
+    ${r.storedNet && Math.abs(r.storedNet - r.net) > 2 ? `<div style="font-size:.72rem;color:var(--gold);margin-bottom:.4rem">⚠ Sheet's stored Net was ${R(r.storedNet)} (differs — you edited Days for Salary).</div>` : ''}
+    ${section('🏦 Bank', bank)}`;
+  _regOpenModal('Payslip · ' + esc(r.name) + ' (' + esc(r.code) + ')', body);
+};
+
 function renderMDCommand() {
   const el = document.getElementById('mainContent');
   el.innerHTML = `
@@ -6937,7 +7321,7 @@ const VENDOR_OPENING_BAL_TAB      = 'OpeningBalance';
 // and un-reviewed lines show as "Pending review". Write posts via
 // getExec('accounts') action 'saveGRNReview' (header-mapped append; latest per
 // SI ID wins so a review is editable).
-const GRN_REVIEW_SHEET_ID = ''; // TODO: set the GRN Review sheet ID to activate the gate
+const GRN_REVIEW_SHEET_ID = STORES_SHEET_ID; // v2_Stores — GRN_Review tab (alongside StockIN / GRN_No)
 const GRN_REVIEW_TAB      = 'GRN_Review';
 
 // ══════════════════════════════════════════════════════════
@@ -9195,7 +9579,7 @@ function renderPendingPages() {
 //  own header row (gviz cols), so a column reorder can't send a write astray.
 //  Backend actions used (already in the main Apps Script): updateCell, appendRow.
 //  AuditTrail row order (11 cols):
-//   Timestamp | User Email | User Name | Module | Action | Ref No (GRN No)
+//   Timestamp | User Email | User Name | Module | Action | Ref No (GRN No · SI:<SI ID>)
 //   | CheckSum | Field | Old Value | New Value | Remarks
 // ════════════════════════════════════════════════════════════════
 let _srkView = 'reconcile';   // 'reconcile' | 'audit'
@@ -9242,6 +9626,7 @@ function _srkBuildRows() {
     const part = (_opPartReadable(partRaw, matMap).text) || partRaw || '';
     return {
       idx, checksum,
+      siId:     String(_opGet(r, SC, ['SI ID', 'SIID', 'SI Id', 'SI No', 'StockIN ID']) || '').trim(),
       grnNo:    _siGRNResolve(r, SC, grnMap),
       received: _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Date', 'Date']),
       site:     _opGet(r, SC, ['Site Name', 'Site']),
@@ -9359,10 +9744,24 @@ window._srkEdit = function(checksum) {
   setTimeout(() => { const i = document.getElementById('srkNewQty'); if (i) { i.focus(); i.select(); } }, 40);
 };
 
+// Returns { ok, error, raw } so the caller can surface the *real* backend
+// message instead of a generic failure. Accepts the several success shapes the
+// Apps Script handlers use (success / ok / updated / status:'success').
 async function _srkPost(payload) {
-  const res = await fetch(APPS_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
-  const j = await res.json().catch(() => ({}));
-  return !!(j && (j.success || j.ok));
+  let res, txt = '';
+  try {
+    res = await fetch(APPS_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+    txt = await res.text();
+  } catch (e) { return { ok: false, error: 'Network error reaching backend (' + (e && e.message || 'fetch failed') + ')', raw: null }; }
+  let j = null; try { j = JSON.parse(txt); } catch (e) {}
+  const ok = !!(j && (j.success === true || j.ok === true || j.updated || j.status === 'success' || j.result === 'success'));
+  let error = '';
+  if (!ok) {
+    error = (j && (j.error || j.message || j.reason)) ||
+            (j && j.updated === 0 ? 'No matching row found for that CheckSum in ' + (payload.tab || 'the tab') + '.' : '') ||
+            (txt ? String(txt).replace(/<[^>]+>/g, ' ').trim().slice(0, 200) : 'Empty response from backend.');
+  }
+  return { ok, error, raw: j };
 }
 window._srkSave = async function(checksum) {
   const r = (_srkRows || []).find(x => x.checksum === checksum); if (!r) return;
@@ -9379,21 +9778,29 @@ window._srkSave = async function(checksum) {
   const remark = (document.getElementById('srkRemark') || {}).value || '';
   const btn = document.getElementById('srkSaveBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   setMsg('Writing to StockIN…');
-  try {
-    const ok = await _srkPost({ action: 'updateCell', sheetId: STORES_SHEET_ID, tab: 'StockIN', matchCol: keyCol, matchVal: r.checksum, updateCol: qtyCol, updateVal: String(newQty) });
-    if (!ok) throw new Error('stockin-write-failed');
-    // Audit row (generic schema — reused by Stock Out / Stock Transfer later).
-    const u = STATE.user || {};
-    const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', r.grnNo || '', r.checksum || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
-    await _srkPost({ action: 'appendRow', sheetId: STORES_SHEET_ID, tab: 'AuditTrail', row: auditRow });
-    r.qty = newQty;                       // reflect locally
-    _srkAudit = null;                     // audit view will re-fetch
-    const ov = document.getElementById('srkEditOverlay'); if (ov) ov.remove();
-    _srkFill();
+  const restoreBtn = () => { if (btn) { btn.disabled = false; btn.innerHTML = 'Save &amp; Log'; } };
+  // 1) Write the new GRN Qty back into StockIN.
+  const up = await _srkPost({ action: 'updateCell', sheetId: STORES_SHEET_ID, tab: 'StockIN', matchCol: keyCol, matchVal: r.checksum, updateCol: qtyCol, updateVal: String(newQty) });
+  if (!up.ok) { restoreBtn(); setMsg('StockIN not updated: ' + (up.error || 'backend rejected the write.'), 'var(--danger)'); return; }
+  // 2) Append the audit row (generic schema — reused by Stock Out / Transfer).
+  setMsg('Logging to AuditTrail…');
+  const u = (typeof STATE === 'object' && STATE.user) || {};
+  // Ref No carries the GRN No plus the SI ID (StockIN row id) so the audit
+  // trail is traceable back to the exact StockIN line, not just the GRN.
+  const refNo = [r.grnNo, r.siId ? 'SI:' + r.siId : ''].filter(Boolean).join(' · ');
+  const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', refNo, r.checksum || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
+  const au = await _srkPost({ action: 'appendRow', sheetId: STORES_SHEET_ID, tab: 'AuditTrail', row: auditRow });
+  r.qty = newQty;                       // StockIN write already succeeded — reflect locally
+  _srkAudit = null;                     // audit view will re-fetch
+  const ov = document.getElementById('srkEditOverlay'); if (ov) ov.remove();
+  _srkFill();
+  if (au.ok) {
     if (typeof _accToast === 'function') _accToast(`GRN Qty updated to ${newQty.toLocaleString('en-IN')} and logged.`);
-  } catch (e) {
-    if (btn) { btn.disabled = false; btn.innerHTML = 'Save &amp; Log'; }
-    setMsg('Save failed — check backend / sheet access.', 'var(--danger)');
+  } else {
+    // The stock value DID change; only the audit log failed — say so clearly
+    // rather than pretending it was logged.
+    if (typeof _accToast === 'function') _accToast(`GRN Qty updated to ${newQty.toLocaleString('en-IN')}, but AuditTrail log failed: ${au.error || 'check the AuditTrail tab exists in v2_Stores'}.`);
+    else alert('GRN Qty updated, but audit logging failed: ' + (au.error || 'AuditTrail tab may be missing.'));
   }
 };
 
@@ -12600,6 +13007,7 @@ const MODULE_REGISTRY = [
   { route:'accounts-worklist', label:'Accounts Worklist',      section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-v2',       label:'Accounts Workspace',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-kpi',      label:'Accounts KPI Cards',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
+  { route:'salary-processing', label:'Salary Processing',      section:'Accounts',         defStatus:'live', defRoles:['md','accounts'] },
 
   // ── Planning ──────────────────────────────────────────────────
   { route:'budgeting',         label:'Budgeting',              section:'Planning',         defStatus:'live', defRoles:['md','hr','site','accounts','purchase','employee','dept_head'] },
@@ -18409,6 +18817,14 @@ const REPORT_CATALOGUE = [
     source: 'invoice',
     roles: ['md','purchase','accounts'],
   },
+  {
+    id: 'po_vendor_mismatch',
+    name: '⚠️ PO – Vendor Name Mismatch',
+    desc: 'POs whose Vendor ID / name (Vendor Details key) does not match the Vendor Master',
+    filters: [],
+    source: 'po_vendor_mismatch',
+    roles: ['md','purchase','accounts'],
+  },
 ];
 
 let _rptSelectedId  = null;
@@ -19255,6 +19671,47 @@ window.rptRun = async function() {
       rptRenderTable(['GRN No','SI ID','Site','PO No','Vendor','Invoice/ST No','Part Description','MR Qty','Invoice Qty','GRN Qty','Received On']);
     }
 
+    // ── PO – VENDOR NAME MISMATCH ──────────────────────────
+    // Flags POs where the Vendor ID / name (or the Vendor Details key) doesn't
+    // match the Vendor Master by Vendor ID.
+    else if (id === 'po_vendor_mismatch') {
+      if (!_rptRawData.po_vmm) {
+        await _openPOEnsure();
+        let vm = [];
+        try { vm = await fetchSheet(VENDOR_MASTER_TAB, null, VENDOR_MASTER_SHEET_ID) || []; } catch (e) { vm = []; }
+        const vmById = {};
+        vm.forEach(r => { const vid = String(r['Vendor ID'] || '').toUpperCase().trim(); if (vid && !vmById[vid]) vmById[vid] = String(r['Vendor Name'] || r['Legal Name'] || '').trim(); });
+        const HC = _opColMap(_openPOHeaders);
+        const norm = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, '');
+        const out = [];
+        _openPOHeaders.forEach(r => {
+          const poNo = String(_opGet(r, HC, ['PO No']) || '').trim();
+          if (!poNo || /dummy/i.test(poNo)) return;
+          const poVid  = String(_opGet(r, HC, ['Vendor ID']) || '').toUpperCase().trim();
+          const poName = String(_opGet(r, HC, ['Vendor Name']) || '').trim();
+          const poKey  = String(_opGet(r, HC, ['Vendor Details', 'Vendor Detail', 'Vendor Key', 'Vendor Details (Key)']) || '').trim();
+          // Skip dummy / placeholder vendors entirely.
+          if (/dummy/i.test(poVid) || /dummy/i.test(poName) || /dummy/i.test(poKey)) return;
+          const issues = [];
+          // Vendor Details key encodes "VID|Name" — check its ID + name vs the Vendor ID column / master.
+          let keyId = '', keyName = '';
+          if (poKey.indexOf('|') > -1) { const p = poKey.split('|'); keyId = String(p[0] || '').toUpperCase().trim(); keyName = String(p.slice(1).join('|') || '').trim(); }
+          if (!poVid && !keyId) { issues.push('No Vendor ID on PO'); }
+          const vid = poVid || keyId;
+          const masterName = vid ? vmById[vid] : '';
+          if (vid && !masterName) issues.push('Vendor ID ' + vid + ' not in Master');
+          if (keyId && poVid && keyId !== poVid) issues.push('Key ID (' + keyId + ') ≠ Vendor ID (' + poVid + ')');
+          if (masterName && poName && norm(poName) !== norm(masterName)) issues.push('PO name ≠ Master name');
+          if (masterName && keyName && norm(keyName) !== norm(masterName)) issues.push('Key name ≠ Master name');
+          if (issues.length) out.push({ 'PO No': poNo, 'Vendor ID': poVid || keyId || '—', 'PO Vendor Name': poName || '—', 'Vendor Details (Key)': poKey || '—', 'Master Vendor Name': masterName || '—', 'Issue': issues.join('; ') });
+        });
+        out.sort((a, b) => String(a['Vendor ID']).localeCompare(String(b['Vendor ID'])));
+        _rptRawData.po_vmm = out;
+      }
+      _rptResultRows = _rptRawData.po_vmm;
+      rptRenderTable(['PO No', 'Vendor ID', 'PO Vendor Name', 'Vendor Details (Key)', 'Master Vendor Name', 'Issue']);
+    }
+
     // ── EMPLOYEE HEADCOUNT ─────────────────────────────────
     else if (id === 'emp_headcount') {
       rows = (STATE.masters.users||[]).filter(u=>u.status==='ACTIVE');
@@ -19496,11 +19953,20 @@ async function pstLoad() {
 
   // rawId bypass: always read the canonical Stores sheet, ignoring any stale
   // STORES sheet-link override that was redirecting StockIN to an empty sheet.
-  const [stockRows, grnRows, levelRows] = await Promise.all([
+  const [stockRows, grnRows, levelRows, grnMasterRows] = await Promise.all([
     fetchSheet('StockIN', 'SELECT A,B,C,D,E,F,G,H,K,L,M,N,O,P,Q,U,V,W', STORES_SHEET_ID, { rawId: true }),
     fetchSheet('GRN_No',  'SELECT A,B,C,D,E,F,G,H,I,J,K,L,M', STORES_SHEET_ID, { rawId: true }),
-    fetchSheet('v3StockLevels', 'SELECT A,B,C,D,E,F,G,H', STORES_SHEET_ID, { rawId: true }),
+    // Fetch every column (no SELECT range) so Old_SL and Stock Transfer (From)
+    // resolve by header name alongside the previously-used A–H columns.
+    fetchSheet('v3StockLevels', null, STORES_SHEET_ID, { rawId: true }),
+    // GRN master (Master spreadsheet) supplies readable Part No / Part Description
+    // keyed by UUID — the Stock Levels "Part Details" column IS that UUID.
+    fetchSheetSafe('4-GRNMaster_Actual', SHEET_ID, { rawId: true }).catch(() => []),
   ]);
+
+  // Build the UUID → { partNo, partDesc } lookup used by the Stock Levels tab.
+  // Guard against a transient empty read wiping an already-populated map.
+  if (grnMasterRows && grnMasterRows.length) _psiBuildPartMap(grnMasterRows);
 
   if (!stockRows.length && !levelRows.length) {
     // Only warn if GRN_No also returned nothing — genuine access error
@@ -19615,12 +20081,24 @@ window.pstDownloadCSV = function(tab) {
     downloadCSV(flat, `OpenPO_${new Date().toISOString().slice(0,10)}.csv`);
   } else if (tab === 'levels') {
     const rows = (site ? _pstLevels.filter(r => r['Site Name'] === site) : _pstLevels)
-      .filter(r => !q || (r['Part Details'] || r['Site & Code'] || '').toLowerCase().includes(q) || (r['Site Name'] || '').toLowerCase().includes(q));
-    downloadCSV(rows.map(r => ({
-      'SNo': r['SNo'] || '', 'Site': r['Site Name'] || '', 'Part Details': r['Part Details'] || r['Site & Code'] || '',
-      'Stock IN': r['StockIN'] || '0', 'Stock Transfer': r['Stock Transfer (To)'] || '0',
-      'Stock Out': r['Stock Out'] || '0', 'Site Stock': r['Site Stock'] || '0',
-    })), `StockLevels_${site||'all'}_${new Date().toISOString().slice(0,10)}.csv`);
+      .filter(r => {
+        if (!q) return true;
+        const pm = _pstLevelPart(r);
+        return (r['Part Details'] || r['Site & Code'] || '').toLowerCase().includes(q) ||
+          (pm.partNo || '').toLowerCase().includes(q) ||
+          (pm.partDesc || '').toLowerCase().includes(q) ||
+          (r['Site Name'] || '').toLowerCase().includes(q);
+      });
+    downloadCSV(rows.map(r => {
+      const L = _pstLevelRow(r);
+      return {
+        'SNo': r['SNo'] || '', 'Site': r['Site Name'] || '', 'Part Details': r['Part Details'] || r['Site & Code'] || '',
+        'Part No': L.partNo || '', 'Part Description': L.partDesc || '',
+        'Old SL (+)': L.oldSL, 'Stock IN (+)': L.stockIN, 'Received - Stock Transfer (+)': L.transferTo,
+        'Stock Out (-)': L.stockOut, 'StockOut - Stock Transfer (-)': L.transferFrom,
+        'Site Stock (Current)': L.siteStock,
+      };
+    }), `StockLevels_${site||'all'}_${new Date().toISOString().slice(0,10)}.csv`);
   }
 };
 
@@ -20838,6 +21316,46 @@ window._grnOpenDetail = function(i) {
 };
 
 /* ── STOCK LEVELS TAB ─────────────────────────────── */
+// Resolve readable Part No / Part Description for a Stock Levels row from the
+// GRN master map (_psiPartMap, keyed by UUID). The Stock Levels "Part Details"
+// column IS that UUID, so normalise it the same way before the lookup.
+function _pstLevelPart(r) {
+  const pm = _psiPartMap[_psiKey(r['Part Details'] || r['Site & Code'] || '')] || {};
+  return { partNo: pm.partNo || '', partDesc: pm.partDesc || '' };
+}
+
+// Read a Stock Levels quantity column, tolerating header-name variants across
+// sheet revisions. Blank / missing → '0'.
+function _pstLvlVal(r, keys) {
+  for (const k of keys) {
+    const v = r[k];
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '0';
+}
+const _PSTLVL_COLS = {
+  oldSL:        ['Old_SL', 'Old SL', 'OldSL', 'Opening Stock', 'Opening'],
+  stockIN:      ['StockIN', 'Stock IN', 'Stock In'],
+  transferTo:   ['Stock Transfer (To)', 'Stock Transfer(To)', 'Stock Transfer To'],
+  stockOut:     ['Stock Out', 'StockOut'],
+  transferFrom: ['Stock Transfer (From)', 'Stock Transfer(From)', 'Stock Transfer From'],
+  siteStock:    ['Site Stock', 'Current Stock', 'Current Stock Level'],
+};
+// One flattened row of the Stock Levels quantities + resolved part fields.
+function _pstLevelRow(r) {
+  const pm = _pstLevelPart(r);
+  return {
+    partNo:       pm.partNo,
+    partDesc:     pm.partDesc,
+    oldSL:        _pstLvlVal(r, _PSTLVL_COLS.oldSL),
+    stockIN:      _pstLvlVal(r, _PSTLVL_COLS.stockIN),
+    transferTo:   _pstLvlVal(r, _PSTLVL_COLS.transferTo),
+    stockOut:     _pstLvlVal(r, _PSTLVL_COLS.stockOut),
+    transferFrom: _pstLvlVal(r, _PSTLVL_COLS.transferFrom),
+    siteStock:    _pstLvlVal(r, _PSTLVL_COLS.siteStock),
+  };
+}
+
 function pstRenderLevels(c, q) {
   let rows = _pstSiteFilter
     ? _pstLevels.filter(r => r['Site Name'] === _pstSiteFilter)
@@ -20845,10 +21363,13 @@ function pstRenderLevels(c, q) {
 
   if (q) {
     const lq = q.toLowerCase();
-    rows = rows.filter(r =>
-      (r['Part Details'] || r['Site & Code'] || '').toLowerCase().includes(lq) ||
-      (r['Site Name'] || '').toLowerCase().includes(lq)
-    );
+    rows = rows.filter(r => {
+      const pm = _pstLevelPart(r);
+      return (r['Part Details'] || r['Site & Code'] || '').toLowerCase().includes(lq) ||
+        (pm.partNo || '').toLowerCase().includes(lq) ||
+        (pm.partDesc || '').toLowerCase().includes(lq) ||
+        (r['Site Name'] || '').toLowerCase().includes(lq);
+    });
   }
 
   if (!rows.length) {
@@ -20884,22 +21405,29 @@ function pstRenderLevels(c, q) {
   <div style="overflow-x:auto;border-radius:10px;border:1px solid #e0ece4">
   <table class="vpi-tbl">
     <thead><tr>
-      <th>#</th><th>Site</th><th>Part Details</th>
-      <th style="text-align:right">Stock IN</th>
-      <th style="text-align:right">Stock Transfer</th>
-      <th style="text-align:right">Stock Out</th>
-      <th style="text-align:right;background:#e8f5e9;color:#2e7d32">Site Stock</th>
+      <th>#</th><th>Site</th><th>Part Details</th><th>Part No</th><th>Part Description</th>
+      <th style="text-align:right" title="Opening stock — adds to stock (+)">Old SL <span style="color:#2e7d32">(+)</span></th>
+      <th style="text-align:right" title="Stock received in — adds to stock (+)">Stock IN <span style="color:#2e7d32">(+)</span></th>
+      <th style="text-align:right" title="Received as part of Stock Transfer — adds to stock (+)">Received<span style="font-size:.66rem;font-weight:400;color:var(--txt3)"> · Transfer</span> <span style="color:#2e7d32">(+)</span></th>
+      <th style="text-align:right" title="Stock issued out — reduces stock (−)">Stock Out <span style="color:#c62828">(−)</span></th>
+      <th style="text-align:right" title="StockOut as part of Stock Transfer — reduces stock (−)">StockOut<span style="font-size:.66rem;font-weight:400;color:var(--txt3)"> · Transfer</span> <span style="color:#c62828">(−)</span></th>
+      <th style="text-align:right;background:#e8f5e9;color:#2e7d32" title="Current Stock Level at Site">Site Stock</th>
     </tr></thead>
     <tbody>${rows.map((r, i) => {
-      const stock = parseFloat(r['Site Stock'] || r['StockIN'] || 0);
+      const L = _pstLevelRow(r);
+      const stock = parseFloat(L.siteStock || 0);
       const stockColor = stock <= 0 ? '#c62828' : stock <= 2 ? '#b07000' : '#2e7d32';
       return `<tr>
         <td style="color:var(--txt3);font-size:.74rem">${r['SNo'] || i + 1}</td>
         <td style="font-size:.78rem">${r['Site Name'] || '—'}</td>
         <td style="font-size:.8rem;max-width:200px;white-space:normal">${r['Part Details'] || r['Site & Code'] || '—'}</td>
-        <td style="text-align:right">${r['StockIN'] || '0'}</td>
-        <td style="text-align:right">${r['Stock Transfer (To)'] || '0'}</td>
-        <td style="text-align:right">${r['Stock Out'] || '0'}</td>
+        <td style="font-size:.8rem">${L.partNo || '—'}</td>
+        <td style="font-size:.8rem;max-width:240px;white-space:normal">${L.partDesc || '—'}</td>
+        <td style="text-align:right">${L.oldSL}</td>
+        <td style="text-align:right">${L.stockIN}</td>
+        <td style="text-align:right">${L.transferTo}</td>
+        <td style="text-align:right">${L.stockOut}</td>
+        <td style="text-align:right">${L.transferFrom}</td>
         <td style="text-align:right;font-weight:700;color:${stockColor};background:#f9fef9">${stock}</td>
       </tr>`;
     }).join('')}</tbody>
