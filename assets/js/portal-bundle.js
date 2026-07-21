@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.44.10';
-const PORTAL_BUILD    = 692;
-const PORTAL_BUILD_AT = '2026-07-20T15:45:46Z';
+const PORTAL_VERSION  = '4.45.0';
+const PORTAL_BUILD    = 693;
+const PORTAL_BUILD_AT = '2026-07-21T07:00:01Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -14222,6 +14222,7 @@ const SHEET_LINKS = [
   { key:'RECRUITMENT', label:'Recruitment spreadsheet',      dfltId:'1Dw48OEDmIAAu9Va1-a9z7PZT7wKS_mWU7cwpK6osRNI', tabs:['v1_JoiningList','Offer_Tracker','MRF_Register'], usedBy:'Recruitment & onboarding' },
   { key:'REWARDS',     label:'Rewards & Recognition sheet',  dfltId:'1vz8HLopjlSF8TF7rzYuVu5JjqukT929I7aSx7kdehlI', tabs:['Nomination'], usedBy:'Rewards & recognition nominations' },
   { key:'PIN',         label:'User Secrets sheet',           dfltId:'1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0', tabs:['UserSecrets'], usedBy:'Login PIN verification' },
+  { key:'RENTAL',      label:'Rental (Onboarding workbook)', dfltId:'14JPJCIC0fPPs_qqDgS_EKhE8U309y4mFS7eQq331lXQ', tabs:['Rental Agreement','RP Booking'], usedBy:'Rental Agreement & RP Booking — site Country/Currency/Status write-back' },
 ];
 // Map a default Spreadsheet ID to its admin override (if any). Called from
 // fetchSheet(), so every tab of every source honours the re-point automatically.
@@ -14238,6 +14239,103 @@ function getLink(key) {
   const [srcKey, tab] = legacy[key] || [key, ''];
   const src = SHEET_LINKS.find(s => s.key === srcKey) || {};
   return { id: _resolveSheetId(src.dfltId || ''), tab };
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  SITE CONFIG — per-site Country / Currency / Status master
+//  Seeded from the "Site-wise Currency, Status & Country" master import.
+//  Stored org-wide in PortalConfig key 'site_config'. Used to stamp the
+//  Country / Currency / Status onto Rental Agreement & RP Booking rows by
+//  Site (write-back via the 'updateCell' Apps Script action).
+// ════════════════════════════════════════════════════════════════════
+const RENTAL_SHEET_ID = '14JPJCIC0fPPs_qqDgS_EKhE8U309y4mFS7eQq331lXQ'; // "Onboarding" workbook
+const RENTAL_TABS      = ['Rental Agreement', 'RP Booking'];
+const SITE_CFG_SEED = [
+  ['AFCONS - PAKALDUL','India','INR','Active'],
+  ['AFCONS - DAHEJ','India','INR','Active'],
+  ['APCO - SONAMARG','India','INR','Active'],
+  ['CIDCO','India','INR','Active'],
+  ['ECR KORAPUT','India','INR','Active'],
+  ['ECR KORAPUT - 2','India','INR','Active'],
+  ['FREYSSINET - MANGOLIA PROJECT BANGALORE','India','INR','Closed'],
+  ['FREYSSINET - MUMBAI C1','India','INR','Closed'],
+  ['H G INFRA','India','INR','Active'],
+  ['HEAD OFFICE','India','INR','Active'],
+  ['HP - PWD PKG CHAMBA','India','INR','Active'],
+  ['HPSEBL - MANDI','India','INR','Closed'],
+  ['JAMMU YARD','India','INR','Active'],
+  ['KRCL GOA','India','INR','Closed'],
+  ['KS CONSTRUCTION, ANGLE','India','INR','Closed'],
+  ['LNT - DIBANG AP','India','INR','Active'],
+  ['LNT - PATNA','India','INR','Closed'],
+  ['LNT - SIKKIM','India','INR','Active'],
+  ['MUMBAI CENTRAL RAILWAY','India','INR','Active'],
+  ['POWER GRID - NAGALAND','India','INR','Active'],
+  ['SUNNI HEP','India','INR','Active'],
+  ['THDC - UTTARAKHAND','India','INR','Active'],
+  ['VISHAKHAPATNAM','India','INR','Active'],
+  ['L&T - IFKARA','Tanzania','TZS','Active'],
+  ['LNT - TANZANIA MS','Tanzania','TZS','Active'],
+  ['TANZANIA BD','Tanzania','TZS','Active'],
+  ['NEC ZANZIBAR PKG 2','Tanzania','TZS','Active'],
+  ['LNT - BHOPAL METRO','India','INR','Active'],
+  ['OSE - CHIDAMBARAM','India','INR','Active'],
+  ['BRO - PROJECT SAMPARK','India','INR','Active'],
+  ['SUR - TEESTA','India','INR','Active'],
+  ['NEC PIPELINE MAHONDA','Tanzania','TZS','Active'],
+  ['IVORY COAST','Ivory Coast','XOF','Active'],
+];
+function _siteCfgSeedObj() { return SITE_CFG_SEED.map(r => ({ site:r[0], country:r[1], currency:r[2], status:r[3] })); }
+function siteCfgGet() {
+  const cfg = (typeof pcReadJSON === 'function') ? pcReadJSON('site_config', null) : null;
+  if (cfg && Array.isArray(cfg.sites) && cfg.sites.length) return cfg;
+  return { sites: _siteCfgSeedObj(), updatedAt: null };
+}
+function _siteKey(s) { return String(s == null ? '' : s).trim().toUpperCase().replace(/\s+/g, ' '); }
+// Look up a site's Country / Currency / Status. Case/space-insensitive.
+function siteCfgLookup(siteName) {
+  const k = _siteKey(siteName); if (!k) return null;
+  const hit = siteCfgGet().sites.find(x => _siteKey(x.site) === k);
+  return hit ? { country: hit.country || '', currency: hit.currency || '', status: hit.status || '' } : null;
+}
+function _scfgEsc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// 0-based column index → spreadsheet letter (0→A, 26→AA).
+function _colLetter(i) { let s = ''; i = i + 1; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+// Detect the Site / row-key / target columns from a tab's header row.
+function _rentalDetectCols(headers) {
+  const find = cands => { for (const c of cands) { const i = headers.findIndex(h => _siteKey(h) === _siteKey(c)); if (i >= 0) return i; } return -1; };
+  return {
+    site:     find(['Site Name','Site','Project','Site/Project','From Site','Location']),
+    key:      find(['UUID','Request ID','RP ID','Booking ID','Agreement No','Agreement ID','ID']),
+    currency: find(['Currency']),
+    country:  find(['Country']),
+    status:   find(['Status','Site Status']),
+  };
+}
+// Read a rental tab and compute the Country/Currency/Status changes each row
+// needs, based on siteCfgLookup(). Pure read — never writes.
+async function _rentalScan(tab) {
+  const sid  = _resolveSheetId(RENTAL_SHEET_ID);
+  const rows = await fetchSheet(tab, null, sid, { rawId: true, headers: 1 });
+  const headers = (rows && rows.length) ? Object.keys(rows[0]) : [];
+  const cols = _rentalDetectCols(headers);
+  const changes = [], unmatched = new Set();
+  (rows || []).forEach(r => {
+    const site = cols.site >= 0 ? r[headers[cols.site]] : '';
+    if (!String(site || '').trim()) return;
+    const cfg = siteCfgLookup(site);
+    if (!cfg) { unmatched.add(String(site).trim()); return; }
+    const cur = {
+      currency: cols.currency >= 0 ? (r[headers[cols.currency]] || '') : '',
+      country:  cols.country  >= 0 ? (r[headers[cols.country]]  || '') : '',
+      status:   cols.status   >= 0 ? (r[headers[cols.status]]   || '') : '',
+    };
+    const want = { currency: cfg.currency, country: cfg.country, status: cfg.status };
+    const diff = {};
+    ['currency','country','status'].forEach(f => { if (cols[f] >= 0 && _siteKey(cur[f]) !== _siteKey(want[f])) diff[f] = want[f]; });
+    if (Object.keys(diff).length) changes.push({ rowKey: cols.key >= 0 ? r[headers[cols.key]] : '', site: String(site).trim(), cur, diff });
+  });
+  return { cols, headers, total: (rows || []).length, changes, unmatched: Array.from(unmatched) };
 }
 
 // ── Access groups: per-module view + action permissions, assigned to users ──
@@ -14519,6 +14617,7 @@ function userCan(route, action) {
 const CFG_TABS = [
   { id:'config',    icon:'&#9881;',   label:'Portal Config' },
   { id:'sheets',    icon:'&#128279;', label:'Sheet Linking' },
+  { id:'sites',     icon:'&#127760;', label:'Site Config' },
   { id:'accstatus', icon:'&#128272;', label:'Status Access' },
 ];
 function _cfgTabBar(active) {
@@ -14544,6 +14643,7 @@ function renderDevModePage(tab) {
   window._cfgActiveTab = tab || window._cfgActiveTab || 'config';
   const t = window._cfgActiveTab;
   if (t === 'sheets') return _cfgRenderSheets();
+  if (t === 'sites') return _cfgRenderSites();
   if (t === 'accstatus') return _cfgRenderAccStatus();
   // 'modules' (the old Modules & Roles tab) → Portal Config; its role matrix
   // is retired and its Live/Dev/Off status lives in Access & Pages.
@@ -14652,6 +14752,169 @@ function renderAccessPages() {
   }
   _cfgRenderAccess();
 }
+
+// ════════════════════════════════════════════════════════════════════
+//  TAB: SITE CONFIG — Site → Country / Currency / Status master + the
+//  Rental Agreement / RP Booking write-back (preview → apply).
+// ════════════════════════════════════════════════════════════════════
+const _CUR_OPTS = ['INR','TZS','XOF','USD','EUR','GBP'];
+function _tabSlug(t) { return String(t || '').replace(/[^a-z0-9]+/gi, '_'); }
+// Read the currently-rendered site rows back out of the DOM (preserves edits
+// across Add/Delete without a Save round-trip).
+function _scfgCollect() {
+  return Array.from(document.querySelectorAll('#scfgBody tr')).map(tr => {
+    const g = f => { const e = tr.querySelector(`[data-f="${f}"]`); return e ? e.value.trim() : ''; };
+    return { site: g('site'), country: g('country'), currency: g('currency'), status: g('status') };
+  }).filter(r => r.site || r.country || r.currency);
+}
+function _cfgRenderSites() {
+  const el = document.getElementById('mainContent');
+  const cfg = siteCfgGet();
+  const sid = _resolveSheetId(RENTAL_SHEET_ID);
+  const overridden = sid !== RENTAL_SHEET_ID;
+  const rowHtml = (s, i) => `<tr>
+    <td style="padding:.25rem"><input data-f="site" value="${_scfgEsc(s.site)}" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:.78rem;background:var(--surface2);color:var(--txt)"></td>
+    <td style="padding:.25rem"><input data-f="country" value="${_scfgEsc(s.country)}" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:.78rem;background:var(--surface2);color:var(--txt)"></td>
+    <td style="padding:.25rem"><input data-f="currency" list="scfgCurList" value="${_scfgEsc(s.currency)}" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:.78rem;background:var(--surface2);color:var(--txt);text-transform:uppercase"></td>
+    <td style="padding:.25rem"><select data-f="status" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:.78rem;background:var(--surface2);color:var(--txt)">
+      ${['Active','Closed'].map(o => `<option ${_siteKey(o) === _siteKey(s.status) ? 'selected' : ''}>${o}</option>`).join('')}</select></td>
+    <td style="padding:.25rem;text-align:center"><button onclick="siteCfgDelRow(this)" title="Remove" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.95rem">&#10005;</button></td>
+  </tr>`;
+  const tabPanels = RENTAL_TABS.map(t => { const slug = _tabSlug(t); return `
+    <div class="card card-pad" style="margin-bottom:.7rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap">
+        <div style="font-weight:700;color:var(--g9);font-size:.86rem">&#128203; ${_scfgEsc(t)}</div>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+          <button onclick="siteCfgSyncPreview('${_scfgEsc(t)}')" class="btn btn-secondary btn-sm" style="font-size:.72rem">&#128269; Preview changes</button>
+          <button id="scfgApply-${slug}" onclick="siteCfgSyncApply('${_scfgEsc(t)}')" class="btn btn-primary btn-sm" style="font-size:.72rem;display:none">&#8593; Apply write-back</button>
+        </div>
+      </div>
+      <div id="scfgRes-${slug}" style="margin-top:.5rem;font-size:.76rem;color:var(--txt3)">Run <b>Preview</b> to see which rows would get Country / Currency / Status stamped from the Site Config. Nothing is written until you click Apply.</div>
+    </div>`; }).join('');
+  el.innerHTML = `
+    ${_cfgTabBar('sites')}
+    <datalist id="scfgCurList">${_CUR_OPTS.map(c => `<option value="${c}">`).join('')}</datalist>
+    <div class="page-header"><div class="page-header-row" style="display:flex;align-items:flex-start;justify-content:space-between;gap:.6rem;flex-wrap:wrap"><div>
+      <h1>&#127760; Site Config</h1>
+      <p>Per-site <b>Country &middot; Currency &middot; Status</b> master &middot; stamps these onto Rental Agreement &amp; RP Booking rows by Site &middot; Admin only</p>
+    </div></div>
+
+    <div class="card card-pad" style="margin-bottom:1rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem">
+        <div style="font-size:.78rem;color:var(--txt3)">${cfg.sites.length} sites${cfg.updatedAt ? ' &middot; saved ' + _scfgEsc(cfg.updatedAt) : ' &middot; <span style=\"color:#b45309\">not saved yet (showing imported defaults)</span>'}</div>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+          <button onclick="siteCfgAddRow()" class="btn btn-secondary btn-sm" style="font-size:.72rem">&#43; Add site</button>
+          <button onclick="siteCfgRestore()" class="btn btn-secondary btn-sm" style="font-size:.72rem">&#8635; Restore imported defaults</button>
+          <button onclick="siteCfgSave()" class="btn btn-primary btn-sm" style="font-size:.72rem">&#128190; Save</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.78rem">
+        <thead><tr style="text-align:left;color:var(--txt3);font-size:.68rem;text-transform:uppercase">
+          <th style="padding:.3rem .25rem">Site Name</th><th style="padding:.3rem .25rem">Country</th>
+          <th style="padding:.3rem .25rem;width:110px">Currency</th><th style="padding:.3rem .25rem;width:120px">Status</th><th style="width:34px"></th>
+        </tr></thead>
+        <tbody id="scfgBody">${cfg.sites.map(rowHtml).join('')}</tbody>
+      </table></div>
+      <span id="scfgSt" style="font-size:.72rem;color:var(--txt3)"></span>
+    </div>
+
+    <div class="card card-pad">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem">
+        <div><div style="font-weight:700;color:var(--g9);font-size:.92rem">&#8593; Rental write-back</div>
+          <div style="font-size:.74rem;color:var(--txt3)">Stamps each row's Country / Currency / Status from the Site Config, matched by Site. ${overridden ? '<span style="color:#b45309">sheet overridden in Sheet Linking</span> &middot; ' : ''}<a href="https://docs.google.com/spreadsheets/d/${sid}" target="_blank" rel="noopener" style="color:var(--g7)">&#8599; open sheet</a></div>
+        </div>
+      </div>
+      ${tabPanels}
+    </div>`;
+}
+window.siteCfgAddRow = function () {
+  const rows = _scfgCollect(); rows.push({ site:'', country:'', currency:'', status:'Active' });
+  _cfgRenderSitesFromTmp(rows);
+};
+function _cfgRenderSitesFromTmp(rows) {
+  // Re-render the body only, preserving current edits.
+  const body = document.getElementById('scfgBody'); if (!body) { _cfgRenderSites(); return; }
+  const rowHtml = (s) => `<tr>
+    <td style="padding:.25rem"><input data-f="site" value="${_scfgEsc(s.site)}" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:.78rem;background:var(--surface2);color:var(--txt)"></td>
+    <td style="padding:.25rem"><input data-f="country" value="${_scfgEsc(s.country)}" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:.78rem;background:var(--surface2);color:var(--txt)"></td>
+    <td style="padding:.25rem"><input data-f="currency" list="scfgCurList" value="${_scfgEsc(s.currency)}" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:.78rem;background:var(--surface2);color:var(--txt);text-transform:uppercase"></td>
+    <td style="padding:.25rem"><select data-f="status" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:.78rem;background:var(--surface2);color:var(--txt)">
+      ${['Active','Closed'].map(o => `<option ${_siteKey(o) === _siteKey(s.status) ? 'selected' : ''}>${o}</option>`).join('')}</select></td>
+    <td style="padding:.25rem;text-align:center"><button onclick="siteCfgDelRow(this)" title="Remove" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:.95rem">&#10005;</button></td>
+  </tr>`;
+  body.innerHTML = rows.map(rowHtml).join('');
+}
+window.siteCfgDelRow = function (btn) { const tr = btn.closest('tr'); if (tr) tr.remove(); };
+window.siteCfgRestore = function () {
+  if (!confirm('Replace the current list with the imported defaults (33 sites)? Unsaved edits are lost.')) return;
+  _cfgRenderSitesFromTmp(_siteCfgSeedObj());
+  const st = document.getElementById('scfgSt'); if (st) st.textContent = 'Defaults restored — click Save to persist.';
+};
+window.siteCfgSave = function () {
+  const sites = _scfgCollect();
+  const bad = sites.find(s => !s.site);
+  if (bad) { alert('Every row needs a Site Name (or remove the empty row).'); return; }
+  const payload = { sites, updatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') };
+  try { pcWriteJSON('site_config', payload); } catch (e) { alert('Save failed: ' + (e && e.message || e)); return; }
+  const st = document.getElementById('scfgSt'); if (st) { st.textContent = 'Saved ' + sites.length + ' sites org-wide.'; st.style.color = 'var(--g7)'; }
+};
+window.siteCfgSyncPreview = async function (tab) {
+  const slug = _tabSlug(tab);
+  const res = document.getElementById('scfgRes-' + slug), applyBtn = document.getElementById('scfgApply-' + slug);
+  if (res) res.innerHTML = 'Reading &ldquo;' + _scfgEsc(tab) + '&rdquo;&hellip;';
+  try {
+    const scan = await _rentalScan(tab);
+    window._rentalScanCache = window._rentalScanCache || {}; window._rentalScanCache[tab] = scan;
+    const c = scan.cols;
+    const missingTargets = ['currency','country','status'].filter(f => c[f] < 0);
+    const problems = [];
+    if (c.site < 0) problems.push('No <b>Site</b> column detected — nothing can be matched.');
+    if (c.key < 0)  problems.push('No row-key column (UUID / Request ID) — rows can\'t be targeted safely for write-back.');
+    if (missingTargets.length) problems.push('Missing target column(s) in the sheet: <b>' + missingTargets.join(', ') + '</b> (add them to the tab to enable write-back).');
+    const detected = `Detected → Site: <code>${c.site >= 0 ? scan.headers[c.site] : '—'}</code> · Key: <code>${c.key >= 0 ? scan.headers[c.key] : '—'}</code> · Currency: <code>${c.currency >= 0 ? _colLetter(c.currency) : '—'}</code> · Country: <code>${c.country >= 0 ? _colLetter(c.country) : '—'}</code> · Status: <code>${c.status >= 0 ? _colLetter(c.status) : '—'}</code>`;
+    const canApply = c.site >= 0 && c.key >= 0 && !missingTargets.length && scan.changes.length > 0;
+    const sample = scan.changes.slice(0, 12).map(ch =>
+      `<tr><td style="padding:2px 6px">${_scfgEsc(ch.site)}</td><td style="padding:2px 6px;color:var(--txt3)">${_scfgEsc(ch.rowKey || '—')}</td><td style="padding:2px 6px">${Object.entries(ch.diff).map(([k, v]) => `${k}: <b>${_scfgEsc(v)}</b>`).join(', ')}</td></tr>`).join('');
+    if (res) res.innerHTML =
+      `<div style="margin-bottom:.35rem">${detected}</div>` +
+      (problems.length ? `<div style="color:#b45309;margin-bottom:.35rem">&#9888; ${problems.join('<br>')}</div>` : '') +
+      `<div><b>${scan.changes.length}</b> of ${scan.total} rows would change` +
+      (scan.unmatched.length ? ` &middot; <span style="color:#b45309">${scan.unmatched.length} site(s) not in config: ${scan.unmatched.slice(0, 6).map(_scfgEsc).join(', ')}${scan.unmatched.length > 6 ? '…' : ''}</span>` : '') + '</div>' +
+      (sample ? `<div style="overflow-x:auto;margin-top:.35rem"><table style="border-collapse:collapse;font-size:.72rem"><thead><tr style="color:var(--txt3);text-align:left"><th style="padding:2px 6px">Site</th><th style="padding:2px 6px">Row key</th><th style="padding:2px 6px">Will set</th></tr></thead><tbody>${sample}</tbody></table>${scan.changes.length > 12 ? `<div style="color:var(--txt3);margin-top:.2rem">…and ${scan.changes.length - 12} more</div>` : ''}</div>` : '');
+    if (applyBtn) applyBtn.style.display = canApply ? '' : 'none';
+  } catch (e) {
+    if (res) res.innerHTML = '<span style="color:#dc2626">Preview failed: ' + _scfgEsc(e && e.message || e) + '</span>';
+  }
+};
+window.siteCfgSyncApply = async function (tab) {
+  const scan = window._rentalScanCache && window._rentalScanCache[tab];
+  if (!scan) { alert('Run Preview first.'); return; }
+  const c = scan.cols;
+  if (c.key < 0 || c.site < 0 || ['currency','country','status'].some(f => c[f] < 0)) { alert('Column mapping incomplete — see the Preview warnings.'); return; }
+  if (!scan.changes.length) { alert('Nothing to write — no rows differ.'); return; }
+  const cellCount = scan.changes.reduce((n, ch) => n + Object.keys(ch.diff).length, 0);
+  if (!confirm('Write ' + cellCount + ' cell(s) across ' + scan.changes.length + ' row(s) in the LIVE "' + tab + '" tab? This cannot be auto-undone.')) return;
+  const slug = _tabSlug(tab);
+  const res = document.getElementById('scfgRes-' + slug), applyBtn = document.getElementById('scfgApply-' + slug);
+  if (applyBtn) applyBtn.disabled = true;
+  const sid = _resolveSheetId(RENTAL_SHEET_ID), keyLetter = _colLetter(c.key);
+  let ok = 0, fail = 0, done = 0;
+  for (const ch of scan.changes) {
+    if (!String(ch.rowKey || '').trim()) { fail += Object.keys(ch.diff).length; continue; }
+    for (const f of Object.keys(ch.diff)) {
+      try {
+        const r = await fetch(APPS_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ action: 'updateCell', sheetId: sid, tab, matchCol: keyLetter, matchVal: ch.rowKey, updateCol: _colLetter(c[f]), updateVal: ch.diff[f] }) });
+        const j = await r.json().catch(() => ({}));
+        if (j && j.success !== false) ok++; else fail++;
+      } catch (e) { fail++; }
+    }
+    done++;
+    if (res && done % 5 === 0) res.innerHTML = 'Writing&hellip; ' + done + '/' + scan.changes.length + ' rows (' + ok + ' cells ok' + (fail ? ', ' + fail + ' failed' : '') + ')';
+  }
+  if (applyBtn) { applyBtn.disabled = false; applyBtn.style.display = 'none'; }
+  if (res) res.innerHTML = '&#9989; Wrote <b>' + ok + '</b> cell(s)' + (fail ? ', <span style="color:#dc2626">' + fail + ' failed</span>' : '') + '. Re-run Preview to confirm.';
+};
 
 // ════════════════════════════════════════════════════════════════════
 //  TAB: ACCOUNTS STATUS ACCESS — restrict each status transition to people
