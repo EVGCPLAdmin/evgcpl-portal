@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.45.3';
-const PORTAL_BUILD    = 696;
-const PORTAL_BUILD_AT = '2026-07-22T08:54:48Z';
+const PORTAL_VERSION  = '4.46.0';
+const PORTAL_BUILD    = 697;
+const PORTAL_BUILD_AT = '2026-07-22T09:40:41Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5201,59 +5201,92 @@ function _vplpCompute() {
     };
     if (vid && !vendorById[vid]) vendorById[vid] = poInfo[k].vendorName;
   });
-  // Received material (received qty × rate) + Tax(a) apportioned to the received
-  // fraction of each line, per PO.
-  // poRecv = COUNTED (approved, or all when the gate is off) received value;
-  // poPending = value of un-reviewed receipts, shown but NOT counted.
+  // Received material + Tax(a). Rates are mapped to received QUANTITY across the
+  // PO's rate tiers for the SAME item (in PO-line order) — NOT to whichever line
+  // a GRN happened to be booked against. The first line's ordered qty is valued
+  // at its rate, the next line's qty at its rate, and so on; a GRN that straddles
+  // a tier boundary is blended within its own row. Reviewed lines (gate on) still
+  // override with the reviewer's Final Rate/Tax/Value.
+  // poRecv = COUNTED (approved / all when gate off) value; poPending = uncounted.
   const poRecv = {}, poTaxA = {}, poRcpt = {}, poPending = {};
+  // Phase 1 — group PO lines by (PO || item). Each line is a rate tier (kept in
+  // PO-line order) and contributes any receipts booked against it to a shared
+  // pool. Different items on the same PO stay in separate, independent groups.
+  const itemGroups = {}, itemOrder = [];
   _openPOItems.forEach(x => {
     const k = _opPOKey(_opGet(x, IC, ['PO No', 'Order No'])); if (!k) return;
     const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
-    // Readable Part No + Description live in Material Description as "PartNo | Desc"
-    // (same split the Open-PO report uses). `part` stays the raw Part Details key
-    // so receipt matching below is unaffected.
+    // Readable Part No + Description live in Material Description as "PartNo | Desc".
     const matDesc  = String(_opGet(x, IC, ['Material Description', 'Material Desc', 'Material Name', 'Material']) || part || '');
     const pipe     = matDesc.indexOf('|');
     const partNo   = pipe >= 0 ? matDesc.slice(0, pipe).trim() : '';
     const partDesc = pipe >= 0 ? matDesc.slice(pipe + 1).trim() : matDesc.trim();
-    const cs = _opGet(x, IC, ['CheckSum', 'Check Sum']);
+    const cs   = _opGet(x, IC, ['CheckSum', 'Check Sum']);
     const rate = _opNum(_opGet(x, IC, ['Rate', 'Unit Rate', 'Unit Price', 'Price', 'Basic Rate']));
-    const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)];
-    if (!m || !m.rcpts.length || m.qty <= 0) return;
-    const oq = _opNum(_opGet(x, IC, ['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
-    const lineTax = _opNum(_opGet(x, IC, ['Tax. Amount', 'Tax Amt', 'Tax Amount', 'Total Tax']));
-    // Tax(a) is derived from the PO line's tax RATE (same row as Rate/Qty in
-    // PO_Items): Tax = received material × Tax%. Falls back to the stored Tax
-    // Amount (apportioned by received qty) only when a line has no Tax%.
+    const oq   = _opNum(_opGet(x, IC, ['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
+    const taxAmt = _opNum(_opGet(x, IC, ['Tax. Amount', 'Tax Amt', 'Tax Amount', 'Total Tax']));
     const taxPct = _opNum(_opGet(x, IC, ['Tax (%)', 'Tax %', 'Tax Percentage', 'Tax Percent', 'GST %', 'GST (%)', 'Tax Rate', 'GST Rate']));
-    // Tax% may be stored as a whole number (18) OR a fraction (0.18) — both mean
-    // 18%. Normalise to a fraction of 1: ≥1 → divide by 100, else already a
-    // fraction (real GST slabs never equal exactly 1, so this is unambiguous).
+    // Tax% may be a whole number (18) or a fraction (0.18) — both mean 18%.
     const taxFrac = taxPct >= 1 ? taxPct / 100 : taxPct;
-    let countedQty = 0;
-    m.rcpts.forEach(rc => {
-      // Reviewed values only drive credit when the gate is ON; gate off → PO
-      // values as before (everything counts).
+    // "Same item" = same readable Part No / Description (raw part key as a last
+    // resort), scoped to the PO so different POs never pool together.
+    const itemKey = k + '::' + _opNorm(partNo || partDesc || part);
+    let g = itemGroups[itemKey];
+    if (!g) { g = itemGroups[itemKey] = { k, tiers: [], rcpts: [], seen: {} }; itemOrder.push(itemKey); }
+    const tier = { rate, taxPct, taxFrac, taxAmt, oq, part, partNo, partDesc };
+    g.tiers.push(tier);
+    const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)];
+    if (m && m.rcpts.length) m.rcpts.forEach(rc => {
+      if (g.seen[rc.idx]) return;
+      g.seen[rc.idx] = 1;
+      rc._home = tier;               // the line this GRN was booked against (display ref)
+      g.rcpts.push(rc);
+    });
+  });
+  // Tax on a qty slice: material × Tax% (fraction), or the stored Tax Amount
+  // apportioned by the slice's share of the tier's qty when the line has no %.
+  const _tierTax = (t, ov) => t.taxPct > 0 ? (ov * t.rate * t.taxFrac) : (t.oq > 0 ? t.taxAmt * (ov / t.oq) : 0);
+  // Phase 2 — per item group, lay the tiers end-to-end by qty and walk the pooled
+  // receipts (chronological) filling them. Each receipt is valued by the slice(s)
+  // of qty it occupies; a straddling receipt blends within its row.
+  itemOrder.forEach(itemKey => {
+    const g = itemGroups[itemKey], k = g.k;
+    let cum = 0;
+    g.tiers.forEach(t => { t.cs = cum; t.ce = cum + (t.oq || 0); cum = t.ce; });
+    const lastTier = g.tiers[g.tiers.length - 1];
+    const rcpts = g.rcpts.slice().sort((a, b) =>
+      ((a.recvDate ? _mdpDateVal(a.recvDate) : Infinity) - (b.recvDate ? _mdpDateVal(b.recvDate) : Infinity)) || (a.idx - b.idx));
+    let filled = 0;
+    rcpts.forEach(rc => {
+      const q = rc.qty || 0;
+      const start = filled, end = filled + q; filled = end;
+      // Material + Tax(a) for this receipt's qty slice, blended across tiers.
+      let tierMat = 0, tierTax = 0;
+      g.tiers.forEach(t => {
+        const lo = Math.max(start, t.cs), hi = Math.min(end, t.ce), ov = hi - lo;
+        if (ov > 1e-9) { tierMat += ov * t.rate; tierTax += _tierTax(t, ov); }
+      });
+      if (lastTier && end > lastTier.ce + 1e-9) {          // received beyond all tiers → last tier's rate
+        const ov = end - Math.max(start, lastTier.ce);
+        tierMat += ov * lastTier.rate; tierTax += _tierTax(lastTier, ov);
+      }
+      const effRate = q > 0 ? tierMat / q : (g.tiers[0] ? g.tiers[0].rate : 0);
+      // Reviewed values override when the gate is ON (Final Rate/Tax/Value).
       const applied = gateOn ? rc.rev : null;
       const approved = !gateOn || _grnIsApproved(rc.rev);
-      // Reviewed final Rate / Tax / Additional Charges (per line); the reviewer
-      // may also set the final VALUE directly (overrides Rate × Qty + Tax + Addl).
-      const useRate = (applied && applied.rate > 0) ? applied.rate : rate;
+      const useRate = (applied && applied.rate > 0) ? applied.rate : effRate;
       const rTax = (applied && applied.tax) || 0;
       const addl = (applied && applied.addl) || 0;
-      const rMat = (rc.qty || 0) * useRate;
+      const rMat = (applied && applied.rate > 0) ? (q * useRate) : tierMat;
       const lineCredit = (applied && applied.value > 0) ? applied.value : (rMat + rTax + addl);
-      // Tax(a) for this receipt: reviewer's Final Tax when reviewed (gate on);
-      // else received material × Tax%, or the apportioned Tax Amount if the line
-      // carries no percentage.
-      const rTaxA = applied ? rTax
-        : (taxPct > 0 ? (rMat * taxFrac)
-           : (oq > 0 ? lineTax * ((rc.qty || 0) / oq) : 0));
-      // stash for the ledger / review UI
-      rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.rMat = rMat; rc.rTax = rTax; rc.rTaxA = rTaxA; rc.taxPct = taxPct; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.reviewed = !!applied; rc.part = part; rc.partNo = partNo; rc.partDesc = partDesc;
-      if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; poTaxA[k] = (poTaxA[k] || 0) + rTaxA; countedQty += (rc.qty || 0); }
+      const rTaxA = applied ? rTax : tierTax;
+      rc.poKey = k; rc.poRate = rc._home ? rc._home.rate : effRate; rc.useRate = useRate;
+      rc.rMat = rMat; rc.rTax = rTax; rc.rTaxA = rTaxA; rc.taxPct = rMat > 0 ? (rTaxA / rMat) * 100 : 0;
+      rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.reviewed = !!applied;
+      rc.part = rc._home ? rc._home.part : ''; rc.partNo = rc._home ? rc._home.partNo : ''; rc.partDesc = rc._home ? rc._home.partDesc : '';
+      if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; poTaxA[k] = (poTaxA[k] || 0) + rTaxA; }
       else { poPending[k] = (poPending[k] || 0) + lineCredit; }
-      const g = poRcpt[k] = poRcpt[k] || []; if (!g.some(z => z.idx === rc.idx)) g.push(rc);
+      const arr = poRcpt[k] = poRcpt[k] || []; if (!arr.some(z => z.idx === rc.idx)) arr.push(rc);
     });
   });
   // Vendor Master bridge: name → Vendor ID and bank-account → Vendor ID. Lets a
@@ -5859,13 +5892,13 @@ function _vplpLedger(v, embedOpts) {
           mat = baseMat; addlC = lineAddl + poAddlTot * frac;
           credit = mat + addlC + taxA + taxB;
         }
-        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', mat, addl: addlC, taxA, taxB, credit, debit: 0, status: null, utr: '', uuid: '' });
+        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', mat, addl: addlC, taxA, taxB, credit, debit: 0, qty: app.reduce((s, rc) => s + (rc.qty || 0), 0), status: null, utr: '', uuid: '' });
       }
       // Pending (un-reviewed) lines of this receipt → one pending, uncounted row.
       const pen = g.filter(rc => rc.approved === false);
       if (pen.length) {
         const pendAmt = pen.reduce((s, rc) => s + (rc.credit || 0), 0);
-        if (pendAmt > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: pen, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pendAmt, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
+        if (pendAmt > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: pen, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pendAmt, qty: pen.reduce((s, rc) => s + (rc.qty || 0), 0), mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
       }
     });
   });
@@ -5919,6 +5952,7 @@ function _vplpLedger(v, embedOpts) {
   entries.forEach(e => { running += e.credit - e.debit; e.balance = running; });
   const sum = key => entries.reduce((s, e) => s + e[key], 0);
   const totMat = sum('mat'), totAddl = sum('addl'), totTaxA = sum('taxA'), totTaxB = sum('taxB'), totCredit = sum('credit'), totDebit = sum('debit');
+  const totQty = entries.reduce((s, e) => s + (e.qty || 0), 0);
   const bal = totCredit - totDebit;
   // Compact KPI cards — right side of the control row (cards moved right).
   const card = (icon, iconStyle, val, label, cardStyle) =>
@@ -5933,6 +5967,9 @@ function _vplpLedger(v, embedOpts) {
   // Control row: Active/Closed toggle on the left, KPI cards on the right.
   const controlRow = `<div style="display:flex;gap:1rem;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:${modeHint ? '.3rem' : '1rem'}">${modeButtons}${kpiCards}</div>`;
   const m = x => x ? inr(x) : '—';
+  // Received-goods amount with its quantity in brackets, e.g. "₹94,400 (800)".
+  const _qfmt = q => (Math.round((q || 0) * 100) / 100).toLocaleString('en-IN');
+  const mQty = (amt, qty) => !amt ? '—' : inr(amt) + (qty ? ` <span style="color:var(--txt3);font-weight:400;font-size:.68rem">(${_qfmt(qty)})</span>` : '');
   // Tax with its effective rate in the same cell — Tax (a) is charged on
   // Material (a), Tax (b) on Add'l/Sub Total (b), so % = tax ÷ its own base.
   // Rate is hidden when the tax or its base is 0 (nothing to derive a % from).
@@ -5986,7 +6023,7 @@ function _vplpLedger(v, embedOpts) {
       <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(e.addl)}</td>
       <td style="padding:6px 9px;text-align:right;color:#2563eb">${mTax(e.taxA, e.mat)}</td>
       <td style="padding:6px 9px;text-align:right;color:#0891b2">${mTax(e.taxB, e.addl)}</td>
-      <td style="padding:6px 9px;text-align:right;color:#15803d;font-weight:600">${m(e.credit)}</td>
+      <td style="padding:6px 9px;text-align:right;color:#15803d;font-weight:600">${mQty(e.credit, e.qty)}</td>
       <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${m(e.debit)}</td>
       <td style="padding:6px 9px;text-align:right;font-weight:700;color:var(--g8)">${drcr(e.balance)}</td>
       <td style="padding:6px 9px">${statusCell}</td>${extraCells(e)}
@@ -6003,7 +6040,7 @@ function _vplpLedger(v, embedOpts) {
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(totAddl)}</td>
     <td style="padding:7px 9px;text-align:right;color:#2563eb">${mTax(totTaxA, totMat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#0891b2">${mTax(totTaxB, totAddl)}</td>
-    <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#15803d">${mQty(totCredit, totQty)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td>${extraFoot}</tr>`;
   // Pending-review banner — how much of this vendor's received material is still
