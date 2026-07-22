@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.45.1';
-const PORTAL_BUILD    = 694;
-const PORTAL_BUILD_AT = '2026-07-22T08:28:25Z';
+const PORTAL_VERSION  = '4.45.2';
+const PORTAL_BUILD    = 695;
+const PORTAL_BUILD_AT = '2026-07-22T08:41:33Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5221,7 +5221,11 @@ function _vplpCompute() {
     const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)];
     if (!m || !m.rcpts.length || m.qty <= 0) return;
     const oq = _opNum(_opGet(x, IC, ['Qty', 'Quantity', 'PO Qty', 'Order Qty']));
-    const lineTax = _opNum(_opGet(x, IC, ['Tax Amt', 'Tax Amount', 'Total Tax']));
+    const lineTax = _opNum(_opGet(x, IC, ['Tax. Amount', 'Tax Amt', 'Tax Amount', 'Total Tax']));
+    // Tax(a) is derived from the PO line's tax RATE (same row as Rate/Qty in
+    // PO_Items): Tax = received material × Tax%. Falls back to the stored Tax
+    // Amount (apportioned by received qty) only when a line has no Tax%.
+    const taxPct = _opNum(_opGet(x, IC, ['Tax (%)', 'Tax %', 'Tax Percentage', 'Tax Percent', 'GST %', 'GST (%)', 'Tax Rate', 'GST Rate']));
     let countedQty = 0;
     m.rcpts.forEach(rc => {
       // Reviewed values only drive credit when the gate is ON; gate off → PO
@@ -5235,14 +5239,18 @@ function _vplpCompute() {
       const addl = (applied && applied.addl) || 0;
       const rMat = (rc.qty || 0) * useRate;
       const lineCredit = (applied && applied.value > 0) ? applied.value : (rMat + rTax + addl);
+      // Tax(a) for this receipt: reviewer's Final Tax when reviewed (gate on);
+      // else received material × Tax%, or the apportioned Tax Amount if the line
+      // carries no percentage.
+      const rTaxA = applied ? rTax
+        : (taxPct > 0 ? (rMat * taxPct / 100)
+           : (oq > 0 ? lineTax * ((rc.qty || 0) / oq) : 0));
       // stash for the ledger / review UI
-      rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.rMat = rMat; rc.rTax = rTax; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.reviewed = !!applied; rc.part = part; rc.partNo = partNo; rc.partDesc = partDesc;
-      if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; countedQty += (rc.qty || 0); }
+      rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.rMat = rMat; rc.rTax = rTax; rc.rTaxA = rTaxA; rc.taxPct = taxPct; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.reviewed = !!applied; rc.part = part; rc.partNo = partNo; rc.partDesc = partDesc;
+      if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; poTaxA[k] = (poTaxA[k] || 0) + rTaxA; countedQty += (rc.qty || 0); }
       else { poPending[k] = (poPending[k] || 0) + lineCredit; }
       const g = poRcpt[k] = poRcpt[k] || []; if (!g.some(z => z.idx === rc.idx)) g.push(rc);
     });
-    // Tax(a) apportioned to the COUNTED fraction of the line (matches old maths when gate off).
-    if (countedQty > 0) poTaxA[k] = (poTaxA[k] || 0) + lineTax * (oq > 0 ? Math.min(countedQty / oq, 1) : 1);
   });
   // Vendor Master bridge: name → Vendor ID and bank-account → Vendor ID. Lets a
   // payment (which carries only the selected vendor NAME + account, no Vendor ID)
@@ -5837,11 +5845,13 @@ function _vplpLedger(v, embedOpts) {
           // PO-apportioned tax/charges are ignored (the review is authoritative).
           app.forEach(rc => { mat += rc.rMat || 0; taxA += rc.rTax || 0; addlC += rc.addl || 0; credit += rc.credit || 0; });
         } else {
-          // Gate OFF: PO rate + PO-apportioned Tax(a)/Tax(b)/Additional (unchanged).
-          let baseMat = 0, lineAddl = 0, groupMat = 0;
-          app.forEach(rc => { baseMat += (rc.qty || 0) * (rc.useRate || 0); lineAddl += (rc.addl || 0); groupMat += (rc.credit || 0); });
+          // Gate OFF: PO rate + rate-based Tax(a) (received material × Tax%, summed
+          // per receipt). Tax(b) and Additional (b) stay PO-apportioned by this
+          // receipt's material share.
+          let baseMat = 0, lineAddl = 0, groupMat = 0, groupTaxA = 0;
+          app.forEach(rc => { baseMat += (rc.qty || 0) * (rc.useRate || 0); lineAddl += (rc.addl || 0); groupMat += (rc.credit || 0); groupTaxA += (rc.rTaxA || 0); });
           const frac = poRecvTot > 0 ? groupMat / poRecvTot : 1 / nGroups;
-          taxA = taxATot * frac; taxB = taxBTot * frac;
+          taxA = groupTaxA; taxB = taxBTot * frac;
           mat = baseMat; addlC = lineAddl + poAddlTot * frac;
           credit = mat + addlC + taxA + taxB;
         }
