@@ -5226,6 +5226,10 @@ function _vplpCompute() {
     // PO_Items): Tax = received material × Tax%. Falls back to the stored Tax
     // Amount (apportioned by received qty) only when a line has no Tax%.
     const taxPct = _opNum(_opGet(x, IC, ['Tax (%)', 'Tax %', 'Tax Percentage', 'Tax Percent', 'GST %', 'GST (%)', 'Tax Rate', 'GST Rate']));
+    // Tax% may be stored as a whole number (18) OR a fraction (0.18) — both mean
+    // 18%. Normalise to a fraction of 1: ≥1 → divide by 100, else already a
+    // fraction (real GST slabs never equal exactly 1, so this is unambiguous).
+    const taxFrac = taxPct >= 1 ? taxPct / 100 : taxPct;
     let countedQty = 0;
     m.rcpts.forEach(rc => {
       // Reviewed values only drive credit when the gate is ON; gate off → PO
@@ -5243,7 +5247,7 @@ function _vplpCompute() {
       // else received material × Tax%, or the apportioned Tax Amount if the line
       // carries no percentage.
       const rTaxA = applied ? rTax
-        : (taxPct > 0 ? (rMat * taxPct / 100)
+        : (taxPct > 0 ? (rMat * taxFrac)
            : (oq > 0 ? lineTax * ((rc.qty || 0) / oq) : 0));
       // stash for the ledger / review UI
       rc.poKey = k; rc.poRate = rate; rc.useRate = useRate; rc.rMat = rMat; rc.rTax = rTax; rc.rTaxA = rTaxA; rc.taxPct = taxPct; rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.reviewed = !!applied; rc.part = part; rc.partNo = partNo; rc.partDesc = partDesc;
