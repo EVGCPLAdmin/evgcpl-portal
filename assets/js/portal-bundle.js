@@ -5919,6 +5919,15 @@ function _vplpLedger(v, embedOpts) {
   // Control row: Active/Closed toggle on the left, KPI cards on the right.
   const controlRow = `<div style="display:flex;gap:1rem;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:${modeHint ? '.3rem' : '1rem'}">${modeButtons}${kpiCards}</div>`;
   const m = x => x ? inr(x) : '—';
+  // Tax with its effective rate in the same cell — Tax (a) is charged on
+  // Material (a), Tax (b) on Add'l/Sub Total (b), so % = tax ÷ its own base.
+  // Rate is hidden when the tax or its base is 0 (nothing to derive a % from).
+  const _taxPct = (tax, base) => (tax > 0 && base > 0) ? Math.round((tax / base) * 1000) / 10 : null;
+  const mTax = (tax, base) => {
+    if (!tax) return '—';
+    const p = _taxPct(tax, base);
+    return inr(tax) + (p != null ? ` <span style="color:var(--txt3);font-weight:400;font-size:.68rem">(${p % 1 === 0 ? p : p.toFixed(1)}%)</span>` : '');
+  };
   // Optional columns from PO_Actual (credit rows), StockIN (credit rows) and
   // PaymentRequest (debit rows). Rendered HIDDEN by default — the ⚙ Columns
   // manager lets each user pick + save them (personal localStorage) and admins
@@ -5961,8 +5970,8 @@ function _vplpLedger(v, embedOpts) {
       <td style="padding:6px 9px">${partic}${e.kind === 'cr' ? _vplpRcptHtml(e.rcpts, esc) : ''}</td>
       <td style="padding:6px 9px;text-align:right;color:#b45309">${m(e.mat)}</td>
       <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(e.addl)}</td>
-      <td style="padding:6px 9px;text-align:right;color:#2563eb">${m(e.taxA)}</td>
-      <td style="padding:6px 9px;text-align:right;color:#0891b2">${m(e.taxB)}</td>
+      <td style="padding:6px 9px;text-align:right;color:#2563eb">${mTax(e.taxA, e.mat)}</td>
+      <td style="padding:6px 9px;text-align:right;color:#0891b2">${mTax(e.taxB, e.addl)}</td>
       <td style="padding:6px 9px;text-align:right;color:#15803d;font-weight:600">${m(e.credit)}</td>
       <td style="padding:6px 9px;text-align:right;color:#16a34a;font-weight:600">${m(e.debit)}</td>
       <td style="padding:6px 9px;text-align:right;font-weight:700;color:var(--g8)">${drcr(e.balance)}</td>
@@ -5978,8 +5987,8 @@ function _vplpLedger(v, embedOpts) {
     <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(totMat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(totAddl)}</td>
-    <td style="padding:7px 9px;text-align:right;color:#2563eb">${m(totTaxA)}</td>
-    <td style="padding:7px 9px;text-align:right;color:#0891b2">${m(totTaxB)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#2563eb">${mTax(totTaxA, totMat)}</td>
+    <td style="padding:7px 9px;text-align:right;color:#0891b2">${mTax(totTaxB, totAddl)}</td>
     <td style="padding:7px 9px;text-align:right;color:#15803d">${m(totCredit)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td>${extraFoot}</tr>`;
