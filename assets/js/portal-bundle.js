@@ -5643,6 +5643,26 @@ window._vplpGRNOpenModal = function(i) {
     <span style="font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3)">${lbl}</span>
     <input id="${id}" type="number" step="0.01" value="${esc(v)}"${ro} ${hint || ''} style="width:100%;text-align:right;padding:7px 9px;border:1px solid var(--border);border-radius:7px;background:var(--surface2)${bold ? ';font-weight:700;color:#15803d' : ''}">
   </label>`;
+  // Resolve the PO's document key + this receipt's invoice references, reusing
+  // the same Drive lookups the registers use. l.idx indexes into _openPOStock
+  // (same as the GRN link's _siOpenDetail); the PO UUID keys quote attachments.
+  let poUuid = '', invCs = '', invDirect = [];
+  try {
+    if (typeof _openPOHeaders !== 'undefined' && _openPOHeaders && _openPOHeaders.length) {
+      const HC = _opColMap(_openPOHeaders), k = _opPO(l.poNo);
+      const hdr = _openPOHeaders.find(h => _opPO(_opGet(h, HC, ['PO No'])) === k);
+      if (hdr) poUuid = _opGet(hdr, HC, ['UUID']) || '';
+    }
+  } catch (e) {}
+  try {
+    const sr = (typeof _openPOStock !== 'undefined' && _openPOStock) ? _openPOStock[+l.idx] : null;
+    if (sr) {
+      const SC = _opColMap(_openPOStock);
+      invCs = String(_opGet(sr, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID']) || '').trim();
+      invDirect = ['Invoice(Attachment)', 'Invoice (Attachment)', 'Invoice Attachment', 'Invoice Copy', 'Bill(Attachment)', 'Attachment']
+        .map(c => ({ url: _opGet(sr, SC, [c]), label: 'Invoice / Attachment' })).filter(o => o.url);
+    }
+  } catch (e) {}
   const ov = document.createElement('div');
   ov.id = 'grn-modal-overlay';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem';
@@ -5670,7 +5690,17 @@ window._vplpGRNOpenModal = function(i) {
       <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3);margin-bottom:3px">Part No; Description</div>
       <div style="font-size:.85rem;line-height:1.5">${l.partNo ? `<b>${esc(l.partNo)}</b>; ` : ''}${esc(l.partDesc || l.part) || '—'}</div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.7rem;padding-top:.4rem">
+    <div style="display:grid;gap:.7rem;padding:.2rem 0 .6rem;border-top:1px solid var(--border)">
+      <div style="padding-top:.6rem">
+        <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3);margin-bottom:.35rem">&#128196; PO Document</div>
+        <div id="poAttBox"><div style="color:var(--txt3);font-size:.74rem;padding:.35rem">&#9203; Loading&hellip;</div></div>
+      </div>
+      <div>
+        <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3);margin-bottom:.35rem">&#129534; Invoice</div>
+        <div id="siAttBox"><div style="color:var(--txt3);font-size:.74rem;padding:.35rem">&#9203; Loading&hellip;</div></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.7rem;padding-top:.4rem;border-top:1px solid var(--border)">
       ${field('mgrn-rate', 'Final Rate', rateVal, `oninput="_vplpGRNModalCalc()"`)}
       ${field('mgrn-tax', 'Final Tax', taxVal, `placeholder="0" oninput="_vplpGRNModalCalc()"`)}
       ${field('mgrn-addl', "Final Add'l", addlVal, `placeholder="0" oninput="_vplpGRNModalCalc()"`)}
@@ -5685,6 +5715,10 @@ window._vplpGRNOpenModal = function(i) {
     </div>` : `<div style="margin-top:1rem;font-size:.76rem;color:var(--txt3);text-align:right">🔒 Only Accounts can approve/edit.</div>`}
   </div>`;
   document.body.appendChild(ov);
+  // Load PO + invoice documents from Drive (reuse the register loaders, which
+  // render into #poAttBox / #siAttBox — present in this modal).
+  try { if (typeof _poLoadAttachments === 'function') _poLoadAttachments(poUuid, l.poNo); } catch (e) {}
+  try { if (typeof _siLoadAttachments === 'function') _siLoadAttachments(invCs, invDirect); } catch (e) {}
 };
 window._vplpGRNCloseModal = function() { const ov = document.getElementById('grn-modal-overlay'); if (ov) ov.remove(); window._vplpGRNModalLine = null; };
 window._vplpGRNModalCalc = function() {
@@ -17031,7 +17065,7 @@ function _kbBodyGRNReview() {
       <table class="kb-tbl">
         <thead><tr><th>Step</th><th>What happens</th></tr></thead>
         <tbody>
-          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description and every field and action.</td></tr>
+          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
           <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
           <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one.</td></tr>
           <tr><td><b>4 · Post</b></td><td>With the gate On, only approved lines credit the ledger — each at its own reviewed figures. The rest surface as pending-review lines plus a count badge on the tab.</td></tr>
