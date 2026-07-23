@@ -87,8 +87,11 @@ Reviewed Tax | Additional Charges | Reviewed Value | Review Status | Comments
   **updates the same row** (`saveGRNReview` → `_accUpsertByHeader`, keyed on
   `SI ID`). If duplicate rows ever exist, the backend updates the **latest by
   Timestamp** and the portal read also takes the **latest** row per SI ID.
-- **`Review Status`** = `Approved` / `Rejected`. Approved counts at the Final
-  values; Rejected is excluded from the balance.
+- **`Review Status`** = `Approved` / `Rejected` / `Pending`. Approved counts at
+  the Final values; Rejected is excluded from the balance; **Pending** (or no
+  entry) reverts the line to the PO-rate valuation and still counts — the queue's
+  **↩ Move to Pending** action writes this to undo a prior Approve/Reject. Only an
+  **Approved** entry drives the Final values (`_grnIsApproved`).
 - **`Reviewed Value`** is the credit for an approved line.
 
 Share it **Anyone with link → Viewer** (for the read) and give the **accounts
