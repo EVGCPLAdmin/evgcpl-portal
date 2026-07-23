@@ -276,6 +276,7 @@
 
     // Apps & Sheets hubs (legacy + new admin pages)
     'apps':              'apps.html',
+    'knowledge-base':    'dashboard.html',
     'sheets':            'sheets-directory.html',
 
     // External / vendor / sc

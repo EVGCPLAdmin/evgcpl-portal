@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.46.0';
-const PORTAL_BUILD    = 697;
-const PORTAL_BUILD_AT = '2026-07-22T09:40:41Z';
+const PORTAL_VERSION  = '4.47.7';
+const PORTAL_BUILD    = 705;
+const PORTAL_BUILD_AT = '2026-07-23T16:11:05Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -40,7 +40,7 @@ const EXEC_REGISTRY_DEFAULTS = {
   aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
-  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app (Router.gs + AccountsHandlers.gs in one project): saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments. Override via the exec_accounts row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbzPVT26VtTBKHCMHr_KR2wCdj1zfuFhCQUJnIFumkwpvqbVzRjJ2J7uTOQt5yNBuxW0pQ/exec' },
+  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app (Router.gs + AccountsHandlers.gs in one project): saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments. Override via the exec_accounts row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbxVfGLHkqtongMp8dduxARrNgBW7kinaxbekKnEct7WSlNPTJi7aCiR_A8W2vm0FAK6nw/exec' },
   safety:      { label: 'Safety Handler',         desc: 'SafetyHandler.gs web app — Safety module writes (Incidents, DailyChecks). Override via the exec_safety row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbyFq6zSKgn-W3qNQPNoDplqiJHDaQTrrKLSK7gecZNiHSnU7Y4Buav3RiGfcvXtn9B3/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
@@ -3168,6 +3168,7 @@ function renderPage(page) {
     'my-profile':     renderMyProfile,
     'rewards':        renderRewardsModule,
     'apps':           renderAppsHub,
+    'knowledge-base': renderKnowledgeBase,
     'sheets':         renderSheetsHub,
     'wall':           renderRewardsModule, // wall merged into rewards
     'policies':       () => renderPolicyHub(),
@@ -5057,7 +5058,27 @@ function _grnRVal(r, names) {
   return '';
 }
 // SI ID → latest review { status, rate, addl, value, by, ts, comments }.
-// Latest by Timestamp wins so a review is editable (append-only, like OB).
+// Parse a GRN review Timestamp to millis. Robust to the format the portal
+// writes — `_accFmtDateTime` emits "DD/MM/YYYY HH:MM:SS", which Date.parse
+// (and _mdpDateVal) misread as MM/DD and return NaN → 0, which silently broke
+// latest-wins (every row scored 0). Also handles gviz "Date(y,m,d,...)",
+// Date objects, and ISO. Returns 0 only when genuinely unparseable.
+function _grnTsVal(v) {
+  if (!v) return 0;
+  if (v instanceof Date) return v.getTime();
+  const s = String(v).trim();
+  const g = s.match(/^Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)/);   // gviz, month 0-indexed
+  if (g) return new Date(+g[1], +g[2], +g[3], +(g[4] || 0), +(g[5] || 0), +(g[6] || 0)).getTime();
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);   // DD/MM/YYYY [HH:MM[:SS]]
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)).getTime();
+  const t = Date.parse(s);
+  return isNaN(t) ? 0 : t;
+}
+// Latest review per SI ID wins — the backend upserts one row per SI ID, but if
+// duplicate rows ever exist this resolves to the newest by Timestamp. On a tie
+// (equal or unparseable timestamps) the later row in load order wins, which is
+// append order (newest last) plus this session's optimistic saves (appended
+// last of all) — so a fresh Approve always supersedes an earlier Reject.
 function _grnReviewBySiId() {
   const m = {};
   const rows = _vplpGRNReviewRows || [];
@@ -5065,11 +5086,11 @@ function _grnReviewBySiId() {
   // Diagnostic: if rows loaded but none carry an SI ID key, gviz handed back
   // letter-labelled columns (header mis-detect) — surfaced in the queue header.
   const _hasKeyed = rows.length && !rows[0].hasOwnProperty('SI ID') && rows[0].hasOwnProperty('');
-  rows.forEach(r => {
+  rows.forEach((r, seq) => {
     const si = _opNorm(_grnRVal(r, ['SI ID', 'SIID', 'StockIN ID', 'SI Id']));
     if (!si) return;
     withSi++;
-    const ts = _mdpDateVal(_grnRVal(r, ['Timestamp'])) || 0;
+    const ts = _grnTsVal(_grnRVal(r, ['Timestamp']));
     const o = {
       status: _grnRVal(r, ['Review Status', 'Status']) || 'Pending',
       rate: _opNum(_grnRVal(r, ['Reviewed Rate', 'Final Rate', 'Rate'])),
@@ -5078,9 +5099,11 @@ function _grnReviewBySiId() {
       value: _opNum(_grnRVal(r, ['Reviewed Value', 'Final Value', 'Value', 'Line Value'])),
       by: _grnRVal(r, ['Reviewed By', 'Updated By']),
       comments: _grnRVal(r, ['Comments', 'Remarks']),
-      ts,
+      ts, seq,
     };
-    if (!m[si] || ts >= m[si].ts) m[si] = o;
+    // Newer Timestamp wins; on an exact tie the later row in load order wins.
+    const cur = m[si];
+    if (!cur || ts > cur.ts || (ts === cur.ts && seq >= cur.seq)) m[si] = o;
   });
   window._grnReviewStats = { rows: rows.length, withSi, keyed: Object.keys(m).length, headerBad: !!_hasKeyed };
   return m;
@@ -5293,10 +5316,16 @@ function _vplpCompute() {
       rc.rMat = rMat; rc.rTax = rTax; rc.rTaxA = rTaxA; rc.taxPct = rMat > 0 ? (rTaxA / rMat) * 100 : 0;
       rc.addl = addl; rc.credit = lineCredit; rc.approved = counted; rc.reviewed = !!applied; rc.rejected = isRej;
       rc.part = rc._home ? rc._home.part : ''; rc.partNo = rc._home ? rc._home.partNo : ''; rc.partDesc = rc._home ? rc._home.partDesc : '';
+      // PO tax reference (display-only in the GRN Review queue): the PO line's
+      // stated Tax% and its value on the received qty = PO Rate × Qty × Tax%.
+      const poTaxFrac = rc._home ? (rc._home.taxFrac || 0) : 0;
+      rc.poTaxPct = poTaxFrac * 100;
+      rc.poTaxVal = (rc.qty || 0) * (rc.poRate || 0) * poTaxFrac;
       if (counted) {
         if (applied) { poRevCr[k] = (poRevCr[k] || 0) + lineCredit; poRevMat[k] = (poRevMat[k] || 0) + rMat; poRevTaxA[k] = (poRevTaxA[k] || 0) + rTax; poRevAddl[k] = (poRevAddl[k] || 0) + addl; }
         else { poUnMat[k] = (poUnMat[k] || 0) + rMat; poUnTaxA[k] = (poUnTaxA[k] || 0) + rTaxA; }
       } else { poPending[k] = (poPending[k] || 0) + lineCredit; }
+
       const arr = poRcpt[k] = poRcpt[k] || []; if (!arr.some(z => z.idx === rc.idx)) arr.push(rc);
     });
   });
@@ -5354,6 +5383,7 @@ function _vplpCompute() {
     (poRcpt[k] || []).forEach(rc => grnLines.push({
       siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '', partNo: rc.partNo || '', partDesc: rc.partDesc || '',
       qty: rc.qty || 0, poRate: rc.poRate || 0, useRate: rc.useRate || 0, addl: rc.addl || 0,
+      poTaxPct: rc.poTaxPct || 0, poTaxVal: rc.poTaxVal || 0,
       credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null,
       poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
     }));
@@ -5497,25 +5527,29 @@ function _vplpGRNReviewView() {
     // the saved review, else the PO rate / amount.
     const poAmt   = (l.qty || 0) * (l.poRate || 0);
     const rateVal = (l.rev && l.rev.rate > 0) ? l.rev.rate : (l.poRate || '');
-    const taxVal  = (l.rev && l.rev.tax) || '';
+    // Final Tax pre-fills to the PO Tax Value (Rate × Qty × Tax%) when unreviewed,
+    // mirroring how Final Rate pre-fills to PO Rate; a saved review still wins.
+    const taxVal  = (l.rev && l.rev.tax > 0) ? l.rev.tax : (l.poTaxVal ? Math.round(l.poTaxVal * 100) / 100 : '');
     const addlVal = (l.rev && l.rev.addl) || '';
     const valDef  = (l.qty || 0) * (Number(rateVal) || 0) + (Number(taxVal) || 0) + (Number(addlVal) || 0);
     const valVal  = (l.rev && l.rev.value > 0) ? l.rev.value : (valDef ? Math.round(valDef * 100) / 100 : '');
     const numInput = (fid, v, w, extra) => `<input id="grn-${fid}-${i}" type="number" step="0.01" value="${esc(v)}"${ro} ${extra || ''} style="width:${w}px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)">`;
-    return `<tr>
+    return `<tr onclick="_vplpGRNRowClick(event,${i})" style="cursor:pointer">
       <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
-      <td style="padding:6px 9px">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</td>
-      <td style="padding:6px 9px;font-size:.74rem">${l.partNo ? `<span style="font-weight:600">${esc(l.partNo)}</span>; ` : ''}${esc(l.partDesc || l.part)}</td>
-      <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
+      <td style="padding:6px 9px"><div style="max-width:150px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3" title="${esc(l.vendorName)}${l.vid ? ' [' + esc(l.vid) + ']' : ''}">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</div></td>
+      <td style="padding:6px 9px;font-size:.74rem"><div title="Click to open full details" style="max-width:280px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35">${l.partNo ? `<span style="font-weight:600">${esc(l.partNo)}</span>; ` : ''}${esc(l.partDesc || l.part)}</div></td>
+      <td style="padding:6px 9px;font-size:.74rem"><div title="${esc(l.inv)}" style="max-width:100px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35">${esc(l.inv) || '—'}</div></td>
       <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
+      <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO line tax rate">${l.poTaxPct ? (Math.round(l.poTaxPct * 100) / 100) + '%' : '—'}</td>
+      <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO Rate × Qty × Tax%">${l.poTaxVal ? inr(l.poTaxVal) : '—'}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('rate', rateVal, 84, `oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('tax', taxVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('addl', addlVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right"><input id="grn-val-${i}" type="number" step="0.01" value="${esc(valVal)}"${ro}${(l.rev && l.rev.value > 0) ? ' data-touched="1"' : ''} title="Final amount for this item (what credits the ledger). Auto = Qty×Rate + Tax + Addl; edit to override." oninput="this.dataset.touched=1" style="width:104px;text-align:right;font-weight:700;color:#15803d;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
       <td style="padding:6px 9px">${chip}</td>
-      <td style="padding:6px 9px;white-space:nowrap">${canReview ? `<button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : '—'}</td>
+      <td style="padding:6px 9px;white-space:nowrap"><button onclick="_vplpGRNOpenModal(${i})" class="btn btn-sm" title="Open full review" style="padding:2px 7px;font-size:.72rem;background:var(--surface2);border:1px solid var(--border)">&#10530;</button>${canReview ? ` <button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : ''}</td>
     </tr>`;
   }).join('');
   // ~10 rows tall, then scroll vertically. Header stays pinned (sticky th).
@@ -5527,6 +5561,7 @@ function _vplpGRNReviewView() {
         <th style="${th}">GRN</th><th style="${th}">PO No</th><th style="${th}">Vendor</th>
         <th style="${th}">Part No; Description</th><th style="${th}">Invoice</th><th style="${thR}">Qty</th>
         <th style="${thR}">PO Rate</th>
+        <th style="${thR}">PO Tax %</th><th style="${thR}">PO Tax Value</th>
         <th style="${thR}">Final Rate</th><th style="${thR}">Final Tax</th>
         <th style="${thR}">Final Add'l</th><th style="${thR}">Final Value</th>
         <th style="${th}">Status</th><th style="${th}">Review</th>
@@ -5540,14 +5575,16 @@ window._vplpGRNCalc = function(i) {
   const n = id => parseFloat((document.getElementById('grn-' + id + '-' + i) || {}).value) || 0;
   v.value = (Math.round(((l.qty || 0) * n('rate') + n('tax') + n('addl')) * 100) / 100) || '';
 };
-window._vplpGRNSubmit = async function(i, action) {
-  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
-  if (!_grnCanReview()) { _accToast('🔒 Only Accounts can review GRNs.'); return; }
-  if (!l.siId) { _accToast('⚠ This StockIN line has no SI ID — cannot review.'); return; }
-  if (!GRN_REVIEW_SHEET_ID) { _accToast('⚠ GRN Review sheet not configured — set GRN_REVIEW_SHEET_ID to save.'); return; }
-  const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
-  const rate = num('grn-rate-' + i), tax = num('grn-tax-' + i), addl = num('grn-addl-' + i), value = num('grn-val-' + i);
-  if (/approv/i.test(action) && !(value > 0)) { _accToast('⚠ Enter the final amount for this item.'); return; }
+// Core save — shared by the inline row (_vplpGRNSubmit) and the pop-out editor
+// (_vplpGRNModalSubmit). `vals` = { rate, tax, addl, value } (NaN = blank).
+// Returns true on success, false on failure/validation stop.
+window._vplpGRNSave = async function(l, action, vals) {
+  if (!l) return false;
+  if (!_grnCanReview()) { _accToast('🔒 Only Accounts can review GRNs.'); return false; }
+  if (!l.siId) { _accToast('⚠ This StockIN line has no SI ID — cannot review.'); return false; }
+  if (!GRN_REVIEW_SHEET_ID) { _accToast('⚠ GRN Review sheet not configured — set GRN_REVIEW_SHEET_ID to save.'); return false; }
+  const rate = vals.rate, tax = vals.tax, addl = vals.addl, value = vals.value;
+  if (/approv/i.test(action) && !(value > 0)) { _accToast('⚠ Enter the final amount for this item.'); return false; }
   const email = (STATE.user && STATE.user.email) || '';
   const row = {
     'UUID': 'GRV-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -5565,7 +5602,7 @@ window._vplpGRNSubmit = async function(i, action) {
   };
   const resp = await _accPostAwait({ action: 'saveGRNReview', sheetId: GRN_REVIEW_SHEET_ID, tab: GRN_REVIEW_TAB, row });
   if (resp && resp.success !== false) {
-    // If the tab is missing a key column, the append silently skipped it → the
+    // If the tab is missing a key column, the write silently skips it → the
     // status/amount never persists (nothing attaches → gate shows all pending).
     // A field is missing only if NONE of its accepted header names matched.
     const um = new Set((resp.unmatched || []).map(x => String(x).toLowerCase()));
@@ -5573,7 +5610,7 @@ window._vplpGRNSubmit = async function(i, action) {
     const missing = Object.keys(groups).filter(lbl => groups[lbl].every(k => um.has(k.toLowerCase())));
     if (missing.length) _accToast('⚠ Saved, but the GRN_Review tab has no column for: ' + missing.join(', ') + '. Add it or the review won\'t stick.');
     else _accToast('✅ GRN ' + action.toLowerCase());
-    // Optimistic: reflect immediately (gviz caches an append for a while, so a
+    // Optimistic: reflect immediately (gviz caches a write for a while, so a
     // fresh read wouldn't yet show the new status). Latest Timestamp wins, so the
     // pushed row supersedes any earlier review for this SI ID.
     if (!Array.isArray(_vplpGRNReviewRows)) _vplpGRNReviewRows = [];
@@ -5581,9 +5618,99 @@ window._vplpGRNSubmit = async function(i, action) {
     _vplpGRNLocalSaves.push(row);   // survives a refetch until gviz catches up
     try { _vplpData = _vplpCompute(); } catch (e) {}
     _vplpRenderBody();
-  } else {
-    _accToast('⚠ ' + ((resp && resp.message) || 'Could not save the review'));
+    return true;
   }
+  _accToast('⚠ ' + ((resp && resp.message) || 'Could not save the review'));
+  return false;
+};
+window._vplpGRNSubmit = async function(i, action) {
+  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
+  const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
+  await _vplpGRNSave(l, action, { rate: num('grn-rate-' + i), tax: num('grn-tax-' + i), addl: num('grn-addl-' + i), value: num('grn-val-' + i) });
+};
+
+// ── Pop-out review editor ───────────────────────────────────────
+// A modal with the full part description and every field/action, so the wide
+// table can stay compact (clamped description) yet keep all functionality.
+// A click anywhere on a row opens the pop-out, EXCEPT on the editable inputs,
+// the action buttons, and the GRN link (which keep their own behaviour).
+window._vplpGRNRowClick = function(e, i) {
+  if (e.target.closest('input, button, a, label')) return;
+  _vplpGRNOpenModal(i);
+};
+window._vplpGRNOpenModal = function(i) {
+  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
+  window._vplpGRNModalLine = l;
+  const esc = _mdpEsc, inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
+  const canReview = _grnCanReview();
+  const ro = canReview ? '' : ' disabled';
+  const st = (l.rev && l.rev.status) ? l.rev.status : 'Pending';
+  const chipCol = /approv/i.test(st) ? ['#dcfce7', '#15803d'] : /reject/i.test(st) ? ['#fee2e2', '#b91c1c'] : ['#fef3c7', '#b45309'];
+  const rateVal = (l.rev && l.rev.rate > 0) ? l.rev.rate : (l.poRate || '');
+  const taxVal  = (l.rev && l.rev.tax > 0) ? l.rev.tax : (l.poTaxVal ? Math.round(l.poTaxVal * 100) / 100 : '');
+  const addlVal = (l.rev && l.rev.addl) || '';
+  const valDef  = (l.qty || 0) * (Number(rateVal) || 0) + (Number(taxVal) || 0) + (Number(addlVal) || 0);
+  const valVal  = (l.rev && l.rev.value > 0) ? l.rev.value : (valDef ? Math.round(valDef * 100) / 100 : '');
+  const meta = (lbl, v) => `<div><div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3)">${lbl}</div><div style="font-size:.85rem;font-weight:600;margin-top:1px">${v}</div></div>`;
+  const field = (id, lbl, v, hint, bold) => `<label style="display:flex;flex-direction:column;gap:3px">
+    <span style="font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3)">${lbl}</span>
+    <input id="${id}" type="number" step="0.01" value="${esc(v)}"${ro} ${hint || ''} style="width:100%;text-align:right;padding:7px 9px;border:1px solid var(--border);border-radius:7px;background:var(--surface2)${bold ? ';font-weight:700;color:#15803d' : ''}">
+  </label>`;
+  const ov = document.createElement('div');
+  ov.id = 'grn-modal-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem';
+  ov.onclick = e => { if (e.target === ov) _vplpGRNCloseModal(); };
+  ov.innerHTML = `<div class="card" style="background:var(--surface);max-width:560px;width:100%;max-height:88vh;overflow:auto;border-radius:14px;padding:1.1rem 1.25rem" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:.8rem">
+      <div>
+        <div style="font-size:1.05rem;font-weight:800;color:var(--g8)">${esc(l.grn) || 'GRN'}</div>
+        <div style="font-family:monospace;font-size:.72rem;color:var(--txt3);margin-top:2px">${esc(l.poNo)}</div>
+      </div>
+      <div style="display:flex;gap:.6rem;align-items:center">
+        <span style="font-size:.68rem;font-weight:700;background:${chipCol[0]};color:${chipCol[1]};padding:3px 10px;border-radius:9px">${esc(st)}</span>
+        <button onclick="_vplpGRNCloseModal()" title="Close" style="border:none;background:transparent;font-size:1.2rem;cursor:pointer;color:var(--txt3);line-height:1">✕</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem 1rem;padding:.8rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+      ${meta('Vendor', esc(l.vendorName) + (l.vid ? ` <span style="color:var(--txt3);font-weight:400">[${esc(l.vid)}]</span>` : ''))}
+      ${meta('Invoice', esc(l.inv) || '—')}
+      ${meta('Qty', (l.qty || 0).toLocaleString('en-IN'))}
+      ${meta('PO Rate', inr(l.poRate))}
+      ${meta('PO Tax %', l.poTaxPct ? (Math.round(l.poTaxPct * 100) / 100) + '%' : '—')}
+      ${meta('PO Tax Value', l.poTaxVal ? inr(l.poTaxVal) : '—')}
+    </div>
+    <div style="padding:.8rem 0">
+      <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3);margin-bottom:3px">Part No; Description</div>
+      <div style="font-size:.85rem;line-height:1.5">${l.partNo ? `<b>${esc(l.partNo)}</b>; ` : ''}${esc(l.partDesc || l.part) || '—'}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.7rem;padding-top:.4rem">
+      ${field('mgrn-rate', 'Final Rate', rateVal, `oninput="_vplpGRNModalCalc()"`)}
+      ${field('mgrn-tax', 'Final Tax', taxVal, `placeholder="0" oninput="_vplpGRNModalCalc()"`)}
+      ${field('mgrn-addl', "Final Add'l", addlVal, `placeholder="0" oninput="_vplpGRNModalCalc()"`)}
+      <label style="display:flex;flex-direction:column;gap:3px">
+        <span style="font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3)">Final Value <span style="text-transform:none;color:var(--txt3)">(credits the ledger)</span></span>
+        <input id="mgrn-val" type="number" step="0.01" value="${esc(valVal)}"${ro}${(l.rev && l.rev.value > 0) ? ' data-touched="1"' : ''} oninput="this.dataset.touched=1" style="width:100%;text-align:right;padding:7px 9px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);font-weight:700;color:#15803d">
+      </label>
+    </div>
+    ${canReview ? `<div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.1rem">
+      <button onclick="_vplpGRNModalSubmit('Rejected')" class="btn" style="padding:8px 18px;font-size:.82rem;background:#dc2626;color:#fff;border:none;border-radius:8px">✗ Reject</button>
+      <button onclick="_vplpGRNModalSubmit('Approved')" class="btn" style="padding:8px 18px;font-size:.82rem;background:#16a34a;color:#fff;border:none;border-radius:8px">✓ Approve</button>
+    </div>` : `<div style="margin-top:1rem;font-size:.76rem;color:var(--txt3);text-align:right">🔒 Only Accounts can approve/edit.</div>`}
+  </div>`;
+  document.body.appendChild(ov);
+};
+window._vplpGRNCloseModal = function() { const ov = document.getElementById('grn-modal-overlay'); if (ov) ov.remove(); window._vplpGRNModalLine = null; };
+window._vplpGRNModalCalc = function() {
+  const l = window._vplpGRNModalLine; if (!l) return;
+  const v = document.getElementById('mgrn-val'); if (!v || v.dataset.touched) return;
+  const n = id => parseFloat((document.getElementById(id) || {}).value) || 0;
+  v.value = (Math.round(((l.qty || 0) * n('mgrn-rate') + n('mgrn-tax') + n('mgrn-addl')) * 100) / 100) || '';
+};
+window._vplpGRNModalSubmit = async function(action) {
+  const l = window._vplpGRNModalLine; if (!l) return;
+  const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
+  const ok = await _vplpGRNSave(l, action, { rate: num('mgrn-rate'), tax: num('mgrn-tax'), addl: num('mgrn-addl'), value: num('mgrn-val') });
+  if (ok) _vplpGRNCloseModal();
 };
 
 // Per-vendor Dr/Cr rows: credit = received goods (material + tax + charges),
@@ -13119,6 +13246,7 @@ const MODULE_REGISTRY = [
   // ── Quick Access ──────────────────────────────────────────────
   { route:'rewards',           label:'Rewards & Wall',         section:'Quick Access',     defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
   { route:'apps',              label:'Apps',                   section:'Quick Access',     defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
+  { route:'knowledge-base',    label:'Knowledge Base',         section:'Quick Access',     defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
   { route:'sheets',            label:'Sheets',                 section:'Quick Access',     defStatus:'live', defRoles:['md'] },
 
   // ── Personal ──────────────────────────────────────────────────
@@ -16811,6 +16939,187 @@ function renderPlaceholder(icon, title, desc, phase) {
       <p style="margin-top:1rem;font-size:.78rem;color:var(--txt4)">This module is in the build queue. All planning is complete — development starts soon.</p>
     </div>
   `;
+}
+
+// ══════════════════════════════════════════════════
+//  KNOWLEDGE BASE
+//  Internal how-it-works reference for portal processes. Data-driven: add an
+//  entry to KB_ARTICLES with a body() that returns HTML and it shows up in the
+//  index + search automatically. First article documents the GRN Review gate.
+// ══════════════════════════════════════════════════
+let _kbCurrentId = null;
+let _kbSearch = '';
+
+// Each article: { id, title, category, icon, summary, updated, body() → HTML }.
+const KB_ARTICLES = [
+  {
+    id: 'grn-review',
+    title: 'GRN Accounts Review',
+    category: 'Accounts',
+    icon: '🧾',
+    summary: 'How received goods are reviewed by Accounts before they credit the Vendor Ledger — the gate, the states, the modes, and the tax logic.',
+    updated: 'Jul 2026',
+    body: _kbBodyGRNReview,
+  },
+];
+
+function _kbEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function renderKnowledgeBase() {
+  const el = document.getElementById('mainContent');
+  if (!el) return;
+  if (!_kbCurrentId && KB_ARTICLES.length) _kbCurrentId = KB_ARTICLES[0].id;
+
+  const q = _kbSearch.trim().toLowerCase();
+  const matches = a => !q || (a.title + ' ' + a.category + ' ' + a.summary).toLowerCase().includes(q);
+  const list = KB_ARTICLES.filter(matches);
+
+  // Group the index by category.
+  const cats = {};
+  list.forEach(a => { (cats[a.category] = cats[a.category] || []).push(a); });
+  const indexHtml = Object.keys(cats).sort().map(cat => `
+    <div style="margin-bottom:.9rem">
+      <div style="font-size:.66rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--txt3);padding:0 .3rem .35rem">${_kbEsc(cat)}</div>
+      ${cats[cat].map(a => {
+        const on = a.id === _kbCurrentId;
+        return `<button onclick="_kbOpen('${a.id}')" style="display:flex;gap:.55rem;align-items:flex-start;width:100%;text-align:left;border:1px solid ${on ? 'var(--g5)' : 'transparent'};background:${on ? 'rgba(46,125,50,.08)' : 'transparent'};border-radius:9px;padding:.5rem .55rem;cursor:pointer;margin-bottom:.2rem">
+          <span style="font-size:1rem;line-height:1.2">${a.icon || '📄'}</span>
+          <span style="display:flex;flex-direction:column;gap:1px">
+            <span style="font-size:.82rem;font-weight:${on ? '700' : '600'};color:${on ? 'var(--g8)' : 'var(--txt2)'}">${_kbEsc(a.title)}</span>
+            <span style="font-size:.68rem;color:var(--txt3);line-height:1.35">${_kbEsc(a.summary)}</span>
+          </span>
+        </button>`;
+      }).join('')}
+    </div>`).join('') || `<div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">No articles match “${_kbEsc(_kbSearch)}”.</div>`;
+
+  const current = KB_ARTICLES.find(a => a.id === _kbCurrentId) || list[0] || KB_ARTICLES[0];
+  let articleHtml = '';
+  try { articleHtml = current ? current.body() : ''; }
+  catch (e) { articleHtml = `<div class="card card-pad" style="color:#b91c1c">Could not render this article.</div>`; }
+
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">📚 Knowledge Base</div>
+        <div class="page-subtitle">How the portal's processes actually work — reference guides for the team</div>
+      </div>
+    </div>
+    <div class="kb-layout" style="display:grid;grid-template-columns:300px 1fr;gap:1.2rem;align-items:start">
+      <aside class="card card-pad kb-index" style="position:sticky;top:1rem;padding:.85rem">
+        <input id="kb-search" value="${_kbEsc(_kbSearch)}" oninput="_kbSearchInput(this.value)" placeholder="Search the knowledge base…"
+          style="width:100%;font-size:.8rem;border:1px solid var(--border);border-radius:8px;padding:7px 10px;background:var(--surface2);margin-bottom:.75rem">
+        ${indexHtml}
+      </aside>
+      <div class="kb-article">${articleHtml}</div>
+    </div>
+    <style>
+      .kb-article h2.kb-h { font-size:1.35rem;font-weight:800;color:var(--g8);margin:0 0 .3rem;letter-spacing:-.01em }
+      .kb-article h3.kb-sub { font-size:1rem;font-weight:700;color:var(--g8);margin:1.6rem 0 .5rem }
+      .kb-article p.kb-p { font-size:.9rem;color:var(--txt2);line-height:1.65;margin:0 0 .8rem;max-width:70ch }
+      .kb-article .kb-kicker { font-size:.66rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--g6);margin-bottom:.4rem }
+      .kb-article code { font-family:ui-monospace,Menlo,monospace;font-size:.82em;background:var(--surface2);border:1px solid var(--border);padding:.08em .4em;border-radius:5px }
+      .kb-article table.kb-tbl { border-collapse:collapse;width:100%;font-size:.83rem;margin:.3rem 0 }
+      .kb-article table.kb-tbl th { text-align:left;padding:.55rem .7rem;background:var(--surface2);font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:var(--txt3);border-bottom:1px solid var(--border) }
+      .kb-article table.kb-tbl td { padding:.55rem .7rem;border-bottom:1px solid var(--border);vertical-align:top;color:var(--txt2) }
+      .kb-pill { display:inline-block;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:9px;white-space:nowrap }
+      @media (max-width:820px){ .kb-layout{ grid-template-columns:1fr !important } .kb-index{ position:static !important } }
+    </style>`;
+}
+window._kbOpen = function(id) { _kbCurrentId = id; renderKnowledgeBase(); try { document.querySelector('.kb-article')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} };
+window._kbSearchInput = function(v) {
+  _kbSearch = v;
+  // Re-render only the index + keep focus/caret in the search box.
+  const box = document.getElementById('kb-search');
+  const pos = box ? box.selectionStart : null;
+  renderKnowledgeBase();
+  const nb = document.getElementById('kb-search');
+  if (nb) { nb.focus(); if (pos != null) try { nb.setSelectionRange(pos, pos); } catch (e) {} }
+};
+
+// ── Article: GRN Accounts Review ────────────────────────────────
+function _kbBodyGRNReview() {
+  const okPill = '<span class="kb-pill" style="background:#dcfce7;color:#15803d">Approved</span>';
+  const pendPill = '<span class="kb-pill" style="background:#fef3c7;color:#b45309">Pending</span>';
+  const rejPill = '<span class="kb-pill" style="background:#fee2e2;color:#b91c1c">Rejected</span>';
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Accounts Controls · Vendor Ledger (PO) → GRN Review</div>
+      <h2 class="kb-h">GRN Accounts Review</h2>
+      <p class="kb-p">Every goods receipt (GRN) booked at site as a <b>StockIN</b> is checked by <b>Accounts</b> against the received invoice and PO before its value is allowed to reach the <b>Vendor Ledger (PO)</b>. This is the checkpoint that sits between receiving goods and crediting the vendor.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> received goods do <b>not</b> credit the vendor ledger on their own — an <b>approved review</b> does. Approved lines post at the Accounts-reviewed figures; anything pending or rejected shows as a “Pending review” line and stays out of the running balance.
+      </div>
+
+      <h3 class="kb-sub">The core idea — a gate</h3>
+      <p class="kb-p">Received goods normally credit the ledger the moment they are booked. The review inserts an approval gate in front of that credit, enforced while the <b>Ledger Link</b> is switched <b>On</b>:</p>
+      <table class="kb-tbl">
+        <thead><tr><th>Outcome</th><th>What happens to the ledger</th></tr></thead>
+        <tbody>
+          <tr><td>${okPill}</td><td>Credits the ledger using the reviewed rate, tax and additional charges.</td></tr>
+          <tr><td>${pendPill} / ${rejPill}</td><td>Shown as a “Pending review” row (₹ amount visible) but <b>excluded from the running balance</b>.</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="kb-sub">The workflow, per received line</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>Step</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description and every field and action.</td></tr>
+          <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
+          <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one.</td></tr>
+          <tr><td><b>4 · Post</b></td><td>With the gate On, only approved lines credit the ledger — each at its own reviewed figures. The rest surface as pending-review lines plus a count badge on the tab.</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="kb-sub">Three review states</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>State</th><th>Meaning</th><th>Counts in balance?</th></tr></thead>
+        <tbody>
+          <tr><td>${pendPill}</td><td>Received but not yet reviewed.</td><td>No — shown as “Pending review”.</td></tr>
+          <tr><td>${okPill}</td><td>Checked against invoice + PO; figures finalised.</td><td>Yes — at the reviewed value.</td></tr>
+          <tr><td>${rejPill}</td><td>Held back by Accounts.</td><td>No.</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID: reviewing the same GRN twice <b>updates that same row</b> rather than creating a duplicate. Should two rows ever exist for one SI ID, the <b>latest by timestamp</b> is what wins — both in the <b>GRN Review queue</b> (the status you see) and in the <b>ledger</b>. So a later Approve always supersedes an earlier Reject. A line with no SI ID cannot be reviewed.</p>
+
+      <h3 class="kb-sub">Who does what</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>Action</th><th>Who</th></tr></thead>
+        <tbody>
+          <tr><td>View the queue</td><td>Anyone with access to Vendor Ledger (PO)</td></tr>
+          <tr><td>Approve / Reject / edit figures</td><td><b>Accounts</b> (or people named under Configuration → Status Access → “GRN Review”)</td></tr>
+          <tr><td>Switch the Ledger Link On / Off / Hide</td><td><b>Admins</b> only</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="kb-sub">Ledger Link modes (admin, runtime)</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>Mode</th><th>Ledger</th><th>Tab</th></tr></thead>
+        <tbody>
+          <tr><td><b>On</b></td><td>Only approved lines credit the ledger (gate active).</td><td>Visible</td></tr>
+          <tr><td><b>Off</b></td><td>Every received line counts, as before. Reviews can still be recorded.</td><td>Visible</td></tr>
+          <tr><td><b>Off + Hide</b></td><td>Gate off.</td><td>Hidden</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p" style="margin-top:.7rem">The gate can only be On when a GRN Review sheet is configured — with none, the ledger behaves exactly as before the feature existed. Turning it On never silently rewrites history; an admin makes that call deliberately.</p>
+
+      <h3 class="kb-sub">How Tax works</h3>
+      <p class="kb-p"><b>Final Tax is a flat rupee amount.</b> It <b>pre-fills to the PO Tax Value</b> (PO Rate × Qty × Tax%) as a starting point — mirroring how Final Rate pre-fills to PO Rate — and the reviewer confirms or overrides it against the invoice. For an approved line, whatever value stands there replaces the PO's own tax calculation entirely. Final Value builds up additively:</p>
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:.85rem;background:var(--surface2);border:1px dashed var(--border);border-radius:9px;padding:.75rem 1rem;color:var(--g8);margin:0 0 .9rem;overflow-x:auto">Final Value = Qty × Final Rate + Final Tax + Final Add'l</div>
+      <p class="kb-p">The <b>PO Tax %</b> and <b>PO Tax Value</b> columns show the PO's own figure read-only, right beside the editable Final Tax — so the reviewer sees exactly what the PO expected before adjusting to the invoice.</p>
+      <table class="kb-tbl">
+        <thead><tr><th></th><th>Un-reviewed / gate Off</th><th>Approved (reviewed) line</th></tr></thead>
+        <tbody>
+          <tr><td><b>Tax source</b></td><td>PO <code>Tax %</code> × material (or a stored amount apportioned by qty)</td><td>Reviewed ₹ amount (pre-filled from PO tax, adjusted to invoice)</td></tr>
+          <tr><td><b>Nature</b></td><td>Percentage-derived</td><td>Absolute amount</td></tr>
+          <tr><td><b>Starting value in tab</b></td><td>—</td><td>PO Tax Value (PO Rate × Qty × Tax%)</td></tr>
+          <tr><td><b>Effect on ledger</b></td><td>Default</td><td><b>Overrides</b> the PO tax entirely</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p" style="margin-top:.7rem">The tax % shown in the ledger is <b>back-computed</b> from the amount (tax ÷ material), not the other way round. On the PO side, <code>18</code> and <code>0.18</code> are both read as 18%.</p>
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The PO tax is the estimate from ordering time — offered as the starting figure. The invoice is the source of truth, so Accounts confirm or adjust it at review, and that figure is what reaches the balance.</p>
+    </div>`;
 }
 
 // ══════════════════════════════════════════════════

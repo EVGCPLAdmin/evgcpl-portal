@@ -42,8 +42,12 @@ Reviewed Tax | Additional Charges | Reviewed Value | Review Status | Comments
   are ignored for reviewed lines). `PO Rate` is display-only reference.
 
 - **`SI ID`** is the join key — the StockIN line's own ID (the portal reads it
-  from the StockIN `SI ID` column). One review per SI ID; the **latest** row per
-  SI ID wins (append-only, so a re-review just adds a newer row).
+  from the StockIN `SI ID` column). One review per SI ID: the backend
+  **upserts** — a re-review **updates the same row** rather than adding a new
+  one (`saveGRNReview` → `_accUpsertByHeader`, keyed on `SI ID`). If duplicate
+  rows ever exist for an SI ID, the backend updates the **latest by Timestamp**
+  and the portal read also takes the **latest** row per SI ID, so the newest
+  review always wins.
 - **`Review Status`** = `Approved` / `Rejected` / `Pending`.
 - **`Reviewed Rate`** overrides the PO rate for valuing the received goods;
   **`Additional Charges`** is a per-line add-on. Ledger credit for a line =
@@ -64,9 +68,11 @@ const GRN_REVIEW_TAB      = 'GRN_Review';
 `_resolveSheetId`, so it can be re-pointed at runtime if you register it there.)
 
 ## 3. Deploy the backend action
-`apps-script/AccountsHandlers.gs` gains **`saveGRNReview`** (header-mapped append,
-reuses `_accAppendByHeader`) and `Router.gs` routes it. **Redeploy a new version**
-of the `accounts` Apps Script web app after pasting the updated files.
+`apps-script/AccountsHandlers.gs` gains **`saveGRNReview`** (header-mapped
+**upsert** keyed on `SI ID`, via `_accUpsertByHeader`) and `Router.gs` routes it.
+**Redeploy a new version** of the `accounts` Apps Script web app after pasting the
+updated files — the upsert behaviour only takes effect once the new backend is
+deployed.
 
 Contract:
 ```json
