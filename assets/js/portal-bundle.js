@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.47.2';
-const PORTAL_BUILD    = 700;
-const PORTAL_BUILD_AT = '2026-07-23T15:13:02Z';
+const PORTAL_VERSION  = '4.47.3';
+const PORTAL_BUILD    = 701;
+const PORTAL_BUILD_AT = '2026-07-23T15:23:40Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5058,7 +5058,8 @@ function _grnRVal(r, names) {
   return '';
 }
 // SI ID → latest review { status, rate, addl, value, by, ts, comments }.
-// Latest by Timestamp wins so a review is editable (append-only, like OB).
+// Latest by Timestamp wins — the backend upserts one row per SI ID, but if
+// duplicate rows ever exist this still resolves to the newest review.
 function _grnReviewBySiId() {
   const m = {};
   const rows = _vplpGRNReviewRows || [];
@@ -16919,7 +16920,7 @@ function _kbBodyGRNReview() {
         <tbody>
           <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference.</td></tr>
           <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
-          <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved as a new timestamped record (append-only; latest per line wins).</td></tr>
+          <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one.</td></tr>
           <tr><td><b>4 · Post</b></td><td>With the gate On, only approved lines credit the ledger — each at its own reviewed figures. The rest surface as pending-review lines plus a count badge on the tab.</td></tr>
         </tbody>
       </table>
@@ -16933,7 +16934,7 @@ function _kbBodyGRNReview() {
           <tr><td>${rejPill}</td><td>Held back by Accounts.</td><td>No.</td></tr>
         </tbody>
       </table>
-      <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID; re-reviewing just appends a newer record. A line with no SI ID cannot be reviewed.</p>
+      <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID: reviewing the same GRN twice <b>updates that same row</b> rather than creating a duplicate. Should two rows ever exist for one SI ID, the <b>latest by timestamp</b> is what drives the ledger. A line with no SI ID cannot be reviewed.</p>
 
       <h3 class="kb-sub">Who does what</h3>
       <table class="kb-tbl">

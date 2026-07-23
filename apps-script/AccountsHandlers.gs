@@ -74,17 +74,19 @@ function saveVendorOpeningBalance(body) {
 //  body: { sheetId, tab:'GRN_Review', row:{ <header>:<value>, ... } }
 //  Records the Accounts review of a received GRN StockIN line (keyed by
 //  SI ID): Review Status + edited Reviewed Rate + Additional Charges.
-//  Header-mapped append; the portal takes the latest row per SI ID, so a
-//  re-review just appends a newer row. The web app must have EDIT access to
-//  the GRN Review workbook.
+//  UPSERT by SI ID — reviewing the same GRN twice updates the same row
+//  instead of adding a second one. If duplicate rows already exist for an
+//  SI ID, the latest by Timestamp is the one updated (and the portal read
+//  also takes latest-by-Timestamp), so the ledger always reflects the newest
+//  review. The web app must have EDIT access to the GRN Review workbook.
 // ─────────────────────────────────────────────────────────────
 function saveGRNReview(body) {
   try {
     var row = body.row || {};
     if (!row['SI ID']) return { success: false, message: 'Missing SI ID' };
-    var res = _accAppendByHeader(body.sheetId, body.tab || 'GRN_Review', row);
+    var res = _accUpsertByHeader(body.sheetId, body.tab || 'GRN_Review', row, 'SI ID');
     if (!res.success) return res;
-    return { success: true, uuid: row['UUID'] || '', rowsAfter: res.rowsAfter, unmatched: res.unmatched };
+    return { success: true, uuid: row['UUID'] || '', rowsAfter: res.rowsAfter, unmatched: res.unmatched, updated: res.updated };
   } catch (e) {
     return { success: false, message: e.message };
   }
@@ -119,6 +121,72 @@ function _accAppendByHeader(sheetId, tab, row) {
 
   sh.appendRow(out);
   return { success: true, rowsAfter: sh.getLastRow(), unmatched: unmatched };
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Upsert a row keyed by one column (keyName). If a row with a matching key
+//  exists, update it IN PLACE (columns not present in `row` are preserved);
+//  otherwise append. When several rows share the key, the one with the latest
+//  Timestamp is updated — so duplicates never grow and the newest review wins.
+//  Unknown keys are reported back in `unmatched` (not written).
+// ─────────────────────────────────────────────────────────────
+function _accUpsertByHeader(sheetId, tab, row, keyName) {
+  if (!sheetId) return { success: false, message: 'Missing sheetId' };
+  var ss = SpreadsheetApp.openById(sheetId);
+  var sh = ss.getSheetByName(tab);
+  if (!sh) return { success: false, message: 'Tab "' + tab + '" not found' };
+
+  var lastCol = sh.getLastColumn();
+  var lastRow = sh.getLastRow();
+  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  var norm = function (s) { return String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toLowerCase(); };
+
+  var idx = {};
+  for (var c = 0; c < headers.length; c++) idx[norm(headers[c])] = c;
+
+  // Map incoming keys → column positions (report unknowns).
+  var updates = {}, unmatched = [];
+  Object.keys(row).forEach(function (k) {
+    var pos = idx[norm(k)];
+    if (pos === undefined) { unmatched.push(k); return; }
+    updates[pos] = row[k];
+  });
+
+  // Find the target row: the latest-Timestamp row whose key column matches.
+  var keyCol = idx[norm(keyName)];
+  var tsCol  = idx[norm('Timestamp')];
+  var targetRow = -1, bestTs = -1;
+  if (keyCol !== undefined && lastRow >= 2) {
+    var wantKey = norm(row[keyName]);
+    if (wantKey) {
+      var data = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+      for (var r = 0; r < data.length; r++) {
+        if (norm(data[r][keyCol]) !== wantKey) continue;
+        var ts = 0;
+        if (tsCol !== undefined) {
+          var tv = data[r][tsCol];
+          ts = (tv instanceof Date) ? tv.getTime() : (Date.parse(String(tv)) || 0);
+        }
+        if (targetRow === -1 || ts >= bestTs) { bestTs = ts; targetRow = r + 2; }
+      }
+    }
+  }
+
+  var out;
+  if (targetRow !== -1) {
+    // Update in place — start from the existing row so untouched columns survive.
+    out = sh.getRange(targetRow, 1, 1, lastCol).getValues()[0];
+    Object.keys(updates).forEach(function (p) { out[p] = updates[Number(p)]; });
+    sh.getRange(targetRow, 1, 1, lastCol).setValues([out]);
+    return { success: true, rowsAfter: sh.getLastRow(), unmatched: unmatched, updated: true, updatedRow: targetRow };
+  }
+
+  // No match → append a fresh row.
+  out = [];
+  for (var i = 0; i < lastCol; i++) out.push('');
+  Object.keys(updates).forEach(function (p) { out[p] = updates[Number(p)]; });
+  sh.appendRow(out);
+  return { success: true, rowsAfter: sh.getLastRow(), unmatched: unmatched, updated: false };
 }
 
 // ─────────────────────────────────────────────────────────────
