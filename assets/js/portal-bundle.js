@@ -5285,6 +5285,11 @@ function _vplpCompute() {
       rc.rMat = rMat; rc.rTax = rTax; rc.rTaxA = rTaxA; rc.taxPct = rMat > 0 ? (rTaxA / rMat) * 100 : 0;
       rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.reviewed = !!applied;
       rc.part = rc._home ? rc._home.part : ''; rc.partNo = rc._home ? rc._home.partNo : ''; rc.partDesc = rc._home ? rc._home.partDesc : '';
+      // PO tax reference (display-only in the GRN Review queue): the PO line's
+      // stated Tax% and its value on the received qty = PO Rate × Qty × Tax%.
+      const poTaxFrac = rc._home ? (rc._home.taxFrac || 0) : 0;
+      rc.poTaxPct = poTaxFrac * 100;
+      rc.poTaxVal = (rc.qty || 0) * (rc.poRate || 0) * poTaxFrac;
       if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; poTaxA[k] = (poTaxA[k] || 0) + rTaxA; }
       else { poPending[k] = (poPending[k] || 0) + lineCredit; }
       const arr = poRcpt[k] = poRcpt[k] || []; if (!arr.some(z => z.idx === rc.idx)) arr.push(rc);
@@ -5344,6 +5349,7 @@ function _vplpCompute() {
     (poRcpt[k] || []).forEach(rc => grnLines.push({
       siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '', partNo: rc.partNo || '', partDesc: rc.partDesc || '',
       qty: rc.qty || 0, poRate: rc.poRate || 0, useRate: rc.useRate || 0, addl: rc.addl || 0,
+      poTaxPct: rc.poTaxPct || 0, poTaxVal: rc.poTaxVal || 0,
       credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null,
       poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
     }));
@@ -5499,6 +5505,8 @@ function _vplpGRNReviewView() {
       <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
       <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
+      <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO line tax rate">${l.poTaxPct ? (Math.round(l.poTaxPct * 100) / 100) + '%' : '—'}</td>
+      <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO Rate × Qty × Tax%">${l.poTaxVal ? inr(l.poTaxVal) : '—'}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('rate', rateVal, 84, `oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('tax', taxVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('addl', addlVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
@@ -5516,6 +5524,7 @@ function _vplpGRNReviewView() {
         <th style="${th}">GRN</th><th style="${th}">PO No</th><th style="${th}">Vendor</th>
         <th style="${th}">Part No; Description</th><th style="${th}">Invoice</th><th style="${thR}">Qty</th>
         <th style="${thR}">PO Rate</th>
+        <th style="${thR}">PO Tax %</th><th style="${thR}">PO Tax Value</th>
         <th style="${thR}">Final Rate</th><th style="${thR}">Final Tax</th>
         <th style="${thR}">Final Add'l</th><th style="${thR}">Final Value</th>
         <th style="${th}">Status</th><th style="${th}">Review</th>
