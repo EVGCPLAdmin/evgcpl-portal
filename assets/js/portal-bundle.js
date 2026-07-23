@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.48.3';
-const PORTAL_BUILD    = 709;
-const PORTAL_BUILD_AT = '2026-07-23T19:27:53Z';
+const PORTAL_VERSION  = '4.48.4';
+const PORTAL_BUILD    = 710;
+const PORTAL_BUILD_AT = '2026-07-23T19:29:39Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -16983,7 +16983,7 @@ function renderPlaceholder(icon, title, desc, phase) {
 //  KNOWLEDGE BASE
 //  Internal how-it-works reference for portal processes. Data-driven: add an
 //  entry to KB_ARTICLES with a body() that returns HTML and it shows up in the
-//  index + search automatically. First article documents the GRN Review gate.
+//  index + search automatically. First article documents the GRN Review flow.
 // ══════════════════════════════════════════════════
 let _kbCurrentId = null;
 let _kbSearch = '';
@@ -16995,7 +16995,7 @@ const KB_ARTICLES = [
     title: 'GRN Accounts Review',
     category: 'Accounts',
     icon: '🧾',
-    summary: 'How received goods are reviewed by Accounts before they credit the Vendor Ledger — the gate, the states, the modes, and the tax logic.',
+    summary: 'How received goods are valued in the Vendor Ledger — the per-GRN review rule, the PO/tiered fallback, rate-by-quantity, and the tax logic.',
     updated: 'Jul 2026',
     body: _kbBodyGRNReview,
   },
@@ -17083,7 +17083,7 @@ function _kbBodyGRNReview() {
     <div class="card card-pad">
       <div class="kb-kicker">Accounts Controls · Vendor Ledger (PO) → GRN Review</div>
       <h2 class="kb-h">GRN Accounts Review</h2>
-      <p class="kb-p">Every goods receipt (GRN) booked at site as a <b>StockIN</b> is checked by <b>Accounts</b> against the received invoice and PO before its value is allowed to reach the <b>Vendor Ledger (PO)</b>. This is the checkpoint that sits between receiving goods and crediting the vendor.</p>
+      <p class="kb-p">Every goods receipt (GRN) booked at site as a <b>StockIN</b> can be checked by <b>Accounts</b> against the received invoice and PO. A review, <b>when one exists</b>, decides how that receipt is valued in the <b>Vendor Ledger (PO)</b>.</p>
 
       <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
         <b>In one line:</b> reviews apply <b>automatically, per GRN</b> — there's no On/Off switch. An <b>approved</b> line posts at the Accounts-reviewed figures; a <b>rejected</b> line is excluded from the balance; a line <b>not yet reviewed still counts</b>, valued at the PO rate.
@@ -17099,17 +17099,19 @@ function _kbBodyGRNReview() {
           <tr><td>No review yet</td><td><b>PO rate / tiered</b> valuation.</td><td>✅ counted</td></tr>
         </tbody>
       </table>
+      <p class="kb-p" style="margin-top:.7rem">So un-reviewed goods are <b>not</b> held out of the balance — they post at the PO figure until Accounts adjust them. Only an explicit <b>Reject</b> keeps a receipt out.</p>
 
       <h3 class="kb-sub">The workflow, per received line</h3>
       <table class="kb-tbl">
         <thead><tr><th>Step</th><th>What happens</th></tr></thead>
         <tbody>
-          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
+          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> plus read-only <b>PO Tax %</b> / <b>PO Tax Value</b> as reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
           <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
           <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one. Changed your mind? <b>↩ Move to Pending</b> undoes a decision and reverts the line to the PO rate, exactly like an un-reviewed one.</td></tr>
           <tr><td><b>4 · Post</b></td><td>Reviews take effect <b>automatically</b>: an approved line credits the ledger at its Final values, a rejected line drops out, and an un-reviewed line still counts at the PO rate. A count badge shows how many are still pending.</td></tr>
         </tbody>
       </table>
+      <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID: reviewing the same GRN twice <b>updates that same row</b>. Should two rows ever exist for one SI ID, the <b>latest by timestamp</b> wins, so a later Approve supersedes an earlier Reject. A line with no SI ID cannot be reviewed.</p>
 
       <h3 class="kb-sub">Three review states</h3>
       <table class="kb-tbl">
@@ -17120,13 +17122,18 @@ function _kbBodyGRNReview() {
           <tr><td>${rejPill}</td><td>Held back by Accounts.</td><td>No — excluded (red <i>Rejected</i> row).</td></tr>
         </tbody>
       </table>
-      <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID: reviewing the same GRN twice <b>updates that same row</b> rather than creating a duplicate. Should two rows ever exist for one SI ID, the <b>latest by timestamp</b> is what wins — both in the <b>GRN Review queue</b> (the status you see) and in the <b>ledger</b>. So a later Approve always supersedes an earlier Reject. A line with no SI ID cannot be reviewed.</p>
+
+      <h3 class="kb-sub">Rates map to quantity, not to the line</h3>
+      <p class="kb-p">When the <b>same item</b> sits on a PO at <b>more than one rate</b> (e.g. 800 @ ₹100, then the rest @ ₹120), received quantity is valued against those rate <b>tiers in PO-line order</b> — the first 800 units at ₹100, the remainder at ₹120 — <b>regardless of which line each GRN was booked against</b>. A GRN that straddles the boundary is <b>blended within its own row</b> (e.g. 300 @ ₹100 + 100 @ ₹120). Different items on a PO are valued independently.</p>
+
+      <h3 class="kb-sub">Reading the ledger</h3>
+      <p class="kb-p">Each goods-received row shows the received <b>quantity in brackets</b> next to the Credit amount (e.g. <code>₹94,400 (800)</code>), and the <b>Tax (a)</b> / <b>Tax (b)</b> columns show their effective <b>%</b> in-cell. Rejected receipts appear as a red <b>Rejected</b> row and are excluded from the running balance.</p>
 
       <h3 class="kb-sub">Who does what</h3>
       <table class="kb-tbl">
         <thead><tr><th>Action</th><th>Who</th></tr></thead>
         <tbody>
-          <tr><td>View the queue</td><td>Anyone with access to Vendor Ledger (PO)</td></tr>
+          <tr><td>View the queue &amp; ledger</td><td>Anyone with access to Vendor Ledger (PO)</td></tr>
           <tr><td>Approve / Reject / edit figures</td><td><b>Accounts</b> (or people named under Configuration → Status Access → “GRN Review”)</td></tr>
           <tr><td>Hide the GRN Review tab</td><td><b>Admins</b> only (PortalConfig <code>grn_review_mode = hidden</code>)</td></tr>
         </tbody>
