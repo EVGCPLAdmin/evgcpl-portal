@@ -3168,6 +3168,7 @@ function renderPage(page) {
     'my-profile':     renderMyProfile,
     'rewards':        renderRewardsModule,
     'apps':           renderAppsHub,
+    'knowledge-base': renderKnowledgeBase,
     'sheets':         renderSheetsHub,
     'wall':           renderRewardsModule, // wall merged into rewards
     'policies':       () => renderPolicyHub(),
@@ -13086,6 +13087,7 @@ const MODULE_REGISTRY = [
   // ── Quick Access ──────────────────────────────────────────────
   { route:'rewards',           label:'Rewards & Wall',         section:'Quick Access',     defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
   { route:'apps',              label:'Apps',                   section:'Quick Access',     defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
+  { route:'knowledge-base',    label:'Knowledge Base',         section:'Quick Access',     defStatus:'live', defRoles:['md','hr','site','purchase','accounts','employee','dept_head'] },
   { route:'sheets',            label:'Sheets',                 section:'Quick Access',     defStatus:'live', defRoles:['md'] },
 
   // ── Personal ──────────────────────────────────────────────────
@@ -16778,6 +16780,187 @@ function renderPlaceholder(icon, title, desc, phase) {
       <p style="margin-top:1rem;font-size:.78rem;color:var(--txt4)">This module is in the build queue. All planning is complete — development starts soon.</p>
     </div>
   `;
+}
+
+// ══════════════════════════════════════════════════
+//  KNOWLEDGE BASE
+//  Internal how-it-works reference for portal processes. Data-driven: add an
+//  entry to KB_ARTICLES with a body() that returns HTML and it shows up in the
+//  index + search automatically. First article documents the GRN Review gate.
+// ══════════════════════════════════════════════════
+let _kbCurrentId = null;
+let _kbSearch = '';
+
+// Each article: { id, title, category, icon, summary, updated, body() → HTML }.
+const KB_ARTICLES = [
+  {
+    id: 'grn-review',
+    title: 'GRN Accounts Review',
+    category: 'Accounts',
+    icon: '🧾',
+    summary: 'How received goods are reviewed by Accounts before they credit the Vendor Ledger — the gate, the states, the modes, and the tax logic.',
+    updated: 'Jul 2026',
+    body: _kbBodyGRNReview,
+  },
+];
+
+function _kbEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function renderKnowledgeBase() {
+  const el = document.getElementById('mainContent');
+  if (!el) return;
+  if (!_kbCurrentId && KB_ARTICLES.length) _kbCurrentId = KB_ARTICLES[0].id;
+
+  const q = _kbSearch.trim().toLowerCase();
+  const matches = a => !q || (a.title + ' ' + a.category + ' ' + a.summary).toLowerCase().includes(q);
+  const list = KB_ARTICLES.filter(matches);
+
+  // Group the index by category.
+  const cats = {};
+  list.forEach(a => { (cats[a.category] = cats[a.category] || []).push(a); });
+  const indexHtml = Object.keys(cats).sort().map(cat => `
+    <div style="margin-bottom:.9rem">
+      <div style="font-size:.66rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--txt3);padding:0 .3rem .35rem">${_kbEsc(cat)}</div>
+      ${cats[cat].map(a => {
+        const on = a.id === _kbCurrentId;
+        return `<button onclick="_kbOpen('${a.id}')" style="display:flex;gap:.55rem;align-items:flex-start;width:100%;text-align:left;border:1px solid ${on ? 'var(--g5)' : 'transparent'};background:${on ? 'rgba(46,125,50,.08)' : 'transparent'};border-radius:9px;padding:.5rem .55rem;cursor:pointer;margin-bottom:.2rem">
+          <span style="font-size:1rem;line-height:1.2">${a.icon || '📄'}</span>
+          <span style="display:flex;flex-direction:column;gap:1px">
+            <span style="font-size:.82rem;font-weight:${on ? '700' : '600'};color:${on ? 'var(--g8)' : 'var(--txt2)'}">${_kbEsc(a.title)}</span>
+            <span style="font-size:.68rem;color:var(--txt3);line-height:1.35">${_kbEsc(a.summary)}</span>
+          </span>
+        </button>`;
+      }).join('')}
+    </div>`).join('') || `<div style="padding:1rem;text-align:center;color:var(--txt3);font-size:.8rem">No articles match “${_kbEsc(_kbSearch)}”.</div>`;
+
+  const current = KB_ARTICLES.find(a => a.id === _kbCurrentId) || list[0] || KB_ARTICLES[0];
+  let articleHtml = '';
+  try { articleHtml = current ? current.body() : ''; }
+  catch (e) { articleHtml = `<div class="card card-pad" style="color:#b91c1c">Could not render this article.</div>`; }
+
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">📚 Knowledge Base</div>
+        <div class="page-subtitle">How the portal's processes actually work — reference guides for the team</div>
+      </div>
+    </div>
+    <div class="kb-layout" style="display:grid;grid-template-columns:300px 1fr;gap:1.2rem;align-items:start">
+      <aside class="card card-pad kb-index" style="position:sticky;top:1rem;padding:.85rem">
+        <input id="kb-search" value="${_kbEsc(_kbSearch)}" oninput="_kbSearchInput(this.value)" placeholder="Search the knowledge base…"
+          style="width:100%;font-size:.8rem;border:1px solid var(--border);border-radius:8px;padding:7px 10px;background:var(--surface2);margin-bottom:.75rem">
+        ${indexHtml}
+      </aside>
+      <div class="kb-article">${articleHtml}</div>
+    </div>
+    <style>
+      .kb-article h2.kb-h { font-size:1.35rem;font-weight:800;color:var(--g8);margin:0 0 .3rem;letter-spacing:-.01em }
+      .kb-article h3.kb-sub { font-size:1rem;font-weight:700;color:var(--g8);margin:1.6rem 0 .5rem }
+      .kb-article p.kb-p { font-size:.9rem;color:var(--txt2);line-height:1.65;margin:0 0 .8rem;max-width:70ch }
+      .kb-article .kb-kicker { font-size:.66rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--g6);margin-bottom:.4rem }
+      .kb-article code { font-family:ui-monospace,Menlo,monospace;font-size:.82em;background:var(--surface2);border:1px solid var(--border);padding:.08em .4em;border-radius:5px }
+      .kb-article table.kb-tbl { border-collapse:collapse;width:100%;font-size:.83rem;margin:.3rem 0 }
+      .kb-article table.kb-tbl th { text-align:left;padding:.55rem .7rem;background:var(--surface2);font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:var(--txt3);border-bottom:1px solid var(--border) }
+      .kb-article table.kb-tbl td { padding:.55rem .7rem;border-bottom:1px solid var(--border);vertical-align:top;color:var(--txt2) }
+      .kb-pill { display:inline-block;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:9px;white-space:nowrap }
+      @media (max-width:820px){ .kb-layout{ grid-template-columns:1fr !important } .kb-index{ position:static !important } }
+    </style>`;
+}
+window._kbOpen = function(id) { _kbCurrentId = id; renderKnowledgeBase(); try { document.querySelector('.kb-article')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} };
+window._kbSearchInput = function(v) {
+  _kbSearch = v;
+  // Re-render only the index + keep focus/caret in the search box.
+  const box = document.getElementById('kb-search');
+  const pos = box ? box.selectionStart : null;
+  renderKnowledgeBase();
+  const nb = document.getElementById('kb-search');
+  if (nb) { nb.focus(); if (pos != null) try { nb.setSelectionRange(pos, pos); } catch (e) {} }
+};
+
+// ── Article: GRN Accounts Review ────────────────────────────────
+function _kbBodyGRNReview() {
+  const okPill = '<span class="kb-pill" style="background:#dcfce7;color:#15803d">Approved</span>';
+  const pendPill = '<span class="kb-pill" style="background:#fef3c7;color:#b45309">Pending</span>';
+  const rejPill = '<span class="kb-pill" style="background:#fee2e2;color:#b91c1c">Rejected</span>';
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Accounts Controls · Vendor Ledger (PO) → GRN Review</div>
+      <h2 class="kb-h">GRN Accounts Review</h2>
+      <p class="kb-p">Every goods receipt (GRN) booked at site as a <b>StockIN</b> is checked by <b>Accounts</b> against the received invoice and PO before its value is allowed to reach the <b>Vendor Ledger (PO)</b>. This is the checkpoint that sits between receiving goods and crediting the vendor.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> received goods do <b>not</b> credit the vendor ledger on their own — an <b>approved review</b> does. Approved lines post at the Accounts-reviewed figures; anything pending or rejected shows as a “Pending review” line and stays out of the running balance.
+      </div>
+
+      <h3 class="kb-sub">The core idea — a gate</h3>
+      <p class="kb-p">Received goods normally credit the ledger the moment they are booked. The review inserts an approval gate in front of that credit, enforced while the <b>Ledger Link</b> is switched <b>On</b>:</p>
+      <table class="kb-tbl">
+        <thead><tr><th>Outcome</th><th>What happens to the ledger</th></tr></thead>
+        <tbody>
+          <tr><td>${okPill}</td><td>Credits the ledger using the reviewed rate, tax and additional charges.</td></tr>
+          <tr><td>${pendPill} / ${rejPill}</td><td>Shown as a “Pending review” row (₹ amount visible) but <b>excluded from the running balance</b>.</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="kb-sub">The workflow, per received line</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>Step</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference.</td></tr>
+          <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
+          <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved as a new timestamped record (append-only; latest per line wins).</td></tr>
+          <tr><td><b>4 · Post</b></td><td>With the gate On, only approved lines credit the ledger — each at its own reviewed figures. The rest surface as pending-review lines plus a count badge on the tab.</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="kb-sub">Three review states</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>State</th><th>Meaning</th><th>Counts in balance?</th></tr></thead>
+        <tbody>
+          <tr><td>${pendPill}</td><td>Received but not yet reviewed.</td><td>No — shown as “Pending review”.</td></tr>
+          <tr><td>${okPill}</td><td>Checked against invoice + PO; figures finalised.</td><td>Yes — at the reviewed value.</td></tr>
+          <tr><td>${rejPill}</td><td>Held back by Accounts.</td><td>No.</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID; re-reviewing just appends a newer record. A line with no SI ID cannot be reviewed.</p>
+
+      <h3 class="kb-sub">Who does what</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>Action</th><th>Who</th></tr></thead>
+        <tbody>
+          <tr><td>View the queue</td><td>Anyone with access to Vendor Ledger (PO)</td></tr>
+          <tr><td>Approve / Reject / edit figures</td><td><b>Accounts</b> (or people named under Configuration → Status Access → “GRN Review”)</td></tr>
+          <tr><td>Switch the Ledger Link On / Off / Hide</td><td><b>Admins</b> only</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="kb-sub">Ledger Link modes (admin, runtime)</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>Mode</th><th>Ledger</th><th>Tab</th></tr></thead>
+        <tbody>
+          <tr><td><b>On</b></td><td>Only approved lines credit the ledger (gate active).</td><td>Visible</td></tr>
+          <tr><td><b>Off</b></td><td>Every received line counts, as before. Reviews can still be recorded.</td><td>Visible</td></tr>
+          <tr><td><b>Off + Hide</b></td><td>Gate off.</td><td>Hidden</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p" style="margin-top:.7rem">The gate can only be On when a GRN Review sheet is configured — with none, the ledger behaves exactly as before the feature existed. Turning it On never silently rewrites history; an admin makes that call deliberately.</p>
+
+      <h3 class="kb-sub">How Tax works</h3>
+      <p class="kb-p">In the review tab, <b>Final Tax is a flat rupee amount that Accounts type from the invoice</b> — not a percentage, and not pre-filled from the PO. For an approved line, that amount replaces the PO's own tax calculation entirely. Final Value builds up additively:</p>
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:.85rem;background:var(--surface2);border:1px dashed var(--border);border-radius:9px;padding:.75rem 1rem;color:var(--g8);margin:0 0 .9rem;overflow-x:auto">Final Value = Qty × Final Rate + Final Tax + Final Add'l</div>
+      <p class="kb-p">Note the deliberate asymmetry: the <b>PO Rate</b> is shown as a reference, but the tax box is left <b>blank</b> — the reviewer keys the real invoice tax rather than accepting a computed guess.</p>
+      <table class="kb-tbl">
+        <thead><tr><th></th><th>Un-reviewed / gate Off</th><th>Approved (reviewed) line</th></tr></thead>
+        <tbody>
+          <tr><td><b>Tax source</b></td><td>PO <code>Tax %</code> × material (or a stored amount apportioned by qty)</td><td>Manual ₹ amount typed by Accounts</td></tr>
+          <tr><td><b>Nature</b></td><td>Percentage-derived</td><td>Absolute amount</td></tr>
+          <tr><td><b>Pre-filled?</b></td><td>—</td><td><b>No</b> — blank; reviewer keys it</td></tr>
+          <tr><td><b>Effect on ledger</b></td><td>Default</td><td><b>Overrides</b> the PO tax entirely</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p" style="margin-top:.7rem">The tax % shown in the ledger is <b>back-computed</b> from the amount (tax ÷ material), not the other way round. On the PO side, <code>18</code> and <code>0.18</code> are both read as 18%.</p>
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The PO tax is only an estimate from ordering time. The invoice is the source of truth — so Accounts enter the real tax at review, and that figure is what reaches the balance.</p>
+    </div>`;
 }
 
 // ══════════════════════════════════════════════════
