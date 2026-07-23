@@ -5524,8 +5524,8 @@ function _vplpGRNReviewView() {
     return `<tr>
       <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
-      <td style="padding:6px 9px">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</td>
-      <td style="padding:6px 9px;font-size:.74rem">${l.partNo ? `<span style="font-weight:600">${esc(l.partNo)}</span>; ` : ''}${esc(l.partDesc || l.part)}</td>
+      <td style="padding:6px 9px"><div style="max-width:150px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3" title="${esc(l.vendorName)}${l.vid ? ' [' + esc(l.vid) + ']' : ''}">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</div></td>
+      <td style="padding:6px 9px;font-size:.74rem"><div onclick="_vplpGRNOpenModal(${i})" title="Click to open full details" style="max-width:230px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;cursor:pointer">${l.partNo ? `<span style="font-weight:600">${esc(l.partNo)}</span>; ` : ''}${esc(l.partDesc || l.part)}</div></td>
       <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
       <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
@@ -5536,7 +5536,7 @@ function _vplpGRNReviewView() {
       <td style="padding:6px 9px;text-align:right">${numInput('addl', addlVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right"><input id="grn-val-${i}" type="number" step="0.01" value="${esc(valVal)}"${ro}${(l.rev && l.rev.value > 0) ? ' data-touched="1"' : ''} title="Final amount for this item (what credits the ledger). Auto = Qty×Rate + Tax + Addl; edit to override." oninput="this.dataset.touched=1" style="width:104px;text-align:right;font-weight:700;color:#15803d;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
       <td style="padding:6px 9px">${chip}</td>
-      <td style="padding:6px 9px;white-space:nowrap">${canReview ? `<button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : '—'}</td>
+      <td style="padding:6px 9px;white-space:nowrap"><button onclick="_vplpGRNOpenModal(${i})" class="btn btn-sm" title="Open full review" style="padding:2px 7px;font-size:.72rem;background:var(--surface2);border:1px solid var(--border)">&#10530;</button>${canReview ? ` <button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : ''}</td>
     </tr>`;
   }).join('');
   // ~10 rows tall, then scroll vertically. Header stays pinned (sticky th).
@@ -5562,14 +5562,16 @@ window._vplpGRNCalc = function(i) {
   const n = id => parseFloat((document.getElementById('grn-' + id + '-' + i) || {}).value) || 0;
   v.value = (Math.round(((l.qty || 0) * n('rate') + n('tax') + n('addl')) * 100) / 100) || '';
 };
-window._vplpGRNSubmit = async function(i, action) {
-  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
-  if (!_grnCanReview()) { _accToast('🔒 Only Accounts can review GRNs.'); return; }
-  if (!l.siId) { _accToast('⚠ This StockIN line has no SI ID — cannot review.'); return; }
-  if (!GRN_REVIEW_SHEET_ID) { _accToast('⚠ GRN Review sheet not configured — set GRN_REVIEW_SHEET_ID to save.'); return; }
-  const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
-  const rate = num('grn-rate-' + i), tax = num('grn-tax-' + i), addl = num('grn-addl-' + i), value = num('grn-val-' + i);
-  if (/approv/i.test(action) && !(value > 0)) { _accToast('⚠ Enter the final amount for this item.'); return; }
+// Core save — shared by the inline row (_vplpGRNSubmit) and the pop-out editor
+// (_vplpGRNModalSubmit). `vals` = { rate, tax, addl, value } (NaN = blank).
+// Returns true on success, false on failure/validation stop.
+window._vplpGRNSave = async function(l, action, vals) {
+  if (!l) return false;
+  if (!_grnCanReview()) { _accToast('🔒 Only Accounts can review GRNs.'); return false; }
+  if (!l.siId) { _accToast('⚠ This StockIN line has no SI ID — cannot review.'); return false; }
+  if (!GRN_REVIEW_SHEET_ID) { _accToast('⚠ GRN Review sheet not configured — set GRN_REVIEW_SHEET_ID to save.'); return false; }
+  const rate = vals.rate, tax = vals.tax, addl = vals.addl, value = vals.value;
+  if (/approv/i.test(action) && !(value > 0)) { _accToast('⚠ Enter the final amount for this item.'); return false; }
   const email = (STATE.user && STATE.user.email) || '';
   const row = {
     'UUID': 'GRV-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -5587,7 +5589,7 @@ window._vplpGRNSubmit = async function(i, action) {
   };
   const resp = await _accPostAwait({ action: 'saveGRNReview', sheetId: GRN_REVIEW_SHEET_ID, tab: GRN_REVIEW_TAB, row });
   if (resp && resp.success !== false) {
-    // If the tab is missing a key column, the append silently skipped it → the
+    // If the tab is missing a key column, the write silently skips it → the
     // status/amount never persists (nothing attaches → gate shows all pending).
     // A field is missing only if NONE of its accepted header names matched.
     const um = new Set((resp.unmatched || []).map(x => String(x).toLowerCase()));
@@ -5595,7 +5597,7 @@ window._vplpGRNSubmit = async function(i, action) {
     const missing = Object.keys(groups).filter(lbl => groups[lbl].every(k => um.has(k.toLowerCase())));
     if (missing.length) _accToast('⚠ Saved, but the GRN_Review tab has no column for: ' + missing.join(', ') + '. Add it or the review won\'t stick.');
     else _accToast('✅ GRN ' + action.toLowerCase());
-    // Optimistic: reflect immediately (gviz caches an append for a while, so a
+    // Optimistic: reflect immediately (gviz caches a write for a while, so a
     // fresh read wouldn't yet show the new status). Latest Timestamp wins, so the
     // pushed row supersedes any earlier review for this SI ID.
     if (!Array.isArray(_vplpGRNReviewRows)) _vplpGRNReviewRows = [];
@@ -5603,9 +5605,93 @@ window._vplpGRNSubmit = async function(i, action) {
     _vplpGRNLocalSaves.push(row);   // survives a refetch until gviz catches up
     try { _vplpData = _vplpCompute(); } catch (e) {}
     _vplpRenderBody();
-  } else {
-    _accToast('⚠ ' + ((resp && resp.message) || 'Could not save the review'));
+    return true;
   }
+  _accToast('⚠ ' + ((resp && resp.message) || 'Could not save the review'));
+  return false;
+};
+window._vplpGRNSubmit = async function(i, action) {
+  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
+  const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
+  await _vplpGRNSave(l, action, { rate: num('grn-rate-' + i), tax: num('grn-tax-' + i), addl: num('grn-addl-' + i), value: num('grn-val-' + i) });
+};
+
+// ── Pop-out review editor ───────────────────────────────────────
+// A modal with the full part description and every field/action, so the wide
+// table can stay compact (clamped description) yet keep all functionality.
+window._vplpGRNOpenModal = function(i) {
+  const l = (window._vplpGRNShown || [])[i]; if (!l) return;
+  window._vplpGRNModalLine = l;
+  const esc = _mdpEsc, inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
+  const canReview = _grnCanReview();
+  const ro = canReview ? '' : ' disabled';
+  const st = (l.rev && l.rev.status) ? l.rev.status : 'Pending';
+  const chipCol = /approv/i.test(st) ? ['#dcfce7', '#15803d'] : /reject/i.test(st) ? ['#fee2e2', '#b91c1c'] : ['#fef3c7', '#b45309'];
+  const rateVal = (l.rev && l.rev.rate > 0) ? l.rev.rate : (l.poRate || '');
+  const taxVal  = (l.rev && l.rev.tax > 0) ? l.rev.tax : (l.poTaxVal ? Math.round(l.poTaxVal * 100) / 100 : '');
+  const addlVal = (l.rev && l.rev.addl) || '';
+  const valDef  = (l.qty || 0) * (Number(rateVal) || 0) + (Number(taxVal) || 0) + (Number(addlVal) || 0);
+  const valVal  = (l.rev && l.rev.value > 0) ? l.rev.value : (valDef ? Math.round(valDef * 100) / 100 : '');
+  const meta = (lbl, v) => `<div><div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3)">${lbl}</div><div style="font-size:.85rem;font-weight:600;margin-top:1px">${v}</div></div>`;
+  const field = (id, lbl, v, hint, bold) => `<label style="display:flex;flex-direction:column;gap:3px">
+    <span style="font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3)">${lbl}</span>
+    <input id="${id}" type="number" step="0.01" value="${esc(v)}"${ro} ${hint || ''} style="width:100%;text-align:right;padding:7px 9px;border:1px solid var(--border);border-radius:7px;background:var(--surface2)${bold ? ';font-weight:700;color:#15803d' : ''}">
+  </label>`;
+  const ov = document.createElement('div');
+  ov.id = 'grn-modal-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem';
+  ov.onclick = e => { if (e.target === ov) _vplpGRNCloseModal(); };
+  ov.innerHTML = `<div class="card" style="background:var(--surface);max-width:560px;width:100%;max-height:88vh;overflow:auto;border-radius:14px;padding:1.1rem 1.25rem" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:.8rem">
+      <div>
+        <div style="font-size:1.05rem;font-weight:800;color:var(--g8)">${esc(l.grn) || 'GRN'}</div>
+        <div style="font-family:monospace;font-size:.72rem;color:var(--txt3);margin-top:2px">${esc(l.poNo)}</div>
+      </div>
+      <div style="display:flex;gap:.6rem;align-items:center">
+        <span style="font-size:.68rem;font-weight:700;background:${chipCol[0]};color:${chipCol[1]};padding:3px 10px;border-radius:9px">${esc(st)}</span>
+        <button onclick="_vplpGRNCloseModal()" title="Close" style="border:none;background:transparent;font-size:1.2rem;cursor:pointer;color:var(--txt3);line-height:1">✕</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem 1rem;padding:.8rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+      ${meta('Vendor', esc(l.vendorName) + (l.vid ? ` <span style="color:var(--txt3);font-weight:400">[${esc(l.vid)}]</span>` : ''))}
+      ${meta('Invoice', esc(l.inv) || '—')}
+      ${meta('Qty', (l.qty || 0).toLocaleString('en-IN'))}
+      ${meta('PO Rate', inr(l.poRate))}
+      ${meta('PO Tax %', l.poTaxPct ? (Math.round(l.poTaxPct * 100) / 100) + '%' : '—')}
+      ${meta('PO Tax Value', l.poTaxVal ? inr(l.poTaxVal) : '—')}
+    </div>
+    <div style="padding:.8rem 0">
+      <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3);margin-bottom:3px">Part No; Description</div>
+      <div style="font-size:.85rem;line-height:1.5">${l.partNo ? `<b>${esc(l.partNo)}</b>; ` : ''}${esc(l.partDesc || l.part) || '—'}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.7rem;padding-top:.4rem">
+      ${field('mgrn-rate', 'Final Rate', rateVal, `oninput="_vplpGRNModalCalc()"`)}
+      ${field('mgrn-tax', 'Final Tax', taxVal, `placeholder="0" oninput="_vplpGRNModalCalc()"`)}
+      ${field('mgrn-addl', "Final Add'l", addlVal, `placeholder="0" oninput="_vplpGRNModalCalc()"`)}
+      <label style="display:flex;flex-direction:column;gap:3px">
+        <span style="font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3)">Final Value <span style="text-transform:none;color:var(--txt3)">(credits the ledger)</span></span>
+        <input id="mgrn-val" type="number" step="0.01" value="${esc(valVal)}"${ro}${(l.rev && l.rev.value > 0) ? ' data-touched="1"' : ''} oninput="this.dataset.touched=1" style="width:100%;text-align:right;padding:7px 9px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);font-weight:700;color:#15803d">
+      </label>
+    </div>
+    ${canReview ? `<div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.1rem">
+      <button onclick="_vplpGRNModalSubmit('Rejected')" class="btn" style="padding:8px 18px;font-size:.82rem;background:#dc2626;color:#fff;border:none;border-radius:8px">✗ Reject</button>
+      <button onclick="_vplpGRNModalSubmit('Approved')" class="btn" style="padding:8px 18px;font-size:.82rem;background:#16a34a;color:#fff;border:none;border-radius:8px">✓ Approve</button>
+    </div>` : `<div style="margin-top:1rem;font-size:.76rem;color:var(--txt3);text-align:right">🔒 Only Accounts can approve/edit.</div>`}
+  </div>`;
+  document.body.appendChild(ov);
+};
+window._vplpGRNCloseModal = function() { const ov = document.getElementById('grn-modal-overlay'); if (ov) ov.remove(); window._vplpGRNModalLine = null; };
+window._vplpGRNModalCalc = function() {
+  const l = window._vplpGRNModalLine; if (!l) return;
+  const v = document.getElementById('mgrn-val'); if (!v || v.dataset.touched) return;
+  const n = id => parseFloat((document.getElementById(id) || {}).value) || 0;
+  v.value = (Math.round(((l.qty || 0) * n('mgrn-rate') + n('mgrn-tax') + n('mgrn-addl')) * 100) / 100) || '';
+};
+window._vplpGRNModalSubmit = async function(action) {
+  const l = window._vplpGRNModalLine; if (!l) return;
+  const num = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : NaN; };
+  const ok = await _vplpGRNSave(l, action, { rate: num('mgrn-rate'), tax: num('mgrn-tax'), addl: num('mgrn-addl'), value: num('mgrn-val') });
+  if (ok) _vplpGRNCloseModal();
 };
 
 // Per-vendor Dr/Cr rows: credit = received goods (material + tax + charges),
@@ -16939,7 +17025,7 @@ function _kbBodyGRNReview() {
       <table class="kb-tbl">
         <thead><tr><th>Step</th><th>What happens</th></tr></thead>
         <tbody>
-          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference.</td></tr>
+          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference. The part description is clamped to keep rows compact; <b>click the description or the ⤢ button to open a pop-out</b> with the full description and every field and action.</td></tr>
           <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
           <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one.</td></tr>
           <tr><td><b>4 · Post</b></td><td>With the gate On, only approved lines credit the ledger — each at its own reviewed figures. The rest surface as pending-review lines plus a count badge on the tab.</td></tr>
