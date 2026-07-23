@@ -16945,7 +16945,7 @@ function renderPlaceholder(icon, title, desc, phase) {
 //  KNOWLEDGE BASE
 //  Internal how-it-works reference for portal processes. Data-driven: add an
 //  entry to KB_ARTICLES with a body() that returns HTML and it shows up in the
-//  index + search automatically. First article documents the GRN Review gate.
+//  index + search automatically. First article documents the GRN Review flow.
 // ══════════════════════════════════════════════════
 let _kbCurrentId = null;
 let _kbSearch = '';
@@ -16957,7 +16957,7 @@ const KB_ARTICLES = [
     title: 'GRN Accounts Review',
     category: 'Accounts',
     icon: '🧾',
-    summary: 'How received goods are reviewed by Accounts before they credit the Vendor Ledger — the gate, the states, the modes, and the tax logic.',
+    summary: 'How received goods are valued in the Vendor Ledger — the per-GRN review rule, the PO/tiered fallback, rate-by-quantity, and the tax logic.',
     updated: 'Jul 2026',
     body: _kbBodyGRNReview,
   },
@@ -17045,71 +17045,59 @@ function _kbBodyGRNReview() {
     <div class="card card-pad">
       <div class="kb-kicker">Accounts Controls · Vendor Ledger (PO) → GRN Review</div>
       <h2 class="kb-h">GRN Accounts Review</h2>
-      <p class="kb-p">Every goods receipt (GRN) booked at site as a <b>StockIN</b> is checked by <b>Accounts</b> against the received invoice and PO before its value is allowed to reach the <b>Vendor Ledger (PO)</b>. This is the checkpoint that sits between receiving goods and crediting the vendor.</p>
+      <p class="kb-p">Every goods receipt (GRN) booked at site as a <b>StockIN</b> can be checked by <b>Accounts</b> against the received invoice and PO. A review, <b>when one exists</b>, decides how that receipt is valued in the <b>Vendor Ledger (PO)</b>.</p>
 
       <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
-        <b>In one line:</b> received goods do <b>not</b> credit the vendor ledger on their own — an <b>approved review</b> does. Approved lines post at the Accounts-reviewed figures; anything pending or rejected shows as a “Pending review” line and stays out of the running balance.
+        <b>In one line:</b> there is <b>no On/Off switch</b>. Each GRN is valued on its own — an <b>approved</b> review posts at its reviewed figures, a <b>rejected</b> review is excluded from the balance, and a GRN with <b>no review yet</b> still posts, valued at the <b>PO rate</b>. Reviews just take effect automatically.
       </div>
 
-      <h3 class="kb-sub">The core idea — a gate</h3>
-      <p class="kb-p">Received goods normally credit the ledger the moment they are booked. The review inserts an approval gate in front of that credit, enforced while the <b>Ledger Link</b> is switched <b>On</b>:</p>
+      <h3 class="kb-sub">The core idea — a per-GRN rule</h3>
+      <p class="kb-p">The portal checks each received line for a review entry and values it accordingly:</p>
       <table class="kb-tbl">
-        <thead><tr><th>Outcome</th><th>What happens to the ledger</th></tr></thead>
+        <thead><tr><th>GRN state</th><th>How it's valued</th><th>In the balance?</th></tr></thead>
         <tbody>
-          <tr><td>${okPill}</td><td>Credits the ledger using the reviewed rate, tax and additional charges.</td></tr>
-          <tr><td>${pendPill} / ${rejPill}</td><td>Shown as a “Pending review” row (₹ amount visible) but <b>excluded from the running balance</b>.</td></tr>
+          <tr><td>${okPill} review</td><td>Its own <b>Final Rate / Tax / Value</b> (authoritative).</td><td><b>Yes</b></td></tr>
+          <tr><td>${rejPill} review</td><td>Held back — shown as a red <b>Rejected</b> row (₹ amount visible).</td><td><b>No — excluded</b></td></tr>
+          <tr><td>${pendPill} · no entry</td><td>The <b>PO rate</b> (tiered by quantity), tax from the PO <code>Tax %</code>.</td><td><b>Yes</b> — counts automatically</td></tr>
         </tbody>
       </table>
+      <p class="kb-p" style="margin-top:.7rem">So un-reviewed goods are <b>not</b> held out of the balance — they post at the PO figure until Accounts adjust them. Only an explicit <b>Reject</b> keeps a receipt out.</p>
 
       <h3 class="kb-sub">The workflow, per received line</h3>
       <table class="kb-tbl">
         <thead><tr><th>Step</th><th>What happens</th></tr></thead>
         <tbody>
-          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description and every field and action.</td></tr>
+          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> plus read-only <b>PO Tax %</b> / <b>PO Tax Value</b> as reference. <b>Click any non-editable cell or the ⤢ button</b> to open a pop-out with the full description and every field.</td></tr>
           <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
           <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one.</td></tr>
-          <tr><td><b>4 · Post</b></td><td>With the gate On, only approved lines credit the ledger — each at its own reviewed figures. The rest surface as pending-review lines plus a count badge on the tab.</td></tr>
+          <tr><td><b>4 · Post</b></td><td>Approved lines post at their reviewed figures; rejected lines drop out; everything still un-reviewed keeps posting at the PO rate. A count badge on the tab shows how many lines still need an Accounts decision.</td></tr>
         </tbody>
       </table>
+      <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID: reviewing the same GRN twice <b>updates that same row</b>. Should two rows ever exist for one SI ID, the <b>latest by timestamp</b> wins, so a later Approve supersedes an earlier Reject. A line with no SI ID cannot be reviewed.</p>
 
-      <h3 class="kb-sub">Three review states</h3>
-      <table class="kb-tbl">
-        <thead><tr><th>State</th><th>Meaning</th><th>Counts in balance?</th></tr></thead>
-        <tbody>
-          <tr><td>${pendPill}</td><td>Received but not yet reviewed.</td><td>No — shown as “Pending review”.</td></tr>
-          <tr><td>${okPill}</td><td>Checked against invoice + PO; figures finalised.</td><td>Yes — at the reviewed value.</td></tr>
-          <tr><td>${rejPill}</td><td>Held back by Accounts.</td><td>No.</td></tr>
-        </tbody>
-      </table>
-      <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID: reviewing the same GRN twice <b>updates that same row</b> rather than creating a duplicate. Should two rows ever exist for one SI ID, the <b>latest by timestamp</b> is what wins — both in the <b>GRN Review queue</b> (the status you see) and in the <b>ledger</b>. So a later Approve always supersedes an earlier Reject. A line with no SI ID cannot be reviewed.</p>
+      <h3 class="kb-sub">Rates map to quantity, not to the line</h3>
+      <p class="kb-p">When the <b>same item</b> sits on a PO at <b>more than one rate</b> (e.g. 800 @ ₹100, then the rest @ ₹120), received quantity is valued against those rate <b>tiers in PO-line order</b> — the first 800 units at ₹100, the remainder at ₹120 — <b>regardless of which line each GRN was booked against</b>. A GRN that straddles the boundary is <b>blended within its own row</b> (e.g. 300 @ ₹100 + 100 @ ₹120). Different items on a PO are valued independently.</p>
+
+      <h3 class="kb-sub">Reading the ledger</h3>
+      <p class="kb-p">Each goods-received row shows the received <b>quantity in brackets</b> next to the Credit amount (e.g. <code>₹94,400 (800)</code>), and the <b>Tax (a)</b> / <b>Tax (b)</b> columns show their effective <b>%</b> in-cell. Rejected receipts appear as a red <b>Rejected</b> row and are excluded from the running balance.</p>
 
       <h3 class="kb-sub">Who does what</h3>
       <table class="kb-tbl">
         <thead><tr><th>Action</th><th>Who</th></tr></thead>
         <tbody>
-          <tr><td>View the queue</td><td>Anyone with access to Vendor Ledger (PO)</td></tr>
+          <tr><td>View the queue &amp; ledger</td><td>Anyone with access to Vendor Ledger (PO)</td></tr>
           <tr><td>Approve / Reject / edit figures</td><td><b>Accounts</b> (or people named under Configuration → Status Access → “GRN Review”)</td></tr>
-          <tr><td>Switch the Ledger Link On / Off / Hide</td><td><b>Admins</b> only</td></tr>
+          <tr><td>Hide the GRN Review tab (non-admins)</td><td><b>Admins</b> only</td></tr>
         </tbody>
       </table>
-
-      <h3 class="kb-sub">Ledger Link modes (admin, runtime)</h3>
-      <table class="kb-tbl">
-        <thead><tr><th>Mode</th><th>Ledger</th><th>Tab</th></tr></thead>
-        <tbody>
-          <tr><td><b>On</b></td><td>Only approved lines credit the ledger (gate active).</td><td>Visible</td></tr>
-          <tr><td><b>Off</b></td><td>Every received line counts, as before. Reviews can still be recorded.</td><td>Visible</td></tr>
-          <tr><td><b>Off + Hide</b></td><td>Gate off.</td><td>Hidden</td></tr>
-        </tbody>
-      </table>
-      <p class="kb-p" style="margin-top:.7rem">The gate can only be On when a GRN Review sheet is configured — with none, the ledger behaves exactly as before the feature existed. Turning it On never silently rewrites history; an admin makes that call deliberately.</p>
+      <p class="kb-p" style="margin-top:.7rem">There is no ledger On/Off control — reviews apply automatically. Admins can still hide the tab for non-admins from Configuration, but that only affects visibility, not how the ledger is valued.</p>
 
       <h3 class="kb-sub">How Tax works</h3>
       <p class="kb-p"><b>Final Tax is a flat rupee amount.</b> It <b>pre-fills to the PO Tax Value</b> (PO Rate × Qty × Tax%) as a starting point — mirroring how Final Rate pre-fills to PO Rate — and the reviewer confirms or overrides it against the invoice. For an approved line, whatever value stands there replaces the PO's own tax calculation entirely. Final Value builds up additively:</p>
       <div style="font-family:ui-monospace,Menlo,monospace;font-size:.85rem;background:var(--surface2);border:1px dashed var(--border);border-radius:9px;padding:.75rem 1rem;color:var(--g8);margin:0 0 .9rem;overflow-x:auto">Final Value = Qty × Final Rate + Final Tax + Final Add'l</div>
       <p class="kb-p">The <b>PO Tax %</b> and <b>PO Tax Value</b> columns show the PO's own figure read-only, right beside the editable Final Tax — so the reviewer sees exactly what the PO expected before adjusting to the invoice.</p>
       <table class="kb-tbl">
-        <thead><tr><th></th><th>Un-reviewed / gate Off</th><th>Approved (reviewed) line</th></tr></thead>
+        <thead><tr><th></th><th>Un-reviewed (no entry)</th><th>Approved (reviewed) line</th></tr></thead>
         <tbody>
           <tr><td><b>Tax source</b></td><td>PO <code>Tax %</code> × material (or a stored amount apportioned by qty)</td><td>Reviewed ₹ amount (pre-filled from PO tax, adjusted to invoice)</td></tr>
           <tr><td><b>Nature</b></td><td>Percentage-derived</td><td>Absolute amount</td></tr>
