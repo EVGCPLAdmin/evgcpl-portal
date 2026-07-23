@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.47.0';
-const PORTAL_BUILD    = 698;
-const PORTAL_BUILD_AT = '2026-07-23T13:58:34Z';
+const PORTAL_VERSION  = '4.47.2';
+const PORTAL_BUILD    = 700;
+const PORTAL_BUILD_AT = '2026-07-23T15:13:02Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5285,6 +5285,11 @@ function _vplpCompute() {
       rc.rMat = rMat; rc.rTax = rTax; rc.rTaxA = rTaxA; rc.taxPct = rMat > 0 ? (rTaxA / rMat) * 100 : 0;
       rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.reviewed = !!applied;
       rc.part = rc._home ? rc._home.part : ''; rc.partNo = rc._home ? rc._home.partNo : ''; rc.partDesc = rc._home ? rc._home.partDesc : '';
+      // PO tax reference (display-only in the GRN Review queue): the PO line's
+      // stated Tax% and its value on the received qty = PO Rate × Qty × Tax%.
+      const poTaxFrac = rc._home ? (rc._home.taxFrac || 0) : 0;
+      rc.poTaxPct = poTaxFrac * 100;
+      rc.poTaxVal = (rc.qty || 0) * (rc.poRate || 0) * poTaxFrac;
       if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; poTaxA[k] = (poTaxA[k] || 0) + rTaxA; }
       else { poPending[k] = (poPending[k] || 0) + lineCredit; }
       const arr = poRcpt[k] = poRcpt[k] || []; if (!arr.some(z => z.idx === rc.idx)) arr.push(rc);
@@ -5344,6 +5349,7 @@ function _vplpCompute() {
     (poRcpt[k] || []).forEach(rc => grnLines.push({
       siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '', partNo: rc.partNo || '', partDesc: rc.partDesc || '',
       qty: rc.qty || 0, poRate: rc.poRate || 0, useRate: rc.useRate || 0, addl: rc.addl || 0,
+      poTaxPct: rc.poTaxPct || 0, poTaxVal: rc.poTaxVal || 0,
       credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null,
       poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
     }));
@@ -5486,7 +5492,9 @@ function _vplpGRNReviewView() {
     // the saved review, else the PO rate / amount.
     const poAmt   = (l.qty || 0) * (l.poRate || 0);
     const rateVal = (l.rev && l.rev.rate > 0) ? l.rev.rate : (l.poRate || '');
-    const taxVal  = (l.rev && l.rev.tax) || '';
+    // Final Tax pre-fills to the PO Tax Value (Rate × Qty × Tax%) when unreviewed,
+    // mirroring how Final Rate pre-fills to PO Rate; a saved review still wins.
+    const taxVal  = (l.rev && l.rev.tax > 0) ? l.rev.tax : (l.poTaxVal ? Math.round(l.poTaxVal * 100) / 100 : '');
     const addlVal = (l.rev && l.rev.addl) || '';
     const valDef  = (l.qty || 0) * (Number(rateVal) || 0) + (Number(taxVal) || 0) + (Number(addlVal) || 0);
     const valVal  = (l.rev && l.rev.value > 0) ? l.rev.value : (valDef ? Math.round(valDef * 100) / 100 : '');
@@ -5499,6 +5507,8 @@ function _vplpGRNReviewView() {
       <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
       <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
+      <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO line tax rate">${l.poTaxPct ? (Math.round(l.poTaxPct * 100) / 100) + '%' : '—'}</td>
+      <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO Rate × Qty × Tax%">${l.poTaxVal ? inr(l.poTaxVal) : '—'}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('rate', rateVal, 84, `oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('tax', taxVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('addl', addlVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
@@ -5516,6 +5526,7 @@ function _vplpGRNReviewView() {
         <th style="${th}">GRN</th><th style="${th}">PO No</th><th style="${th}">Vendor</th>
         <th style="${th}">Part No; Description</th><th style="${th}">Invoice</th><th style="${thR}">Qty</th>
         <th style="${thR}">PO Rate</th>
+        <th style="${thR}">PO Tax %</th><th style="${thR}">PO Tax Value</th>
         <th style="${thR}">Final Rate</th><th style="${thR}">Final Tax</th>
         <th style="${thR}">Final Add'l</th><th style="${thR}">Final Value</th>
         <th style="${th}">Status</th><th style="${th}">Review</th>
@@ -16946,20 +16957,20 @@ function _kbBodyGRNReview() {
       <p class="kb-p" style="margin-top:.7rem">The gate can only be On when a GRN Review sheet is configured — with none, the ledger behaves exactly as before the feature existed. Turning it On never silently rewrites history; an admin makes that call deliberately.</p>
 
       <h3 class="kb-sub">How Tax works</h3>
-      <p class="kb-p">In the review tab, <b>Final Tax is a flat rupee amount that Accounts type from the invoice</b> — not a percentage, and not pre-filled from the PO. For an approved line, that amount replaces the PO's own tax calculation entirely. Final Value builds up additively:</p>
+      <p class="kb-p"><b>Final Tax is a flat rupee amount.</b> It <b>pre-fills to the PO Tax Value</b> (PO Rate × Qty × Tax%) as a starting point — mirroring how Final Rate pre-fills to PO Rate — and the reviewer confirms or overrides it against the invoice. For an approved line, whatever value stands there replaces the PO's own tax calculation entirely. Final Value builds up additively:</p>
       <div style="font-family:ui-monospace,Menlo,monospace;font-size:.85rem;background:var(--surface2);border:1px dashed var(--border);border-radius:9px;padding:.75rem 1rem;color:var(--g8);margin:0 0 .9rem;overflow-x:auto">Final Value = Qty × Final Rate + Final Tax + Final Add'l</div>
-      <p class="kb-p">Note the deliberate asymmetry: the <b>PO Rate</b> is shown as a reference, but the tax box is left <b>blank</b> — the reviewer keys the real invoice tax rather than accepting a computed guess.</p>
+      <p class="kb-p">The <b>PO Tax %</b> and <b>PO Tax Value</b> columns show the PO's own figure read-only, right beside the editable Final Tax — so the reviewer sees exactly what the PO expected before adjusting to the invoice.</p>
       <table class="kb-tbl">
         <thead><tr><th></th><th>Un-reviewed / gate Off</th><th>Approved (reviewed) line</th></tr></thead>
         <tbody>
-          <tr><td><b>Tax source</b></td><td>PO <code>Tax %</code> × material (or a stored amount apportioned by qty)</td><td>Manual ₹ amount typed by Accounts</td></tr>
+          <tr><td><b>Tax source</b></td><td>PO <code>Tax %</code> × material (or a stored amount apportioned by qty)</td><td>Reviewed ₹ amount (pre-filled from PO tax, adjusted to invoice)</td></tr>
           <tr><td><b>Nature</b></td><td>Percentage-derived</td><td>Absolute amount</td></tr>
-          <tr><td><b>Pre-filled?</b></td><td>—</td><td><b>No</b> — blank; reviewer keys it</td></tr>
+          <tr><td><b>Starting value in tab</b></td><td>—</td><td>PO Tax Value (PO Rate × Qty × Tax%)</td></tr>
           <tr><td><b>Effect on ledger</b></td><td>Default</td><td><b>Overrides</b> the PO tax entirely</td></tr>
         </tbody>
       </table>
       <p class="kb-p" style="margin-top:.7rem">The tax % shown in the ledger is <b>back-computed</b> from the amount (tax ÷ material), not the other way round. On the PO side, <code>18</code> and <code>0.18</code> are both read as 18%.</p>
-      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The PO tax is only an estimate from ordering time. The invoice is the source of truth — so Accounts enter the real tax at review, and that figure is what reaches the balance.</p>
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The PO tax is the estimate from ordering time — offered as the starting figure. The invoice is the source of truth, so Accounts confirm or adjust it at review, and that figure is what reaches the balance.</p>
     </div>`;
 }
 
