@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.47.7';
-const PORTAL_BUILD    = 705;
-const PORTAL_BUILD_AT = '2026-07-23T16:11:05Z';
+const PORTAL_VERSION  = '4.48.0';
+const PORTAL_BUILD    = 706;
+const PORTAL_BUILD_AT = '2026-07-23T16:21:26Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5192,9 +5192,8 @@ function _vplpCompute() {
   // Per-StockIN-line, each with its own qty + SI ID + accounts review, so credit
   // can honour the reviewed rate / additional charges and gate un-reviewed lines.
   // Reviews are loaded for DISPLAY whenever the sheet is configured; they only
-  // drive the ledger credit when the gate is ON (Ledger Link = On).
+  // A review entry, when present, drives that GRN's ledger credit (per-GRN rule).
   const reviewBySi = GRN_REVIEW_SHEET_ID ? _grnReviewBySiId() : {};
-  const gateOn = _grnGateOn();
   const siAgg = {};
   _openPOStock.forEach((r, idx) => {
     const pk = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey'])); if (!pk) return;
@@ -5230,8 +5229,14 @@ function _vplpCompute() {
   // at its rate, the next line's qty at its rate, and so on; a GRN that straddles
   // a tier boundary is blended within its own row. Reviewed lines (gate on) still
   // override with the reviewer's Final Rate/Tax/Value.
-  // poRecv = COUNTED (approved / all when gate off) value; poPending = uncounted.
-  const poRecv = {}, poTaxA = {}, poRcpt = {}, poPending = {};
+  // No global On/Off gate: each GRN is valued by its own review entry when one
+  // exists, otherwise by the PO/tiered logic (and counted). Per-PO tallies split
+  // reviewed-approved receipts (own Final Value) from un-reviewed ones (material
+  // + Tax(a); PO Tax(b)/Add'l apportioned later) so both stay consistent.
+  //   poRevCr  = Σ reviewed-approved Final Values      poRevMat/TaxA/Addl = display
+  //   poUnMat  = Σ un-reviewed material   poUnTaxA = Σ un-reviewed Tax(a)
+  //   poPending = Σ rejected receipts (excluded from the balance)
+  const poRevCr = {}, poRevMat = {}, poRevTaxA = {}, poRevAddl = {}, poUnMat = {}, poUnTaxA = {}, poRcpt = {}, poPending = {};
   // Phase 1 — group PO lines by (PO || item). Each line is a rate tier (kept in
   // PO-line order) and contributes any receipts booked against it to a shared
   // pool. Different items on the same PO stay in separate, independent groups.
@@ -5294,9 +5299,13 @@ function _vplpCompute() {
         tierMat += ov * lastTier.rate; tierTax += _tierTax(lastTier, ov);
       }
       const effRate = q > 0 ? tierMat / q : (g.tiers[0] ? g.tiers[0].rate : 0);
-      // Reviewed values override when the gate is ON (Final Rate/Tax/Value).
-      const applied = gateOn ? rc.rev : null;
-      const approved = !gateOn || _grnIsApproved(rc.rev);
+      // Per-GRN rule (no global On/Off): a GRN Review entry, when present, is
+      // authoritative. Approved → its Final Rate/Tax/Value (counted). Rejected →
+      // excluded from the balance. No entry → PO/tiered valuation, counted.
+      const rev = rc.rev;
+      const isRej = !!(rev && /reject/i.test(rev.status || ''));
+      const applied = (rev && !isRej) ? rev : null;   // approved review drives the values
+      const counted = rev ? !isRej : true;            // rejected excluded; everything else counts
       const useRate = (applied && applied.rate > 0) ? applied.rate : effRate;
       const rTax = (applied && applied.tax) || 0;
       const addl = (applied && applied.addl) || 0;
@@ -5305,15 +5314,18 @@ function _vplpCompute() {
       const rTaxA = applied ? rTax : tierTax;
       rc.poKey = k; rc.poRate = rc._home ? rc._home.rate : effRate; rc.useRate = useRate;
       rc.rMat = rMat; rc.rTax = rTax; rc.rTaxA = rTaxA; rc.taxPct = rMat > 0 ? (rTaxA / rMat) * 100 : 0;
-      rc.addl = addl; rc.credit = lineCredit; rc.approved = approved; rc.reviewed = !!applied;
+      rc.addl = addl; rc.credit = lineCredit; rc.approved = counted; rc.reviewed = !!applied; rc.rejected = isRej;
       rc.part = rc._home ? rc._home.part : ''; rc.partNo = rc._home ? rc._home.partNo : ''; rc.partDesc = rc._home ? rc._home.partDesc : '';
       // PO tax reference (display-only in the GRN Review queue): the PO line's
       // stated Tax% and its value on the received qty = PO Rate × Qty × Tax%.
       const poTaxFrac = rc._home ? (rc._home.taxFrac || 0) : 0;
       rc.poTaxPct = poTaxFrac * 100;
       rc.poTaxVal = (rc.qty || 0) * (rc.poRate || 0) * poTaxFrac;
-      if (approved) { poRecv[k] = (poRecv[k] || 0) + lineCredit; poTaxA[k] = (poTaxA[k] || 0) + rTaxA; }
-      else { poPending[k] = (poPending[k] || 0) + lineCredit; }
+      if (counted) {
+        if (applied) { poRevCr[k] = (poRevCr[k] || 0) + lineCredit; poRevMat[k] = (poRevMat[k] || 0) + rMat; poRevTaxA[k] = (poRevTaxA[k] || 0) + rTax; poRevAddl[k] = (poRevAddl[k] || 0) + addl; }
+        else { poUnMat[k] = (poUnMat[k] || 0) + rMat; poUnTaxA[k] = (poUnTaxA[k] || 0) + rTaxA; }
+      } else { poPending[k] = (poPending[k] || 0) + lineCredit; }
+
       const arr = poRcpt[k] = poRcpt[k] || []; if (!arr.some(z => z.idx === rc.idx)) arr.push(rc);
     });
   });
@@ -5348,7 +5360,7 @@ function _vplpCompute() {
   };
   // Include a PO if it has counted receipts OR pending-review receipts (so the
   // vendor + the "Pending review" line still surface while un-reviewed).
-  Object.keys(poInfo).forEach(k => { const i = poInfo[k]; if (i.approved && ((poRecv[k] || 0) > 0 || (poPending[k] || 0) > 0)) getV(i.vendorId, i.vendorName).poKeys[k] = true; });
+  Object.keys(poInfo).forEach(k => { const i = poInfo[k]; if (i.approved && ((poRevCr[k] || 0) > 0 || (poUnMat[k] || 0) > 0 || (poPending[k] || 0) > 0)) getV(i.vendorId, i.vendorName).poKeys[k] = true; });
   (_mdpRows || []).forEach(r => {
     if (r.payTo !== 'Vendor') return;
     if (!(r.status && r.status.cat === 'completed')) return;
@@ -5376,7 +5388,7 @@ function _vplpCompute() {
       poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
     }));
   });
-  return { vendors: list, poInfo, poRecv, poTaxA, poRcpt, poPending, bridge, obByKey, gateOn, grnLines };
+  return { vendors: list, poInfo, poRevCr, poRevMat, poRevTaxA, poRevAddl, poUnMat, poUnTaxA, poRcpt, poPending, bridge, obByKey, grnLines };
 }
 // GRN + invoice sub-line for a credit (material-received) row. Each receipt's
 // GRN No links to its StockIN detail; invoice numbers are shown after.
@@ -5400,7 +5412,8 @@ function _vplpRenderBody() {
   const d = _vplpData; if (!d) return;
   const esc = _mdpEsc;
   // Portal-wide count of GRN lines still awaiting Accounts review (gate on).
-  const _grnPend = _grnGateOn() ? (d.grnLines || []).filter(l => l.approved === false).length : 0;
+  // Lines still needing an Accounts decision: no review entry yet, or rejected.
+  const _grnPend = (d.grnLines || []).filter(l => !(l.rev && /approv/i.test(l.rev.status || ''))).length;
   const _grnBadge = _grnPend ? ` <span style="background:#f59e0b;color:#fff;border-radius:9px;padding:0 7px;font-size:.66rem;font-weight:700">${_grnPend}</span>` : '';
   const toggle = `<div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
     <button onclick="_vplpSetView('vendor')" class="btn btn-sm ${_vplpView === 'vendor' ? 'btn-primary' : 'btn-secondary'}">&#128100; Per Vendor</button>
@@ -5487,7 +5500,7 @@ function _vplpGRNReviewView() {
     </div>
     <div style="display:flex;gap:.9rem;align-items:center;flex-wrap:wrap">
       <input id="grn-search" value="${esc(_vplpGRNSearch)}" oninput="_vplpGRNSearchInput(this.value)" placeholder="Search vendor / PO / GRN / part…" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 10px;background:var(--surface2);min-width:230px">
-      ${isAdmin ? _grnModeControls() : `<span style="font-size:.66rem;color:var(--txt3)">Ledger Link: <b>${_grnMode() === 'on' ? 'On' : 'Off'}</b></span>`}
+      <span style="font-size:.66rem;color:var(--txt3)" title="No On/Off switch: each GRN uses its review entry when one exists (approved → its Final values; rejected → excluded); with no entry it uses the PO rate and still counts.">&#9432; Reviews applied automatically</span>
       <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
     </div>
   </div>`;
@@ -5743,6 +5756,23 @@ function _vplpOBDateVal(v) { return (v && v.opening && v.opening.date) ? _mdpDat
 // was actually processed), falling back to the Date Of Request when a completed
 // payment has no Accounts Date so it never becomes undated.
 function _vplpPayDate(r) { return (r && r.accDate) ? r.accDate : (r ? r.date : ''); }
+// Per-PO counted totals under the per-GRN rule. Reviewed-approved receipts carry
+// their own Final Value (PO Tax(b)/Add'l don't apply again); un-reviewed receipts
+// = material + Tax(a) + the un-reviewed share of the PO's Tax(b)/Add'l (so when
+// nothing is reviewed this equals the old "Off" maths exactly).
+function _vplpPOTotals(d, k) {
+  const i = d.poInfo[k] || {};
+  const revCr = d.poRevCr[k] || 0, revMat = d.poRevMat[k] || 0, revTaxA = d.poRevTaxA[k] || 0, revAddl = d.poRevAddl[k] || 0;
+  const unMat = d.poUnMat[k] || 0, unTaxA = d.poUnTaxA[k] || 0;
+  const totMat = revMat + unMat;
+  const uf = totMat > 0 ? unMat / totMat : (unMat > 0 ? 1 : 0);   // un-reviewed material share
+  const unTaxB = (i.taxB || 0) * uf, unAddl = (i.addl || 0) * uf;
+  return {
+    mat: totMat, taxA: revTaxA + unTaxA, taxB: unTaxB, addl: revAddl + unAddl,
+    credit: revCr + unMat + unTaxA + unTaxB + unAddl,
+    totMat, unMat, uf,
+  };
+}
 function _vplpVendorRows() {
   const d = _vplpData;
   if (!d) return [];
@@ -5761,17 +5791,18 @@ function _vplpVendorRows() {
     // posted AFTER it (older rows are "closed" — see the per-vendor ledger).
     const obDv = _vplpOBDateVal(v);
     const after = dv => !obDv || dv > obDv;
-    let mat = 0, addl = 0, taxA = 0, taxB = 0;
+    let mat = 0, addl = 0, taxA = 0, taxB = 0, poCredit = 0;
     Object.keys(v.poKeys).forEach(k => {
-      const i = d.poInfo[k] || {}; const m = d.poRecv[k] || 0, ta = d.poTaxA[k] || 0, tb = i.taxB || 0, ad = i.addl || 0;
-      if (m + ad + ta + tb <= 0) return;
+      const i = d.poInfo[k] || {};
+      const t = _vplpPOTotals(d, k);
+      if (t.credit <= 0) return;
       if (!after(_mdpDateVal(i.date))) return;   // pre-opening → closed, excluded
-      mat += m; addl += ad; taxA += ta; taxB += tb;
+      mat += t.mat; addl += t.addl; taxA += t.taxA; taxB += t.taxB; poCredit += t.credit;
     });
     let payDebit = 0;
     (payByKey[v.key] || []).forEach(p => { if (after(p.dv)) payDebit += p.amt; });
     const ob = v.opening || { credit: 0, debit: 0 };
-    const credit = mat + addl + taxA + taxB + ob.credit, debit = payDebit + ob.debit, bal = credit - debit;
+    const credit = poCredit + ob.credit, debit = payDebit + ob.debit, bal = credit - debit;
     return { v, mat, addl, taxA, taxB, opCredit: ob.credit, opDebit: ob.debit, credit, debit, bal, status: _vplpBalStatus(bal) };
   });
 }
@@ -6019,8 +6050,9 @@ function _vplpLedger(v, embedOpts) {
     const i = d.poInfo[k] || {};
     const rcpts = d.poRcpt[k] || [];
     if (!rcpts.length) return;
-    const poRecvTot = d.poRecv[k] || 0;                         // Σ approved material value
-    const taxATot = d.poTaxA[k] || 0, taxBTot = i.taxB || 0, poAddlTot = i.addl || 0;
+    const _poT = _vplpPOTotals(d, k);
+    const poMatTot = _poT.totMat;                               // Σ counted material (both types)
+    const taxBTot = i.taxB || 0, poAddlTot = i.addl || 0;
     const dv = s => _mdpDateVal(s) || 0;
     // Group by GRN No (a physical receipt); blank-GRN lines stand alone.
     const groups = {};
@@ -6036,29 +6068,26 @@ function _vplpLedger(v, embedOpts) {
       // Approved lines of this receipt → one counted credit row.
       const app = g.filter(rc => rc.approved !== false);
       if (app.length) {
-        let mat = 0, addlC = 0, taxA = 0, taxB = 0, credit = 0;
-        if (d.gateOn) {
-          // Gate ON: each reviewed line carries its OWN final Rate/Tax/Addl/Value.
-          // PO-apportioned tax/charges are ignored (the review is authoritative).
-          app.forEach(rc => { mat += rc.rMat || 0; taxA += rc.rTax || 0; addlC += rc.addl || 0; credit += rc.credit || 0; });
-        } else {
-          // Gate OFF: PO rate + rate-based Tax(a) (received material × Tax%, summed
-          // per receipt). Tax(b) and Additional (b) stay PO-apportioned by this
-          // receipt's material share.
-          let baseMat = 0, lineAddl = 0, groupMat = 0, groupTaxA = 0;
-          app.forEach(rc => { baseMat += (rc.qty || 0) * (rc.useRate || 0); lineAddl += (rc.addl || 0); groupMat += (rc.credit || 0); groupTaxA += (rc.rTaxA || 0); });
-          const frac = poRecvTot > 0 ? groupMat / poRecvTot : 1 / nGroups;
-          taxA = groupTaxA; taxB = taxBTot * frac;
-          mat = baseMat; addlC = lineAddl + poAddlTot * frac;
-          credit = mat + addlC + taxA + taxB;
-        }
+        // Reviewed-approved receipts carry their own Final Value (PO Tax(b)/Add'l
+        // don't apply again). Un-reviewed receipts = material + Tax(a), with the
+        // PO's Tax(b)/Add'l apportioned by their material share.
+        let dispMat = 0, dispTaxA = 0, dispAddl = 0, revCredit = 0, unMat = 0, unTaxA = 0;
+        app.forEach(rc => {
+          if (rc.reviewed) { revCredit += rc.credit || 0; dispMat += rc.rMat || 0; dispTaxA += rc.rTax || 0; dispAddl += rc.addl || 0; }
+          else { unMat += rc.rMat || 0; unTaxA += rc.rTaxA || 0; dispMat += rc.rMat || 0; dispTaxA += rc.rTaxA || 0; }
+        });
+        const uf = poMatTot > 0 ? unMat / poMatTot : 0;
+        const gTaxB = taxBTot * uf, gAddl = poAddlTot * uf;
+        const mat = dispMat, addlC = dispAddl + gAddl, taxA = dispTaxA, taxB = gTaxB;
+        const credit = revCredit + unMat + unTaxA + gTaxB + gAddl;
         if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', mat, addl: addlC, taxA, taxB, credit, debit: 0, qty: app.reduce((s, rc) => s + (rc.qty || 0), 0), status: null, utr: '', uuid: '' });
       }
-      // Pending (un-reviewed) lines of this receipt → one pending, uncounted row.
+      // Rejected lines of this receipt → one uncounted row (un-reviewed receipts
+      // now count via the PO/tiered logic, so the only excluded rows are rejections).
       const pen = g.filter(rc => rc.approved === false);
       if (pen.length) {
         const pendAmt = pen.reduce((s, rc) => s + (rc.credit || 0), 0);
-        if (pendAmt > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: pen, poRaw: i.raw || null, kind: 'cr', pending: true, pendingAmt: pendAmt, qty: pen.reduce((s, rc) => s + (rc.qty || 0), 0), mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
+        if (pendAmt > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: pen, poRaw: i.raw || null, kind: 'cr', pending: true, rejected: true, pendingAmt: pendAmt, qty: pen.reduce((s, rc) => s + (rc.qty || 0), 0), mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
       }
     });
   });
@@ -6169,12 +6198,16 @@ function _vplpLedger(v, embedOpts) {
       ? `<span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span>`
       : e.opening
         ? `<span style="font-size:.66rem;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:9px;font-weight:600">Opening</span>`
-        : e.pending
-          ? `<span style="font-size:.66rem;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px;font-weight:700">Pending review</span>`
-          : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
-    const partic = e.pending
-      ? `<span style="color:var(--txt3)">${e.type} &middot; awaiting Accounts review</span> <span style="font-weight:700;color:#b45309;white-space:nowrap">(₹${Math.round(e.pendingAmt || 0).toLocaleString('en-IN')} pending)</span>`
-      : e.type;
+        : e.rejected
+          ? `<span style="font-size:.66rem;background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9px;font-weight:700">Rejected</span>`
+          : e.pending
+            ? `<span style="font-size:.66rem;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px;font-weight:700">Pending review</span>`
+            : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
+    const partic = e.rejected
+      ? `<span style="color:var(--txt3)">${e.type} &middot; rejected by Accounts</span> <span style="font-weight:700;color:#b91c1c;white-space:nowrap">(₹${Math.round(e.pendingAmt || 0).toLocaleString('en-IN')} excluded)</span>`
+      : e.pending
+        ? `<span style="color:var(--txt3)">${e.type} &middot; awaiting Accounts review</span> <span style="font-weight:700;color:#b45309;white-space:nowrap">(₹${Math.round(e.pendingAmt || 0).toLocaleString('en-IN')} pending)</span>`
+        : e.type;
     return `<tr${click}${e.pending ? ' style="opacity:.85"' : ''}>
       <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(e.date)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(e.ref)}</td>
@@ -6203,12 +6236,13 @@ function _vplpLedger(v, embedOpts) {
     <td style="padding:7px 9px;text-align:right;color:#15803d">${mQty(totCredit, totQty)}</td>
     <td style="padding:7px 9px;text-align:right;color:#16a34a">${m(totDebit)}</td>
     <td style="padding:7px 9px;text-align:right;color:var(--g8)">${drcr(bal)}</td><td></td>${extraFoot}</tr>`;
-  // Pending-review banner — how much of this vendor's received material is still
-  // awaiting Accounts approval (excluded from the balance until approved).
-  const _pend = all.filter(e => e.pending);
+  // Rejected banner — received material the Accounts team rejected in GRN Review
+  // (excluded from the balance). Un-reviewed receipts now count automatically, so
+  // only rejections are held out.
+  const _pend = all.filter(e => e.rejected);
   const _pendTot = _pend.reduce((s, e) => s + (e.pendingAmt || 0), 0);
   const _pendLines = _pend.reduce((s, e) => s + ((e.rcpts && e.rcpts.length) || 1), 0);
-  const pendBanner = _pendTot > 0 ? `<div class="alert-strip" style="margin-bottom:.7rem;background:#fef3c7;border-color:#f59e0b;cursor:pointer" onclick="_vplpSetView('grnreview')"><span class="alert-icon">&#9203;</span><span><b>Pending accounts review:</b> ₹${Math.round(_pendTot).toLocaleString('en-IN')} across ${_pendLines} line${_pendLines === 1 ? '' : 's'} &mdash; not counted in the balance until approved in <b>GRN Review</b>.</span></div>` : '';
+  const pendBanner = _pendTot > 0 ? `<div class="alert-strip" style="margin-bottom:.7rem;background:#fee2e2;border-color:#ef4444;cursor:pointer" onclick="_vplpSetView('grnreview')"><span class="alert-icon">&#9940;</span><span><b>Rejected in GRN Review:</b> ₹${Math.round(_pendTot).toLocaleString('en-IN')} across ${_pendLines} line${_pendLines === 1 ? '' : 's'} &mdash; excluded from the balance. Open <b>GRN Review</b> to revisit.</span></div>` : '';
   return vmCard + pendBanner + controlRow + modeHint + fyBar + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
