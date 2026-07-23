@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.48.2';
-const PORTAL_BUILD    = 708;
-const PORTAL_BUILD_AT = '2026-07-23T16:30:07Z';
+const PORTAL_VERSION  = '4.48.3';
+const PORTAL_BUILD    = 709;
+const PORTAL_BUILD_AT = '2026-07-23T19:27:53Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5299,13 +5299,14 @@ function _vplpCompute() {
         tierMat += ov * lastTier.rate; tierTax += _tierTax(lastTier, ov);
       }
       const effRate = q > 0 ? tierMat / q : (g.tiers[0] ? g.tiers[0].rate : 0);
-      // Per-GRN rule (no global On/Off): a GRN Review entry, when present, is
-      // authoritative. Approved → its Final Rate/Tax/Value (counted). Rejected →
-      // excluded from the balance. No entry → PO/tiered valuation, counted.
+      // Per-GRN rule (no global On/Off). Approved → its Final Rate/Tax/Value
+      // (counted). Rejected → excluded from the balance. Pending or no entry →
+      // PO/tiered valuation, counted (so "move back to Pending" reverts a line
+      // to the PO rate exactly like an un-reviewed one).
       const rev = rc.rev;
       const isRej = !!(rev && /reject/i.test(rev.status || ''));
-      const applied = (rev && !isRej) ? rev : null;   // approved review drives the values
-      const counted = rev ? !isRej : true;            // rejected excluded; everything else counts
+      const applied = _grnIsApproved(rev) ? rev : null;   // only an APPROVED review drives the values
+      const counted = !isRej;                             // rejected excluded; approved/pending/none all count
       const useRate = (applied && applied.rate > 0) ? applied.rate : effRate;
       const rTax = (applied && applied.tax) || 0;
       const addl = (applied && applied.addl) || 0;
@@ -5549,7 +5550,7 @@ function _vplpGRNReviewView() {
       <td style="padding:6px 9px;text-align:right">${numInput('addl', addlVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right"><input id="grn-val-${i}" type="number" step="0.01" value="${esc(valVal)}"${ro}${(l.rev && l.rev.value > 0) ? ' data-touched="1"' : ''} title="Final amount for this item (what credits the ledger). Auto = Qty×Rate + Tax + Addl; edit to override." oninput="this.dataset.touched=1" style="width:104px;text-align:right;font-weight:700;color:#15803d;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)"></td>
       <td style="padding:6px 9px">${chip}</td>
-      <td style="padding:6px 9px;white-space:nowrap"><button onclick="_vplpGRNOpenModal(${i})" class="btn btn-sm" title="Open full review" style="padding:2px 7px;font-size:.72rem;background:var(--surface2);border:1px solid var(--border)">&#10530;</button>${canReview ? ` <button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>` : ''}</td>
+      <td style="padding:6px 9px;white-space:nowrap"><button onclick="_vplpGRNOpenModal(${i})" class="btn btn-sm" title="Open full review" style="padding:2px 7px;font-size:.72rem;background:var(--surface2);border:1px solid var(--border)">&#10530;</button>${canReview ? ` <button onclick="_vplpGRNSubmit(${i},'Approved')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#16a34a;color:#fff;border:none">&#10003;</button> <button onclick="_vplpGRNSubmit(${i},'Rejected')" class="btn btn-sm" style="padding:2px 8px;font-size:.68rem;background:#dc2626;color:#fff;border:none">&#10007;</button>${(isApp(l) || isRej(l)) ? ` <button onclick="_vplpGRNSubmit(${i},'Pending')" class="btn btn-sm" title="Move back to Pending (reverts to PO rate)" style="padding:2px 7px;font-size:.72rem;background:var(--surface2);border:1px solid var(--border)">&#8630;</button>` : ''}` : ''}</td>
     </tr>`;
   }).join('');
   // ~10 rows tall, then scroll vertically. Header stays pinned (sticky th).
@@ -5722,9 +5723,12 @@ window._vplpGRNOpenModal = function(i) {
         <input id="mgrn-val" type="number" step="0.01" value="${esc(valVal)}"${ro}${(l.rev && l.rev.value > 0) ? ' data-touched="1"' : ''} oninput="this.dataset.touched=1" style="width:100%;text-align:right;padding:7px 9px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);font-weight:700;color:#15803d">
       </label>
     </div>
-    ${canReview ? `<div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.1rem">
-      <button onclick="_vplpGRNModalSubmit('Rejected')" class="btn" style="padding:8px 18px;font-size:.82rem;background:#dc2626;color:#fff;border:none;border-radius:8px">✗ Reject</button>
-      <button onclick="_vplpGRNModalSubmit('Approved')" class="btn" style="padding:8px 18px;font-size:.82rem;background:#16a34a;color:#fff;border:none;border-radius:8px">✓ Approve</button>
+    ${canReview ? `<div style="display:flex;gap:.6rem;justify-content:space-between;align-items:center;margin-top:1.1rem">
+      <div>${(/approv/i.test(st) || /reject/i.test(st)) ? `<button onclick="_vplpGRNModalSubmit('Pending')" class="btn" title="Reverts this line to the PO rate" style="padding:8px 14px;font-size:.8rem;background:var(--surface2);color:var(--txt2);border:1px solid var(--border);border-radius:8px">↩ Move to Pending</button>` : ''}</div>
+      <div style="display:flex;gap:.6rem">
+        <button onclick="_vplpGRNModalSubmit('Rejected')" class="btn" style="padding:8px 18px;font-size:.82rem;background:#dc2626;color:#fff;border:none;border-radius:8px">✗ Reject</button>
+        <button onclick="_vplpGRNModalSubmit('Approved')" class="btn" style="padding:8px 18px;font-size:.82rem;background:#16a34a;color:#fff;border:none;border-radius:8px">✓ Approve</button>
+      </div>
     </div>` : `<div style="margin-top:1rem;font-size:.76rem;color:var(--txt3);text-align:right">🔒 Only Accounts can approve/edit.</div>`}
   </div>`;
   document.body.appendChild(ov);
@@ -17102,7 +17106,7 @@ function _kbBodyGRNReview() {
         <tbody>
           <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
           <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
-          <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one.</td></tr>
+          <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one. Changed your mind? <b>↩ Move to Pending</b> undoes a decision and reverts the line to the PO rate, exactly like an un-reviewed one.</td></tr>
           <tr><td><b>4 · Post</b></td><td>Reviews take effect <b>automatically</b>: an approved line credits the ledger at its Final values, a rejected line drops out, and an un-reviewed line still counts at the PO rate. A count badge shows how many are still pending.</td></tr>
         </tbody>
       </table>
