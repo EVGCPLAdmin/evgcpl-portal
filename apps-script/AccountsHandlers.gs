@@ -130,6 +130,17 @@ function _accAppendByHeader(sheetId, tab, row) {
 //  Timestamp is updated — so duplicates never grow and the newest review wins.
 //  Unknown keys are reported back in `unmatched` (not written).
 // ─────────────────────────────────────────────────────────────
+// Parse a Timestamp cell to millis. Handles Date objects and the portal's
+// "DD/MM/YYYY HH:MM:SS" text (which JS's Date.parse misreads as MM/DD → NaN).
+function _accParseTs(tv) {
+  if (tv instanceof Date) return tv.getTime();
+  var s = String(tv == null ? '' : tv).trim();
+  var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)).getTime();
+  var t = Date.parse(s);
+  return isNaN(t) ? 0 : t;
+}
+
 function _accUpsertByHeader(sheetId, tab, row, keyName) {
   if (!sheetId) return { success: false, message: 'Missing sheetId' };
   var ss = SpreadsheetApp.openById(sheetId);
@@ -162,11 +173,7 @@ function _accUpsertByHeader(sheetId, tab, row, keyName) {
       var data = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
       for (var r = 0; r < data.length; r++) {
         if (norm(data[r][keyCol]) !== wantKey) continue;
-        var ts = 0;
-        if (tsCol !== undefined) {
-          var tv = data[r][tsCol];
-          ts = (tv instanceof Date) ? tv.getTime() : (Date.parse(String(tv)) || 0);
-        }
+        var ts = (tsCol !== undefined) ? _accParseTs(data[r][tsCol]) : 0;
         if (targetRow === -1 || ts >= bestTs) { bestTs = ts; targetRow = r + 2; }
       }
     }

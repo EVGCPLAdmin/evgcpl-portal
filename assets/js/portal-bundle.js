@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.47.3';
-const PORTAL_BUILD    = 701;
-const PORTAL_BUILD_AT = '2026-07-23T15:23:40Z';
+const PORTAL_VERSION  = '4.47.4';
+const PORTAL_BUILD    = 702;
+const PORTAL_BUILD_AT = '2026-07-23T15:28:04Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5058,8 +5058,27 @@ function _grnRVal(r, names) {
   return '';
 }
 // SI ID → latest review { status, rate, addl, value, by, ts, comments }.
-// Latest by Timestamp wins — the backend upserts one row per SI ID, but if
-// duplicate rows ever exist this still resolves to the newest review.
+// Parse a GRN review Timestamp to millis. Robust to the format the portal
+// writes — `_accFmtDateTime` emits "DD/MM/YYYY HH:MM:SS", which Date.parse
+// (and _mdpDateVal) misread as MM/DD and return NaN → 0, which silently broke
+// latest-wins (every row scored 0). Also handles gviz "Date(y,m,d,...)",
+// Date objects, and ISO. Returns 0 only when genuinely unparseable.
+function _grnTsVal(v) {
+  if (!v) return 0;
+  if (v instanceof Date) return v.getTime();
+  const s = String(v).trim();
+  const g = s.match(/^Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)/);   // gviz, month 0-indexed
+  if (g) return new Date(+g[1], +g[2], +g[3], +(g[4] || 0), +(g[5] || 0), +(g[6] || 0)).getTime();
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);   // DD/MM/YYYY [HH:MM[:SS]]
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)).getTime();
+  const t = Date.parse(s);
+  return isNaN(t) ? 0 : t;
+}
+// Latest review per SI ID wins — the backend upserts one row per SI ID, but if
+// duplicate rows ever exist this resolves to the newest by Timestamp. On a tie
+// (equal or unparseable timestamps) the later row in load order wins, which is
+// append order (newest last) plus this session's optimistic saves (appended
+// last of all) — so a fresh Approve always supersedes an earlier Reject.
 function _grnReviewBySiId() {
   const m = {};
   const rows = _vplpGRNReviewRows || [];
@@ -5067,11 +5086,11 @@ function _grnReviewBySiId() {
   // Diagnostic: if rows loaded but none carry an SI ID key, gviz handed back
   // letter-labelled columns (header mis-detect) — surfaced in the queue header.
   const _hasKeyed = rows.length && !rows[0].hasOwnProperty('SI ID') && rows[0].hasOwnProperty('');
-  rows.forEach(r => {
+  rows.forEach((r, seq) => {
     const si = _opNorm(_grnRVal(r, ['SI ID', 'SIID', 'StockIN ID', 'SI Id']));
     if (!si) return;
     withSi++;
-    const ts = _mdpDateVal(_grnRVal(r, ['Timestamp'])) || 0;
+    const ts = _grnTsVal(_grnRVal(r, ['Timestamp']));
     const o = {
       status: _grnRVal(r, ['Review Status', 'Status']) || 'Pending',
       rate: _opNum(_grnRVal(r, ['Reviewed Rate', 'Final Rate', 'Rate'])),
@@ -5080,9 +5099,11 @@ function _grnReviewBySiId() {
       value: _opNum(_grnRVal(r, ['Reviewed Value', 'Final Value', 'Value', 'Line Value'])),
       by: _grnRVal(r, ['Reviewed By', 'Updated By']),
       comments: _grnRVal(r, ['Comments', 'Remarks']),
-      ts,
+      ts, seq,
     };
-    if (!m[si] || ts >= m[si].ts) m[si] = o;
+    // Newer Timestamp wins; on an exact tie the later row in load order wins.
+    const cur = m[si];
+    if (!cur || ts > cur.ts || (ts === cur.ts && seq >= cur.seq)) m[si] = o;
   });
   window._grnReviewStats = { rows: rows.length, withSi, keyed: Object.keys(m).length, headerBad: !!_hasKeyed };
   return m;
@@ -16934,7 +16955,7 @@ function _kbBodyGRNReview() {
           <tr><td>${rejPill}</td><td>Held back by Accounts.</td><td>No.</td></tr>
         </tbody>
       </table>
-      <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID: reviewing the same GRN twice <b>updates that same row</b> rather than creating a duplicate. Should two rows ever exist for one SI ID, the <b>latest by timestamp</b> is what drives the ledger. A line with no SI ID cannot be reviewed.</p>
+      <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID: reviewing the same GRN twice <b>updates that same row</b> rather than creating a duplicate. Should two rows ever exist for one SI ID, the <b>latest by timestamp</b> is what wins — both in the <b>GRN Review queue</b> (the status you see) and in the <b>ledger</b>. So a later Approve always supersedes an earlier Reject. A line with no SI ID cannot be reviewed.</p>
 
       <h3 class="kb-sub">Who does what</h3>
       <table class="kb-tbl">
