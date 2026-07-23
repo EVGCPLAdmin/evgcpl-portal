@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.47.6';
-const PORTAL_BUILD    = 704;
-const PORTAL_BUILD_AT = '2026-07-23T16:06:35Z';
+const PORTAL_VERSION  = '4.47.7';
+const PORTAL_BUILD    = 705;
+const PORTAL_BUILD_AT = '2026-07-23T16:11:05Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5521,12 +5521,12 @@ function _vplpGRNReviewView() {
     const valDef  = (l.qty || 0) * (Number(rateVal) || 0) + (Number(taxVal) || 0) + (Number(addlVal) || 0);
     const valVal  = (l.rev && l.rev.value > 0) ? l.rev.value : (valDef ? Math.round(valDef * 100) / 100 : '');
     const numInput = (fid, v, w, extra) => `<input id="grn-${fid}-${i}" type="number" step="0.01" value="${esc(v)}"${ro} ${extra || ''} style="width:${w}px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)">`;
-    return `<tr>
+    return `<tr onclick="_vplpGRNRowClick(event,${i})" style="cursor:pointer">
       <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
       <td style="padding:6px 9px"><div style="max-width:150px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3" title="${esc(l.vendorName)}${l.vid ? ' [' + esc(l.vid) + ']' : ''}">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</div></td>
-      <td style="padding:6px 9px;font-size:.74rem"><div onclick="_vplpGRNOpenModal(${i})" title="Click to open full details" style="max-width:230px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;cursor:pointer">${l.partNo ? `<span style="font-weight:600">${esc(l.partNo)}</span>; ` : ''}${esc(l.partDesc || l.part)}</div></td>
-      <td style="padding:6px 9px;white-space:nowrap">${esc(l.inv) || '—'}</td>
+      <td style="padding:6px 9px;font-size:.74rem"><div title="Click to open full details" style="max-width:280px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35">${l.partNo ? `<span style="font-weight:600">${esc(l.partNo)}</span>; ` : ''}${esc(l.partDesc || l.part)}</div></td>
+      <td style="padding:6px 9px;font-size:.74rem"><div title="${esc(l.inv)}" style="max-width:100px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35">${esc(l.inv) || '—'}</div></td>
       <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO line tax rate">${l.poTaxPct ? (Math.round(l.poTaxPct * 100) / 100) + '%' : '—'}</td>
@@ -5619,6 +5619,12 @@ window._vplpGRNSubmit = async function(i, action) {
 // ── Pop-out review editor ───────────────────────────────────────
 // A modal with the full part description and every field/action, so the wide
 // table can stay compact (clamped description) yet keep all functionality.
+// A click anywhere on a row opens the pop-out, EXCEPT on the editable inputs,
+// the action buttons, and the GRN link (which keep their own behaviour).
+window._vplpGRNRowClick = function(e, i) {
+  if (e.target.closest('input, button, a, label')) return;
+  _vplpGRNOpenModal(i);
+};
 window._vplpGRNOpenModal = function(i) {
   const l = (window._vplpGRNShown || [])[i]; if (!l) return;
   window._vplpGRNModalLine = l;
@@ -17025,7 +17031,7 @@ function _kbBodyGRNReview() {
       <table class="kb-tbl">
         <thead><tr><th>Step</th><th>What happens</th></tr></thead>
         <tbody>
-          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference. The part description is clamped to keep rows compact; <b>click the description or the ⤢ button to open a pop-out</b> with the full description and every field and action.</td></tr>
+          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description and every field and action.</td></tr>
           <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
           <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one.</td></tr>
           <tr><td><b>4 · Post</b></td><td>With the gate On, only approved lines credit the ledger — each at its own reviewed figures. The rest surface as pending-review lines plus a count badge on the tab.</td></tr>
