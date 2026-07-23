@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.48.0';
-const PORTAL_BUILD    = 706;
-const PORTAL_BUILD_AT = '2026-07-23T16:21:26Z';
+const PORTAL_VERSION  = '4.48.2';
+const PORTAL_BUILD    = 708;
+const PORTAL_BUILD_AT = '2026-07-23T16:30:07Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5656,6 +5656,26 @@ window._vplpGRNOpenModal = function(i) {
     <span style="font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3)">${lbl}</span>
     <input id="${id}" type="number" step="0.01" value="${esc(v)}"${ro} ${hint || ''} style="width:100%;text-align:right;padding:7px 9px;border:1px solid var(--border);border-radius:7px;background:var(--surface2)${bold ? ';font-weight:700;color:#15803d' : ''}">
   </label>`;
+  // Resolve the PO's document key + this receipt's invoice references, reusing
+  // the same Drive lookups the registers use. l.idx indexes into _openPOStock
+  // (same as the GRN link's _siOpenDetail); the PO UUID keys quote attachments.
+  let poUuid = '', invCs = '', invDirect = [];
+  try {
+    if (typeof _openPOHeaders !== 'undefined' && _openPOHeaders && _openPOHeaders.length) {
+      const HC = _opColMap(_openPOHeaders), k = _opPO(l.poNo);
+      const hdr = _openPOHeaders.find(h => _opPO(_opGet(h, HC, ['PO No'])) === k);
+      if (hdr) poUuid = _opGet(hdr, HC, ['UUID']) || '';
+    }
+  } catch (e) {}
+  try {
+    const sr = (typeof _openPOStock !== 'undefined' && _openPOStock) ? _openPOStock[+l.idx] : null;
+    if (sr) {
+      const SC = _opColMap(_openPOStock);
+      invCs = String(_opGet(sr, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID']) || '').trim();
+      invDirect = ['Invoice(Attachment)', 'Invoice (Attachment)', 'Invoice Attachment', 'Invoice Copy', 'Bill(Attachment)', 'Attachment']
+        .map(c => ({ url: _opGet(sr, SC, [c]), label: 'Invoice / Attachment' })).filter(o => o.url);
+    }
+  } catch (e) {}
   const ov = document.createElement('div');
   ov.id = 'grn-modal-overlay';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem';
@@ -5683,7 +5703,17 @@ window._vplpGRNOpenModal = function(i) {
       <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3);margin-bottom:3px">Part No; Description</div>
       <div style="font-size:.85rem;line-height:1.5">${l.partNo ? `<b>${esc(l.partNo)}</b>; ` : ''}${esc(l.partDesc || l.part) || '—'}</div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.7rem;padding-top:.4rem">
+    <div style="display:grid;gap:.7rem;padding:.2rem 0 .6rem;border-top:1px solid var(--border)">
+      <div style="padding-top:.6rem">
+        <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3);margin-bottom:.35rem">&#128196; PO Document</div>
+        <div id="poAttBox"><div style="color:var(--txt3);font-size:.74rem;padding:.35rem">&#9203; Loading&hellip;</div></div>
+      </div>
+      <div>
+        <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3);margin-bottom:.35rem">&#129534; Invoice</div>
+        <div id="siAttBox"><div style="color:var(--txt3);font-size:.74rem;padding:.35rem">&#9203; Loading&hellip;</div></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.7rem;padding-top:.4rem;border-top:1px solid var(--border)">
       ${field('mgrn-rate', 'Final Rate', rateVal, `oninput="_vplpGRNModalCalc()"`)}
       ${field('mgrn-tax', 'Final Tax', taxVal, `placeholder="0" oninput="_vplpGRNModalCalc()"`)}
       ${field('mgrn-addl', "Final Add'l", addlVal, `placeholder="0" oninput="_vplpGRNModalCalc()"`)}
@@ -5698,6 +5728,10 @@ window._vplpGRNOpenModal = function(i) {
     </div>` : `<div style="margin-top:1rem;font-size:.76rem;color:var(--txt3);text-align:right">🔒 Only Accounts can approve/edit.</div>`}
   </div>`;
   document.body.appendChild(ov);
+  // Load PO + invoice documents from Drive (reuse the register loaders, which
+  // render into #poAttBox / #siAttBox — present in this modal).
+  try { if (typeof _poLoadAttachments === 'function') _poLoadAttachments(poUuid, l.poNo); } catch (e) {}
+  try { if (typeof _siLoadAttachments === 'function') _siLoadAttachments(invCs, invDirect); } catch (e) {}
 };
 window._vplpGRNCloseModal = function() { const ov = document.getElementById('grn-modal-overlay'); if (ov) ov.remove(); window._vplpGRNModalLine = null; };
 window._vplpGRNModalCalc = function() {
@@ -17048,16 +17082,17 @@ function _kbBodyGRNReview() {
       <p class="kb-p">Every goods receipt (GRN) booked at site as a <b>StockIN</b> is checked by <b>Accounts</b> against the received invoice and PO before its value is allowed to reach the <b>Vendor Ledger (PO)</b>. This is the checkpoint that sits between receiving goods and crediting the vendor.</p>
 
       <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
-        <b>In one line:</b> received goods do <b>not</b> credit the vendor ledger on their own — an <b>approved review</b> does. Approved lines post at the Accounts-reviewed figures; anything pending or rejected shows as a “Pending review” line and stays out of the running balance.
+        <b>In one line:</b> reviews apply <b>automatically, per GRN</b> — there's no On/Off switch. An <b>approved</b> line posts at the Accounts-reviewed figures; a <b>rejected</b> line is excluded from the balance; a line <b>not yet reviewed still counts</b>, valued at the PO rate.
       </div>
 
-      <h3 class="kb-sub">The core idea — a gate</h3>
-      <p class="kb-p">Received goods normally credit the ledger the moment they are booked. The review inserts an approval gate in front of that credit, enforced while the <b>Ledger Link</b> is switched <b>On</b>:</p>
+      <h3 class="kb-sub">The core idea — reviews apply automatically</h3>
+      <p class="kb-p">There is <b>no global On/Off gate</b>. Each received line is valued on its own, by whether a review entry exists for its <b>SI ID</b>:</p>
       <table class="kb-tbl">
-        <thead><tr><th>Outcome</th><th>What happens to the ledger</th></tr></thead>
+        <thead><tr><th>GRN state</th><th>How it's valued</th><th>In the balance?</th></tr></thead>
         <tbody>
-          <tr><td>${okPill}</td><td>Credits the ledger using the reviewed rate, tax and additional charges.</td></tr>
-          <tr><td>${pendPill} / ${rejPill}</td><td>Shown as a “Pending review” row (₹ amount visible) but <b>excluded from the running balance</b>.</td></tr>
+          <tr><td>${okPill} review</td><td>The entry's own <b>Final Rate / Tax / Value</b> (authoritative).</td><td>✅ counted</td></tr>
+          <tr><td>${rejPill} review</td><td>—</td><td>❌ excluded (red <i>Rejected</i> row)</td></tr>
+          <tr><td>No review yet</td><td><b>PO rate / tiered</b> valuation.</td><td>✅ counted</td></tr>
         </tbody>
       </table>
 
@@ -17065,10 +17100,10 @@ function _kbBodyGRNReview() {
       <table class="kb-tbl">
         <thead><tr><th>Step</th><th>What happens</th></tr></thead>
         <tbody>
-          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description and every field and action.</td></tr>
+          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
           <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
           <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one.</td></tr>
-          <tr><td><b>4 · Post</b></td><td>With the gate On, only approved lines credit the ledger — each at its own reviewed figures. The rest surface as pending-review lines plus a count badge on the tab.</td></tr>
+          <tr><td><b>4 · Post</b></td><td>Reviews take effect <b>automatically</b>: an approved line credits the ledger at its Final values, a rejected line drops out, and an un-reviewed line still counts at the PO rate. A count badge shows how many are still pending.</td></tr>
         </tbody>
       </table>
 
@@ -17076,9 +17111,9 @@ function _kbBodyGRNReview() {
       <table class="kb-tbl">
         <thead><tr><th>State</th><th>Meaning</th><th>Counts in balance?</th></tr></thead>
         <tbody>
-          <tr><td>${pendPill}</td><td>Received but not yet reviewed.</td><td>No — shown as “Pending review”.</td></tr>
-          <tr><td>${okPill}</td><td>Checked against invoice + PO; figures finalised.</td><td>Yes — at the reviewed value.</td></tr>
-          <tr><td>${rejPill}</td><td>Held back by Accounts.</td><td>No.</td></tr>
+          <tr><td>${pendPill}</td><td>Received but not yet reviewed.</td><td>Yes — at the <b>PO rate</b>.</td></tr>
+          <tr><td>${okPill}</td><td>Checked against invoice + PO; figures finalised.</td><td>Yes — at the reviewed <b>Final Value</b>.</td></tr>
+          <tr><td>${rejPill}</td><td>Held back by Accounts.</td><td>No — excluded (red <i>Rejected</i> row).</td></tr>
         </tbody>
       </table>
       <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID: reviewing the same GRN twice <b>updates that same row</b> rather than creating a duplicate. Should two rows ever exist for one SI ID, the <b>latest by timestamp</b> is what wins — both in the <b>GRN Review queue</b> (the status you see) and in the <b>ledger</b>. So a later Approve always supersedes an earlier Reject. A line with no SI ID cannot be reviewed.</p>
@@ -17089,27 +17124,19 @@ function _kbBodyGRNReview() {
         <tbody>
           <tr><td>View the queue</td><td>Anyone with access to Vendor Ledger (PO)</td></tr>
           <tr><td>Approve / Reject / edit figures</td><td><b>Accounts</b> (or people named under Configuration → Status Access → “GRN Review”)</td></tr>
-          <tr><td>Switch the Ledger Link On / Off / Hide</td><td><b>Admins</b> only</td></tr>
+          <tr><td>Hide the GRN Review tab</td><td><b>Admins</b> only (PortalConfig <code>grn_review_mode = hidden</code>)</td></tr>
         </tbody>
       </table>
 
-      <h3 class="kb-sub">Ledger Link modes (admin, runtime)</h3>
-      <table class="kb-tbl">
-        <thead><tr><th>Mode</th><th>Ledger</th><th>Tab</th></tr></thead>
-        <tbody>
-          <tr><td><b>On</b></td><td>Only approved lines credit the ledger (gate active).</td><td>Visible</td></tr>
-          <tr><td><b>Off</b></td><td>Every received line counts, as before. Reviews can still be recorded.</td><td>Visible</td></tr>
-          <tr><td><b>Off + Hide</b></td><td>Gate off.</td><td>Hidden</td></tr>
-        </tbody>
-      </table>
-      <p class="kb-p" style="margin-top:.7rem">The gate can only be On when a GRN Review sheet is configured — with none, the ledger behaves exactly as before the feature existed. Turning it On never silently rewrites history; an admin makes that call deliberately.</p>
+      <h3 class="kb-sub">Tab visibility (admin)</h3>
+      <p class="kb-p">Valuation is <b>always per-GRN</b> — there is no On/Off toggle to affect the balance. The one admin control left is <b>tab visibility</b>: PortalConfig <code>grn_review_mode = hidden</code> hides the GRN Review tab for non-admins (admins always see it). If no GRN Review sheet is configured there is simply no review data, so every line is valued at the PO rate — identical to a fully un-reviewed ledger.</p>
 
       <h3 class="kb-sub">How Tax works</h3>
       <p class="kb-p"><b>Final Tax is a flat rupee amount.</b> It <b>pre-fills to the PO Tax Value</b> (PO Rate × Qty × Tax%) as a starting point — mirroring how Final Rate pre-fills to PO Rate — and the reviewer confirms or overrides it against the invoice. For an approved line, whatever value stands there replaces the PO's own tax calculation entirely. Final Value builds up additively:</p>
       <div style="font-family:ui-monospace,Menlo,monospace;font-size:.85rem;background:var(--surface2);border:1px dashed var(--border);border-radius:9px;padding:.75rem 1rem;color:var(--g8);margin:0 0 .9rem;overflow-x:auto">Final Value = Qty × Final Rate + Final Tax + Final Add'l</div>
       <p class="kb-p">The <b>PO Tax %</b> and <b>PO Tax Value</b> columns show the PO's own figure read-only, right beside the editable Final Tax — so the reviewer sees exactly what the PO expected before adjusting to the invoice.</p>
       <table class="kb-tbl">
-        <thead><tr><th></th><th>Un-reviewed / gate Off</th><th>Approved (reviewed) line</th></tr></thead>
+        <thead><tr><th></th><th>Un-reviewed line</th><th>Approved (reviewed) line</th></tr></thead>
         <tbody>
           <tr><td><b>Tax source</b></td><td>PO <code>Tax %</code> × material (or a stored amount apportioned by qty)</td><td>Reviewed ₹ amount (pre-filled from PO tax, adjusted to invoice)</td></tr>
           <tr><td><b>Nature</b></td><td>Percentage-derived</td><td>Absolute amount</td></tr>
