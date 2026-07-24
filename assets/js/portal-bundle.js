@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.48.3';
-const PORTAL_BUILD    = 709;
-const PORTAL_BUILD_AT = '2026-07-23T19:27:53Z';
+const PORTAL_VERSION  = '4.49.1';
+const PORTAL_BUILD    = 712;
+const PORTAL_BUILD_AT = '2026-07-24T02:10:06Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -6084,7 +6084,11 @@ function _vplpLedger(v, embedOpts) {
         const gTaxB = taxBTot * uf, gAddl = poAddlTot * uf;
         const mat = dispMat, addlC = dispAddl + gAddl, taxA = dispTaxA, taxB = gTaxB;
         const credit = revCredit + unMat + unTaxA + gTaxB + gAddl;
-        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', mat, addl: addlC, taxA, taxB, credit, debit: 0, qty: app.reduce((s, rc) => s + (rc.qty || 0), 0), status: null, utr: '', uuid: '' });
+        // Review status of this GRN row: all lines reviewed-approved → Approved;
+        // none reviewed → Pending (counts at PO rate); a mix → Partial.
+        const nRev = app.filter(rc => rc.reviewed).length;
+        const grnStatus = nRev === app.length ? 'Approved' : nRev === 0 ? 'Pending' : 'Partial';
+        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', grnStatus, mat, addl: addlC, taxA, taxB, credit, debit: 0, qty: app.reduce((s, rc) => s + (rc.qty || 0), 0), status: null, utr: '', uuid: '' });
       }
       // Rejected lines of this receipt → one uncounted row (un-reviewed receipts
       // now count via the PO/tiered logic, so the only excluded rows are rejections).
@@ -6198,15 +6202,20 @@ function _vplpLedger(v, embedOpts) {
   const body = entries.slice().reverse().map(e => {
     const s = e.status;
     const click = e.uuid ? ` style="cursor:pointer" onclick="_accOpenPRDetail('${e.uuid}')"` : '';
+    // GRN rows show the SOURCE tag (GRN) + the review status, so both are visible.
+    const grnTag = `<span style="font-size:.6rem;background:#f1f5f9;color:#64748b;padding:2px 6px;border-radius:9px;font-weight:700;letter-spacing:.03em">GRN</span>`;
+    const grnChip = (bg, fg, label, tip) => `${grnTag} <span style="font-size:.66rem;background:${bg};color:${fg};padding:2px 8px;border-radius:9px;font-weight:700"${tip ? ` title="${tip}"` : ''}>${label}</span>`;
     const statusCell = s
       ? `<span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span>`
       : e.opening
         ? `<span style="font-size:.66rem;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:9px;font-weight:600">Opening</span>`
         : e.rejected
-          ? `<span style="font-size:.66rem;background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9px;font-weight:700">Rejected</span>`
-          : e.pending
-            ? `<span style="font-size:.66rem;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px;font-weight:700">Pending review</span>`
-            : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
+          ? grnChip('#fee2e2', '#b91c1c', 'Rejected', 'Rejected by Accounts — excluded from the balance')
+          : e.grnStatus === 'Approved'
+            ? grnChip('#dcfce7', '#15803d', 'Approved', 'Accounts-approved in GRN Review')
+            : e.grnStatus === 'Partial'
+              ? grnChip('#dbeafe', '#1d4ed8', 'Part-approved', 'Some lines of this GRN approved, some still un-reviewed')
+              : grnChip('#fef3c7', '#b45309', 'Pending', 'Not yet reviewed — counts at the PO rate');
     const partic = e.rejected
       ? `<span style="color:var(--txt3)">${e.type} &middot; rejected by Accounts</span> <span style="font-weight:700;color:#b91c1c;white-space:nowrap">(₹${Math.round(e.pendingAmt || 0).toLocaleString('en-IN')} excluded)</span>`
       : e.pending
@@ -16985,7 +16994,7 @@ function renderPlaceholder(icon, title, desc, phase) {
 //  KNOWLEDGE BASE
 //  Internal how-it-works reference for portal processes. Data-driven: add an
 //  entry to KB_ARTICLES with a body() that returns HTML and it shows up in the
-//  index + search automatically. First article documents the GRN Review gate.
+//  index + search automatically. First article documents the GRN Review flow.
 // ══════════════════════════════════════════════════
 let _kbCurrentId = null;
 let _kbSearch = '';
@@ -16997,7 +17006,7 @@ const KB_ARTICLES = [
     title: 'GRN Accounts Review',
     category: 'Accounts',
     icon: '🧾',
-    summary: 'How received goods are reviewed by Accounts before they credit the Vendor Ledger — the gate, the states, the modes, and the tax logic.',
+    summary: 'How received goods are valued in the Vendor Ledger — the per-GRN review rule, the PO/tiered fallback, rate-by-quantity, and the tax logic.',
     updated: 'Jul 2026',
     body: _kbBodyGRNReview,
   },
@@ -17085,7 +17094,7 @@ function _kbBodyGRNReview() {
     <div class="card card-pad">
       <div class="kb-kicker">Accounts Controls · Vendor Ledger (PO) → GRN Review</div>
       <h2 class="kb-h">GRN Accounts Review</h2>
-      <p class="kb-p">Every goods receipt (GRN) booked at site as a <b>StockIN</b> is checked by <b>Accounts</b> against the received invoice and PO before its value is allowed to reach the <b>Vendor Ledger (PO)</b>. This is the checkpoint that sits between receiving goods and crediting the vendor.</p>
+      <p class="kb-p">Every goods receipt (GRN) booked at site as a <b>StockIN</b> can be checked by <b>Accounts</b> against the received invoice and PO. A review, <b>when one exists</b>, decides how that receipt is valued in the <b>Vendor Ledger (PO)</b>.</p>
 
       <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
         <b>In one line:</b> reviews apply <b>automatically, per GRN</b> — there's no On/Off switch. An <b>approved</b> line posts at the Accounts-reviewed figures; a <b>rejected</b> line is excluded from the balance; a line <b>not yet reviewed still counts</b>, valued at the PO rate.
@@ -17101,17 +17110,19 @@ function _kbBodyGRNReview() {
           <tr><td>No review yet</td><td><b>PO rate / tiered</b> valuation.</td><td>✅ counted</td></tr>
         </tbody>
       </table>
+      <p class="kb-p" style="margin-top:.7rem">So un-reviewed goods are <b>not</b> held out of the balance — they post at the PO figure until Accounts adjust them. Only an explicit <b>Reject</b> keeps a receipt out.</p>
 
       <h3 class="kb-sub">The workflow, per received line</h3>
       <table class="kb-tbl">
         <thead><tr><th>Step</th><th>What happens</th></tr></thead>
         <tbody>
-          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> as a read-only reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
+          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> plus read-only <b>PO Tax %</b> / <b>PO Tax Value</b> as reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
           <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
           <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one. Changed your mind? <b>↩ Move to Pending</b> undoes a decision and reverts the line to the PO rate, exactly like an un-reviewed one.</td></tr>
           <tr><td><b>4 · Post</b></td><td>Reviews take effect <b>automatically</b>: an approved line credits the ledger at its Final values, a rejected line drops out, and an un-reviewed line still counts at the PO rate. A count badge shows how many are still pending.</td></tr>
         </tbody>
       </table>
+      <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID: reviewing the same GRN twice <b>updates that same row</b>. Should two rows ever exist for one SI ID, the <b>latest by timestamp</b> wins, so a later Approve supersedes an earlier Reject. A line with no SI ID cannot be reviewed.</p>
 
       <h3 class="kb-sub">Three review states</h3>
       <table class="kb-tbl">
@@ -17122,13 +17133,18 @@ function _kbBodyGRNReview() {
           <tr><td>${rejPill}</td><td>Held back by Accounts.</td><td>No — excluded (red <i>Rejected</i> row).</td></tr>
         </tbody>
       </table>
-      <p class="kb-p" style="margin-top:.7rem">Lines join to reviews by <b>SI ID</b> — the StockIN line's own identifier. One review per SI ID: reviewing the same GRN twice <b>updates that same row</b> rather than creating a duplicate. Should two rows ever exist for one SI ID, the <b>latest by timestamp</b> is what wins — both in the <b>GRN Review queue</b> (the status you see) and in the <b>ledger</b>. So a later Approve always supersedes an earlier Reject. A line with no SI ID cannot be reviewed.</p>
+
+      <h3 class="kb-sub">Rates map to quantity, not to the line</h3>
+      <p class="kb-p">When the <b>same item</b> sits on a PO at <b>more than one rate</b> (e.g. 800 @ ₹100, then the rest @ ₹120), received quantity is valued against those rate <b>tiers in PO-line order</b> — the first 800 units at ₹100, the remainder at ₹120 — <b>regardless of which line each GRN was booked against</b>. A GRN that straddles the boundary is <b>blended within its own row</b> (e.g. 300 @ ₹100 + 100 @ ₹120). Different items on a PO are valued independently.</p>
+
+      <h3 class="kb-sub">Reading the ledger</h3>
+      <p class="kb-p">Each goods-received row shows the received <b>quantity in brackets</b> next to the Credit amount (e.g. <code>₹94,400 (800)</code>), and the <b>Tax (a)</b> / <b>Tax (b)</b> columns show their effective <b>%</b> in-cell. Rejected receipts appear as a red <b>Rejected</b> row and are excluded from the running balance.</p>
 
       <h3 class="kb-sub">Who does what</h3>
       <table class="kb-tbl">
         <thead><tr><th>Action</th><th>Who</th></tr></thead>
         <tbody>
-          <tr><td>View the queue</td><td>Anyone with access to Vendor Ledger (PO)</td></tr>
+          <tr><td>View the queue &amp; ledger</td><td>Anyone with access to Vendor Ledger (PO)</td></tr>
           <tr><td>Approve / Reject / edit figures</td><td><b>Accounts</b> (or people named under Configuration → Status Access → “GRN Review”)</td></tr>
           <tr><td>Hide the GRN Review tab</td><td><b>Admins</b> only (PortalConfig <code>grn_review_mode = hidden</code>)</td></tr>
         </tbody>
