@@ -6084,7 +6084,11 @@ function _vplpLedger(v, embedOpts) {
         const gTaxB = taxBTot * uf, gAddl = poAddlTot * uf;
         const mat = dispMat, addlC = dispAddl + gAddl, taxA = dispTaxA, taxB = gTaxB;
         const credit = revCredit + unMat + unTaxA + gTaxB + gAddl;
-        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', mat, addl: addlC, taxA, taxB, credit, debit: 0, qty: app.reduce((s, rc) => s + (rc.qty || 0), 0), status: null, utr: '', uuid: '' });
+        // Review status of this GRN row: all lines reviewed-approved → Approved;
+        // none reviewed → Pending (counts at PO rate); a mix → Partial.
+        const nRev = app.filter(rc => rc.reviewed).length;
+        const grnStatus = nRev === app.length ? 'Approved' : nRev === 0 ? 'Pending' : 'Partial';
+        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', grnStatus, mat, addl: addlC, taxA, taxB, credit, debit: 0, qty: app.reduce((s, rc) => s + (rc.qty || 0), 0), status: null, utr: '', uuid: '' });
       }
       // Rejected lines of this receipt → one uncounted row (un-reviewed receipts
       // now count via the PO/tiered logic, so the only excluded rows are rejections).
@@ -6204,9 +6208,11 @@ function _vplpLedger(v, embedOpts) {
         ? `<span style="font-size:.66rem;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:9px;font-weight:600">Opening</span>`
         : e.rejected
           ? `<span style="font-size:.66rem;background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9px;font-weight:700">Rejected</span>`
-          : e.pending
-            ? `<span style="font-size:.66rem;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px;font-weight:700">Pending review</span>`
-            : `<span style="font-size:.66rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:9px;font-weight:600">GRN</span>`;
+          : e.grnStatus === 'Approved'
+            ? `<span style="font-size:.66rem;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9px;font-weight:700" title="Accounts-approved in GRN Review">Approved</span>`
+            : e.grnStatus === 'Partial'
+              ? `<span style="font-size:.66rem;background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:9px;font-weight:700" title="Some lines of this GRN approved, some still un-reviewed">Part-approved</span>`
+              : `<span style="font-size:.66rem;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px;font-weight:700" title="Not yet reviewed — counts at the PO rate">Pending</span>`;
     const partic = e.rejected
       ? `<span style="color:var(--txt3)">${e.type} &middot; rejected by Accounts</span> <span style="font-weight:700;color:#b91c1c;white-space:nowrap">(₹${Math.round(e.pendingAmt || 0).toLocaleString('en-IN')} excluded)</span>`
       : e.pending
