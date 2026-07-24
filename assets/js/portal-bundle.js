@@ -6554,8 +6554,10 @@ function _regAttCard(url, name, matchedOn, mime, size) {
   const previewUrl = _regDrivePreview(url);
   const btnStyle = 'font-size:.72rem;font-weight:700;white-space:nowrap;text-decoration:none;padding:2px 8px;border-radius:6px;border:1px solid var(--border)';
   return `<div style="display:flex;align-items:center;gap:.6rem;padding:.5rem .7rem;border:1px solid var(--border);border-radius:9px;background:var(--surface1);margin-bottom:.4rem">
-    <span style="font-size:1.1rem">${_regFileIcon(mime, name)}</span>
-    <span style="flex:1;min-width:0;font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name || 'Attachment')}</span>
+    <a href="${esc(url)}" target="_blank" rel="noopener" title="Open ${esc(name || 'attachment')}" style="flex:1;min-width:0;display:flex;align-items:center;gap:.6rem;text-decoration:none;color:inherit;cursor:pointer">
+      <span style="font-size:1.1rem">${_regFileIcon(mime, name)}</span>
+      <span style="flex:1;min-width:0;font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name || 'Attachment')}</span>
+    </a>
     ${matchedOn ? `<span style="font-size:.62rem;color:var(--txt3);background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1px 6px;white-space:nowrap">${esc(matchedOn)}</span>` : ''}
     ${sz ? `<span style="font-size:.68rem;color:var(--txt3);white-space:nowrap">${sz}</span>` : ''}
     <a href="${esc(url)}" target="_blank" rel="noopener" style="${btnStyle};color:var(--g7)">Open &#8599;</a>
