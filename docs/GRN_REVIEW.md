@@ -78,9 +78,14 @@ all resolve):
 
 ```
 UUID | SystemEmail | UserEmail | Timestamp | Reviewed By | SI ID | GRN No |
-PO No | Vendor ID | Part | Invoice No | GRN Qty | PO Rate | Reviewed Rate |
-Reviewed Tax | Additional Charges | Reviewed Value | Review Status | Comments
+PO No | Vendor ID | Part | Invoice No | GRN Qty | PO Rate | PO Tax % |
+PO Tax Value | Reviewed Rate | Reviewed Tax | Additional Charges |
+Reviewed Value | Review Status | Comments
 ```
+
+`PO Tax %` and `PO Tax Value` (= `PO Rate × Qty × Tax%`) are written for reference
+alongside `PO Rate`. Add these two columns to the tab to capture them; without
+them the values are simply skipped (reported back in the write's `unmatched`).
 
 - **`SI ID`** is the join key — the StockIN line's own ID (read from the StockIN
   `SI ID` column). One review per SI ID: the backend **upserts** — a re-review
