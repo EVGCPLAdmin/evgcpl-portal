@@ -6202,17 +6202,20 @@ function _vplpLedger(v, embedOpts) {
   const body = entries.slice().reverse().map(e => {
     const s = e.status;
     const click = e.uuid ? ` style="cursor:pointer" onclick="_accOpenPRDetail('${e.uuid}')"` : '';
+    // GRN rows show the SOURCE tag (GRN) + the review status, so both are visible.
+    const grnTag = `<span style="font-size:.6rem;background:#f1f5f9;color:#64748b;padding:2px 6px;border-radius:9px;font-weight:700;letter-spacing:.03em">GRN</span>`;
+    const grnChip = (bg, fg, label, tip) => `${grnTag} <span style="font-size:.66rem;background:${bg};color:${fg};padding:2px 8px;border-radius:9px;font-weight:700"${tip ? ` title="${tip}"` : ''}>${label}</span>`;
     const statusCell = s
       ? `<span style="font-size:.68rem;background:${s.bg};color:${s.color};padding:2px 8px;border-radius:9px;font-weight:600;white-space:nowrap">${esc(s.label)}</span>`
       : e.opening
         ? `<span style="font-size:.66rem;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:9px;font-weight:600">Opening</span>`
         : e.rejected
-          ? `<span style="font-size:.66rem;background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:9px;font-weight:700">Rejected</span>`
+          ? grnChip('#fee2e2', '#b91c1c', 'Rejected', 'Rejected by Accounts — excluded from the balance')
           : e.grnStatus === 'Approved'
-            ? `<span style="font-size:.66rem;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:9px;font-weight:700" title="Accounts-approved in GRN Review">Approved</span>`
+            ? grnChip('#dcfce7', '#15803d', 'Approved', 'Accounts-approved in GRN Review')
             : e.grnStatus === 'Partial'
-              ? `<span style="font-size:.66rem;background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:9px;font-weight:700" title="Some lines of this GRN approved, some still un-reviewed">Part-approved</span>`
-              : `<span style="font-size:.66rem;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:9px;font-weight:700" title="Not yet reviewed — counts at the PO rate">Pending</span>`;
+              ? grnChip('#dbeafe', '#1d4ed8', 'Part-approved', 'Some lines of this GRN approved, some still un-reviewed')
+              : grnChip('#fef3c7', '#b45309', 'Pending', 'Not yet reviewed — counts at the PO rate');
     const partic = e.rejected
       ? `<span style="color:var(--txt3)">${e.type} &middot; rejected by Accounts</span> <span style="font-weight:700;color:#b91c1c;white-space:nowrap">(₹${Math.round(e.pendingAmt || 0).toLocaleString('en-IN')} excluded)</span>`
       : e.pending
