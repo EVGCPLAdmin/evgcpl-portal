@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.49.2';
-const PORTAL_BUILD    = 713;
-const PORTAL_BUILD_AT = '2026-07-24T05:09:05Z';
+const PORTAL_VERSION  = '4.49.3';
+const PORTAL_BUILD    = 714;
+const PORTAL_BUILD_AT = '2026-07-24T10:21:45Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5477,6 +5477,7 @@ function _vplpGRNReviewView() {
   _vplpEnsureLedgerStyle();
   const esc = _mdpEsc, d = _vplpData || {};
   const inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
+  const inr2 = n => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const lines = (d.grnLines || []).slice();
   const statusOf = l => l.rev && l.rev.status ? l.rev.status : 'Pending';
   const isApp = l => /approv/i.test(statusOf(l)), isRej = l => /reject/i.test(statusOf(l));
@@ -5544,7 +5545,7 @@ function _vplpGRNReviewView() {
       <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO line tax rate">${l.poTaxPct ? (Math.round(l.poTaxPct * 100) / 100) + '%' : '—'}</td>
-      <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO Rate × Qty × Tax%">${l.poTaxVal ? inr(l.poTaxVal) : '—'}</td>
+      <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO Rate × Qty × Tax%">${l.poTaxVal ? inr2(l.poTaxVal) : '—'}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('rate', rateVal, 84, `oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('tax', taxVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('addl', addlVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
@@ -5643,6 +5644,7 @@ window._vplpGRNOpenModal = function(i) {
   const l = (window._vplpGRNShown || [])[i]; if (!l) return;
   window._vplpGRNModalLine = l;
   const esc = _mdpEsc, inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
+  const inr2 = n => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const canReview = _grnCanReview();
   const ro = canReview ? '' : ' disabled';
   const st = (l.rev && l.rev.status) ? l.rev.status : 'Pending';
@@ -5698,7 +5700,7 @@ window._vplpGRNOpenModal = function(i) {
       ${meta('Qty', (l.qty || 0).toLocaleString('en-IN'))}
       ${meta('PO Rate', inr(l.poRate))}
       ${meta('PO Tax %', l.poTaxPct ? (Math.round(l.poTaxPct * 100) / 100) + '%' : '—')}
-      ${meta('PO Tax Value', l.poTaxVal ? inr(l.poTaxVal) : '—')}
+      ${meta('PO Tax Value', l.poTaxVal ? inr2(l.poTaxVal) : '—')}
     </div>
     <div style="padding:.8rem 0">
       <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3);margin-bottom:3px">Part No; Description</div>
