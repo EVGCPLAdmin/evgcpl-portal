@@ -5596,7 +5596,7 @@ window._vplpGRNSave = async function(l, action, vals) {
     'SI ID': l.siId, 'SIID': l.siId,
     'GRN No': l.grn, 'PO No': l.poNo, 'Vendor ID': l.vid, 'Part': l.part,
     'Invoice No': l.inv, 'GRN Qty': l.qty, 'PO Rate': l.poRate,
-    'PO Tax %': l.poTaxPct ? Math.round(l.poTaxPct * 100) / 100 : '', 'PO Tax Pct': l.poTaxPct ? Math.round(l.poTaxPct * 100) / 100 : '',
+    'PO Tax (%)': l.poTaxPct ? Math.round(l.poTaxPct * 100) / 100 : '', 'PO Tax %': l.poTaxPct ? Math.round(l.poTaxPct * 100) / 100 : '', 'PO Tax Pct': l.poTaxPct ? Math.round(l.poTaxPct * 100) / 100 : '',
     'PO Tax Value': l.poTaxVal ? Math.round(l.poTaxVal * 100) / 100 : '', 'PO Tax Val': l.poTaxVal ? Math.round(l.poTaxVal * 100) / 100 : '',
     'Reviewed Rate': isNaN(rate) ? '' : rate, 'Final Rate': isNaN(rate) ? '' : rate,
     'Reviewed Tax': isNaN(tax) ? '' : tax, 'Final Tax': isNaN(tax) ? '' : tax,
