@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.49.1';
-const PORTAL_BUILD    = 712;
-const PORTAL_BUILD_AT = '2026-07-24T02:10:06Z';
+const PORTAL_VERSION  = '4.49.4';
+const PORTAL_BUILD    = 715;
+const PORTAL_BUILD_AT = '2026-07-24T10:30:03Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5477,6 +5477,7 @@ function _vplpGRNReviewView() {
   _vplpEnsureLedgerStyle();
   const esc = _mdpEsc, d = _vplpData || {};
   const inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
+  const inr2 = n => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const lines = (d.grnLines || []).slice();
   const statusOf = l => l.rev && l.rev.status ? l.rev.status : 'Pending';
   const isApp = l => /approv/i.test(statusOf(l)), isRej = l => /reject/i.test(statusOf(l));
@@ -5544,7 +5545,7 @@ function _vplpGRNReviewView() {
       <td style="padding:6px 9px;text-align:right">${(l.qty || 0).toLocaleString('en-IN')}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)">${inr(l.poRate)}</td>
       <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO line tax rate">${l.poTaxPct ? (Math.round(l.poTaxPct * 100) / 100) + '%' : '—'}</td>
-      <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO Rate × Qty × Tax%">${l.poTaxVal ? inr(l.poTaxVal) : '—'}</td>
+      <td style="padding:6px 9px;text-align:right;color:var(--txt3)" title="PO Rate × Qty × Tax%">${l.poTaxVal ? inr2(l.poTaxVal) : '—'}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('rate', rateVal, 84, `oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('tax', taxVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
       <td style="padding:6px 9px;text-align:right">${numInput('addl', addlVal, 78, `placeholder="0" oninput="_vplpGRNCalc(${i})"`)}</td>
@@ -5595,6 +5596,8 @@ window._vplpGRNSave = async function(l, action, vals) {
     'SI ID': l.siId, 'SIID': l.siId,
     'GRN No': l.grn, 'PO No': l.poNo, 'Vendor ID': l.vid, 'Part': l.part,
     'Invoice No': l.inv, 'GRN Qty': l.qty, 'PO Rate': l.poRate,
+    'PO Tax %': l.poTaxPct ? Math.round(l.poTaxPct * 100) / 100 : '', 'PO Tax Pct': l.poTaxPct ? Math.round(l.poTaxPct * 100) / 100 : '',
+    'PO Tax Value': l.poTaxVal ? Math.round(l.poTaxVal * 100) / 100 : '', 'PO Tax Val': l.poTaxVal ? Math.round(l.poTaxVal * 100) / 100 : '',
     'Reviewed Rate': isNaN(rate) ? '' : rate, 'Final Rate': isNaN(rate) ? '' : rate,
     'Reviewed Tax': isNaN(tax) ? '' : tax, 'Final Tax': isNaN(tax) ? '' : tax,
     'Additional Charges': isNaN(addl) ? '' : addl, 'Final Additional Charges': isNaN(addl) ? '' : addl,
@@ -5643,6 +5646,7 @@ window._vplpGRNOpenModal = function(i) {
   const l = (window._vplpGRNShown || [])[i]; if (!l) return;
   window._vplpGRNModalLine = l;
   const esc = _mdpEsc, inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
+  const inr2 = n => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const canReview = _grnCanReview();
   const ro = canReview ? '' : ' disabled';
   const st = (l.rev && l.rev.status) ? l.rev.status : 'Pending';
@@ -5698,7 +5702,7 @@ window._vplpGRNOpenModal = function(i) {
       ${meta('Qty', (l.qty || 0).toLocaleString('en-IN'))}
       ${meta('PO Rate', inr(l.poRate))}
       ${meta('PO Tax %', l.poTaxPct ? (Math.round(l.poTaxPct * 100) / 100) + '%' : '—')}
-      ${meta('PO Tax Value', l.poTaxVal ? inr(l.poTaxVal) : '—')}
+      ${meta('PO Tax Value', l.poTaxVal ? inr2(l.poTaxVal) : '—')}
     </div>
     <div style="padding:.8rem 0">
       <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--txt3);margin-bottom:3px">Part No; Description</div>
@@ -6563,8 +6567,10 @@ function _regAttCard(url, name, matchedOn, mime, size) {
   const previewUrl = _regDrivePreview(url);
   const btnStyle = 'font-size:.72rem;font-weight:700;white-space:nowrap;text-decoration:none;padding:2px 8px;border-radius:6px;border:1px solid var(--border)';
   return `<div style="display:flex;align-items:center;gap:.6rem;padding:.5rem .7rem;border:1px solid var(--border);border-radius:9px;background:var(--surface1);margin-bottom:.4rem">
-    <span style="font-size:1.1rem">${_regFileIcon(mime, name)}</span>
-    <span style="flex:1;min-width:0;font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name || 'Attachment')}</span>
+    <a href="${esc(url)}" target="_blank" rel="noopener" title="Open ${esc(name || 'attachment')}" style="flex:1;min-width:0;display:flex;align-items:center;gap:.6rem;text-decoration:none;color:inherit;cursor:pointer">
+      <span style="font-size:1.1rem">${_regFileIcon(mime, name)}</span>
+      <span style="flex:1;min-width:0;font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name || 'Attachment')}</span>
+    </a>
     ${matchedOn ? `<span style="font-size:.62rem;color:var(--txt3);background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1px 6px;white-space:nowrap">${esc(matchedOn)}</span>` : ''}
     ${sz ? `<span style="font-size:.68rem;color:var(--txt3);white-space:nowrap">${sz}</span>` : ''}
     <a href="${esc(url)}" target="_blank" rel="noopener" style="${btnStyle};color:var(--g7)">Open &#8599;</a>
