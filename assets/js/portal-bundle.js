@@ -17050,6 +17050,105 @@ const KB_ARTICLES = [
     updated: 'Jul 2026',
     body: _kbBodyAccessSync,
   },
+  {
+    id: 'recruitment-onboarding',
+    title: 'Recruitment → Onboarding',
+    category: 'HR & People',
+    icon: '👥',
+    summary: 'Hiring from a Manpower Requisition (MRF) through Offer Letter, Pre-Joining and Joining, into the onboarding checklist that creates the employee record.',
+    updated: 'Jul 2026',
+    body: _kbBodyRecruitment,
+  },
+  {
+    id: 'expense-ledger',
+    title: 'Expense Ledger (Cash & Mess)',
+    category: 'Accounts',
+    icon: '🍽️',
+    summary: 'Site cash and mess expenses — the monthly per-site ledger, its cash requests and bills, the approval trail, and how a month is opened and closed.',
+    updated: 'Jul 2026',
+    body: _kbBodyExpenseLedger,
+  },
+  {
+    id: 'party-ledgers',
+    title: 'Party Ledgers (Statements)',
+    category: 'Accounts',
+    icon: '📒',
+    summary: 'Per-party running statements for a Vendor, Sub-Contractor or Employee — every transaction with a running balance and Paid / Pending totals.',
+    updated: 'Jul 2026',
+    body: _kbBodyPartyLedgers,
+  },
+  {
+    id: 'access-groups',
+    title: 'Access Groups & Enforcement',
+    category: 'Configuration',
+    icon: '🔐',
+    summary: 'How pages and actions are granted — access groups with route/action permissions, the enforce switch, super-admins, and how userCan() decides.',
+    updated: 'Jul 2026',
+    body: _kbBodyAccessGroups,
+  },
+  {
+    id: 'safety-module',
+    title: 'Safety — Checks & Incidents',
+    category: 'Site Ops',
+    icon: '⛑️',
+    summary: 'The daily site safety checklist and incident reporting — the ten checks, the safety score, and how incidents and daily checks are logged.',
+    updated: 'Jul 2026',
+    body: _kbBodySafety,
+  },
+  {
+    id: 'planning-budget-dpr',
+    title: 'Planning — Budget → Execution (DPR)',
+    category: 'Planning',
+    icon: '📈',
+    summary: 'How the project budget (PCC) sets targets and the Daily Progress Report (DPR) reports actuals against them.',
+    updated: 'Jul 2026',
+    body: _kbBodyPlanning,
+  },
+  {
+    id: 'plant-machinery',
+    title: 'Plant & Machinery',
+    category: 'Plant & Machinery',
+    icon: '🚜',
+    summary: 'The equipment lifecycle in the portal — daily log entries, asset verification, and maintenance records.',
+    updated: 'Jul 2026',
+    body: _kbBodyPlant,
+  },
+  {
+    id: 'schema-manager',
+    title: 'Schema Manager',
+    category: 'Configuration',
+    icon: '🧩',
+    summary: 'The single place that defines table columns and form fields — types, labels and validation — that the rest of the portal renders from.',
+    updated: 'Jul 2026',
+    body: _kbBodySchema,
+  },
+  {
+    id: 'data-hub-reports',
+    title: 'Data Hub, Masters & Reports',
+    category: 'Reports & Data',
+    icon: '🗂️',
+    summary: 'The read-only side of the portal — browse any source sheet, export the 26 master tabs to CSV, and schedule report emails.',
+    updated: 'Jul 2026',
+    body: _kbBodyDataHub,
+  },
+  {
+    id: 'config-backends',
+    title: 'Configuration & Backends',
+    category: 'Configuration',
+    icon: '⚙️',
+    summary: 'How the portal is wired — Portal Config, Sheet Linking (re-point any source), Status Access, and the Apps Script exec endpoints behind every write.',
+    updated: 'Jul 2026',
+    body: _kbBodyConfigBackends,
+  },
+  {
+    id: 'rewards',
+    title: 'Rewards & Recognition',
+    category: 'Engagement',
+    icon: '🏆',
+    summary: 'Nominating colleagues and the recognition wall — nominations, posts, reactions and comments.',
+    updated: 'Jul 2026',
+    body: _kbBodyRewards,
+  },
 ];
 
 function _kbEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -17505,6 +17604,236 @@ function _kbBodyAccessSync() {
       )}
 
       <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The employee register is the source of truth for access. Manual group grants still work and stack on top — but the Current/Deactivated baseline maintains itself.</p>
+    </div>`;
+}
+
+// ── Article: Recruitment → Onboarding ───────────────────────────
+function _kbBodyRecruitment() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">HR · Talent Acquisition</div>
+      <h2 class="kb-h">Recruitment → Onboarding</h2>
+      <p class="kb-p">Hiring runs as a pipeline: a department asks for a person, HR sources and makes an offer, the candidate completes pre-joining, and on their start date they're onboarded — which is what creates the employee record the rest of the portal keys off.</p>
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> <b>Requisition (MRF)</b> → <b>Offer Letter</b> → <b>Pre-Joining</b> → <b>Joining</b> → <b>Onboarding checklist</b> → employee record.
+      </div>
+      ${_kbFlow([
+        { label: 'Requisition (MRF)', sub: 'dept raises need', tone: 'start' },
+        { label: 'Offer Letter', sub: 'HR sources & offers', edge: 'approve' },
+        { label: 'Pre-Joining', sub: 'docs & formalities', edge: 'accept' },
+        { label: 'Joining', sub: 'reports on date', edge: 'join' },
+        { label: 'Onboarding', sub: 'checklist → register', edge: 'onboard', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Recruitment</b> has tabs for each stage — <b>Requisitions</b>, <b>Offer Letters</b>, <b>Pre-Joining</b>, <b>Joining</b>, plus an HR <b>Overview</b>. Anyone in MD / HR / Dept-Head / Site can raise a <b>+ New MRF</b> (manpower requisition); HR carries it through offers and joining. On the start date, <b>Onboarding</b> runs a checklist that files the person into the Employee Register.</p>`,
+        `<p class="kb-p">Recruitment data lives in the <code>RECRUITMENT</code> sheet (<code>MRF_Register</code>, <code>Offer_Tracker</code>, <code>v1_JoiningList</code>); onboarding writes to the <code>EMP</code> sheet's <code>OnboardingChecklist</code> tab via the <b>main</b> backend's <code>appendRow</code>. The five stages are level-3 sub-pages under the <code>recruitment</code> route; the tab set is filtered by role.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Onboarding is the hand-off point: once the register row exists, the <b>Access Auto-Sync</b> picks the person up and grants portal access on its next run.</p>
+    </div>`;
+}
+
+// ── Article: Expense Ledger (Cash & Mess) ───────────────────────
+function _kbBodyExpenseLedger() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Accounts · Site Cash</div>
+      <h2 class="kb-h">Expense Ledger — Cash &amp; Mess</h2>
+      <p class="kb-p">Sites run on cash floats for day-to-day and mess (food) spending. The Expense Ledger tracks each site's month as a single ledger entry, with the cash requests and itemised bills that roll up into it, and the approval trail behind them.</p>
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> a site-month opens with an <b>opening balance</b> → <b>cash requests</b> draw on it → <b>bills</b> account for the spend → the month <b>closes</b>.
+      </div>
+      ${_kbFlow([
+        { label: 'Site-Month', sub: 'CashExpenseMonth', tone: 'start' },
+        { label: 'Cash Requests', sub: 'draws on the float', edge: 'Request ID' },
+        { label: 'Bills (Ledger)', sub: 'line-item spend', edge: 'CheckSum' },
+        { label: 'Close month', sub: 'Ledger Status = Closed', edge: 'reconcile', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p">Switch between <b>Other Expenses</b> and <b>Site Mess Expenses</b> and pick a site. Each month shows Opening / Initiated / Paid / Closing and whether it's <b>Open</b> or <b>Closed</b>. Expand a month to see its cash requests and the bills booked against it. A month is <b>Pending</b> until its Ledger Status reads Closed.</p>`,
+        `<p class="kb-p">All from the <code>EXPENSE</code> sheet: <code>CashExpenseMonth</code> (the month node), <code>Cash Expenses</code> (requests), <code>Ledger</code> (bills), and the approval tab. The month's composite UUID (<code>MCE-site|Cash&nbsp;For|period</code>) is the <b>CheckSum</b> that requests and bills carry, so each month links to its own children. <b>Individual Mess Expenses</b> is a separate per-person view of the same food spend.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The month is the unit of truth. Everything — cash out, bills, approvals — hangs off the site-month CheckSum, so a month either reconciles and closes or stays visibly Open.</p>
+    </div>`;
+}
+
+// ── Article: Party Ledgers ──────────────────────────────────────
+function _kbBodyPartyLedgers() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Accounts · Statements</div>
+      <h2 class="kb-h">Party Ledgers</h2>
+      <p class="kb-p">A party ledger is a running statement for one party — a <b>Vendor</b>, <b>Sub-Contractor</b>, <b>Employee</b> or <b>Others</b> — listing every payment transaction in date order with a running balance and Paid / Pending totals. A party is identified uniquely by <b>Name + A/C number</b>.</p>
+      ${_kbFlow([
+        { label: 'Pick a party', sub: 'Name + A/C', tone: 'start' },
+        { label: 'Transactions', sub: 'in date order', edge: 'load' },
+        { label: 'Running balance', sub: 'Paid vs Pending', edge: 'total', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Ledgers</b> holds the <b>Employee</b>, <b>Sub-Contractor</b> and (from Accounts) <b>Vendor Ledger (PO)</b> statements. Choose a party to see each transaction, its status, and the balance carried down — with Paid and Pending summed at the top. Export any statement to CSV.</p>`,
+        `<p class="kb-p">Built from the payment transactions in the <code>PAYMENT</code> sheet, grouped by party key (Name + A/C). The <b>Vendor Ledger (PO)</b> additionally nets goods received (Cr) against payments (Dr) — see the <b>Accounts</b> and <b>GRN Accounts Review</b> guides for how received value is priced. Opening balances seed the running total.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">One party, one statement: Name + A/C is the identity, and the running balance is always Paid − owed as of the latest transaction.</p>
+    </div>`;
+}
+
+// ── Article: Access Groups & Enforcement ────────────────────────
+function _kbBodyAccessGroups() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Configuration · Access Control</div>
+      <h2 class="kb-h">Access Groups &amp; Enforcement</h2>
+      <p class="kb-p">Who can see which pages and take which actions is controlled by <b>access groups</b>. A group grants a set of <b>routes</b> (pages) and <b>actions</b> (view, create, approve, …); people are assigned to groups, and a master <b>enforce</b> switch turns the whole scheme on.</p>
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> a person's reachable pages = the union of every group they're in; <code>userCan(route, action)</code> is the gate every button checks.
+      </div>
+      ${_kbFork('When enforcement is ON, can this user open a route / do an action?', [
+        { when: 'Super-admin', then: 'everything (bypasses groups)', tone: 'ok' },
+        { when: 'In a group that grants it', then: 'allowed', tone: 'ok' },
+        { when: 'No group grants it', then: 'hidden / blocked', tone: 'bad' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Access &amp; Pages</b> holds it all: create groups, tick the routes and actions each one grants, and assign people. The <b>enforce</b> toggle is the master switch — off, everyone sees everything (setup mode); on, restrictions apply. Each page also has a Live / Dev / Off status. Employees are auto-placed into <b>Users</b> / <b>Deactivated</b> — see <b>Employee Access Auto-Sync</b>.</p>`,
+        `<p class="kb-p">Stored in PortalConfig <code>access_config = { enforce, groups:[{id,name,routes,actions}], users:{email:{groups}}, superAdmins }</code>. <code>_accessRouteSetForCurrentUser()</code> unions the user's groups; <code>userCan(route,action)</code> gates actions; <code>_uaGroupsForEmail()</code> merges manual + auto membership. Configuration itself is locked to super-admins / unrestricted admins so an assigned admin can't escalate.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Groups grant, they never deny — access is the union of what your groups allow, and enforcement is the single switch that makes it real.</p>
+    </div>`;
+}
+
+// ── Article: Safety — Checks & Incidents ────────────────────────
+function _kbBodySafety() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Site Ops · HSE</div>
+      <h2 class="kb-h">Safety — Checks &amp; Incidents</h2>
+      <p class="kb-p">The Safety module does two jobs: a <b>daily checklist</b> that scores a site's readiness, and <b>incident reporting</b> for when something goes wrong. Both are logged to the sheet so there's a dated record.</p>
+      ${_kbFlow([
+        { label: 'Daily checklist', sub: '10 checks', tone: 'start' },
+        { label: 'Safety score', sub: '% of checks done', edge: 'tally' },
+        { label: 'Log to sheet', sub: 'DailyChecks', edge: 'submit', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p">Run the day's checklist — PPE, scaffolding, electrical, fire, first-aid, signage, toolbox talk, permits, housekeeping, machinery guards — and submit; the module shows the site's <b>safety score</b> (percent complete). Report an <b>incident</b> separately with its details. Ten standard checks ship by default.</p>`,
+        `<p class="kb-p">The checklist is <code>SAFETY_CHECKS</code> (10 items). Writes go to the <code>SAFETY</code> sheet — <code>DailyChecks</code> for the daily tally and <code>Incidents</code> for reports — via the <b>main</b> backend's <code>appendRow</code>. Reads come straight from those tabs.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Every check and incident is a dated row — the module is the site's safety record, not just today's snapshot.</p>
+    </div>`;
+}
+
+// ── Article: Planning — Budget → Execution (DPR) ────────────────
+function _kbBodyPlanning() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Planning · Cost &amp; Progress</div>
+      <h2 class="kb-h">Planning — Budget → Execution (DPR)</h2>
+      <p class="kb-p">Planning has two halves that meet in the middle: <b>Budgeting</b> sets the plan and the cost targets, and <b>Execution</b> reports what actually happened each day. Comparing the two is how a project is tracked.</p>
+      ${_kbFlow([
+        { label: 'Budgeting (PCC)', sub: 'BOQ · WBS · Workplan', tone: 'start' },
+        { label: 'Targets set', sub: 'cost & schedule', edge: 'plan' },
+        { label: 'Execution (DPR)', sub: 'daily actuals', edge: 'do' },
+        { label: 'Plan vs Actual', sub: 'progress tracking', edge: 'compare', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Budgeting</b> opens the <b>Project Cost Control</b> workspace — BOQ, WBS, work plan, resources, project dashboard. <b>Execution</b> is where the site files the <b>Daily Progress Report (DPR)</b> — what was achieved that day — which reports against the plan.</p>`,
+        `<p class="kb-p">Budgeting embeds the <b>PCC</b> sub-app (served from <code>/pcc/</code>); its writes go through the <b>pcc</b> backend (<code>saveProjectSetup</code>, <code>saveBOQ</code>, <code>saveWBS</code>, <code>saveWorkplan</code>). DPR appends to the <code>DPR</code> sheet's <code>DPR</code> tab via the <b>main</b> backend's <code>appendRow</code>. Execution is a level-3 sub-page under the <code>execution</code> route.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Budget is the promise, DPR is the record — the value is in reading them against each other.</p>
+    </div>`;
+}
+
+// ── Article: Plant & Machinery ──────────────────────────────────
+function _kbBodyPlant() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Plant · Equipment Lifecycle</div>
+      <h2 class="kb-h">Plant &amp; Machinery</h2>
+      <p class="kb-p">Equipment on site is tracked through three activities: a daily <b>log</b> of use, periodic <b>asset verification</b> that it's present and working, and <b>maintenance</b> records.</p>
+      ${_kbFlow([
+        { label: 'Log Entry', sub: 'daily usage', tone: 'start' },
+        { label: 'Asset Verification', sub: 'present & working', edge: 'audit' },
+        { label: 'Maintenance', sub: 'service records', edge: 'upkeep', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Plant Overview</b> and its sub-pages cover <b>Log Entry</b> (record a machine's daily running / hours), <b>Asset Verification</b> (confirm an asset on a walk-round), and <b>Maintenance</b> (log servicing). Together they give each machine a history.</p>`,
+        `<p class="kb-p">Log and verification append to the Master sheet (<code>PlantLog</code>, <code>AssetVerification</code>); the <code>V2</code> sheet also carries <code>LogSheet</code>, <code>Verification</code> and <code>Maintenance</code> tabs. Writes use the <b>main</b> backend's <code>appendRow</code>; the sub-pages sit under the plant route.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Log for use, verify for presence, maintain for uptime — three simple records that add up to an asset's full history.</p>
+    </div>`;
+}
+
+// ── Article: Schema Manager ─────────────────────────────────────
+function _kbBodySchema() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Configuration · Data Shapes</div>
+      <h2 class="kb-h">Schema Manager</h2>
+      <p class="kb-p">The Schema Manager is the one place that defines the <b>shape</b> of data — which <b>columns</b> a table shows and which <b>fields</b> a form asks for, along with their type, label and validation. Pages render from these definitions instead of hard-coding them.</p>
+      ${_kbLayers(
+        `<p class="kb-p">Admins define field and column sets here — a field's <b>type</b> (text, number, date, select…), its label, and validation rules. Change a definition and every table or form that uses it follows, so you tune data entry in one place rather than page by page.</p>`,
+        `<p class="kb-p"><code>renderSchemaPage()</code> on the <code>schema</code> route (Admin). It feeds the EVG design system's table and form layers — <code>EVG.table</code> / <code>EVG.form</code> — which stamp the agreed columns/fields onto every rendered instance. See the <code>docs/TABLE_SETTINGS.md</code> and <code>docs/FORM_SETTINGS.md</code> references for the type catalogue and defaults chain.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Define the shape once, render it everywhere — the Schema Manager is why a column or field looks the same wherever it appears.</p>
+    </div>`;
+}
+
+// ── Article: Data Hub, Masters & Reports ────────────────────────
+function _kbBodyDataHub() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Reports &amp; Data</div>
+      <h2 class="kb-h">Data Hub, Masters &amp; Reports</h2>
+      <p class="kb-p">This is the read-only side of the portal. <b>Data Hub</b> lets you browse the source sheets; <b>Masters</b> mirrors the master spreadsheet's tabs with CSV export and column control; <b>Reports</b> builds and schedules report emails.</p>
+      ${_kbFlow([
+        { label: 'Source sheets', sub: 'live data', tone: 'start' },
+        { label: 'Data Hub / Masters', sub: 'browse · pick columns', edge: 'read' },
+        { label: 'CSV / Scheduled email', sub: 'export / send', edge: 'deliver', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Data Hub</b> opens any registered source table read-only. <b>Masters</b> lists all <b>26 master tabs</b> — export any to <b>CSV</b> or add/remove columns for your view; <b>Export All Masters</b> bundles them. <b>Reports</b> defines a report and can <b>schedule</b> it to email on a cadence.</p>`,
+        `<p class="kb-p">Masters reads tabs from the Master sheet (<code>SHEET_ID</code>), with a per-tab override so Vendor Master reads from its own workbook; column show/hide persists in localStorage (<code>masters_hidden_&lt;tab&gt;</code>). Scheduled reports run from an Apps Script time-trigger (<code>ScheduledReports.gs</code>) reading <code>ReportSchedules</code> — no exec URL, it fires itself hourly.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Nothing here writes back — it's the window onto the data: browse it, export it, or have it mailed to you.</p>
+    </div>`;
+}
+
+// ── Article: Configuration & Backends ───────────────────────────
+function _kbBodyConfigBackends() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Configuration · Plumbing</div>
+      <h2 class="kb-h">Configuration &amp; Backends</h2>
+      <p class="kb-p">Everything that makes the portal point at the right data lives under <b>Configuration</b>. This is the admin plumbing — where sheets, statuses and backends are wired, without touching code.</p>
+      ${_kbLayers(
+        `<p class="kb-p"><b>Configuration</b> tabs:</p>
+         <table class="kb-tbl"><thead><tr><th>Tab</th><th>Does</th></tr></thead><tbody>
+           <tr><td><b>Portal Config</b></td><td>Module status &amp; org-wide defaults.</td></tr>
+           <tr><td><b>Sheet Linking</b></td><td>Re-point any source spreadsheet by ID — every tab it holds follows.</td></tr>
+           <tr><td><b>Site Config</b></td><td>Per-site Country / Currency / Status + rental write-back.</td></tr>
+           <tr><td><b>Status Access</b></td><td>Lock each status transition to named people / roles.</td></tr>
+         </tbody></table>
+         <p class="kb-p"><b>Settings</b> also lists every Sheet ID, and there's an <b>Apps Scripts</b> panel for the backend URLs.</p>`,
+        `<p class="kb-p">Sheet overrides save to PortalConfig <code>sheet_links</code>; <code>_resolveSheetId()</code> applies them in <code>fetchSheet()</code>, so a re-point takes effect everywhere. Backends resolve via <code>getExec(key)</code> — <b>5 deployments</b>: <code>main</code> (most writes), <code>portalConfig</code> (config KV), <code>accounts</code>, <code>pcc</code>, <code>safety</code> — overridable at runtime via <code>getExecOverrides()</code>. Redeploying an Apps Script keeps the same <code>/exec</code> URL.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Sheets and backends are configuration, not code — re-point a source or swap a deployment from these tabs and the whole portal follows.</p>
+    </div>`;
+}
+
+// ── Article: Rewards & Recognition ──────────────────────────────
+function _kbBodyRewards() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Engagement · Culture</div>
+      <h2 class="kb-h">Rewards &amp; Recognition</h2>
+      <p class="kb-p">A light-touch way to recognise colleagues — nominate someone for good work, and share it on a recognition wall the team can react to and comment on.</p>
+      ${_kbFlow([
+        { label: 'Nominate', sub: 'recognise a colleague', tone: 'start' },
+        { label: 'Wall post', sub: 'shared to the team', edge: 'publish' },
+        { label: 'React & comment', sub: 'team engages', edge: 'engage', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Rewards &amp; Wall</b> lets anyone submit a <b>nomination</b> and see the recognition feed. Posts can be reacted to and commented on, so recognition is visible rather than buried in email.</p>`,
+        `<p class="kb-p">All on the <code>REWARDS</code> sheet — <code>Nomination</code>, <code>Posts</code>, <code>Reactions</code>, <code>Comments</code> — each written by the <b>main</b> backend's <code>appendRow</code>. Open to every role.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Recognition works when it's seen — nominations become wall posts the whole team can react to.</p>
     </div>`;
 }
 
