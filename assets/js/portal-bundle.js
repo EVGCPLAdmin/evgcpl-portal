@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.50.1';
-const PORTAL_BUILD    = 717;
-const PORTAL_BUILD_AT = '2026-07-25T10:49:09Z';
+const PORTAL_VERSION  = '4.51.0';
+const PORTAL_BUILD    = 718;
+const PORTAL_BUILD_AT = '2026-07-25T15:40:12Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -17023,9 +17023,70 @@ const KB_ARTICLES = [
     updated: 'Jul 2026',
     body: _kbBodyGRNReview,
   },
+  {
+    id: 'procure-to-stock',
+    title: 'Procurement → Goods in Stock',
+    category: 'Procurement',
+    icon: '📦',
+    summary: 'The full purchase pipeline — a Material Request becomes a PO, the PO is received as a GRN, and stock stays reconciled. Linked end to end by MR No → PO No → GRN No.',
+    updated: 'Jul 2026',
+    body: _kbBodyProcureToStock,
+  },
+  {
+    id: 'site-config-rental',
+    title: 'Site Config & Rental Write-back',
+    category: 'Configuration',
+    icon: '🌐',
+    summary: 'The per-site Country / Currency / Status master and how it stamps those fields onto the Rental Agreement & RP Booking tabs — Preview then Apply.',
+    updated: 'Jul 2026',
+    body: _kbBodySiteConfig,
+  },
+  {
+    id: 'employee-access-sync',
+    title: 'Employee Access Auto-Sync',
+    category: 'HR & Access',
+    icon: '🔁',
+    summary: 'How an employee\'s status decides their portal access — Current → Users group, otherwise → Deactivated — rechecked automatically every 24 hours.',
+    updated: 'Jul 2026',
+    body: _kbBodyAccessSync,
+  },
 ];
 
 function _kbEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+// ── KB flowchart helpers (dependency-free; the bundle has no mermaid) ──
+// _kbFlow: a linear left→right pipeline. steps = [{ label, sub, edge, tone }].
+//   `edge` labels the arrow that LEADS INTO this step (skipped on the first).
+//   `tone` ∈ start|mid|end|warn — tints the node. Wraps to a column on mobile.
+function _kbFlow(steps) {
+  const tones = { start:'--kb-fl-a', mid:'', end:'--kb-fl-b', warn:'--kb-fl-w' };
+  return `<div class="kb-flow" role="group">` + (steps || []).map((s, i) => {
+    const t = typeof s === 'string' ? { label: s } : (s || {});
+    const cls = tones[t.tone] ? ` kb-node-${(t.tone)}` : '';
+    const arrow = i > 0 ? `<div class="kb-arrow">${t.edge ? `<span class="kb-edge">${_kbEsc(t.edge)}</span>` : ''}<span class="kb-arrow-g">&#8594;</span></div>` : '';
+    return `${arrow}<div class="kb-node${cls}"><div class="kb-node-t">${_kbEsc(t.label)}</div>${t.sub ? `<div class="kb-node-s">${_kbEsc(t.sub)}</div>` : ''}</div>`;
+  }).join('') + `</div>`;
+}
+// _kbFork: a decision point. cond = the question; outs = [{ when, then, tone }].
+function _kbFork(cond, outs) {
+  const tint = { ok:'#dcfce7', warn:'#fef3c7', bad:'#fee2e2', info:'#dbeafe' };
+  const fg   = { ok:'#15803d', warn:'#b45309', bad:'#b91c1c', info:'#1d4ed8' };
+  return `<div class="kb-fork">
+    <div class="kb-fork-q"><span class="kb-fork-d">&#9670;</span> ${_kbEsc(cond)}</div>
+    <div class="kb-fork-outs">${(outs || []).map(o => `
+      <div class="kb-fork-out">
+        <span class="kb-fork-when" style="background:${tint[o.tone] || 'var(--surface2)'};color:${fg[o.tone] || 'var(--txt2)'}">${_kbEsc(o.when)}</span>
+        <span class="kb-fork-then">&#8594; ${_kbEsc(o.then)}</span>
+      </div>`).join('')}</div>
+  </div>`;
+}
+// Two-audience note: end-user vs technical panels side by side.
+function _kbLayers(useIt, howBuilt) {
+  return `<div class="kb-layers">
+    <div class="kb-layer kb-layer-use"><div class="kb-layer-h">&#128100; How to use it</div>${useIt}</div>
+    <div class="kb-layer kb-layer-tech"><div class="kb-layer-h">&#128295; How it's built</div>${howBuilt}</div>
+  </div>`;
+}
 
 function renderKnowledgeBase() {
   const el = document.getElementById('mainContent');
@@ -17084,7 +17145,34 @@ function renderKnowledgeBase() {
       .kb-article table.kb-tbl th { text-align:left;padding:.55rem .7rem;background:var(--surface2);font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:var(--txt3);border-bottom:1px solid var(--border) }
       .kb-article table.kb-tbl td { padding:.55rem .7rem;border-bottom:1px solid var(--border);vertical-align:top;color:var(--txt2) }
       .kb-pill { display:inline-block;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:9px;white-space:nowrap }
-      @media (max-width:820px){ .kb-layout{ grid-template-columns:1fr !important } .kb-index{ position:static !important } }
+      /* Flowchart */
+      .kb-article .kb-flow { display:flex;flex-wrap:wrap;align-items:stretch;gap:.15rem;margin:.9rem 0 1.1rem }
+      .kb-article .kb-node { flex:1 1 130px;min-width:120px;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:.55rem .7rem;display:flex;flex-direction:column;gap:2px;justify-content:center }
+      .kb-article .kb-node-t { font-size:.82rem;font-weight:700;color:var(--txt1);line-height:1.25 }
+      .kb-article .kb-node-s { font-size:.66rem;color:var(--txt3);line-height:1.35 }
+      .kb-article .kb-node-start { border-color:var(--g5);background:rgba(46,125,50,.08) }
+      .kb-article .kb-node-end { border-color:#3b82f6;background:rgba(59,130,246,.08) }
+      .kb-article .kb-node-warn { border-color:#f59e0b;background:rgba(245,158,11,.1) }
+      .kb-article .kb-arrow { flex:0 0 auto;align-self:center;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 .1rem;min-width:52px }
+      .kb-article .kb-arrow-g { color:var(--g6);font-size:1.05rem;line-height:1 }
+      .kb-article .kb-edge { font-size:.6rem;color:var(--txt3);font-family:ui-monospace,Menlo,monospace;white-space:nowrap;margin-bottom:1px }
+      /* Fork */
+      .kb-article .kb-fork { border:1.5px dashed var(--border);border-radius:10px;padding:.7rem .85rem;margin:.9rem 0 1.1rem;background:var(--surface1) }
+      .kb-article .kb-fork-q { font-size:.84rem;font-weight:700;color:var(--txt1);margin-bottom:.5rem }
+      .kb-article .kb-fork-d { color:var(--g6) }
+      .kb-article .kb-fork-outs { display:flex;flex-direction:column;gap:.4rem }
+      .kb-article .kb-fork-out { display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap }
+      .kb-article .kb-fork-when { font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:8px;white-space:nowrap }
+      .kb-article .kb-fork-then { font-size:.82rem;color:var(--txt2) }
+      /* Two-audience layers */
+      .kb-article .kb-layers { display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin:.6rem 0 1rem }
+      .kb-article .kb-layer { border:1px solid var(--border);border-radius:10px;padding:.75rem .9rem }
+      .kb-article .kb-layer-use { background:rgba(46,125,50,.05) }
+      .kb-article .kb-layer-tech { background:var(--surface2) }
+      .kb-article .kb-layer-h { font-size:.7rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--txt3);margin-bottom:.4rem }
+      .kb-article .kb-layer .kb-p { font-size:.82rem;margin-bottom:.5rem }
+      @media (max-width:820px){ .kb-layout{ grid-template-columns:1fr !important } .kb-index{ position:static !important } .kb-article .kb-layers{ grid-template-columns:1fr } }
+      @media (max-width:560px){ .kb-article .kb-flow{ flex-direction:column;align-items:stretch } .kb-article .kb-node{ width:100% } .kb-article .kb-arrow{ transform:rotate(90deg);padding:.15rem 0 } }
     </style>`;
 }
 window._kbOpen = function(id) { _kbCurrentId = id; renderKnowledgeBase(); try { document.querySelector('.kb-article')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} };
@@ -17128,6 +17216,13 @@ function _kbBodyAccounts() {
 
       <h3 class="kb-sub">The life of a payment request</h3>
       <p class="kb-p">Every request sits in exactly one stage. The <b>Worklist</b> shows the stages as bins; each has a one-click advance button for the people allowed to move it forward.</p>
+      ${_kbFlow([
+        { label: 'To be Verified', sub: 'Accounts / Dept-Head', tone: 'start' },
+        { label: 'MD Queue', sub: 'MD approves', edge: 'verify' },
+        { label: 'To Initiate Payment', sub: 'Accounts / MD', edge: 'approve' },
+        { label: 'Paid?', sub: 'MD confirms', edge: 'initiate' },
+        { label: 'Update UTR', sub: 'records UTR → closes', edge: 'paid', tone: 'end' },
+      ])}
       <table class="kb-tbl">
         <thead><tr><th>#</th><th>Stage</th><th>Who moves it on</th><th>Advancing sets</th></tr></thead>
         <tbody>
@@ -17288,6 +17383,128 @@ function _kbBodyGRNReview() {
       </table>
       <p class="kb-p" style="margin-top:.7rem">The tax % shown in the ledger is <b>back-computed</b> from the amount (tax ÷ material), not the other way round. On the PO side, <code>18</code> and <code>0.18</code> are both read as 18%.</p>
       <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The PO tax is the estimate from ordering time — offered as the starting figure. The invoice is the source of truth, so Accounts confirm or adjust it at review, and that figure is what reaches the balance.</p>
+    </div>`;
+}
+
+// ── Article: Procurement → Goods in Stock ───────────────────────
+function _kbBodyProcureToStock() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Procurement · Purchase to Stock</div>
+      <h2 class="kb-h">Procurement → Goods in Stock</h2>
+      <p class="kb-p">A material need turns into an order, the order is received into the store, and stock stays reconciled. The four stages are one continuous chain — each record carries the previous stage's reference forward, so any receipt can be traced back to the order and the original request.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> raise a <b>Material Request</b> → it becomes a <b>Purchase Order</b> → goods arrive and are booked as a <b>GRN</b> → stock levels update and are <b>reconciled</b>.
+      </div>
+
+      ${_kbFlow([
+        { label: 'Material Request', sub: 'MRS · mrs-list', tone: 'start' },
+        { label: 'Purchase Order', sub: 'scm · po-register', edge: 'MR No' },
+        { label: 'Goods Receipt (GRN)', sub: 'stores-grn · stockin', edge: 'PO No' },
+        { label: 'Stock & Reconciliation', sub: 'stores-levels · stock-recon', edge: 'GRN No', tone: 'end' },
+      ])}
+
+      ${_kbLayers(
+        `<p class="kb-p"><b>1.</b> Site raises a <b>Material Request (MRS)</b> for what's needed. <b>2.</b> Purchase converts approved lines into a <b>Purchase Order</b> and sends it to the vendor. <b>3.</b> When the goods arrive, the store books a <b>GRN</b> (goods receipt) against the PO — quantity received, invoice, part. <b>4.</b> Stock levels update automatically; <b>Stock Reconciliation</b> squares book stock against physical.</p>
+         <p class="kb-p">Track progress on the <b>Open PO Report</b> (what's ordered but not yet received) and <b>Purchase View</b>.</p>`,
+        `<p class="kb-p">Two source spreadsheets, joined by carried keys:</p>
+         <table class="kb-tbl"><thead><tr><th>Stage</th><th>Sheet · tab</th><th>Key it carries</th></tr></thead><tbody>
+           <tr><td>Material Request</td><td><code>PO</code> · <code>MRS</code></td><td><code>MR No</code></td></tr>
+           <tr><td>Purchase Order</td><td><code>PO</code> · <code>PO_Actual</code></td><td><code>PO No</code> (+ <code>MR No</code>)</td></tr>
+           <tr><td>Goods Receipt</td><td><code>STORES</code> · <code>StockIN</code> / <code>GRN_No</code></td><td><code>GRN No</code> (+ <code>PO No</code>)</td></tr>
+           <tr><td>Stock levels</td><td><code>STORES</code> · <code>v3StockLevels</code></td><td>part / site</td></tr>
+         </tbody></table>
+         <p class="kb-p">Because the GRN row stores both its <code>PO No</code> and the <code>MR No</code>, <b>Item Rate Master</b> can reassemble ordered-vs-received rates, and <b>Open PO</b> nets ordered − received per line.</p>`
+      )}
+
+      <h3 class="kb-sub">Where it lives</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>Page</th><th>What it's for</th></tr></thead>
+        <tbody>
+          <tr><td><b>Material Request List</b></td><td>Raise and track MRS lines.</td></tr>
+          <tr><td><b>Purchase List (PO)</b></td><td>PO dashboard, register, pending approval, spend by site, top vendors.</td></tr>
+          <tr><td><b>Stores</b></td><td>StockIN, StockOut, StockTransfer, GRN register, stock levels &amp; reconciliation.</td></tr>
+          <tr><td><b>Open PO Report</b></td><td>Ordered minus received — what's still pending delivery.</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">One chain, three keys: <code>MR No → PO No → GRN No</code>. Get those right and every downstream report — Open PO, Item Rate Master, Vendor Ledger — lines up on its own.</p>
+    </div>`;
+}
+
+// ── Article: Site Config & Rental Write-back ────────────────────
+function _kbBodySiteConfig() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Configuration · Site &amp; Rentals</div>
+      <h2 class="kb-h">Site Config &amp; Rental Write-back</h2>
+      <p class="kb-p">Every site has a <b>Country</b>, a <b>Currency</b>, and a <b>Status</b> (Active / Closed). The <b>Site Config</b> tab holds that master, and the <b>Rental write-back</b> stamps those three fields onto the <b>Rental Agreement</b> and <b>RP Booking</b> tabs — matched by the site on each row — so a rental never has to re-enter them.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> keep the site master current → <b>Preview</b> what would change on a rental tab → <b>Apply</b> to write it back. Nothing writes until you confirm.
+      </div>
+
+      ${_kbFlow([
+        { label: 'Site Config', sub: 'Country · Currency · Status', tone: 'start' },
+        { label: 'Preview', sub: 'reads tab · detects columns', edge: 'per site' },
+        { label: 'Confirm', sub: 'shows diff + unmatched', edge: 'review' },
+        { label: 'Write-back', sub: 'updateCell → sheet', edge: 'Apply', tone: 'end' },
+      ])}
+
+      <p class="kb-p">For each rental row, the match is simple:</p>
+      ${_kbFork('Is the row’s Site found in Site Config?', [
+        { when: 'Found', then: 'stamp its Country / Currency / Status (only cells that differ)', tone: 'ok' },
+        { when: 'Not found', then: 'row is skipped and the site is listed under “not in config”', tone: 'warn' },
+      ])}
+
+      ${_kbLayers(
+        `<p class="kb-p"><b>Configuration → 🌐 Site Config.</b> Edit the site table (add / remove / change Country, Currency, Status), then <b>Save</b> — it's stored org-wide. To push details onto rentals, click <b>Preview changes</b> on a tab: it shows the detected columns and exactly which rows would change. If that looks right, <b>Apply write-back</b> writes it (after a confirm). Sites it can't find are listed so you can fix a spelling or add the site.</p>`,
+        `<p class="kb-p">The master lives in <b>PortalConfig</b> under key <code>site_config</code>; <code>siteCfgLookup(site)</code> resolves it case/space-insensitively. Preview calls <code>_rentalScan(tab)</code>, which reads the live tab and auto-detects the Site / row-key / target columns from the header row. Apply loops the changed cells through the <b>main</b> backend's <code>updateCell</code> action — matched by the row-key column, patched by the target column letter.</p>
+         <table class="kb-tbl"><thead><tr><th>Piece</th><th>Value</th></tr></thead><tbody>
+           <tr><td>Config key</td><td><code>site_config</code> (PortalConfig)</td></tr>
+           <tr><td>Sheet</td><td><code>RENTAL</code> — tabs <code>Rental Agreement</code>, <code>RP Booking</code></td></tr>
+           <tr><td>Backend</td><td><code>main</code> · action <code>updateCell</code></td></tr>
+         </tbody></table>`
+      )}
+
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Always Preview first — it shows the detected column mapping. If a target column (Currency / Country / Status) is missing from the tab, Preview says so and Apply stays disabled, so a write can never land in the wrong place.</p>
+    </div>`;
+}
+
+// ── Article: Employee Access Auto-Sync ──────────────────────────
+function _kbBodyAccessSync() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">HR · Access Control</div>
+      <h2 class="kb-h">Employee Access Auto-Sync</h2>
+      <p class="kb-p">Portal access follows employment automatically. An employee's <b>status</b> in the register decides which access group they land in — and the portal rechecks this on its own every <b>24 hours</b>, so leavers lose access and joiners gain it without anyone maintaining a list by hand.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> <b>Current</b> employees are in the <b>Users</b> group; anyone else is in <b>Deactivated Profiles</b> — refreshed every 24h.
+      </div>
+
+      ${_kbFlow([
+        { label: 'Employee Register', sub: 'status per person', tone: 'start' },
+        { label: '24h Auto-Sync', sub: 'reads every employee', edge: 'nightly' },
+        { label: 'Group assignment', sub: 'Users / Deactivated', edge: 'by status', tone: 'end' },
+      ])}
+
+      ${_kbFork('Employee Status', [
+        { when: 'Current', then: 'added to the Users group (baseline portal access)', tone: 'ok' },
+        { when: 'Anything else', then: 'added to Deactivated User Profiles (no access)', tone: 'bad' },
+      ])}
+
+      ${_kbLayers(
+        `<p class="kb-p">There's nothing to click day-to-day — it runs itself. You can see the last run and force a refresh under <b>Access &amp; Pages → Auto-assign employees → Sync now</b>. Auto-assigned people appear in each group's member list tagged <b>auto</b> (no × to remove — their membership follows their status, not a manual choice). To change someone's access, change their <b>Employee Status</b>, or add them to another group manually on top.</p>`,
+        `<p class="kb-p">Membership is <b>not</b> stored in <code>access_config</code> (that would blow past the sheet's 50k-char cell limit). Instead a compact map lives in PortalConfig <code>emp_group_sync</code> = <code>{ at, map:{ email: 'u' | 'd' } }</code>. <code>_uaAutoSyncEmployees()</code> (admin-only, throttled to 24h) rebuilds it from <code>STATE.masters.users</code>; a hourly <code>setInterval</code> checks whether 24h have elapsed. Enforcement merges manual ∪ auto via <code>_uaGroupsForEmail()</code>, so <code>userCan()</code> sees both.</p>
+         <table class="kb-tbl"><thead><tr><th>Piece</th><th>Value</th></tr></thead><tbody>
+           <tr><td>Config key</td><td><code>emp_group_sync</code></td></tr>
+           <tr><td>Groups</td><td><code>grp_users</code> · <code>grp_deactivated</code></td></tr>
+           <tr><td>Cadence</td><td>24h (hourly check)</td></tr>
+         </tbody></table>`
+      )}
+
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The employee register is the source of truth for access. Manual group grants still work and stack on top — but the Current/Deactivated baseline maintains itself.</p>
     </div>`;
 }
 
