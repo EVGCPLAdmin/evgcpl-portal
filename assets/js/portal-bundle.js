@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.49.4';
-const PORTAL_BUILD    = 715;
-const PORTAL_BUILD_AT = '2026-07-24T10:30:03Z';
+const PORTAL_VERSION  = '4.50.0';
+const PORTAL_BUILD    = 716;
+const PORTAL_BUILD_AT = '2026-07-25T10:28:29Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -17006,6 +17006,15 @@ let _kbSearch = '';
 // Each article: { id, title, category, icon, summary, updated, body() → HTML }.
 const KB_ARTICLES = [
   {
+    id: 'accounts-overview',
+    title: 'Accounts — Payments & Ledgers',
+    category: 'Accounts',
+    icon: '💳',
+    summary: 'The whole Accounts module — raising a payment request, the approval pipeline it moves through, the MD queue, the Vendor Ledger, who can do what, and where the data lives.',
+    updated: 'Jul 2026',
+    body: _kbBodyAccounts,
+  },
+  {
     id: 'grn-review',
     title: 'GRN Accounts Review',
     category: 'Accounts',
@@ -17088,6 +17097,113 @@ window._kbSearchInput = function(v) {
   const nb = document.getElementById('kb-search');
   if (nb) { nb.focus(); if (pos != null) try { nb.setSelectionRange(pos, pos); } catch (e) {} }
 };
+
+// ── Article: Accounts — Payments & Ledgers ──────────────────────
+function _kbBodyAccounts() {
+  const blue  = '<span class="kb-pill" style="background:#dbeafe;color:#1d4ed8">In&nbsp;progress</span>';
+  const amber = '<span class="kb-pill" style="background:#fef3c7;color:#b45309">Pending</span>';
+  const red   = '<span class="kb-pill" style="background:#fee2e2;color:#b91c1c">Rejected</span>';
+  const green = '<span class="kb-pill" style="background:#dcfce7;color:#15803d">Completed</span>';
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Finance · Accounts &amp; Payments</div>
+      <h2 class="kb-h">Accounts — Payments &amp; Ledgers</h2>
+      <p class="kb-p">The Accounts module runs the money side of the portal: raising <b>payment requests</b>, walking each one through an <b>approval pipeline</b> (Accounts → MD → payment → UTR), and keeping the <b>Vendor Ledger</b> that nets what a vendor is owed against what has been paid. This guide covers the whole flow end to end.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> a request is <b>raised</b> → <b>verified</b> by Accounts → <b>approved</b> by MD → <b>paid</b> → its <b>UTR</b> is recorded and it closes. Every change is logged; nothing is edited in place.
+      </div>
+
+      <h3 class="kb-sub">Where it lives</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>Page</th><th>What it's for</th></tr></thead>
+        <tbody>
+          <tr><td><b>Accounts &amp; Payments</b></td><td>The main workspace — a <b>Dashboard</b> (KPIs) and a <b>Worklist</b> that sorts every request into its pipeline stage. Raise a new request with <b>+ New Request</b>.</td></tr>
+          <tr><td><b>Payments &amp; Approvals</b> (MD)</td><td>The MD's approval queue — approve / reject verified requests, filterable by company.</td></tr>
+          <tr><td><b>Vendor Ledger (PO)</b></td><td>Per-vendor running balance: goods received (credit) vs payments made (debit), opening balances, and GRN Review.</td></tr>
+          <tr><td><b>Expense Ledger / Ledgers</b></td><td>Cash &amp; mess expenses, and per-party (Employee / Sub-Contractor / Vendor) statements.</td></tr>
+          <tr><td><b>Salary Processing</b></td><td>Payroll run (Accounts / MD).</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="kb-sub">The life of a payment request</h3>
+      <p class="kb-p">Every request sits in exactly one stage. The <b>Worklist</b> shows the stages as bins; each has a one-click advance button for the people allowed to move it forward.</p>
+      <table class="kb-tbl">
+        <thead><tr><th>#</th><th>Stage</th><th>Who moves it on</th><th>Advancing sets</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><b>To be Verified</b></td><td>Accounts / Dept-Head</td><td>“Verified, Move to MD Queue”</td></tr>
+          <tr><td>2</td><td><b>MD Queue</b></td><td>MD</td><td>“Process Payment, Move to Accounts”</td></tr>
+          <tr><td>3</td><td><b>To Initiate Payment</b></td><td>Accounts / MD / Dept-Head</td><td>“Payment Initiated”</td></tr>
+          <tr><td>4</td><td><b>Paid?</b></td><td>MD</td><td>“Paid (MD_ED)”</td></tr>
+          <tr><td>5</td><td><b>To Update UTR</b></td><td>Accounts / MD / Dept-Head</td><td>“Payment Completed” (asks for the <b>UTR</b>)</td></tr>
+          <tr><td>—</td><td><b>Rejection Bin</b> / <b>Hold Bin</b></td><td>—</td><td>Parked requests (rejected, or on-hold / sent-back / query)</td></tr>
+          <tr><td>—</td><td><b>Accounts Database</b></td><td>—</td><td>Every request, all stages, for search</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p" style="margin-top:.7rem">You can also open any request's <b>voucher</b> and use <b>Update Status</b> to set a specific status (e.g. put it on hold, send it back, or reject with a reason). <b>Admins</b> can advance from any stage.</p>
+
+      <h3 class="kb-sub">Statuses at a glance</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>Group</th><th>Examples</th><th>Means</th></tr></thead>
+        <tbody>
+          <tr><td>${amber}</td><td>Pending With Accounts · On Hold by MD · Sent Back to Accounts · Pending Due to Queries</td><td>Waiting on someone.</td></tr>
+          <tr><td>${blue}</td><td>Verified, Move to MD Queue · Payment Approved by MD · Payment Initiated</td><td>Moving through the pipeline.</td></tr>
+          <tr><td>${green}</td><td>Paid (Initiated in Bank) · Paid · Paid, UTR Available · Completed</td><td>Money out, done.</td></tr>
+          <tr><td>${red}</td><td>Rejected by MD · Rejected by Accounts</td><td>Declined — parked in the Rejection Bin.</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="kb-sub">Raising a new request</h3>
+      <p class="kb-p"><b>+ New Request</b> opens a form with these sections:</p>
+      <table class="kb-tbl">
+        <thead><tr><th>Section</th><th>What you fill in</th></tr></thead>
+        <tbody>
+          <tr><td><b>1 · Initiator</b></td><td>Date, who's requesting, Department, process, Manual / Auto.</td></tr>
+          <tr><td><b>2 · Payment To</b></td><td><b>Employee / Vendor / Sub-Contractor / Others</b>, then pick the payee (free text for “Others”).</td></tr>
+          <tr><td><b>3 · Site &amp; Company</b></td><td>Site (auto-fills the Company).</td></tr>
+          <tr><td><b>4 · Bill &amp; PO Reference</b></td><td>Order No, Bill No, Payment Terms, PO / Invoice / Paid / Pending value (Purchase dept only).</td></tr>
+          <tr><td><b>5 · Financial</b></td><td>Currency, <b>Amount</b>, Nature of Expenses, Account Code, GST, TDS.</td></tr>
+          <tr><td><b>6 · Bank Details</b></td><td>A/C holder, number, IFSC, bank — <b>auto-filled</b> for a known Vendor / Sub-Contractor.</td></tr>
+          <tr><td><b>7 · Narrative &amp; Attachments</b></td><td>Narrative (required) + invoice / supporting files (stored in Drive).</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p" style="margin-top:.7rem">On submit the portal checks the basics (Amount &gt; 0, a payee, Amount not over the Pending Value) and runs a <b>duplicate-payment guard</b> — it warns if the same amount is already requested for the same Order No or payee. Attachments upload to a per-request Drive folder.</p>
+
+      <h3 class="kb-sub">The MD queue</h3>
+      <p class="kb-p"><b>Payments &amp; Approvals</b> lists everything an Accounts team member has <b>verified and sent up</b>. The MD can <b>✓ Approve</b> or <b>✗ Reject</b> (a reason is required to reject), one at a time or in <b>bulk</b> with checkboxes. For an installment payment, the card shows the earlier requests for the same PO as history. Approvals move the request to <b>To Initiate Payment</b>.</p>
+
+      <h3 class="kb-sub">Vendor Ledger (PO)</h3>
+      <p class="kb-p">A Tally-style running balance per vendor: <b>Credit</b> = goods received (material + tax + charges), <b>Debit</b> = completed vendor payments. The closing balance reads <b>Payable</b> (vendor is owed), <b>Advance</b> (we've overpaid), or <b>Settled</b>. Four views — <b>Per Vendor</b>, <b>Flat List</b>, <b>Opening Balances</b>, and <b>GRN Review</b>. Enter a carried-forward balance with <b>⊕ Opening Balance</b> (choose Cr = payable or Dr = advance). How received goods are priced and reviewed is its own guide — see <b>“GRN Accounts Review”</b>.</p>
+
+      <h3 class="kb-sub">Who can do what</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>Task</th><th>Who</th></tr></thead>
+        <tbody>
+          <tr><td>Raise a request, verify, initiate, update UTR</td><td><b>Accounts</b> (and Dept-Head in a finance/accounts department)</td></tr>
+          <tr><td>Approve / reject in the MD queue, confirm payment</td><td><b>MD</b></td></tr>
+          <tr><td>Any status from any stage</td><td><b>Admins</b> (override)</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p" style="margin-top:.7rem">Individual actions can be locked to named people or roles under <b>Configuration → Status Access</b> (e.g. only certain people may “Process Payment” or record “Payment Completed”). Accounts users can't set MD-only statuses. The same Status-Access mechanism gates <b>GRN Review</b> approvals.</p>
+
+      <h3 class="kb-sub">Make it yours</h3>
+      <p class="kb-p">The voucher's <b>blocks</b> (request details, amount, bank, PO items, previous payments, documents, status timeline…) and the <b>Bill &amp; PO Reference</b> fields can be <b>drag-reordered and shown/hidden</b> per person. Your arrangement saves to your own browser; an <b>admin</b> can press <b>★ Set as system default</b> to make an arrangement the org-wide starting point. <b>Reset</b> drops back to that default.</p>
+
+      <h3 class="kb-sub">Behind the scenes</h3>
+      <p class="kb-p">Reads come straight from Google Sheets; writes go through the <b>accounts</b> Apps Script web app (header-mapped, so column order doesn't matter). Key actions:</p>
+      <table class="kb-tbl">
+        <thead><tr><th>Action</th><th>Does</th></tr></thead>
+        <tbody>
+          <tr><td><code>saveNewPaymentRequest</code></td><td>Appends a row to the <b>PaymentRequest</b> tab.</td></tr>
+          <tr><td><code>saveAccountsUpdate</code></td><td>Appends to <b>AccountsUpdate</b> — every status change is a <b>new row</b>, so there's a full audit trail; the request's live status is the latest of these.</td></tr>
+          <tr><td><code>saveVendorOpeningBalance</code></td><td>Appends a signed opening balance (+ = Cr / − = Dr).</td></tr>
+          <tr><td><code>saveGRNReview</code></td><td>Upserts a GRN review keyed by <code>SI ID</code>.</td></tr>
+          <tr><td><code>createPRFolder</code> · <code>uploadPRAttachment</code> · <code>listPRAttachments</code></td><td>Manage the per-request Drive folder and its files.</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Because status is append-only, the portal is the record of <i>who changed what, when</i> — the sheet is never silently overwritten, and a stale read self-corrects on the next refresh.</p>
+    </div>`;
+}
 
 // ── Article: GRN Accounts Review ────────────────────────────────
 function _kbBodyGRNReview() {
