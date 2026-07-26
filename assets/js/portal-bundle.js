@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.52.0';
-const PORTAL_BUILD    = 719;
-const PORTAL_BUILD_AT = '2026-07-25T17:15:31Z';
+const PORTAL_VERSION  = '4.53.0';
+const PORTAL_BUILD    = 720;
+const PORTAL_BUILD_AT = '2026-07-26T08:37:06Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -13423,6 +13423,7 @@ const SHEETS_DIRECTORY = [
   { key:'SAFETY',  label:'Safety',                    defaultId:'1B8P0PawV43ksazbzhKsil1X6-INOfxx9PFvGycNOvDY', tabs:['Incidents','Checklist'], notes:'Incidents & SHE checklist' },
   { key:'REWARDS', label:'Rewards & Recognition',     defaultId:'1vz8HLopjlSF8TF7rzYuVu5JjqukT929I7aSx7kdehlI', tabs:['Nomination','BlogPosts'], notes:'R&R + wall posts' },
   { key:'BUDGET',  label:'IC Budget Template',        defaultId:'', tabs:['BOQ_Items','Project_Master','Resources'], notes:'Pending — upload template to Drive first' },
+  { key:'ATTLEAVE', label:'Attendance & Leave',       defaultId:'1rz_NBLAOHTLPraQPREY1HYtiR5XQHpTAsSL5O8gm-JQ', tabs:['Attendance-EG','Leave Request Form','Leave Approval'], notes:'HR Attendance + Leave — My Profile reads Leave Request Form for the Time Off tab' },
 ];
 
 // Apps Scripts deployed for the portal. Same exec URL handles all
@@ -18278,6 +18279,19 @@ function renderMyProfile() {
                 </div>
               </div>
             </div>
+          </div>
+
+          <!-- My Leave Requests — lazy-loaded from the Leave Request Form tab -->
+          <div class="card">
+            <div class="card-head"><h3>🗓 My Leave Requests</h3><span class="hr-stat-pill">⬤ Live from Leave sheet</span></div>
+            <div class="card-body">
+              <div id="profile-leave-list">
+                <div style="display:flex;align-items:center;gap:.6rem;font-size:.8rem;color:var(--txt3);padding:.4rem 0">
+                  <div style="width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite;flex-shrink:0"></div>
+                  Loading your leave requests…
+                </div>
+              </div>
+            </div>
           </div>` : '<div style="text-align:center;padding:2rem;color:var(--txt3)">Employee record not found.</div>'}
         </section>
 
@@ -18329,6 +18343,7 @@ function renderMyProfile() {
   window._mpDocsLoaded = false;
   window._mpTeamLoaded = false;
   window._mpLedgerLoaded = false;
+  window._mpLeaveLoaded = false;
   // Restore last-opened tab (defaults to Summary)
   let savedTab = 'summary';
   try { savedTab = localStorage.getItem('evg_profile_tab') || 'summary'; } catch (e) {}
@@ -18347,6 +18362,94 @@ function _mpLoadLedger() {
     if (!tx.length) { c.innerHTML = `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No payment transactions found for <b>${_mdpEsc(name)}</b>.</div>`; return; }
     c.innerHTML = partyLedgerRender(tx, { onRowClick: '_accOpenPRDetail' });
   }).catch(() => { c.innerHTML = '<div class="card card-pad" style="text-align:center;color:var(--danger);padding:2rem">Could not load your statement.</div>'; });
+}
+
+// Time Off pane — the logged-in employee's own leave requests, read straight from
+// the "Leave Request Form" tab of the ATTLEAVE workbook. Self-contained: no
+// dependency on the (removed) HR Attendance/Leave module. Header names vary
+// between sheet revisions, so columns are picked defensively.
+async function _mpLoadLeaves() {
+  const c = document.getElementById('profile-leave-list');
+  if (!c) return;
+  const emp = window._mpEmp || {};
+  const sheetId = (typeof getSheetId === 'function') ? getSheetId('ATTLEAVE') : '';
+  if (!sheetId) {
+    c.innerHTML = `<div style="font-size:.8rem;color:var(--txt3);padding:.4rem 0">Leave workbook not configured — set the <b>ATTLEAVE</b> Sheet ID in Settings to see your leave requests.</div>`;
+    return;
+  }
+  const nrm = v => String(v == null ? '' : v).trim().toLowerCase();
+  const email = nrm(emp.email || STATE.user?.email || '');
+  const code  = nrm(emp.empCode || '');
+  const name  = nrm(emp.name || '');
+  try {
+    const rows = await fetchSheetSafe('Leave Request Form', sheetId, { rawId: true });
+    // Match a request to this employee by email / emp-code / name across any column.
+    const mine = (rows || []).filter(r => {
+      const vals = Object.values(r).map(nrm);
+      return (email && vals.includes(email)) || (code && vals.includes(code)) || (name && vals.includes(name));
+    });
+    if (!mine.length) {
+      c.innerHTML = `<div style="font-size:.8rem;color:var(--txt3);padding:.4rem 0">No leave requests found for your account.</div>`;
+      return;
+    }
+    // Defensive column picker: exact header match first, then substring.
+    const pick = (r, cands) => {
+      const keys = Object.keys(r);
+      for (const cand of cands) { const k = keys.find(k => nrm(k) === cand); if (k && r[k] !== '') return r[k]; }
+      for (const cand of cands) { const k = keys.find(k => nrm(k).includes(cand)); if (k && r[k] !== '') return r[k]; }
+      return '';
+    };
+    const fmtD = v => { const d = parseGvizDate(v); return (d && d.getTime()) ? d.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : (v || '—'); };
+    const badge = st => {
+      const s = nrm(st);
+      let bg = 'var(--surface2)', fg = 'var(--txt2)';
+      if (/approv/.test(s))              { bg = '#e8f5e9'; fg = '#2e7d32'; }
+      else if (/reject|declin/.test(s))  { bg = '#ffebee'; fg = '#c62828'; }
+      else if (/pending|await|l[12]/.test(s)) { bg = '#fff8e1'; fg = '#e65100'; }
+      return `<span style="display:inline-block;padding:.15rem .5rem;border-radius:7px;font-size:.7rem;font-weight:700;background:${bg};color:${fg}">${_mdpEsc(st || 'Pending')}</span>`;
+    };
+    const recs = mine.map(r => ({
+      type:    pick(r, ['leave type','type','leavetype']) || 'Leave',
+      from:    pick(r, ['from date','start date','date from','from','start']),
+      to:      pick(r, ['to date','end date','date to','to','end']),
+      days:    pick(r, ['no of days','number of days','no. of days','total days','days','duration']),
+      purpose: pick(r, ['purpose','reason','remarks','description']),
+      status:  pick(r, ['status','approval status','leave status']),
+    }));
+    // Newest first by from-date (fall back to original order).
+    recs.sort((a, b) => {
+      const da = parseGvizDate(a.from), db = parseGvizDate(b.from);
+      return ((db && db.getTime()) || 0) - ((da && da.getTime()) || 0);
+    });
+    const body = recs.map(r => `
+      <tr>
+        <td style="white-space:nowrap">${_mdpEsc(r.type)}</td>
+        <td style="white-space:nowrap">${fmtD(r.from)}</td>
+        <td style="white-space:nowrap">${fmtD(r.to)}</td>
+        <td style="text-align:right">${_mdpEsc(r.days || '—')}</td>
+        <td>${_mdpEsc(r.purpose || '—')}</td>
+        <td style="white-space:nowrap">${badge(r.status)}</td>
+      </tr>`).join('');
+    c.innerHTML = `
+      <div style="overflow-x:auto">
+        <table class="evg-table" style="width:100%;font-size:.82rem;border-collapse:collapse">
+          <thead>
+            <tr style="text-align:left;color:var(--txt3);font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">
+              <th style="padding:.4rem .5rem">Type</th>
+              <th style="padding:.4rem .5rem">From</th>
+              <th style="padding:.4rem .5rem">To</th>
+              <th style="padding:.4rem .5rem;text-align:right">Days</th>
+              <th style="padding:.4rem .5rem">Purpose</th>
+              <th style="padding:.4rem .5rem">Status</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+      <div style="font-size:.7rem;color:var(--txt3);margin-top:.5rem">${recs.length} request${recs.length===1?'':'s'} · status as recorded in the Leave sheet</div>`;
+  } catch (e) {
+    c.innerHTML = `<div style="font-size:.8rem;color:var(--danger);padding:.4rem 0">Could not load your leave requests.</div>`;
+  }
 }
 
 // Team pane — lazy-loaded on first open
@@ -24686,6 +24789,10 @@ function _mpShowTab(id) {
   if (id === 'ledger' && !window._mpLedgerLoaded) {
     window._mpLedgerLoaded = true;
     try { _mpLoadLedger(); } catch (e) {}
+  }
+  if (id === 'timeoff' && !window._mpLeaveLoaded) {
+    window._mpLeaveLoaded = true;
+    try { _mpLoadLeaves(); } catch (e) {}
   }
 }
 
