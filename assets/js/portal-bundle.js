@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.52.0';
-const PORTAL_BUILD    = 719;
-const PORTAL_BUILD_AT = '2026-07-25T17:15:31Z';
+const PORTAL_VERSION  = '4.52.1';
+const PORTAL_BUILD    = 720;
+const PORTAL_BUILD_AT = '2026-08-10T15:10:34Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -9889,26 +9889,55 @@ function _srkColLetter(cands) {
   for (const c of cands) { const v = low[c.toLowerCase().trim()]; if (v) return v; }
   return '';
 }
+// Map CheckSum / UUID / SI ID → Received On date, sourced from the GRN_No tab.
+// Used as a fallback when a StockIN row's own Received On (At) cell is blank.
+function _srkGRNDateMap() {
+  const m = {};
+  (_regGRNRows || []).forEach(g => {
+    const dt = String(g['Received On (At)'] || g['Received On'] || g['GRN Date'] || g['Date'] || '').trim();
+    if (!dt) return;
+    [g['CheckSum'], g['Check Sum'], g['UUID'], g['SI ID']].forEach(k => {
+      const kk = String(k || '').trim();
+      if (kk && !m[kk]) m[kk] = dt;
+    });
+  });
+  return m;
+}
 function _srkBuildRows() {
   const SC = _opColMap(_openPOStock || []);
   const grnMap = _siGRNMapBuild();
+  const grnDateMap = _srkGRNDateMap();
   const matMap = _opMatMap();
   return (_openPOStock || []).map((r, idx) => {
-    const checksum = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID']) || '').trim();
+    const checksum = String(_opGet(r, SC, ['CheckSum', 'Check Sum']) || '').trim();
+    const uuid     = String(_opGet(r, SC, ['UUID', 'Row UUID', 'GRN UUID']) || '').trim();
+    const siId     = String(_opGet(r, SC, ['SI ID', 'SIID', 'SI Id', 'SI No', 'StockIN ID']) || '').trim();
     const partRaw = _opGet(r, SC, ['Material Description', 'Part Details', 'Part Description', 'Material', 'Description']);
     const part = (_opPartReadable(partRaw, matMap).text) || partRaw || '';
+    // Unique per-row edit key: SI ID → UUID → CheckSum. CheckSum is per-GRN and
+    // shared across a GRN's line items, so matching a write on it hits only the
+    // first line — the bug where "only the first record gets edited".
+    let editVal, editCands;
+    if (siId)      { editVal = siId;     editCands = ['SI ID', 'SIID', 'SI Id', 'SI No', 'StockIN ID']; }
+    else if (uuid) { editVal = uuid;     editCands = ['UUID', 'Row UUID', 'GRN UUID']; }
+    else           { editVal = checksum; editCands = ['CheckSum', 'Check Sum']; }
+    // Received On: prefer the StockIN row's own date; if blank, fall back to the
+    // GRN_No table (keyed by CheckSum / UUID / SI ID) → its Received On date.
+    let received = _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Date', 'Date']);
+    if (!String(received || '').trim()) {
+      received = grnDateMap[checksum] || grnDateMap[uuid] || grnDateMap[siId] || received;
+    }
     return {
-      idx, checksum,
-      siId:     String(_opGet(r, SC, ['SI ID', 'SIID', 'SI Id', 'SI No', 'StockIN ID']) || '').trim(),
+      idx, checksum, uuid, siId, editVal, editCands,
       grnNo:    _siGRNResolve(r, SC, grnMap),
-      received: _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Date', 'Date']),
+      received,
       site:     _opGet(r, SC, ['Site Name', 'Site']),
       vendor:   _opGet(r, SC, ['Vendor Name', 'Vendor']),
       poNo:     _opGet(r, SC, ['PO No', 'PO No (Key)']),
       part:     part || '—',
       qty:      _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty'])),
     };
-  }).filter(x => x.checksum || x.grnNo);
+  }).filter(x => x.checksum || x.uuid || x.siId || x.grnNo);
 }
 
 function renderStockRecon() {
@@ -9978,14 +10007,14 @@ function _srkFill() {
     <td style="font-size:.78rem">${esc(r.site) || '—'}</td>
     <td style="font-size:.78rem">${esc(r.vendor) || '—'}</td>
     <td style="text-align:right;font-weight:600">${(r.qty || 0).toLocaleString('en-IN')}</td>
-    ${canEdit ? `<td style="text-align:right"><button onclick="_srkEdit('${esc(r.checksum)}')" class="btn btn-sm btn-secondary" style="font-size:.7rem">&#9998; Edit</button></td>` : ''}
+    ${canEdit ? `<td style="text-align:right"><button onclick="_srkEdit(${r.idx})" class="btn btn-sm btn-secondary" style="font-size:.7rem">&#9998; Edit</button></td>` : ''}
   </tr>`).join('');
   const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
 }
 
-window._srkEdit = function(checksum) {
+window._srkEdit = function(idx) {
   if (typeof userCan === 'function' && !userCan('stock-recon', 'edit')) { alert('You do not have permission to edit stock.'); return; }
-  const r = (_srkRows || []).find(x => x.checksum === checksum); if (!r) return;
+  const r = (_srkRows || []).find(x => x.idx === Number(idx)); if (!r) return;
   const esc = _mdpEsc;
   let ov = document.getElementById('srkEditOverlay'); if (ov) ov.remove();
   ov = document.createElement('div');
@@ -9998,7 +10027,8 @@ window._srkEdit = function(checksum) {
       <div style="display:grid;grid-template-columns:auto 1fr;gap:.25rem .8rem;font-size:.76rem;margin-bottom:.9rem;color:var(--txt2)">
         <span style="color:var(--txt3)">Site</span><span>${esc(r.site) || '—'}</span>
         <span style="color:var(--txt3)">Vendor</span><span>${esc(r.vendor) || '—'}</span>
-        <span style="color:var(--txt3)">CheckSum</span><span style="font-family:monospace;font-size:.7rem;word-break:break-all">${esc(r.checksum) || '—'}</span>
+        <span style="color:var(--txt3)">SI ID</span><span style="font-family:monospace;font-size:.72rem;word-break:break-all">${esc(r.siId) || '—'}</span>
+        <span style="color:var(--txt3)">Match Key</span><span style="font-family:monospace;font-size:.7rem;word-break:break-all">${esc((r.editCands && r.editCands[0]) || 'CheckSum')}: ${esc(r.editVal) || '—'}</span>
         <span style="color:var(--txt3)">Current Qty</span><span style="font-weight:700">${(r.qty || 0).toLocaleString('en-IN')}</span>
       </div>
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">NEW GRN QTY</label>
@@ -10008,7 +10038,7 @@ window._srkEdit = function(checksum) {
       <div id="srkEditMsg" style="font-size:.74rem;color:var(--txt3);margin-top:.5rem;min-height:1em"></div>
       <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.6rem">
         <button onclick="document.getElementById('srkEditOverlay').remove()" class="btn btn-sm btn-secondary">Cancel</button>
-        <button id="srkSaveBtn" onclick="_srkSave('${esc(r.checksum)}')" class="btn btn-sm" style="background:#15803d;color:#fff;border:none">Save &amp; Log</button>
+        <button id="srkSaveBtn" onclick="_srkSave(${r.idx})" class="btn btn-sm" style="background:#15803d;color:#fff;border:none">Save &amp; Log</button>
       </div>
     </div>
   </div>`;
@@ -10036,8 +10066,8 @@ async function _srkPost(payload) {
   }
   return { ok, error, raw: j };
 }
-window._srkSave = async function(checksum) {
-  const r = (_srkRows || []).find(x => x.checksum === checksum); if (!r) return;
+window._srkSave = async function(idx) {
+  const r = (_srkRows || []).find(x => x.idx === Number(idx)); if (!r) return;
   const msg = document.getElementById('srkEditMsg');
   const setMsg = (t, c) => { if (msg) { msg.textContent = t; msg.style.color = c || 'var(--txt3)'; } };
   const inp = document.getElementById('srkNewQty');
@@ -10045,15 +10075,17 @@ window._srkSave = async function(checksum) {
   if (inp && (inp.value === '' || isNaN(parseFloat(inp.value)))) { setMsg('Enter a valid number.', 'var(--danger)'); return; }
   if (newQty === (r.qty || 0)) { setMsg('New value is the same as current.', 'var(--danger)'); return; }
   const qtyCol = _srkColLetter(['GRN Qty', 'GRN Quantity', 'Received Qty']);
-  const keyCol = _srkColLetter(['CheckSum', 'Check Sum', 'UUID', 'SI ID']);
-  if (!qtyCol || !keyCol) { setMsg('StockIN GRN Qty / CheckSum column not found in sheet header.', 'var(--danger)'); return; }
-  if (!r.checksum) { setMsg('This row has no CheckSum key — cannot match it safely.', 'var(--danger)'); return; }
+  // Match on the unique per-row key (SI ID → UUID → CheckSum) so the write lands
+  // on the exact StockIN line, not the first line that shares a GRN CheckSum.
+  const keyCol = _srkColLetter(r.editCands || ['CheckSum', 'Check Sum', 'UUID', 'SI ID']);
+  if (!qtyCol || !keyCol) { setMsg('StockIN GRN Qty / ' + ((r.editCands && r.editCands[0]) || 'CheckSum') + ' column not found in sheet header.', 'var(--danger)'); return; }
+  if (!r.editVal) { setMsg('This row has no SI ID / UUID / CheckSum key — cannot match it safely.', 'var(--danger)'); return; }
   const remark = (document.getElementById('srkRemark') || {}).value || '';
   const btn = document.getElementById('srkSaveBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   setMsg('Writing to StockIN…');
   const restoreBtn = () => { if (btn) { btn.disabled = false; btn.innerHTML = 'Save &amp; Log'; } };
   // 1) Write the new GRN Qty back into StockIN.
-  const up = await _srkPost({ action: 'updateCell', sheetId: STORES_SHEET_ID, tab: 'StockIN', matchCol: keyCol, matchVal: r.checksum, updateCol: qtyCol, updateVal: String(newQty) });
+  const up = await _srkPost({ action: 'updateCell', sheetId: STORES_SHEET_ID, tab: 'StockIN', matchCol: keyCol, matchVal: r.editVal, updateCol: qtyCol, updateVal: String(newQty) });
   if (!up.ok) { restoreBtn(); setMsg('StockIN not updated: ' + (up.error || 'backend rejected the write.'), 'var(--danger)'); return; }
   // 2) Append the audit row (generic schema — reused by Stock Out / Transfer).
   setMsg('Logging to AuditTrail…');
@@ -10061,7 +10093,7 @@ window._srkSave = async function(checksum) {
   // Ref No carries the GRN No plus the SI ID (StockIN row id) so the audit
   // trail is traceable back to the exact StockIN line, not just the GRN.
   const refNo = [r.grnNo, r.siId ? 'SI:' + r.siId : ''].filter(Boolean).join(' · ');
-  const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', refNo, r.checksum || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
+  const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', refNo, r.checksum || r.editVal || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
   const au = await _srkPost({ action: 'appendRow', sheetId: STORES_SHEET_ID, tab: 'AuditTrail', row: auditRow });
   r.qty = newQty;                       // StockIN write already succeeded — reflect locally
   _srkAudit = null;                     // audit view will re-fetch
