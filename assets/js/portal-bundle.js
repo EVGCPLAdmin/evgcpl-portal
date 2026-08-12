@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.52.2';
-const PORTAL_BUILD    = 721;
-const PORTAL_BUILD_AT = '2026-08-10T15:18:45Z';
+const PORTAL_VERSION  = '4.53.0';
+const PORTAL_BUILD    = 722;
+const PORTAL_BUILD_AT = '2026-08-12T08:29:22Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -17240,6 +17240,24 @@ const KB_ARTICLES = [
     updated: 'Jul 2026',
     body: _kbBodyRewards,
   },
+  {
+    id: 'handoff-overview',
+    title: 'StrategicERP Handoff — Overview',
+    category: 'Handoff',
+    icon: '📦',
+    summary: 'Migration handoff to StrategicERP — current architecture, the data & backend inventory, the access model, migration risks, the data-migration map and the cutover checklist.',
+    updated: 'Aug 2026',
+    body: _kbBodyHandoffOverview,
+  },
+  {
+    id: 'handoff-urd',
+    title: 'StrategicERP Handoff — Module Requirements (URD)',
+    category: 'Handoff',
+    icon: '📋',
+    summary: 'User Requirements Document — per-module functional requirements and testable acceptance criteria the new ERP must satisfy, plus the role/action and voucher appendices.',
+    updated: 'Aug 2026',
+    body: _kbBodyHandoffURD,
+  },
 ];
 
 function _kbEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -17925,6 +17943,165 @@ function _kbBodyRewards() {
         `<p class="kb-p">All on the <code>REWARDS</code> sheet — <code>Nomination</code>, <code>Posts</code>, <code>Reactions</code>, <code>Comments</code> — each written by the <b>main</b> backend's <code>appendRow</code>. Open to every role.</p>`
       )}
       <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Recognition works when it's seen — nominations become wall posts the whole team can react to.</p>
+    </div>`;
+}
+
+// ── Article: StrategicERP Handoff — Overview ────────────────────
+function _kbBodyHandoffOverview() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Handoff · Migration to StrategicERP</div>
+      <h2 class="kb-h">StrategicERP Handoff — Overview</h2>
+      <p class="kb-p">The organisation is moving from this portal to <b>StrategicERP</b>. This article is the migration baseline: what the current system is, where its data and integrations live, how access works, the risks to watch, and the cutover plan. The companion article <b>“Module Requirements (URD)”</b> holds the per-module requirements and acceptance criteria.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> a static web app over ~16 Google Sheets and 5 Apps Script backends must become StrategicERP — preserving audit history, business keys, multi-currency, documents, and route+action access.
+      </div>
+
+      <h3 class="kb-sub">System at a glance</h3>
+      <table class="kb-tbl"><thead><tr><th>Aspect</th><th>Today</th><th>Migration implication</th></tr></thead><tbody>
+        <tr><td>Front end</td><td>Static HTML + one JS bundle</td><td>Re-implemented as ERP UI</td></tr>
+        <tr><td>Data store</td><td>~16 Google Spreadsheets, 60+ tabs</td><td>Migrate to ERP relational schema</td></tr>
+        <tr><td>Backend</td><td>5 Apps Script deployments</td><td>Replace with ERP logic / APIs</td></tr>
+        <tr><td>Auth</td><td>PIN login (Google login disabled)</td><td>Replace with ERP identity / SSO</td></tr>
+        <tr><td>Access</td><td>Access Groups (route + action grants)</td><td>Map to ERP roles &amp; permissions</td></tr>
+        <tr><td>Files</td><td>Google Drive folders</td><td>Migrate to ERP document store</td></tr>
+      </tbody></table>
+
+      <h3 class="kb-sub">Data inventory</h3>
+      <p class="kb-p">15 source spreadsheets feed the modules (full IDs are in the separate Backends Reference). Key ones:</p>
+      <table class="kb-tbl"><thead><tr><th>Spreadsheet</th><th>Primary tabs</th><th>Feeds</th></tr></thead><tbody>
+        <tr><td>Master</td><td>26 master tabs (Site, Vendor, Asset, UOM, Head, Cost Centre…)</td><td>All reference data</td></tr>
+        <tr><td>Purchase / SCM</td><td>MRS, PO_Actual, SiteMaster</td><td>Procurement, voucher PO items</td></tr>
+        <tr><td>Payments</td><td>PaymentRequest, AccountsUpdate</td><td>Accounts, approvals, ledgers</td></tr>
+        <tr><td>Stores</td><td>StockIN, GRN_No, StockLevels</td><td>Stores, GRN, Item Rate</td></tr>
+        <tr><td>Employee Register</td><td>0_EmployeeRegister_Live</td><td>HR, Access, Ledgers, Payroll</td></tr>
+        <tr><td>Expenses · PCC · DPR · Safety · Rewards · Recruitment · Rental</td><td>module-specific</td><td>respective modules</td></tr>
+      </tbody></table>
+
+      <h3 class="kb-sub">Integration inventory (Apps Script)</h3>
+      <table class="kb-tbl"><thead><tr><th>Deployment</th><th>Key actions</th></tr></thead><tbody>
+        <tr><td><code>main</code></td><td>appendRow, updateCell, Drive listing, report send, aiProxy, diagnoseSheet</td></tr>
+        <tr><td><code>portalConfig</code></td><td>savePortalConfig, getPortalConfig</td></tr>
+        <tr><td><code>accounts</code></td><td>saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, PR attachments</td></tr>
+        <tr><td><code>pcc</code></td><td>saveProjectSetup, saveBOQ, saveWBS, saveWorkplan</td></tr>
+        <tr><td><code>safety</code></td><td>incident / daily-check append</td></tr>
+      </tbody></table>
+
+      <h3 class="kb-sub">Migration risks to watch</h3>
+      <table class="kb-tbl"><thead><tr><th>#</th><th>Risk</th></tr></thead><tbody>
+        <tr><td>1</td><td><b>Append-only audit</b> — status changes are new rows, not edits; the live value is the latest. Migrate the <i>history</i>, not just current state.</td></tr>
+        <tr><td>2</td><td><b>Composite keys</b> — MR&nbsp;No → PO&nbsp;No → GRN&nbsp;No; party = Name+A/C; expense month = MCE-site|CashFor|period. Map to ERP foreign keys.</td></tr>
+        <tr><td>3</td><td><b>Multi-currency / country</b> — INR / TZS / XOF per site. ERP must be multi-currency from day one.</td></tr>
+        <tr><td>4</td><td><b>External AppSheet apps</b> — Attendance / Leave / On-Duty must be consolidated in.</td></tr>
+        <tr><td>5</td><td><b>Documents in Drive</b> — HR docs, policies, payment attachments must migrate with record links intact.</td></tr>
+        <tr><td>6</td><td><b>No referential integrity today</b> — expect to cleanse orphan / duplicate rows during migration.</td></tr>
+      </tbody></table>
+
+      <h3 class="kb-sub">Cutover checklist</h3>
+      ${_kbFlow([
+        { label: 'Freeze & snapshot', sub: 'export every tab', tone: 'start' },
+        { label: 'Migrate masters', sub: 'Employee, Site, Vendor…', edge: '1' },
+        { label: 'Migrate txns + history', sub: 'keys & status trail', edge: '2' },
+        { label: 'Docs + access + parallel-run', sub: 'reconcile finance', edge: '3' },
+        { label: 'Sign-off & decommission', sub: 'revoke sheet sharing', edge: '4', tone: 'end' },
+      ])}
+      <p class="kb-p">Migrate master data first; then transactional data <b>with keys and status history</b>; validate the MR→PO→GRN and payment chains reconcile; migrate documents; rebuild the access matrix; parallel-run finance for one cycle and reconcile ledger balances; consolidate Attendance/Leave/OD; decommission the Apps Script endpoints and revoke sheet sharing after sign-off.</p>
+
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The non-negotiables for StrategicERP: keep the audit history, keep the business keys, be multi-currency, migrate the documents, and reproduce route+action access — not just coarse roles.</p>
+    </div>`;
+}
+
+// ── Article: StrategicERP Handoff — Module Requirements (URD) ────
+function _kbBodyHandoffURD() {
+  const mod = (n, title, purpose, frs, acs) => `
+    <h3 class="kb-sub">${n}. ${title}</h3>
+    <p class="kb-p" style="margin-bottom:.4rem">${purpose}</p>
+    <table class="kb-tbl"><thead><tr><th style="width:50%">Functional requirements</th><th>Acceptance criteria</th></tr></thead>
+      <tbody><tr><td><ul style="margin:0;padding-left:1.1rem">${frs.map(x => '<li style="margin-bottom:.25rem">' + x + '</li>').join('')}</ul></td>
+      <td><ul style="margin:0;padding-left:1.1rem">${acs.map(x => '<li style="margin-bottom:.25rem">' + x + '</li>').join('')}</ul></td></tr></tbody></table>`;
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Handoff · User Requirements Document</div>
+      <h2 class="kb-h">StrategicERP Handoff — Module Requirements (URD)</h2>
+      <p class="kb-p">The capability StrategicERP must deliver to replace this portal. Each module lists its <b>functional requirements (FR)</b> and testable <b>acceptance criteria (AC)</b> — the basis for UAT sign-off. Keywords: <i>shall</i> = mandatory, <i>should</i> = recommended.</p>
+
+      ${mod('1', 'Authentication &amp; Access Control',
+        'Authenticate users and govern which pages and actions each may access.',
+        ['Authenticate before access (target: ERP identity / SSO).','Access groups grant specific <b>routes</b> and <b>actions</b>; effective access = union of a user\'s groups.','Super-admin bypass + org-wide enforce switch.','Auto-assign active employees to a baseline profile; revoke when status ≠ Current (≤24h).','Scoped admins cannot escalate their own rights; external parties see only their own data.'],
+        ['Login shows only granted pages.','Lacking the approve action hides/disables Approve.','No group granting route X ⇒ X hidden & blocked when enforce is ON.','Status Current→other ⇒ baseline access removed within one cycle.','Vendor sees only their own orders/invoices/docs.'])}
+
+      ${mod('2', 'Dashboard &amp; My Tasks',
+        'Role-aware landing KPIs and a personal action queue.',
+        ['Role-specific KPI dashboard on login.','Consolidated <b>My Tasks</b> of items awaiting the user across modules.','Live figures, drill-through to source.'],
+        ['Accounts role sees finance KPIs; Employee sees personal.','An item awaiting the user appears in My Tasks with a link to act.','Clicking a KPI opens the filtered list.'])}
+
+      ${mod('3', 'HR &amp; People',
+        'Employee lifecycle — recruitment, onboarding, records, profiles, policies, transfers, mess.',
+        ['Recruitment pipeline MRF → Offer → Pre-Joining → Joining → Onboarding.','Onboarding creates the authoritative Employee record.','Employee Register with status/designation/grade/site/company.','Self-service My Profile; Policies Hub; inter-site transfers; individual mess/accommodation.'],
+        ['Dept-Head MRF appears for HR as “raised”.','Onboarding complete ⇒ Employee record exists (access follows on next sync).','Employee sees only their own profile.','Transfer records from/to site, reporting date &amp; manager, auditable.'])}
+
+      ${mod('4', 'Site Operations',
+        'Site manager workspace, safety, equipment, site store, plant overview.',
+        ['Site-scoped manager workspace.','Daily HSE checklist (10 checks) + safety score; incident reporting.','Track equipment &amp; site store; records dated &amp; immutable.'],
+        ['Checklist submit ⇒ dated record + score reflects checks done.','Incident report ⇒ dated record in the register.','Manager sees only assigned site(s).','Past checklist is read-only history.'])}
+
+      ${mod('5', 'Procurement &amp; Stores',
+        'MRS → PO → GRN → stock, plus vendor/SC portals and analytics.',
+        ['Raise MRS; convert to PO; record GRN vs PO (qty/invoice/part) updating stock.','Stock levels, transfers, stock-out, reconciliation.','Carry keys MR&nbsp;No → PO&nbsp;No → GRN&nbsp;No; Open PO &amp; Item Rate Master; Vendor/SC portals; PO approval gate.'],
+        ['PO carries originating MR No.','GRN carries PO No &amp; increments stock.','Open PO shows ordered − received.','Reconciliation shows variance.','Vendor portal shows only own POs.'])}
+
+      ${mod('6', 'Accounts &amp; Finance',
+        'Payment requests &amp; approval pipeline, ledgers, GRN valuation, cash/mess, payroll.',
+        ['Raise payment request (payee, site/company, bill &amp; PO ref, financials w/ currency/GST/TDS, bank, narrative, attachments).','Pipeline: Verify → MD Queue → Initiate → Paid → UTR → Completed, with Hold/Sent-back/Query/Rejected.','<b>Append-only</b> status history; per-transition permissions; MD approve/reject (reason to reject) single &amp; bulk.','Submit validation + duplicate-payment guard.','Vendor Ledger (Cr/Dr, opening bal, Payable/Advance/Settled); GRN Review valuation; party ledgers (Name+A/C); cash/mess by site-month; payroll.'],
+        ['Valid request ⇒ created “To be Verified” on worklist.','MD approve advances; reject w/o reason refused.','Every status change ⇒ new history entry; priors unchanged.','Unauthorised transition blocked.','Duplicate amount warns before continue.','Vendor Ledger shows Cr/Dr + closing status.','GRN review posts invoice-confirmed value.','Party statement shows running balance + Paid/Pending, exportable.','Site-month closes only when reconciled; UTR closes the request.'])}
+
+      ${mod('7', 'Planning (Budget &amp; Execution)',
+        'Project cost control (budget) and daily progress (DPR), tracked against each other.',
+        ['Cost control — BOQ, WBS, work plan, resources, dashboard.','Daily Progress Report of actuals.','Plan-vs-actual reporting.'],
+        ['BOQ/WBS/workplan persist &amp; populate dashboard.','DPR submit ⇒ dated progress record.','Budget vs DPR comparable per project.'])}
+
+      ${mod('8', 'Plant &amp; Machinery',
+        'Equipment usage, verification and maintenance.',
+        ['Daily plant log (usage/hours); asset verification; maintenance records.','Per-asset history across all three.'],
+        ['Daily log ⇒ dated usage record on the asset.','Verification ⇒ dated record.','Asset history shows log+verify+maintenance together.'])}
+
+      ${mod('9', 'Reports &amp; Data Hub',
+        'Read-only data access, master export, scheduled reports.',
+        ['Data Hub browse read-only; Master data with column selection + CSV (single &amp; bulk); define &amp; schedule report emails; no source mutation.'],
+        ['Data Hub view has no edit controls.','CSV reflects chosen columns.','Scheduled report emails on cadence automatically.'])}
+
+      ${mod('10', 'Configuration &amp; Administration',
+        'Admin without code — module status, data-source binding, site attributes, status permissions, schemas, endpoints.',
+        ['Set module status &amp; defaults; re-point any data source; Site Config (Country/Currency/Status) as a lookup + stamp onto records with preview-before-write; restrict status transitions; Schema Manager for fields/columns; central endpoints; no admin escalation.'],
+        ['Module Off ⇒ unavailable.','Re-point source ⇒ dependent view reads new source.','Site Config applies currency to dependent records; bulk write previews first.','Restricted transition blocked for non-permitted role.','Schema change applies everywhere it renders.'])}
+
+      ${mod('11', 'Employee Engagement (Rewards)',
+        'Peer recognition and a shared wall.',
+        ['Submit nominations; nominations surface on a wall with reactions &amp; comments.'],
+        ['Nomination ⇒ appears on the feed.','React/comment ⇒ recorded and visible.'])}
+
+      ${mod('12', 'Time &amp; Attendance <span class="kb-pill" style="background:#e2f1f4;color:#2c93a6">external · AppSheet</span>',
+        'Attendance, leave, on-duty — today an external AppSheet app on the Employee Master; to be consolidated into StrategicERP.',
+        ['Record daily attendance; manage leave &amp; on-duty with approval; feed payroll &amp; DPR headcount.'],
+        ['Attendance mark ⇒ dated record keyed to Employee ID.','Leave/OD approval updates status &amp; balance.','Approved time feeds payroll for the period.'])}
+
+      <h3 class="kb-sub">Appendix A — Route action vocabulary</h3>
+      <p class="kb-p">Reproduce action-level grants, not just view: <code>view · create · edit · verify · advance · update · approve · reject · close · export · schedule · setDefault</code>, plus dual <b>MD/SCM</b> approve-reject on Purchase View, and <b>approve/reject</b> on the MD payment queue.</p>
+
+      <h3 class="kb-sub">Appendix B — Payment request (voucher) fields</h3>
+      <table class="kb-tbl"><thead><tr><th>Section</th><th>Fields</th></tr></thead><tbody>
+        <tr><td>1 · Initiator</td><td>Date; Requested by; Department; Process; Manual/Auto</td></tr>
+        <tr><td>2 · Payment To</td><td>Payee type (Employee/Vendor/SC/Others); Payee</td></tr>
+        <tr><td>3 · Site &amp; Company</td><td>Site (auto-fills Company)</td></tr>
+        <tr><td>4 · Bill &amp; PO Ref</td><td>Order No; Bill No; Payment Terms; PO/Invoice/Paid/Pending value</td></tr>
+        <tr><td>5 · Financial</td><td>Currency; <b>Amount</b>; Nature; Account Code; GST; TDS</td></tr>
+        <tr><td>6 · Bank</td><td>A/C holder; number; IFSC; bank (auto-filled for known payee)</td></tr>
+        <tr><td>7 · Narrative</td><td>Narrative (required); attachments</td></tr>
+      </tbody></table>
+      <p class="kb-p">Submit rules: amount &gt; 0; payee present; amount ≤ pending value; duplicate-payment guard.</p>
+
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">These acceptance criteria are the UAT contract, module by module. The full document (with the role×module matrix and data-migration map) is the companion URD file.</p>
     </div>`;
 }
 
