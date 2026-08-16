@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.53.0';
-const PORTAL_BUILD    = 722;
-const PORTAL_BUILD_AT = '2026-08-12T08:29:22Z';
+const PORTAL_VERSION  = '4.53.1';
+const PORTAL_BUILD    = 723;
+const PORTAL_BUILD_AT = '2026-08-16T19:13:49Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5206,8 +5206,9 @@ function _vplpCompute() {
     // GRN_No tab via CheckSum/UUID. Never the PO date.
     const csKey = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID'])).trim();
     const recvDate = _opGet(r, SC, ['Received On (At Site)', 'Received On (At)', 'Received On', 'GRN Received On', 'Received Date']) || grnDateMap[csKey] || '';
+    const recvTs = _opGet(r, SC, ['Timestamp', 'Time Stamp', 'Created On', 'Entry Timestamp', 'Created Timestamp', 'Created']) || '';
     e.qty += qty;
-    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev, recvDate });
+    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev, recvDate, recvTs });
   });
   // PO header: approval, vendor, date, Tax(b), Additional Charges(b). Keyed by
   // the normalised PO key (folds EGVE/EVGE spelling variants).
@@ -5385,7 +5386,7 @@ function _vplpCompute() {
       siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '', partNo: rc.partNo || '', partDesc: rc.partDesc || '',
       qty: rc.qty || 0, poRate: rc.poRate || 0, useRate: rc.useRate || 0, addl: rc.addl || 0,
       poTaxPct: rc.poTaxPct || 0, poTaxVal: rc.poTaxVal || 0,
-      credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null,
+      credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null, recvDate: rc.recvDate || '', recvTs: rc.recvTs || '',
       poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
     }));
   });
@@ -5457,8 +5458,47 @@ function _vplpRenderBody() {
 // getExec('accounts') action 'saveGRNReview' (append; latest per SI ID wins).
 let _vplpGRNFilter = 'pending';   // 'pending' | 'approved' | 'rejected' | 'all'
 let _vplpGRNSearch = '';
+let _vplpGRNDateFrom = '';        // GRN-date range filter (YYYY-MM-DD, inclusive)
+let _vplpGRNDateTo = '';
 const _GRN_CAP = 150;             // cap rendered rows — the queue can be thousands
+// A line's GRN date value (ms) — prefer the GRN Timestamp, else the received date.
+function _grnLineDateVal(l) { return _mdpDateVal(l.recvTs) || _mdpDateVal(l.recvDate) || 0; }
 window._vplpGRNSetFilter = function(f) { _vplpGRNFilter = f; _vplpRenderBody(); };
+window._vplpGRNSetDate = function(which, val) {
+  if (which === 'from') _vplpGRNDateFrom = val; else _vplpGRNDateTo = val;
+  _vplpRenderBody();
+};
+window._vplpGRNClearDates = function() { _vplpGRNDateFrom = ''; _vplpGRNDateTo = ''; _vplpRenderBody(); };
+// Download the current (search + status + date) filtered rows as CSV — the full
+// filtered set, not just the on-screen cap.
+window._vplpGRNExportCSV = function() {
+  const rows = window._vplpGRNFiltered || [];
+  if (!rows.length) { try { _accToast('No rows to export.'); } catch (e) {} return; }
+  const p2 = n => String(n).padStart(2, '0');
+  const dOnly = v => { const t = _grnTsVal(v); if (!t) return v ? String(v) : ''; const d = new Date(t); return p2(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear(); };
+  const dTime = v => { const t = _grnTsVal(v); if (!t) return v ? String(v) : ''; const d = new Date(t); return p2(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds()); };
+  const statusOf = l => (l.rev && l.rev.status) ? l.rev.status : 'Pending';
+  const cell = v => { v = (v == null ? '' : String(v)); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const round2 = n => (typeof n === 'number' && !isNaN(n) && n !== 0) ? Math.round(n * 100) / 100 : '';
+  const headers = ['GRN No', 'GRN Date', 'GRN Timestamp', 'PO No', 'Vendor', 'Vendor ID', 'Part No', 'Description', 'Invoice No', 'Qty', 'PO Rate', 'PO Tax %', 'PO Tax Value', 'Final Rate', 'Final Tax', 'Final Addl', 'Final Value', 'Status'];
+  const body = rows.map(l => {
+    const rev = l.rev || {};
+    return [
+      l.grn, dOnly(l.recvDate), dTime(l.recvTs), l.poNo, l.vendorName, l.vid, l.partNo, (l.partDesc || l.part),
+      l.inv, l.qty, l.poRate, round2(l.poTaxPct), round2(l.poTaxVal),
+      (rev.rate > 0 ? rev.rate : ''), (rev.tax > 0 ? rev.tax : ''), (rev.addl || ''), (rev.value > 0 ? rev.value : ''),
+      statusOf(l),
+    ].map(cell).join(',');
+  });
+  const csv = '﻿' + [headers.join(','), ...body].join('\r\n');   // BOM so Excel reads UTF-8
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'GRN_Review_' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  try { _accToast('⬇ Exported ' + rows.length + ' row(s)'); } catch (e) {}
+};
 let _grnSearchTimer = null;
 window._vplpGRNSearchInput = function(val) {
   _vplpGRNSearch = val;
@@ -5478,6 +5518,9 @@ function _vplpGRNReviewView() {
   const esc = _mdpEsc, d = _vplpData || {};
   const inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
   const inr2 = n => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const _p2 = n => String(n).padStart(2, '0');
+  const fmtD = v => { const t = _grnTsVal(v); if (!t) return v ? esc(String(v)) : '—'; const d = new Date(t); return _p2(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear(); };
+  const fmtTs = v => { const t = _grnTsVal(v); if (!t) return v ? esc(String(v)) : '—'; const d = new Date(t); return _p2(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear() + ' ' + _p2(d.getHours()) + ':' + _p2(d.getMinutes()); };
   const lines = (d.grnLines || []).slice();
   const statusOf = l => l.rev && l.rev.status ? l.rev.status : 'Pending';
   const isApp = l => /approv/i.test(statusOf(l)), isRej = l => /reject/i.test(statusOf(l));
@@ -5488,9 +5531,14 @@ function _vplpGRNReviewView() {
     : _vplpGRNFilter === 'rejected' ? lines.filter(isRej) : lines.filter(isPend);
   const q = _vplpGRNSearch.trim().toLowerCase();
   if (q) filtered = filtered.filter(l => (l.vendorName + ' ' + l.vid + ' ' + l.poNo + ' ' + l.grn + ' ' + (l.partDesc || l.part || '') + ' ' + (l.inv || '')).toLowerCase().includes(q));
+  // GRN-date range filter (inclusive; end-of-day for the "to" bound).
+  const dFrom = _vplpGRNDateFrom ? new Date(_vplpGRNDateFrom + 'T00:00:00').getTime() : 0;
+  const dTo = _vplpGRNDateTo ? new Date(_vplpGRNDateTo + 'T23:59:59').getTime() : 0;
+  if (dFrom || dTo) filtered = filtered.filter(l => { const t = _grnLineDateVal(l); if (!t) return false; if (dFrom && t < dFrom) return false; if (dTo && t > dTo) return false; return true; });
   const shown = filtered.slice(0, _GRN_CAP);   // cap rendered rows to keep it responsive
-  // stash for the submit handler (index-addressed)
+  // stash for the submit handler (index-addressed) + the full filtered set for CSV export
   window._vplpGRNShown = shown;
+  window._vplpGRNFiltered = filtered;
   const canReview = _grnCanReview();
   const notCfg = !GRN_REVIEW_SHEET_ID;
   const fbtn = (v, label, n) => `<button onclick="_vplpGRNSetFilter('${v}')" class="btn btn-sm ${_vplpGRNFilter === v ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 10px;font-size:.72rem">${label} (${n})</button>`;
@@ -5502,7 +5550,14 @@ function _vplpGRNReviewView() {
     </div>
     <div style="display:flex;gap:.9rem;align-items:center;flex-wrap:wrap">
       <input id="grn-search" value="${esc(_vplpGRNSearch)}" oninput="_vplpGRNSearchInput(this.value)" placeholder="Search vendor / PO / GRN / part…" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 10px;background:var(--surface2);min-width:230px">
+      <span style="display:flex;gap:.3rem;align-items:center;font-size:.7rem;color:var(--txt3)" title="Filter by GRN date (uses GRN Timestamp, else received date)">GRN date
+        <input type="date" value="${esc(_vplpGRNDateFrom)}" onchange="_vplpGRNSetDate('from',this.value)" style="font-size:.72rem;border:1px solid var(--border);border-radius:5px;padding:3px 5px;background:var(--surface2)">
+        <span>–</span>
+        <input type="date" value="${esc(_vplpGRNDateTo)}" onchange="_vplpGRNSetDate('to',this.value)" style="font-size:.72rem;border:1px solid var(--border);border-radius:5px;padding:3px 5px;background:var(--surface2)">
+        ${(_vplpGRNDateFrom || _vplpGRNDateTo) ? `<button onclick="_vplpGRNClearDates()" title="Clear date filter" class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:.68rem">&#10005;</button>` : ''}
+      </span>
       <span style="font-size:.66rem;color:var(--txt3)" title="No On/Off switch: each GRN uses its review entry when one exists (approved → its Final values; rejected → excluded); with no entry it uses the PO rate and still counts.">&#9432; Reviews applied automatically</span>
+      <button onclick="_vplpGRNExportCSV()" class="btn btn-sm btn-secondary" title="Download the filtered rows as CSV" style="padding:3px 9px;font-size:.72rem">&#8681; CSV</button>
       <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
     </div>
   </div>`;
@@ -5538,6 +5593,8 @@ function _vplpGRNReviewView() {
     const numInput = (fid, v, w, extra) => `<input id="grn-${fid}-${i}" type="number" step="0.01" value="${esc(v)}"${ro} ${extra || ''} style="width:${w}px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)">`;
     return `<tr onclick="_vplpGRNRowClick(event,${i})" style="cursor:pointer">
       <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
+      <td style="padding:6px 9px;white-space:nowrap;color:var(--txt2)">${fmtD(l.recvDate)}</td>
+      <td style="padding:6px 9px;white-space:nowrap;color:var(--txt3);font-size:.72rem">${fmtTs(l.recvTs)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
       <td style="padding:6px 9px"><div style="max-width:150px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3" title="${esc(l.vendorName)}${l.vid ? ' [' + esc(l.vid) + ']' : ''}">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</div></td>
       <td style="padding:6px 9px;font-size:.74rem"><div title="Click to open full details" style="max-width:280px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35">${l.partNo ? `<span style="font-weight:600">${esc(l.partNo)}</span>; ` : ''}${esc(l.partDesc || l.part)}</div></td>
@@ -5560,7 +5617,7 @@ function _vplpGRNReviewView() {
   return header + cfgWarn + permWarn + diagNote + capNote + `<div class="card"><div style="overflow:auto;max-height:380px">
     <table class="evg-ledger-tbl" data-evg-defaults="off" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="color:#fff;text-align:left">
-        <th style="${th}">GRN</th><th style="${th}">PO No</th><th style="${th}">Vendor</th>
+        <th style="${th}">GRN</th><th style="${th}">GRN Date</th><th style="${th}">GRN Timestamp</th><th style="${th}">PO No</th><th style="${th}">Vendor</th>
         <th style="${th}">Part No; Description</th><th style="${th}">Invoice</th><th style="${thR}">Qty</th>
         <th style="${thR}">PO Rate</th>
         <th style="${thR}">PO Tax %</th><th style="${thR}">PO Tax Value</th>
@@ -5647,6 +5704,9 @@ window._vplpGRNOpenModal = function(i) {
   window._vplpGRNModalLine = l;
   const esc = _mdpEsc, inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
   const inr2 = n => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const _p2m = n => String(n).padStart(2, '0');
+  const fmtD = v => { const t = _grnTsVal(v); if (!t) return v ? esc(String(v)) : '—'; const d = new Date(t); return _p2m(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear(); };
+  const fmtTs = v => { const t = _grnTsVal(v); if (!t) return v ? esc(String(v)) : '—'; const d = new Date(t); return _p2m(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear() + ' ' + _p2m(d.getHours()) + ':' + _p2m(d.getMinutes()); };
   const canReview = _grnCanReview();
   const ro = canReview ? '' : ' disabled';
   const st = (l.rev && l.rev.status) ? l.rev.status : 'Pending';
@@ -5698,6 +5758,8 @@ window._vplpGRNOpenModal = function(i) {
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem 1rem;padding:.8rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
       ${meta('Vendor', esc(l.vendorName) + (l.vid ? ` <span style="color:var(--txt3);font-weight:400">[${esc(l.vid)}]</span>` : ''))}
+      ${meta('GRN Date', fmtD(l.recvDate))}
+      ${meta('GRN Timestamp', fmtTs(l.recvTs))}
       ${meta('Invoice', esc(l.inv) || '—')}
       ${meta('Qty', (l.qty || 0).toLocaleString('en-IN'))}
       ${meta('PO Rate', inr(l.poRate))}
@@ -17539,7 +17601,7 @@ function _kbBodyGRNReview() {
       <table class="kb-tbl">
         <thead><tr><th>Step</th><th>What happens</th></tr></thead>
         <tbody>
-          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> plus read-only <b>PO Tax %</b> / <b>PO Tax Value</b> as reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
+          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, <b>GRN Date</b>, <b>GRN Timestamp</b>, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> plus read-only <b>PO Tax %</b> / <b>PO Tax Value</b> as reference. Filter by status, search, or a <b>GRN-date range</b>; <b>⬇ CSV</b> downloads the filtered rows. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
           <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
           <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one. Changed your mind? <b>↩ Move to Pending</b> undoes a decision and reverts the line to the PO rate, exactly like an un-reviewed one.</td></tr>
           <tr><td><b>4 · Post</b></td><td>Reviews take effect <b>automatically</b>: an approved line credits the ledger at its Final values, a rejected line drops out, and an un-reviewed line still counts at the PO rate. A count badge shows how many are still pending.</td></tr>
