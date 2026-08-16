@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.50.1';
-const PORTAL_BUILD    = 717;
-const PORTAL_BUILD_AT = '2026-07-25T10:49:09Z';
+const PORTAL_VERSION  = '4.53.0';
+const PORTAL_BUILD    = 722;
+const PORTAL_BUILD_AT = '2026-08-12T08:29:22Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -9951,26 +9951,83 @@ function _srkColLetter(cands) {
   for (const c of cands) { const v = low[c.toLowerCase().trim()]; if (v) return v; }
   return '';
 }
+// Map CheckSum / UUID / SI ID → Received On date, sourced from the GRN_No tab.
+// Used as a fallback when a StockIN row's own Received On (At) cell is blank.
+function _srkGRNDateMap() {
+  const m = {};
+  (_regGRNRows || []).forEach(g => {
+    const dt = String(g['Received On (At)'] || g['Received On'] || g['GRN Date'] || g['Date'] || '').trim();
+    if (!dt) return;
+    [g['CheckSum'], g['Check Sum'], g['UUID'], g['SI ID']].forEach(k => {
+      const kk = String(k || '').trim();
+      if (kk && !m[kk]) m[kk] = dt;
+    });
+  });
+  return m;
+}
+// PO Qty per line, keyed by (PO item CheckSum · Part Details) — the same join the
+// Open PO report uses to match StockIN receipts to their ordered PO line.
+function _srkPOQtyMap() {
+  const m = {};
+  const IC = _opColMap(_openPOItems || []);
+  (_openPOItems || []).forEach(x => {
+    const cs   = _opGet(x, IC, ['CheckSum', 'Check Sum']);
+    const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
+    const key  = _opNorm(cs) + '||' + _opNorm(part);
+    m[key] = (m[key] || 0) + _opNum(_opGet(x, IC, ['PO Qty', 'Qty', 'Quantity', 'Order Qty', 'Quantity Ordered']));
+  });
+  return m;
+}
 function _srkBuildRows() {
   const SC = _opColMap(_openPOStock || []);
   const grnMap = _siGRNMapBuild();
+  const grnDateMap = _srkGRNDateMap();
+  const poQtyMap = _srkPOQtyMap();
   const matMap = _opMatMap();
   return (_openPOStock || []).map((r, idx) => {
-    const checksum = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID']) || '').trim();
+    const checksum = String(_opGet(r, SC, ['CheckSum', 'Check Sum']) || '').trim();
+    const uuid     = String(_opGet(r, SC, ['UUID', 'Row UUID', 'GRN UUID']) || '').trim();
+    const siId     = String(_opGet(r, SC, ['SI ID', 'SIID', 'SI Id', 'SI No', 'StockIN ID']) || '').trim();
     const partRaw = _opGet(r, SC, ['Material Description', 'Part Details', 'Part Description', 'Material', 'Description']);
     const part = (_opPartReadable(partRaw, matMap).text) || partRaw || '';
+    // Unique per-row edit key: SI ID → UUID → CheckSum. CheckSum is per-GRN and
+    // shared across a GRN's line items, so matching a write on it hits only the
+    // first line — the bug where "only the first record gets edited".
+    let editVal, editCands;
+    if (siId)      { editVal = siId;     editCands = ['SI ID', 'SIID', 'SI Id', 'SI No', 'StockIN ID']; }
+    else if (uuid) { editVal = uuid;     editCands = ['UUID', 'Row UUID', 'GRN UUID']; }
+    else           { editVal = checksum; editCands = ['CheckSum', 'Check Sum']; }
+    // Received On: prefer the StockIN row's own date; if blank, fall back to the
+    // GRN_No table (keyed by CheckSum / UUID / SI ID) → its Received On date.
+    let received = _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Date', 'Date']);
+    if (!String(received || '').trim()) {
+      received = grnDateMap[checksum] || grnDateMap[uuid] || grnDateMap[siId] || received;
+    }
+    // Invoice Qty is on the StockIN row; PO Qty comes from the joined PO line.
+    const invRaw = _opGet(r, SC, ['Invoice Qty', 'Inv Qty', 'Invoice Quantity']);
+    const invQty = String(invRaw || '').trim() === '' ? null : _opNum(invRaw);
+    const poKey = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey'])) + '||' +
+                  _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
+    let poQty = (poKey in poQtyMap) ? poQtyMap[poKey] : null;
+    if (poQty == null) {   // fall back to a direct PO Qty column if the sheet has one
+      const d = _opGet(r, SC, ['PO Qty', 'Order Qty', 'Ordered Qty', 'PO Quantity']);
+      if (String(d || '').trim() !== '') poQty = _opNum(d);
+    }
+    const grnQty = _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
     return {
-      idx, checksum,
-      siId:     String(_opGet(r, SC, ['SI ID', 'SIID', 'SI Id', 'SI No', 'StockIN ID']) || '').trim(),
+      idx, checksum, uuid, siId, editVal, editCands,
       grnNo:    _siGRNResolve(r, SC, grnMap),
-      received: _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Date', 'Date']),
+      received,
       site:     _opGet(r, SC, ['Site Name', 'Site']),
       vendor:   _opGet(r, SC, ['Vendor Name', 'Vendor']),
       poNo:     _opGet(r, SC, ['PO No', 'PO No (Key)']),
       part:     part || '—',
-      qty:      _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty'])),
+      poQty, invQty,
+      qty:      grnQty,
+      // Difference = Invoice Qty − GRN Qty (billed vs received). null when no invoice qty.
+      diff:     invQty == null ? null : (invQty - grnQty),
     };
-  }).filter(x => x.checksum || x.grnNo);
+  }).filter(x => x.checksum || x.uuid || x.siId || x.grnNo);
 }
 
 function renderStockRecon() {
@@ -10003,21 +10060,43 @@ function _srkRender() {
   const colWarn = (!_srkColLetter(['GRN Qty', 'GRN Quantity', 'Received Qty']) || !_srkColLetter(['CheckSum', 'Check Sum', 'UUID', 'SI ID']))
     ? `<div class="card card-pad" style="margin-bottom:1rem;background:#fff3e0;color:#9a3412;font-size:.78rem">&#9888; Could not resolve the StockIN <b>GRN Qty</b> / <b>CheckSum</b> columns from the sheet header — editing is disabled until those headers exist in StockIN.</div>`
     : '';
-  body.innerHTML = `${colWarn}
+  body.innerHTML = `${colWarn}${_srkTableCss()}
     <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
       <input id="srkSearch" type="text" value="${_mdpEsc(_srkSearch)}" oninput="_srkSetSearch(this.value)" placeholder="Search GRN / PO / part / vendor / site&hellip;"
         style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
       <span id="srkCount" style="font-size:.72rem;color:var(--txt3)"></span>
     </div>
-    <div class="card"><table class="data-table" id="srkTable">
-      <thead><tr>
-        <th>GRN No</th><th>Received</th><th>Part</th><th>Site</th><th>Vendor</th>
-        <th style="text-align:right">GRN Qty</th>${canEdit ? '<th></th>' : ''}
-      </tr></thead>
-      <tbody id="srkTbody"></tbody>
-    </table></div>`;
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="overflow-x:auto">
+        <table class="srk-recon-tbl" id="srkTable" data-evg-defaults="off">
+          <thead><tr>
+            ${canEdit ? '<th class="srk-sticky" style="width:60px">Edit</th>' : ''}
+            <th>GRN No</th><th>Received</th><th>Part</th><th>Site</th><th>Vendor</th>
+            <th class="srk-num">PO Qty</th><th class="srk-num">Inv Qty</th>
+            <th class="srk-num">GRN Qty</th><th class="srk-num">Diff</th>
+          </tr></thead>
+          <tbody id="srkTbody"></tbody>
+        </table>
+      </div>
+    </div>`;
   _srkFill();
-  try { applyTableFeatures(); } catch (e) {}
+}
+// Scoped styles for the reconciliation grid: sticky left Edit column, 3-line
+// wrapped Part Description, and tightened widths so every column fits.
+function _srkTableCss() {
+  if (document.getElementById('srk-recon-css')) return '';
+  return `<style id="srk-recon-css">
+    .srk-recon-tbl{width:100%;border-collapse:collapse;font-size:.73rem;table-layout:auto}
+    .srk-recon-tbl th,.srk-recon-tbl td{padding:5px 7px;border-bottom:1px solid var(--border);vertical-align:top;text-align:left}
+    .srk-recon-tbl thead th{font-size:.66rem;text-transform:uppercase;letter-spacing:.02em;color:var(--txt3);white-space:nowrap;background:var(--surface2)}
+    .srk-recon-tbl td.srk-sticky,.srk-recon-tbl th.srk-sticky{position:sticky;left:0;z-index:2;background:var(--surface);box-shadow:1px 0 0 var(--border)}
+    .srk-recon-tbl thead th.srk-sticky{z-index:3;background:var(--surface2)}
+    .srk-recon-tbl tbody tr:hover td{background:var(--surface2)}
+    .srk-recon-tbl tbody tr:hover td.srk-sticky{background:var(--surface2)}
+    .srk-recon-part{max-width:230px;min-width:150px;white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;line-height:1.25}
+    .srk-recon-tbl td.srk-trunc{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .srk-recon-tbl td.srk-num,.srk-recon-tbl th.srk-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  </style>`;
 }
 function _srkVisible() {
   let rows = _srkRows || [];
@@ -10031,23 +10110,31 @@ function _srkFill() {
   const canEdit = typeof userCan !== 'function' || userCan('stock-recon', 'edit');
   const rows = _srkVisible();
   const cnt = document.getElementById('srkCount'); if (cnt) cnt.textContent = rows.length + ' receipt(s)';
-  const cols = canEdit ? 7 : 6;
+  const cols = (canEdit ? 1 : 0) + 9;
   if (!rows.length) { tb.innerHTML = `<tr><td colspan="${cols}" style="text-align:center;color:var(--txt3);padding:1.5rem">No StockIN records match.</td></tr>`; return; }
-  tb.innerHTML = rows.map(r => `<tr>
-    <td style="font-weight:600;color:var(--g7);font-family:monospace;font-size:.76rem">${esc(r.grnNo) || '—'}</td>
-    <td style="font-size:.78rem;white-space:nowrap">${_mdpFmtDate(r.received) || '—'}</td>
-    <td style="font-size:.8rem">${esc(r.part) || '—'}</td>
-    <td style="font-size:.78rem">${esc(r.site) || '—'}</td>
-    <td style="font-size:.78rem">${esc(r.vendor) || '—'}</td>
-    <td style="text-align:right;font-weight:600">${(r.qty || 0).toLocaleString('en-IN')}</td>
-    ${canEdit ? `<td style="text-align:right"><button onclick="_srkEdit('${esc(r.checksum)}')" class="btn btn-sm btn-secondary" style="font-size:.7rem">&#9998; Edit</button></td>` : ''}
-  </tr>`).join('');
-  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+  const fmtQ = v => (v == null) ? '—' : (Math.round(v * 100) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  tb.innerHTML = rows.map(r => {
+    const hasDiff = r.diff != null && Math.abs(r.diff) > 0.001;
+    const diffCell = r.diff == null ? '<span style="color:var(--txt3)">—</span>'
+      : `<span style="font-weight:700;color:${hasDiff ? '#c62828' : '#2e7d32'}">${(r.diff > 0 ? '+' : '') + fmtQ(r.diff)}</span>`;
+    return `<tr>
+    ${canEdit ? `<td class="srk-sticky"><button onclick="_srkEdit(${r.idx})" class="btn btn-sm btn-secondary" style="font-size:.68rem;padding:2px 8px">&#9998; Edit</button></td>` : ''}
+    <td style="font-weight:600;color:var(--g7);font-family:monospace;white-space:nowrap">${esc(r.grnNo) || '—'}</td>
+    <td style="white-space:nowrap">${_mdpFmtDate(r.received) || '—'}</td>
+    <td class="srk-recon-part" title="${esc(r.part)}">${esc(r.part) || '—'}</td>
+    <td class="srk-trunc" title="${esc(r.site)}">${esc(r.site) || '—'}</td>
+    <td class="srk-trunc" title="${esc(r.vendor)}">${esc(r.vendor) || '—'}</td>
+    <td class="srk-num">${fmtQ(r.poQty)}</td>
+    <td class="srk-num">${fmtQ(r.invQty)}</td>
+    <td class="srk-num" style="font-weight:700">${fmtQ(r.qty)}</td>
+    <td class="srk-num">${diffCell}</td>
+  </tr>`;
+  }).join('');
 }
 
-window._srkEdit = function(checksum) {
+window._srkEdit = function(idx) {
   if (typeof userCan === 'function' && !userCan('stock-recon', 'edit')) { alert('You do not have permission to edit stock.'); return; }
-  const r = (_srkRows || []).find(x => x.checksum === checksum); if (!r) return;
+  const r = (_srkRows || []).find(x => x.idx === Number(idx)); if (!r) return;
   const esc = _mdpEsc;
   let ov = document.getElementById('srkEditOverlay'); if (ov) ov.remove();
   ov = document.createElement('div');
@@ -10060,7 +10147,8 @@ window._srkEdit = function(checksum) {
       <div style="display:grid;grid-template-columns:auto 1fr;gap:.25rem .8rem;font-size:.76rem;margin-bottom:.9rem;color:var(--txt2)">
         <span style="color:var(--txt3)">Site</span><span>${esc(r.site) || '—'}</span>
         <span style="color:var(--txt3)">Vendor</span><span>${esc(r.vendor) || '—'}</span>
-        <span style="color:var(--txt3)">CheckSum</span><span style="font-family:monospace;font-size:.7rem;word-break:break-all">${esc(r.checksum) || '—'}</span>
+        <span style="color:var(--txt3)">SI ID</span><span style="font-family:monospace;font-size:.72rem;word-break:break-all">${esc(r.siId) || '—'}</span>
+        <span style="color:var(--txt3)">Match Key</span><span style="font-family:monospace;font-size:.7rem;word-break:break-all">${esc((r.editCands && r.editCands[0]) || 'CheckSum')}: ${esc(r.editVal) || '—'}</span>
         <span style="color:var(--txt3)">Current Qty</span><span style="font-weight:700">${(r.qty || 0).toLocaleString('en-IN')}</span>
       </div>
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">NEW GRN QTY</label>
@@ -10070,7 +10158,7 @@ window._srkEdit = function(checksum) {
       <div id="srkEditMsg" style="font-size:.74rem;color:var(--txt3);margin-top:.5rem;min-height:1em"></div>
       <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.6rem">
         <button onclick="document.getElementById('srkEditOverlay').remove()" class="btn btn-sm btn-secondary">Cancel</button>
-        <button id="srkSaveBtn" onclick="_srkSave('${esc(r.checksum)}')" class="btn btn-sm" style="background:#15803d;color:#fff;border:none">Save &amp; Log</button>
+        <button id="srkSaveBtn" onclick="_srkSave(${r.idx})" class="btn btn-sm" style="background:#15803d;color:#fff;border:none">Save &amp; Log</button>
       </div>
     </div>
   </div>`;
@@ -10098,8 +10186,8 @@ async function _srkPost(payload) {
   }
   return { ok, error, raw: j };
 }
-window._srkSave = async function(checksum) {
-  const r = (_srkRows || []).find(x => x.checksum === checksum); if (!r) return;
+window._srkSave = async function(idx) {
+  const r = (_srkRows || []).find(x => x.idx === Number(idx)); if (!r) return;
   const msg = document.getElementById('srkEditMsg');
   const setMsg = (t, c) => { if (msg) { msg.textContent = t; msg.style.color = c || 'var(--txt3)'; } };
   const inp = document.getElementById('srkNewQty');
@@ -10107,15 +10195,17 @@ window._srkSave = async function(checksum) {
   if (inp && (inp.value === '' || isNaN(parseFloat(inp.value)))) { setMsg('Enter a valid number.', 'var(--danger)'); return; }
   if (newQty === (r.qty || 0)) { setMsg('New value is the same as current.', 'var(--danger)'); return; }
   const qtyCol = _srkColLetter(['GRN Qty', 'GRN Quantity', 'Received Qty']);
-  const keyCol = _srkColLetter(['CheckSum', 'Check Sum', 'UUID', 'SI ID']);
-  if (!qtyCol || !keyCol) { setMsg('StockIN GRN Qty / CheckSum column not found in sheet header.', 'var(--danger)'); return; }
-  if (!r.checksum) { setMsg('This row has no CheckSum key — cannot match it safely.', 'var(--danger)'); return; }
+  // Match on the unique per-row key (SI ID → UUID → CheckSum) so the write lands
+  // on the exact StockIN line, not the first line that shares a GRN CheckSum.
+  const keyCol = _srkColLetter(r.editCands || ['CheckSum', 'Check Sum', 'UUID', 'SI ID']);
+  if (!qtyCol || !keyCol) { setMsg('StockIN GRN Qty / ' + ((r.editCands && r.editCands[0]) || 'CheckSum') + ' column not found in sheet header.', 'var(--danger)'); return; }
+  if (!r.editVal) { setMsg('This row has no SI ID / UUID / CheckSum key — cannot match it safely.', 'var(--danger)'); return; }
   const remark = (document.getElementById('srkRemark') || {}).value || '';
   const btn = document.getElementById('srkSaveBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   setMsg('Writing to StockIN…');
   const restoreBtn = () => { if (btn) { btn.disabled = false; btn.innerHTML = 'Save &amp; Log'; } };
   // 1) Write the new GRN Qty back into StockIN.
-  const up = await _srkPost({ action: 'updateCell', sheetId: STORES_SHEET_ID, tab: 'StockIN', matchCol: keyCol, matchVal: r.checksum, updateCol: qtyCol, updateVal: String(newQty) });
+  const up = await _srkPost({ action: 'updateCell', sheetId: STORES_SHEET_ID, tab: 'StockIN', matchCol: keyCol, matchVal: r.editVal, updateCol: qtyCol, updateVal: String(newQty) });
   if (!up.ok) { restoreBtn(); setMsg('StockIN not updated: ' + (up.error || 'backend rejected the write.'), 'var(--danger)'); return; }
   // 2) Append the audit row (generic schema — reused by Stock Out / Transfer).
   setMsg('Logging to AuditTrail…');
@@ -10123,9 +10213,10 @@ window._srkSave = async function(checksum) {
   // Ref No carries the GRN No plus the SI ID (StockIN row id) so the audit
   // trail is traceable back to the exact StockIN line, not just the GRN.
   const refNo = [r.grnNo, r.siId ? 'SI:' + r.siId : ''].filter(Boolean).join(' · ');
-  const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', refNo, r.checksum || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
+  const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', refNo, r.checksum || r.editVal || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
   const au = await _srkPost({ action: 'appendRow', sheetId: STORES_SHEET_ID, tab: 'AuditTrail', row: auditRow });
   r.qty = newQty;                       // StockIN write already succeeded — reflect locally
+  r.diff = (r.invQty == null) ? null : (r.invQty - newQty);   // keep Diff column in sync
   _srkAudit = null;                     // audit view will re-fetch
   const ov = document.getElementById('srkEditOverlay'); if (ov) ov.remove();
   _srkFill();
@@ -17085,9 +17176,187 @@ const KB_ARTICLES = [
     updated: 'Jul 2026',
     body: _kbBodyGRNReview,
   },
+  {
+    id: 'procure-to-stock',
+    title: 'Procurement → Goods in Stock',
+    category: 'Procurement',
+    icon: '📦',
+    summary: 'The full purchase pipeline — a Material Request becomes a PO, the PO is received as a GRN, and stock stays reconciled. Linked end to end by MR No → PO No → GRN No.',
+    updated: 'Jul 2026',
+    body: _kbBodyProcureToStock,
+  },
+  {
+    id: 'site-config-rental',
+    title: 'Site Config & Rental Write-back',
+    category: 'Configuration',
+    icon: '🌐',
+    summary: 'The per-site Country / Currency / Status master and how it stamps those fields onto the Rental Agreement & RP Booking tabs — Preview then Apply.',
+    updated: 'Jul 2026',
+    body: _kbBodySiteConfig,
+  },
+  {
+    id: 'employee-access-sync',
+    title: 'Employee Access Auto-Sync',
+    category: 'HR & Access',
+    icon: '🔁',
+    summary: 'How an employee\'s status decides their portal access — Current → Users group, otherwise → Deactivated — rechecked automatically every 24 hours.',
+    updated: 'Jul 2026',
+    body: _kbBodyAccessSync,
+  },
+  {
+    id: 'recruitment-onboarding',
+    title: 'Recruitment → Onboarding',
+    category: 'HR & People',
+    icon: '👥',
+    summary: 'Hiring from a Manpower Requisition (MRF) through Offer Letter, Pre-Joining and Joining, into the onboarding checklist that creates the employee record.',
+    updated: 'Jul 2026',
+    body: _kbBodyRecruitment,
+  },
+  {
+    id: 'expense-ledger',
+    title: 'Expense Ledger (Cash & Mess)',
+    category: 'Accounts',
+    icon: '🍽️',
+    summary: 'Site cash and mess expenses — the monthly per-site ledger, its cash requests and bills, the approval trail, and how a month is opened and closed.',
+    updated: 'Jul 2026',
+    body: _kbBodyExpenseLedger,
+  },
+  {
+    id: 'party-ledgers',
+    title: 'Party Ledgers (Statements)',
+    category: 'Accounts',
+    icon: '📒',
+    summary: 'Per-party running statements for a Vendor, Sub-Contractor or Employee — every transaction with a running balance and Paid / Pending totals.',
+    updated: 'Jul 2026',
+    body: _kbBodyPartyLedgers,
+  },
+  {
+    id: 'access-groups',
+    title: 'Access Groups & Enforcement',
+    category: 'Configuration',
+    icon: '🔐',
+    summary: 'How pages and actions are granted — access groups with route/action permissions, the enforce switch, super-admins, and how userCan() decides.',
+    updated: 'Jul 2026',
+    body: _kbBodyAccessGroups,
+  },
+  {
+    id: 'safety-module',
+    title: 'Safety — Checks & Incidents',
+    category: 'Site Ops',
+    icon: '⛑️',
+    summary: 'The daily site safety checklist and incident reporting — the ten checks, the safety score, and how incidents and daily checks are logged.',
+    updated: 'Jul 2026',
+    body: _kbBodySafety,
+  },
+  {
+    id: 'planning-budget-dpr',
+    title: 'Planning — Budget → Execution (DPR)',
+    category: 'Planning',
+    icon: '📈',
+    summary: 'How the project budget (PCC) sets targets and the Daily Progress Report (DPR) reports actuals against them.',
+    updated: 'Jul 2026',
+    body: _kbBodyPlanning,
+  },
+  {
+    id: 'plant-machinery',
+    title: 'Plant & Machinery',
+    category: 'Plant & Machinery',
+    icon: '🚜',
+    summary: 'The equipment lifecycle in the portal — daily log entries, asset verification, and maintenance records.',
+    updated: 'Jul 2026',
+    body: _kbBodyPlant,
+  },
+  {
+    id: 'schema-manager',
+    title: 'Schema Manager',
+    category: 'Configuration',
+    icon: '🧩',
+    summary: 'The single place that defines table columns and form fields — types, labels and validation — that the rest of the portal renders from.',
+    updated: 'Jul 2026',
+    body: _kbBodySchema,
+  },
+  {
+    id: 'data-hub-reports',
+    title: 'Data Hub, Masters & Reports',
+    category: 'Reports & Data',
+    icon: '🗂️',
+    summary: 'The read-only side of the portal — browse any source sheet, export the 26 master tabs to CSV, and schedule report emails.',
+    updated: 'Jul 2026',
+    body: _kbBodyDataHub,
+  },
+  {
+    id: 'config-backends',
+    title: 'Configuration & Backends',
+    category: 'Configuration',
+    icon: '⚙️',
+    summary: 'How the portal is wired — Portal Config, Sheet Linking (re-point any source), Status Access, and the Apps Script exec endpoints behind every write.',
+    updated: 'Jul 2026',
+    body: _kbBodyConfigBackends,
+  },
+  {
+    id: 'rewards',
+    title: 'Rewards & Recognition',
+    category: 'Engagement',
+    icon: '🏆',
+    summary: 'Nominating colleagues and the recognition wall — nominations, posts, reactions and comments.',
+    updated: 'Jul 2026',
+    body: _kbBodyRewards,
+  },
+  {
+    id: 'handoff-overview',
+    title: 'StrategicERP Handoff — Overview',
+    category: 'Handoff',
+    icon: '📦',
+    summary: 'Migration handoff to StrategicERP — current architecture, the data & backend inventory, the access model, migration risks, the data-migration map and the cutover checklist.',
+    updated: 'Aug 2026',
+    body: _kbBodyHandoffOverview,
+  },
+  {
+    id: 'handoff-urd',
+    title: 'StrategicERP Handoff — Module Requirements (URD)',
+    category: 'Handoff',
+    icon: '📋',
+    summary: 'User Requirements Document — per-module functional requirements and testable acceptance criteria the new ERP must satisfy, plus the role/action and voucher appendices.',
+    updated: 'Aug 2026',
+    body: _kbBodyHandoffURD,
+  },
 ];
 
 function _kbEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+// ── KB flowchart helpers (dependency-free; the bundle has no mermaid) ──
+// _kbFlow: a linear left→right pipeline. steps = [{ label, sub, edge, tone }].
+//   `edge` labels the arrow that LEADS INTO this step (skipped on the first).
+//   `tone` ∈ start|mid|end|warn — tints the node. Wraps to a column on mobile.
+function _kbFlow(steps) {
+  const tones = { start:'--kb-fl-a', mid:'', end:'--kb-fl-b', warn:'--kb-fl-w' };
+  return `<div class="kb-flow" role="group">` + (steps || []).map((s, i) => {
+    const t = typeof s === 'string' ? { label: s } : (s || {});
+    const cls = tones[t.tone] ? ` kb-node-${(t.tone)}` : '';
+    const arrow = i > 0 ? `<div class="kb-arrow">${t.edge ? `<span class="kb-edge">${_kbEsc(t.edge)}</span>` : ''}<span class="kb-arrow-g">&#8594;</span></div>` : '';
+    return `${arrow}<div class="kb-node${cls}"><div class="kb-node-t">${_kbEsc(t.label)}</div>${t.sub ? `<div class="kb-node-s">${_kbEsc(t.sub)}</div>` : ''}</div>`;
+  }).join('') + `</div>`;
+}
+// _kbFork: a decision point. cond = the question; outs = [{ when, then, tone }].
+function _kbFork(cond, outs) {
+  const tint = { ok:'#dcfce7', warn:'#fef3c7', bad:'#fee2e2', info:'#dbeafe' };
+  const fg   = { ok:'#15803d', warn:'#b45309', bad:'#b91c1c', info:'#1d4ed8' };
+  return `<div class="kb-fork">
+    <div class="kb-fork-q"><span class="kb-fork-d">&#9670;</span> ${_kbEsc(cond)}</div>
+    <div class="kb-fork-outs">${(outs || []).map(o => `
+      <div class="kb-fork-out">
+        <span class="kb-fork-when" style="background:${tint[o.tone] || 'var(--surface2)'};color:${fg[o.tone] || 'var(--txt2)'}">${_kbEsc(o.when)}</span>
+        <span class="kb-fork-then">&#8594; ${_kbEsc(o.then)}</span>
+      </div>`).join('')}</div>
+  </div>`;
+}
+// Two-audience note: end-user vs technical panels side by side.
+function _kbLayers(useIt, howBuilt) {
+  return `<div class="kb-layers">
+    <div class="kb-layer kb-layer-use"><div class="kb-layer-h">&#128100; How to use it</div>${useIt}</div>
+    <div class="kb-layer kb-layer-tech"><div class="kb-layer-h">&#128295; How it's built</div>${howBuilt}</div>
+  </div>`;
+}
 
 function renderKnowledgeBase() {
   const el = document.getElementById('mainContent');
@@ -17146,7 +17415,34 @@ function renderKnowledgeBase() {
       .kb-article table.kb-tbl th { text-align:left;padding:.55rem .7rem;background:var(--surface2);font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:var(--txt3);border-bottom:1px solid var(--border) }
       .kb-article table.kb-tbl td { padding:.55rem .7rem;border-bottom:1px solid var(--border);vertical-align:top;color:var(--txt2) }
       .kb-pill { display:inline-block;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:9px;white-space:nowrap }
-      @media (max-width:820px){ .kb-layout{ grid-template-columns:1fr !important } .kb-index{ position:static !important } }
+      /* Flowchart */
+      .kb-article .kb-flow { display:flex;flex-wrap:wrap;align-items:stretch;gap:.15rem;margin:.9rem 0 1.1rem }
+      .kb-article .kb-node { flex:1 1 130px;min-width:120px;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:.55rem .7rem;display:flex;flex-direction:column;gap:2px;justify-content:center }
+      .kb-article .kb-node-t { font-size:.82rem;font-weight:700;color:var(--txt1);line-height:1.25 }
+      .kb-article .kb-node-s { font-size:.66rem;color:var(--txt3);line-height:1.35 }
+      .kb-article .kb-node-start { border-color:var(--g5);background:rgba(46,125,50,.08) }
+      .kb-article .kb-node-end { border-color:#3b82f6;background:rgba(59,130,246,.08) }
+      .kb-article .kb-node-warn { border-color:#f59e0b;background:rgba(245,158,11,.1) }
+      .kb-article .kb-arrow { flex:0 0 auto;align-self:center;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 .1rem;min-width:52px }
+      .kb-article .kb-arrow-g { color:var(--g6);font-size:1.05rem;line-height:1 }
+      .kb-article .kb-edge { font-size:.6rem;color:var(--txt3);font-family:ui-monospace,Menlo,monospace;white-space:nowrap;margin-bottom:1px }
+      /* Fork */
+      .kb-article .kb-fork { border:1.5px dashed var(--border);border-radius:10px;padding:.7rem .85rem;margin:.9rem 0 1.1rem;background:var(--surface1) }
+      .kb-article .kb-fork-q { font-size:.84rem;font-weight:700;color:var(--txt1);margin-bottom:.5rem }
+      .kb-article .kb-fork-d { color:var(--g6) }
+      .kb-article .kb-fork-outs { display:flex;flex-direction:column;gap:.4rem }
+      .kb-article .kb-fork-out { display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap }
+      .kb-article .kb-fork-when { font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:8px;white-space:nowrap }
+      .kb-article .kb-fork-then { font-size:.82rem;color:var(--txt2) }
+      /* Two-audience layers */
+      .kb-article .kb-layers { display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin:.6rem 0 1rem }
+      .kb-article .kb-layer { border:1px solid var(--border);border-radius:10px;padding:.75rem .9rem }
+      .kb-article .kb-layer-use { background:rgba(46,125,50,.05) }
+      .kb-article .kb-layer-tech { background:var(--surface2) }
+      .kb-article .kb-layer-h { font-size:.7rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--txt3);margin-bottom:.4rem }
+      .kb-article .kb-layer .kb-p { font-size:.82rem;margin-bottom:.5rem }
+      @media (max-width:820px){ .kb-layout{ grid-template-columns:1fr !important } .kb-index{ position:static !important } .kb-article .kb-layers{ grid-template-columns:1fr } }
+      @media (max-width:560px){ .kb-article .kb-flow{ flex-direction:column;align-items:stretch } .kb-article .kb-node{ width:100% } .kb-article .kb-arrow{ transform:rotate(90deg);padding:.15rem 0 } }
     </style>`;
 }
 window._kbOpen = function(id) { _kbCurrentId = id; renderKnowledgeBase(); try { document.querySelector('.kb-article')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} };
@@ -17190,6 +17486,13 @@ function _kbBodyAccounts() {
 
       <h3 class="kb-sub">The life of a payment request</h3>
       <p class="kb-p">Every request sits in exactly one stage. The <b>Worklist</b> shows the stages as bins; each has a one-click advance button for the people allowed to move it forward.</p>
+      ${_kbFlow([
+        { label: 'To be Verified', sub: 'Accounts / Dept-Head', tone: 'start' },
+        { label: 'MD Queue', sub: 'MD approves', edge: 'verify' },
+        { label: 'To Initiate Payment', sub: 'Accounts / MD', edge: 'approve' },
+        { label: 'Paid?', sub: 'MD confirms', edge: 'initiate' },
+        { label: 'Update UTR', sub: 'records UTR → closes', edge: 'paid', tone: 'end' },
+      ])}
       <table class="kb-tbl">
         <thead><tr><th>#</th><th>Stage</th><th>Who moves it on</th><th>Advancing sets</th></tr></thead>
         <tbody>
@@ -17350,6 +17653,517 @@ function _kbBodyGRNReview() {
       </table>
       <p class="kb-p" style="margin-top:.7rem">The tax % shown in the ledger is <b>back-computed</b> from the amount (tax ÷ material), not the other way round. On the PO side, <code>18</code> and <code>0.18</code> are both read as 18%.</p>
       <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The PO tax is the estimate from ordering time — offered as the starting figure. The invoice is the source of truth, so Accounts confirm or adjust it at review, and that figure is what reaches the balance.</p>
+    </div>`;
+}
+
+// ── Article: Procurement → Goods in Stock ───────────────────────
+function _kbBodyProcureToStock() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Procurement · Purchase to Stock</div>
+      <h2 class="kb-h">Procurement → Goods in Stock</h2>
+      <p class="kb-p">A material need turns into an order, the order is received into the store, and stock stays reconciled. The four stages are one continuous chain — each record carries the previous stage's reference forward, so any receipt can be traced back to the order and the original request.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> raise a <b>Material Request</b> → it becomes a <b>Purchase Order</b> → goods arrive and are booked as a <b>GRN</b> → stock levels update and are <b>reconciled</b>.
+      </div>
+
+      ${_kbFlow([
+        { label: 'Material Request', sub: 'MRS · mrs-list', tone: 'start' },
+        { label: 'Purchase Order', sub: 'scm · po-register', edge: 'MR No' },
+        { label: 'Goods Receipt (GRN)', sub: 'stores-grn · stockin', edge: 'PO No' },
+        { label: 'Stock & Reconciliation', sub: 'stores-levels · stock-recon', edge: 'GRN No', tone: 'end' },
+      ])}
+
+      ${_kbLayers(
+        `<p class="kb-p"><b>1.</b> Site raises a <b>Material Request (MRS)</b> for what's needed. <b>2.</b> Purchase converts approved lines into a <b>Purchase Order</b> and sends it to the vendor. <b>3.</b> When the goods arrive, the store books a <b>GRN</b> (goods receipt) against the PO — quantity received, invoice, part. <b>4.</b> Stock levels update automatically; <b>Stock Reconciliation</b> squares book stock against physical.</p>
+         <p class="kb-p">Track progress on the <b>Open PO Report</b> (what's ordered but not yet received) and <b>Purchase View</b>.</p>`,
+        `<p class="kb-p">Two source spreadsheets, joined by carried keys:</p>
+         <table class="kb-tbl"><thead><tr><th>Stage</th><th>Sheet · tab</th><th>Key it carries</th></tr></thead><tbody>
+           <tr><td>Material Request</td><td><code>PO</code> · <code>MRS</code></td><td><code>MR No</code></td></tr>
+           <tr><td>Purchase Order</td><td><code>PO</code> · <code>PO_Actual</code></td><td><code>PO No</code> (+ <code>MR No</code>)</td></tr>
+           <tr><td>Goods Receipt</td><td><code>STORES</code> · <code>StockIN</code> / <code>GRN_No</code></td><td><code>GRN No</code> (+ <code>PO No</code>)</td></tr>
+           <tr><td>Stock levels</td><td><code>STORES</code> · <code>v3StockLevels</code></td><td>part / site</td></tr>
+         </tbody></table>
+         <p class="kb-p">Because the GRN row stores both its <code>PO No</code> and the <code>MR No</code>, <b>Item Rate Master</b> can reassemble ordered-vs-received rates, and <b>Open PO</b> nets ordered − received per line.</p>`
+      )}
+
+      <h3 class="kb-sub">Where it lives</h3>
+      <table class="kb-tbl">
+        <thead><tr><th>Page</th><th>What it's for</th></tr></thead>
+        <tbody>
+          <tr><td><b>Material Request List</b></td><td>Raise and track MRS lines.</td></tr>
+          <tr><td><b>Purchase List (PO)</b></td><td>PO dashboard, register, pending approval, spend by site, top vendors.</td></tr>
+          <tr><td><b>Stores</b></td><td>StockIN, StockOut, StockTransfer, GRN register, stock levels &amp; reconciliation.</td></tr>
+          <tr><td><b>Open PO Report</b></td><td>Ordered minus received — what's still pending delivery.</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">One chain, three keys: <code>MR No → PO No → GRN No</code>. Get those right and every downstream report — Open PO, Item Rate Master, Vendor Ledger — lines up on its own.</p>
+    </div>`;
+}
+
+// ── Article: Site Config & Rental Write-back ────────────────────
+function _kbBodySiteConfig() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Configuration · Site &amp; Rentals</div>
+      <h2 class="kb-h">Site Config &amp; Rental Write-back</h2>
+      <p class="kb-p">Every site has a <b>Country</b>, a <b>Currency</b>, and a <b>Status</b> (Active / Closed). The <b>Site Config</b> tab holds that master, and the <b>Rental write-back</b> stamps those three fields onto the <b>Rental Agreement</b> and <b>RP Booking</b> tabs — matched by the site on each row — so a rental never has to re-enter them.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> keep the site master current → <b>Preview</b> what would change on a rental tab → <b>Apply</b> to write it back. Nothing writes until you confirm.
+      </div>
+
+      ${_kbFlow([
+        { label: 'Site Config', sub: 'Country · Currency · Status', tone: 'start' },
+        { label: 'Preview', sub: 'reads tab · detects columns', edge: 'per site' },
+        { label: 'Confirm', sub: 'shows diff + unmatched', edge: 'review' },
+        { label: 'Write-back', sub: 'updateCell → sheet', edge: 'Apply', tone: 'end' },
+      ])}
+
+      <p class="kb-p">For each rental row, the match is simple:</p>
+      ${_kbFork('Is the row’s Site found in Site Config?', [
+        { when: 'Found', then: 'stamp its Country / Currency / Status (only cells that differ)', tone: 'ok' },
+        { when: 'Not found', then: 'row is skipped and the site is listed under “not in config”', tone: 'warn' },
+      ])}
+
+      ${_kbLayers(
+        `<p class="kb-p"><b>Configuration → 🌐 Site Config.</b> Edit the site table (add / remove / change Country, Currency, Status), then <b>Save</b> — it's stored org-wide. To push details onto rentals, click <b>Preview changes</b> on a tab: it shows the detected columns and exactly which rows would change. If that looks right, <b>Apply write-back</b> writes it (after a confirm). Sites it can't find are listed so you can fix a spelling or add the site.</p>`,
+        `<p class="kb-p">The master lives in <b>PortalConfig</b> under key <code>site_config</code>; <code>siteCfgLookup(site)</code> resolves it case/space-insensitively. Preview calls <code>_rentalScan(tab)</code>, which reads the live tab and auto-detects the Site / row-key / target columns from the header row. Apply loops the changed cells through the <b>main</b> backend's <code>updateCell</code> action — matched by the row-key column, patched by the target column letter.</p>
+         <table class="kb-tbl"><thead><tr><th>Piece</th><th>Value</th></tr></thead><tbody>
+           <tr><td>Config key</td><td><code>site_config</code> (PortalConfig)</td></tr>
+           <tr><td>Sheet</td><td><code>RENTAL</code> — tabs <code>Rental Agreement</code>, <code>RP Booking</code></td></tr>
+           <tr><td>Backend</td><td><code>main</code> · action <code>updateCell</code></td></tr>
+         </tbody></table>`
+      )}
+
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Always Preview first — it shows the detected column mapping. If a target column (Currency / Country / Status) is missing from the tab, Preview says so and Apply stays disabled, so a write can never land in the wrong place.</p>
+    </div>`;
+}
+
+// ── Article: Employee Access Auto-Sync ──────────────────────────
+function _kbBodyAccessSync() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">HR · Access Control</div>
+      <h2 class="kb-h">Employee Access Auto-Sync</h2>
+      <p class="kb-p">Portal access follows employment automatically. An employee's <b>status</b> in the register decides which access group they land in — and the portal rechecks this on its own every <b>24 hours</b>, so leavers lose access and joiners gain it without anyone maintaining a list by hand.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> <b>Current</b> employees are in the <b>Users</b> group; anyone else is in <b>Deactivated Profiles</b> — refreshed every 24h.
+      </div>
+
+      ${_kbFlow([
+        { label: 'Employee Register', sub: 'status per person', tone: 'start' },
+        { label: '24h Auto-Sync', sub: 'reads every employee', edge: 'nightly' },
+        { label: 'Group assignment', sub: 'Users / Deactivated', edge: 'by status', tone: 'end' },
+      ])}
+
+      ${_kbFork('Employee Status', [
+        { when: 'Current', then: 'added to the Users group (baseline portal access)', tone: 'ok' },
+        { when: 'Anything else', then: 'added to Deactivated User Profiles (no access)', tone: 'bad' },
+      ])}
+
+      ${_kbLayers(
+        `<p class="kb-p">There's nothing to click day-to-day — it runs itself. You can see the last run and force a refresh under <b>Access &amp; Pages → Auto-assign employees → Sync now</b>. Auto-assigned people appear in each group's member list tagged <b>auto</b> (no × to remove — their membership follows their status, not a manual choice). To change someone's access, change their <b>Employee Status</b>, or add them to another group manually on top.</p>`,
+        `<p class="kb-p">Membership is <b>not</b> stored in <code>access_config</code> (that would blow past the sheet's 50k-char cell limit). Instead a compact map lives in PortalConfig <code>emp_group_sync</code> = <code>{ at, map:{ email: 'u' | 'd' } }</code>. <code>_uaAutoSyncEmployees()</code> (admin-only, throttled to 24h) rebuilds it from <code>STATE.masters.users</code>; a hourly <code>setInterval</code> checks whether 24h have elapsed. Enforcement merges manual ∪ auto via <code>_uaGroupsForEmail()</code>, so <code>userCan()</code> sees both.</p>
+         <table class="kb-tbl"><thead><tr><th>Piece</th><th>Value</th></tr></thead><tbody>
+           <tr><td>Config key</td><td><code>emp_group_sync</code></td></tr>
+           <tr><td>Groups</td><td><code>grp_users</code> · <code>grp_deactivated</code></td></tr>
+           <tr><td>Cadence</td><td>24h (hourly check)</td></tr>
+         </tbody></table>`
+      )}
+
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The employee register is the source of truth for access. Manual group grants still work and stack on top — but the Current/Deactivated baseline maintains itself.</p>
+    </div>`;
+}
+
+// ── Article: Recruitment → Onboarding ───────────────────────────
+function _kbBodyRecruitment() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">HR · Talent Acquisition</div>
+      <h2 class="kb-h">Recruitment → Onboarding</h2>
+      <p class="kb-p">Hiring runs as a pipeline: a department asks for a person, HR sources and makes an offer, the candidate completes pre-joining, and on their start date they're onboarded — which is what creates the employee record the rest of the portal keys off.</p>
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> <b>Requisition (MRF)</b> → <b>Offer Letter</b> → <b>Pre-Joining</b> → <b>Joining</b> → <b>Onboarding checklist</b> → employee record.
+      </div>
+      ${_kbFlow([
+        { label: 'Requisition (MRF)', sub: 'dept raises need', tone: 'start' },
+        { label: 'Offer Letter', sub: 'HR sources & offers', edge: 'approve' },
+        { label: 'Pre-Joining', sub: 'docs & formalities', edge: 'accept' },
+        { label: 'Joining', sub: 'reports on date', edge: 'join' },
+        { label: 'Onboarding', sub: 'checklist → register', edge: 'onboard', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Recruitment</b> has tabs for each stage — <b>Requisitions</b>, <b>Offer Letters</b>, <b>Pre-Joining</b>, <b>Joining</b>, plus an HR <b>Overview</b>. Anyone in MD / HR / Dept-Head / Site can raise a <b>+ New MRF</b> (manpower requisition); HR carries it through offers and joining. On the start date, <b>Onboarding</b> runs a checklist that files the person into the Employee Register.</p>`,
+        `<p class="kb-p">Recruitment data lives in the <code>RECRUITMENT</code> sheet (<code>MRF_Register</code>, <code>Offer_Tracker</code>, <code>v1_JoiningList</code>); onboarding writes to the <code>EMP</code> sheet's <code>OnboardingChecklist</code> tab via the <b>main</b> backend's <code>appendRow</code>. The five stages are level-3 sub-pages under the <code>recruitment</code> route; the tab set is filtered by role.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Onboarding is the hand-off point: once the register row exists, the <b>Access Auto-Sync</b> picks the person up and grants portal access on its next run.</p>
+    </div>`;
+}
+
+// ── Article: Expense Ledger (Cash & Mess) ───────────────────────
+function _kbBodyExpenseLedger() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Accounts · Site Cash</div>
+      <h2 class="kb-h">Expense Ledger — Cash &amp; Mess</h2>
+      <p class="kb-p">Sites run on cash floats for day-to-day and mess (food) spending. The Expense Ledger tracks each site's month as a single ledger entry, with the cash requests and itemised bills that roll up into it, and the approval trail behind them.</p>
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> a site-month opens with an <b>opening balance</b> → <b>cash requests</b> draw on it → <b>bills</b> account for the spend → the month <b>closes</b>.
+      </div>
+      ${_kbFlow([
+        { label: 'Site-Month', sub: 'CashExpenseMonth', tone: 'start' },
+        { label: 'Cash Requests', sub: 'draws on the float', edge: 'Request ID' },
+        { label: 'Bills (Ledger)', sub: 'line-item spend', edge: 'CheckSum' },
+        { label: 'Close month', sub: 'Ledger Status = Closed', edge: 'reconcile', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p">Switch between <b>Other Expenses</b> and <b>Site Mess Expenses</b> and pick a site. Each month shows Opening / Initiated / Paid / Closing and whether it's <b>Open</b> or <b>Closed</b>. Expand a month to see its cash requests and the bills booked against it. A month is <b>Pending</b> until its Ledger Status reads Closed.</p>`,
+        `<p class="kb-p">All from the <code>EXPENSE</code> sheet: <code>CashExpenseMonth</code> (the month node), <code>Cash Expenses</code> (requests), <code>Ledger</code> (bills), and the approval tab. The month's composite UUID (<code>MCE-site|Cash&nbsp;For|period</code>) is the <b>CheckSum</b> that requests and bills carry, so each month links to its own children. <b>Individual Mess Expenses</b> is a separate per-person view of the same food spend.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The month is the unit of truth. Everything — cash out, bills, approvals — hangs off the site-month CheckSum, so a month either reconciles and closes or stays visibly Open.</p>
+    </div>`;
+}
+
+// ── Article: Party Ledgers ──────────────────────────────────────
+function _kbBodyPartyLedgers() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Accounts · Statements</div>
+      <h2 class="kb-h">Party Ledgers</h2>
+      <p class="kb-p">A party ledger is a running statement for one party — a <b>Vendor</b>, <b>Sub-Contractor</b>, <b>Employee</b> or <b>Others</b> — listing every payment transaction in date order with a running balance and Paid / Pending totals. A party is identified uniquely by <b>Name + A/C number</b>.</p>
+      ${_kbFlow([
+        { label: 'Pick a party', sub: 'Name + A/C', tone: 'start' },
+        { label: 'Transactions', sub: 'in date order', edge: 'load' },
+        { label: 'Running balance', sub: 'Paid vs Pending', edge: 'total', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Ledgers</b> holds the <b>Employee</b>, <b>Sub-Contractor</b> and (from Accounts) <b>Vendor Ledger (PO)</b> statements. Choose a party to see each transaction, its status, and the balance carried down — with Paid and Pending summed at the top. Export any statement to CSV.</p>`,
+        `<p class="kb-p">Built from the payment transactions in the <code>PAYMENT</code> sheet, grouped by party key (Name + A/C). The <b>Vendor Ledger (PO)</b> additionally nets goods received (Cr) against payments (Dr) — see the <b>Accounts</b> and <b>GRN Accounts Review</b> guides for how received value is priced. Opening balances seed the running total.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">One party, one statement: Name + A/C is the identity, and the running balance is always Paid − owed as of the latest transaction.</p>
+    </div>`;
+}
+
+// ── Article: Access Groups & Enforcement ────────────────────────
+function _kbBodyAccessGroups() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Configuration · Access Control</div>
+      <h2 class="kb-h">Access Groups &amp; Enforcement</h2>
+      <p class="kb-p">Who can see which pages and take which actions is controlled by <b>access groups</b>. A group grants a set of <b>routes</b> (pages) and <b>actions</b> (view, create, approve, …); people are assigned to groups, and a master <b>enforce</b> switch turns the whole scheme on.</p>
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> a person's reachable pages = the union of every group they're in; <code>userCan(route, action)</code> is the gate every button checks.
+      </div>
+      ${_kbFork('When enforcement is ON, can this user open a route / do an action?', [
+        { when: 'Super-admin', then: 'everything (bypasses groups)', tone: 'ok' },
+        { when: 'In a group that grants it', then: 'allowed', tone: 'ok' },
+        { when: 'No group grants it', then: 'hidden / blocked', tone: 'bad' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Access &amp; Pages</b> holds it all: create groups, tick the routes and actions each one grants, and assign people. The <b>enforce</b> toggle is the master switch — off, everyone sees everything (setup mode); on, restrictions apply. Each page also has a Live / Dev / Off status. Employees are auto-placed into <b>Users</b> / <b>Deactivated</b> — see <b>Employee Access Auto-Sync</b>.</p>`,
+        `<p class="kb-p">Stored in PortalConfig <code>access_config = { enforce, groups:[{id,name,routes,actions}], users:{email:{groups}}, superAdmins }</code>. <code>_accessRouteSetForCurrentUser()</code> unions the user's groups; <code>userCan(route,action)</code> gates actions; <code>_uaGroupsForEmail()</code> merges manual + auto membership. Configuration itself is locked to super-admins / unrestricted admins so an assigned admin can't escalate.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Groups grant, they never deny — access is the union of what your groups allow, and enforcement is the single switch that makes it real.</p>
+    </div>`;
+}
+
+// ── Article: Safety — Checks & Incidents ────────────────────────
+function _kbBodySafety() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Site Ops · HSE</div>
+      <h2 class="kb-h">Safety — Checks &amp; Incidents</h2>
+      <p class="kb-p">The Safety module does two jobs: a <b>daily checklist</b> that scores a site's readiness, and <b>incident reporting</b> for when something goes wrong. Both are logged to the sheet so there's a dated record.</p>
+      ${_kbFlow([
+        { label: 'Daily checklist', sub: '10 checks', tone: 'start' },
+        { label: 'Safety score', sub: '% of checks done', edge: 'tally' },
+        { label: 'Log to sheet', sub: 'DailyChecks', edge: 'submit', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p">Run the day's checklist — PPE, scaffolding, electrical, fire, first-aid, signage, toolbox talk, permits, housekeeping, machinery guards — and submit; the module shows the site's <b>safety score</b> (percent complete). Report an <b>incident</b> separately with its details. Ten standard checks ship by default.</p>`,
+        `<p class="kb-p">The checklist is <code>SAFETY_CHECKS</code> (10 items). Writes go to the <code>SAFETY</code> sheet — <code>DailyChecks</code> for the daily tally and <code>Incidents</code> for reports — via the <b>main</b> backend's <code>appendRow</code>. Reads come straight from those tabs.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Every check and incident is a dated row — the module is the site's safety record, not just today's snapshot.</p>
+    </div>`;
+}
+
+// ── Article: Planning — Budget → Execution (DPR) ────────────────
+function _kbBodyPlanning() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Planning · Cost &amp; Progress</div>
+      <h2 class="kb-h">Planning — Budget → Execution (DPR)</h2>
+      <p class="kb-p">Planning has two halves that meet in the middle: <b>Budgeting</b> sets the plan and the cost targets, and <b>Execution</b> reports what actually happened each day. Comparing the two is how a project is tracked.</p>
+      ${_kbFlow([
+        { label: 'Budgeting (PCC)', sub: 'BOQ · WBS · Workplan', tone: 'start' },
+        { label: 'Targets set', sub: 'cost & schedule', edge: 'plan' },
+        { label: 'Execution (DPR)', sub: 'daily actuals', edge: 'do' },
+        { label: 'Plan vs Actual', sub: 'progress tracking', edge: 'compare', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Budgeting</b> opens the <b>Project Cost Control</b> workspace — BOQ, WBS, work plan, resources, project dashboard. <b>Execution</b> is where the site files the <b>Daily Progress Report (DPR)</b> — what was achieved that day — which reports against the plan.</p>`,
+        `<p class="kb-p">Budgeting embeds the <b>PCC</b> sub-app (served from <code>/pcc/</code>); its writes go through the <b>pcc</b> backend (<code>saveProjectSetup</code>, <code>saveBOQ</code>, <code>saveWBS</code>, <code>saveWorkplan</code>). DPR appends to the <code>DPR</code> sheet's <code>DPR</code> tab via the <b>main</b> backend's <code>appendRow</code>. Execution is a level-3 sub-page under the <code>execution</code> route.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Budget is the promise, DPR is the record — the value is in reading them against each other.</p>
+    </div>`;
+}
+
+// ── Article: Plant & Machinery ──────────────────────────────────
+function _kbBodyPlant() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Plant · Equipment Lifecycle</div>
+      <h2 class="kb-h">Plant &amp; Machinery</h2>
+      <p class="kb-p">Equipment on site is tracked through three activities: a daily <b>log</b> of use, periodic <b>asset verification</b> that it's present and working, and <b>maintenance</b> records.</p>
+      ${_kbFlow([
+        { label: 'Log Entry', sub: 'daily usage', tone: 'start' },
+        { label: 'Asset Verification', sub: 'present & working', edge: 'audit' },
+        { label: 'Maintenance', sub: 'service records', edge: 'upkeep', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Plant Overview</b> and its sub-pages cover <b>Log Entry</b> (record a machine's daily running / hours), <b>Asset Verification</b> (confirm an asset on a walk-round), and <b>Maintenance</b> (log servicing). Together they give each machine a history.</p>`,
+        `<p class="kb-p">Log and verification append to the Master sheet (<code>PlantLog</code>, <code>AssetVerification</code>); the <code>V2</code> sheet also carries <code>LogSheet</code>, <code>Verification</code> and <code>Maintenance</code> tabs. Writes use the <b>main</b> backend's <code>appendRow</code>; the sub-pages sit under the plant route.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Log for use, verify for presence, maintain for uptime — three simple records that add up to an asset's full history.</p>
+    </div>`;
+}
+
+// ── Article: Schema Manager ─────────────────────────────────────
+function _kbBodySchema() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Configuration · Data Shapes</div>
+      <h2 class="kb-h">Schema Manager</h2>
+      <p class="kb-p">The Schema Manager is the one place that defines the <b>shape</b> of data — which <b>columns</b> a table shows and which <b>fields</b> a form asks for, along with their type, label and validation. Pages render from these definitions instead of hard-coding them.</p>
+      ${_kbLayers(
+        `<p class="kb-p">Admins define field and column sets here — a field's <b>type</b> (text, number, date, select…), its label, and validation rules. Change a definition and every table or form that uses it follows, so you tune data entry in one place rather than page by page.</p>`,
+        `<p class="kb-p"><code>renderSchemaPage()</code> on the <code>schema</code> route (Admin). It feeds the EVG design system's table and form layers — <code>EVG.table</code> / <code>EVG.form</code> — which stamp the agreed columns/fields onto every rendered instance. See the <code>docs/TABLE_SETTINGS.md</code> and <code>docs/FORM_SETTINGS.md</code> references for the type catalogue and defaults chain.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Define the shape once, render it everywhere — the Schema Manager is why a column or field looks the same wherever it appears.</p>
+    </div>`;
+}
+
+// ── Article: Data Hub, Masters & Reports ────────────────────────
+function _kbBodyDataHub() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Reports &amp; Data</div>
+      <h2 class="kb-h">Data Hub, Masters &amp; Reports</h2>
+      <p class="kb-p">This is the read-only side of the portal. <b>Data Hub</b> lets you browse the source sheets; <b>Masters</b> mirrors the master spreadsheet's tabs with CSV export and column control; <b>Reports</b> builds and schedules report emails.</p>
+      ${_kbFlow([
+        { label: 'Source sheets', sub: 'live data', tone: 'start' },
+        { label: 'Data Hub / Masters', sub: 'browse · pick columns', edge: 'read' },
+        { label: 'CSV / Scheduled email', sub: 'export / send', edge: 'deliver', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Data Hub</b> opens any registered source table read-only. <b>Masters</b> lists all <b>26 master tabs</b> — export any to <b>CSV</b> or add/remove columns for your view; <b>Export All Masters</b> bundles them. <b>Reports</b> defines a report and can <b>schedule</b> it to email on a cadence.</p>`,
+        `<p class="kb-p">Masters reads tabs from the Master sheet (<code>SHEET_ID</code>), with a per-tab override so Vendor Master reads from its own workbook; column show/hide persists in localStorage (<code>masters_hidden_&lt;tab&gt;</code>). Scheduled reports run from an Apps Script time-trigger (<code>ScheduledReports.gs</code>) reading <code>ReportSchedules</code> — no exec URL, it fires itself hourly.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Nothing here writes back — it's the window onto the data: browse it, export it, or have it mailed to you.</p>
+    </div>`;
+}
+
+// ── Article: Configuration & Backends ───────────────────────────
+function _kbBodyConfigBackends() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Configuration · Plumbing</div>
+      <h2 class="kb-h">Configuration &amp; Backends</h2>
+      <p class="kb-p">Everything that makes the portal point at the right data lives under <b>Configuration</b>. This is the admin plumbing — where sheets, statuses and backends are wired, without touching code.</p>
+      ${_kbLayers(
+        `<p class="kb-p"><b>Configuration</b> tabs:</p>
+         <table class="kb-tbl"><thead><tr><th>Tab</th><th>Does</th></tr></thead><tbody>
+           <tr><td><b>Portal Config</b></td><td>Module status &amp; org-wide defaults.</td></tr>
+           <tr><td><b>Sheet Linking</b></td><td>Re-point any source spreadsheet by ID — every tab it holds follows.</td></tr>
+           <tr><td><b>Site Config</b></td><td>Per-site Country / Currency / Status + rental write-back.</td></tr>
+           <tr><td><b>Status Access</b></td><td>Lock each status transition to named people / roles.</td></tr>
+         </tbody></table>
+         <p class="kb-p"><b>Settings</b> also lists every Sheet ID, and there's an <b>Apps Scripts</b> panel for the backend URLs.</p>`,
+        `<p class="kb-p">Sheet overrides save to PortalConfig <code>sheet_links</code>; <code>_resolveSheetId()</code> applies them in <code>fetchSheet()</code>, so a re-point takes effect everywhere. Backends resolve via <code>getExec(key)</code> — <b>5 deployments</b>: <code>main</code> (most writes), <code>portalConfig</code> (config KV), <code>accounts</code>, <code>pcc</code>, <code>safety</code> — overridable at runtime via <code>getExecOverrides()</code>. Redeploying an Apps Script keeps the same <code>/exec</code> URL.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Sheets and backends are configuration, not code — re-point a source or swap a deployment from these tabs and the whole portal follows.</p>
+    </div>`;
+}
+
+// ── Article: Rewards & Recognition ──────────────────────────────
+function _kbBodyRewards() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Engagement · Culture</div>
+      <h2 class="kb-h">Rewards &amp; Recognition</h2>
+      <p class="kb-p">A light-touch way to recognise colleagues — nominate someone for good work, and share it on a recognition wall the team can react to and comment on.</p>
+      ${_kbFlow([
+        { label: 'Nominate', sub: 'recognise a colleague', tone: 'start' },
+        { label: 'Wall post', sub: 'shared to the team', edge: 'publish' },
+        { label: 'React & comment', sub: 'team engages', edge: 'engage', tone: 'end' },
+      ])}
+      ${_kbLayers(
+        `<p class="kb-p"><b>Rewards &amp; Wall</b> lets anyone submit a <b>nomination</b> and see the recognition feed. Posts can be reacted to and commented on, so recognition is visible rather than buried in email.</p>`,
+        `<p class="kb-p">All on the <code>REWARDS</code> sheet — <code>Nomination</code>, <code>Posts</code>, <code>Reactions</code>, <code>Comments</code> — each written by the <b>main</b> backend's <code>appendRow</code>. Open to every role.</p>`
+      )}
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Recognition works when it's seen — nominations become wall posts the whole team can react to.</p>
+    </div>`;
+}
+
+// ── Article: StrategicERP Handoff — Overview ────────────────────
+function _kbBodyHandoffOverview() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Handoff · Migration to StrategicERP</div>
+      <h2 class="kb-h">StrategicERP Handoff — Overview</h2>
+      <p class="kb-p">The organisation is moving from this portal to <b>StrategicERP</b>. This article is the migration baseline: what the current system is, where its data and integrations live, how access works, the risks to watch, and the cutover plan. The companion article <b>“Module Requirements (URD)”</b> holds the per-module requirements and acceptance criteria.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> a static web app over ~16 Google Sheets and 5 Apps Script backends must become StrategicERP — preserving audit history, business keys, multi-currency, documents, and route+action access.
+      </div>
+
+      <h3 class="kb-sub">System at a glance</h3>
+      <table class="kb-tbl"><thead><tr><th>Aspect</th><th>Today</th><th>Migration implication</th></tr></thead><tbody>
+        <tr><td>Front end</td><td>Static HTML + one JS bundle</td><td>Re-implemented as ERP UI</td></tr>
+        <tr><td>Data store</td><td>~16 Google Spreadsheets, 60+ tabs</td><td>Migrate to ERP relational schema</td></tr>
+        <tr><td>Backend</td><td>5 Apps Script deployments</td><td>Replace with ERP logic / APIs</td></tr>
+        <tr><td>Auth</td><td>PIN login (Google login disabled)</td><td>Replace with ERP identity / SSO</td></tr>
+        <tr><td>Access</td><td>Access Groups (route + action grants)</td><td>Map to ERP roles &amp; permissions</td></tr>
+        <tr><td>Files</td><td>Google Drive folders</td><td>Migrate to ERP document store</td></tr>
+      </tbody></table>
+
+      <h3 class="kb-sub">Data inventory</h3>
+      <p class="kb-p">15 source spreadsheets feed the modules (full IDs are in the separate Backends Reference). Key ones:</p>
+      <table class="kb-tbl"><thead><tr><th>Spreadsheet</th><th>Primary tabs</th><th>Feeds</th></tr></thead><tbody>
+        <tr><td>Master</td><td>26 master tabs (Site, Vendor, Asset, UOM, Head, Cost Centre…)</td><td>All reference data</td></tr>
+        <tr><td>Purchase / SCM</td><td>MRS, PO_Actual, SiteMaster</td><td>Procurement, voucher PO items</td></tr>
+        <tr><td>Payments</td><td>PaymentRequest, AccountsUpdate</td><td>Accounts, approvals, ledgers</td></tr>
+        <tr><td>Stores</td><td>StockIN, GRN_No, StockLevels</td><td>Stores, GRN, Item Rate</td></tr>
+        <tr><td>Employee Register</td><td>0_EmployeeRegister_Live</td><td>HR, Access, Ledgers, Payroll</td></tr>
+        <tr><td>Expenses · PCC · DPR · Safety · Rewards · Recruitment · Rental</td><td>module-specific</td><td>respective modules</td></tr>
+      </tbody></table>
+
+      <h3 class="kb-sub">Integration inventory (Apps Script)</h3>
+      <table class="kb-tbl"><thead><tr><th>Deployment</th><th>Key actions</th></tr></thead><tbody>
+        <tr><td><code>main</code></td><td>appendRow, updateCell, Drive listing, report send, aiProxy, diagnoseSheet</td></tr>
+        <tr><td><code>portalConfig</code></td><td>savePortalConfig, getPortalConfig</td></tr>
+        <tr><td><code>accounts</code></td><td>saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, PR attachments</td></tr>
+        <tr><td><code>pcc</code></td><td>saveProjectSetup, saveBOQ, saveWBS, saveWorkplan</td></tr>
+        <tr><td><code>safety</code></td><td>incident / daily-check append</td></tr>
+      </tbody></table>
+
+      <h3 class="kb-sub">Migration risks to watch</h3>
+      <table class="kb-tbl"><thead><tr><th>#</th><th>Risk</th></tr></thead><tbody>
+        <tr><td>1</td><td><b>Append-only audit</b> — status changes are new rows, not edits; the live value is the latest. Migrate the <i>history</i>, not just current state.</td></tr>
+        <tr><td>2</td><td><b>Composite keys</b> — MR&nbsp;No → PO&nbsp;No → GRN&nbsp;No; party = Name+A/C; expense month = MCE-site|CashFor|period. Map to ERP foreign keys.</td></tr>
+        <tr><td>3</td><td><b>Multi-currency / country</b> — INR / TZS / XOF per site. ERP must be multi-currency from day one.</td></tr>
+        <tr><td>4</td><td><b>External AppSheet apps</b> — Attendance / Leave / On-Duty must be consolidated in.</td></tr>
+        <tr><td>5</td><td><b>Documents in Drive</b> — HR docs, policies, payment attachments must migrate with record links intact.</td></tr>
+        <tr><td>6</td><td><b>No referential integrity today</b> — expect to cleanse orphan / duplicate rows during migration.</td></tr>
+      </tbody></table>
+
+      <h3 class="kb-sub">Cutover checklist</h3>
+      ${_kbFlow([
+        { label: 'Freeze & snapshot', sub: 'export every tab', tone: 'start' },
+        { label: 'Migrate masters', sub: 'Employee, Site, Vendor…', edge: '1' },
+        { label: 'Migrate txns + history', sub: 'keys & status trail', edge: '2' },
+        { label: 'Docs + access + parallel-run', sub: 'reconcile finance', edge: '3' },
+        { label: 'Sign-off & decommission', sub: 'revoke sheet sharing', edge: '4', tone: 'end' },
+      ])}
+      <p class="kb-p">Migrate master data first; then transactional data <b>with keys and status history</b>; validate the MR→PO→GRN and payment chains reconcile; migrate documents; rebuild the access matrix; parallel-run finance for one cycle and reconcile ledger balances; consolidate Attendance/Leave/OD; decommission the Apps Script endpoints and revoke sheet sharing after sign-off.</p>
+
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The non-negotiables for StrategicERP: keep the audit history, keep the business keys, be multi-currency, migrate the documents, and reproduce route+action access — not just coarse roles.</p>
+    </div>`;
+}
+
+// ── Article: StrategicERP Handoff — Module Requirements (URD) ────
+function _kbBodyHandoffURD() {
+  const mod = (n, title, purpose, frs, acs) => `
+    <h3 class="kb-sub">${n}. ${title}</h3>
+    <p class="kb-p" style="margin-bottom:.4rem">${purpose}</p>
+    <table class="kb-tbl"><thead><tr><th style="width:50%">Functional requirements</th><th>Acceptance criteria</th></tr></thead>
+      <tbody><tr><td><ul style="margin:0;padding-left:1.1rem">${frs.map(x => '<li style="margin-bottom:.25rem">' + x + '</li>').join('')}</ul></td>
+      <td><ul style="margin:0;padding-left:1.1rem">${acs.map(x => '<li style="margin-bottom:.25rem">' + x + '</li>').join('')}</ul></td></tr></tbody></table>`;
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Handoff · User Requirements Document</div>
+      <h2 class="kb-h">StrategicERP Handoff — Module Requirements (URD)</h2>
+      <p class="kb-p">The capability StrategicERP must deliver to replace this portal. Each module lists its <b>functional requirements (FR)</b> and testable <b>acceptance criteria (AC)</b> — the basis for UAT sign-off. Keywords: <i>shall</i> = mandatory, <i>should</i> = recommended.</p>
+
+      ${mod('1', 'Authentication &amp; Access Control',
+        'Authenticate users and govern which pages and actions each may access.',
+        ['Authenticate before access (target: ERP identity / SSO).','Access groups grant specific <b>routes</b> and <b>actions</b>; effective access = union of a user\'s groups.','Super-admin bypass + org-wide enforce switch.','Auto-assign active employees to a baseline profile; revoke when status ≠ Current (≤24h).','Scoped admins cannot escalate their own rights; external parties see only their own data.'],
+        ['Login shows only granted pages.','Lacking the approve action hides/disables Approve.','No group granting route X ⇒ X hidden & blocked when enforce is ON.','Status Current→other ⇒ baseline access removed within one cycle.','Vendor sees only their own orders/invoices/docs.'])}
+
+      ${mod('2', 'Dashboard &amp; My Tasks',
+        'Role-aware landing KPIs and a personal action queue.',
+        ['Role-specific KPI dashboard on login.','Consolidated <b>My Tasks</b> of items awaiting the user across modules.','Live figures, drill-through to source.'],
+        ['Accounts role sees finance KPIs; Employee sees personal.','An item awaiting the user appears in My Tasks with a link to act.','Clicking a KPI opens the filtered list.'])}
+
+      ${mod('3', 'HR &amp; People',
+        'Employee lifecycle — recruitment, onboarding, records, profiles, policies, transfers, mess.',
+        ['Recruitment pipeline MRF → Offer → Pre-Joining → Joining → Onboarding.','Onboarding creates the authoritative Employee record.','Employee Register with status/designation/grade/site/company.','Self-service My Profile; Policies Hub; inter-site transfers; individual mess/accommodation.'],
+        ['Dept-Head MRF appears for HR as “raised”.','Onboarding complete ⇒ Employee record exists (access follows on next sync).','Employee sees only their own profile.','Transfer records from/to site, reporting date &amp; manager, auditable.'])}
+
+      ${mod('4', 'Site Operations',
+        'Site manager workspace, safety, equipment, site store, plant overview.',
+        ['Site-scoped manager workspace.','Daily HSE checklist (10 checks) + safety score; incident reporting.','Track equipment &amp; site store; records dated &amp; immutable.'],
+        ['Checklist submit ⇒ dated record + score reflects checks done.','Incident report ⇒ dated record in the register.','Manager sees only assigned site(s).','Past checklist is read-only history.'])}
+
+      ${mod('5', 'Procurement &amp; Stores',
+        'MRS → PO → GRN → stock, plus vendor/SC portals and analytics.',
+        ['Raise MRS; convert to PO; record GRN vs PO (qty/invoice/part) updating stock.','Stock levels, transfers, stock-out, reconciliation.','Carry keys MR&nbsp;No → PO&nbsp;No → GRN&nbsp;No; Open PO &amp; Item Rate Master; Vendor/SC portals; PO approval gate.'],
+        ['PO carries originating MR No.','GRN carries PO No &amp; increments stock.','Open PO shows ordered − received.','Reconciliation shows variance.','Vendor portal shows only own POs.'])}
+
+      ${mod('6', 'Accounts &amp; Finance',
+        'Payment requests &amp; approval pipeline, ledgers, GRN valuation, cash/mess, payroll.',
+        ['Raise payment request (payee, site/company, bill &amp; PO ref, financials w/ currency/GST/TDS, bank, narrative, attachments).','Pipeline: Verify → MD Queue → Initiate → Paid → UTR → Completed, with Hold/Sent-back/Query/Rejected.','<b>Append-only</b> status history; per-transition permissions; MD approve/reject (reason to reject) single &amp; bulk.','Submit validation + duplicate-payment guard.','Vendor Ledger (Cr/Dr, opening bal, Payable/Advance/Settled); GRN Review valuation; party ledgers (Name+A/C); cash/mess by site-month; payroll.'],
+        ['Valid request ⇒ created “To be Verified” on worklist.','MD approve advances; reject w/o reason refused.','Every status change ⇒ new history entry; priors unchanged.','Unauthorised transition blocked.','Duplicate amount warns before continue.','Vendor Ledger shows Cr/Dr + closing status.','GRN review posts invoice-confirmed value.','Party statement shows running balance + Paid/Pending, exportable.','Site-month closes only when reconciled; UTR closes the request.'])}
+
+      ${mod('7', 'Planning (Budget &amp; Execution)',
+        'Project cost control (budget) and daily progress (DPR), tracked against each other.',
+        ['Cost control — BOQ, WBS, work plan, resources, dashboard.','Daily Progress Report of actuals.','Plan-vs-actual reporting.'],
+        ['BOQ/WBS/workplan persist &amp; populate dashboard.','DPR submit ⇒ dated progress record.','Budget vs DPR comparable per project.'])}
+
+      ${mod('8', 'Plant &amp; Machinery',
+        'Equipment usage, verification and maintenance.',
+        ['Daily plant log (usage/hours); asset verification; maintenance records.','Per-asset history across all three.'],
+        ['Daily log ⇒ dated usage record on the asset.','Verification ⇒ dated record.','Asset history shows log+verify+maintenance together.'])}
+
+      ${mod('9', 'Reports &amp; Data Hub',
+        'Read-only data access, master export, scheduled reports.',
+        ['Data Hub browse read-only; Master data with column selection + CSV (single &amp; bulk); define &amp; schedule report emails; no source mutation.'],
+        ['Data Hub view has no edit controls.','CSV reflects chosen columns.','Scheduled report emails on cadence automatically.'])}
+
+      ${mod('10', 'Configuration &amp; Administration',
+        'Admin without code — module status, data-source binding, site attributes, status permissions, schemas, endpoints.',
+        ['Set module status &amp; defaults; re-point any data source; Site Config (Country/Currency/Status) as a lookup + stamp onto records with preview-before-write; restrict status transitions; Schema Manager for fields/columns; central endpoints; no admin escalation.'],
+        ['Module Off ⇒ unavailable.','Re-point source ⇒ dependent view reads new source.','Site Config applies currency to dependent records; bulk write previews first.','Restricted transition blocked for non-permitted role.','Schema change applies everywhere it renders.'])}
+
+      ${mod('11', 'Employee Engagement (Rewards)',
+        'Peer recognition and a shared wall.',
+        ['Submit nominations; nominations surface on a wall with reactions &amp; comments.'],
+        ['Nomination ⇒ appears on the feed.','React/comment ⇒ recorded and visible.'])}
+
+      ${mod('12', 'Time &amp; Attendance <span class="kb-pill" style="background:#e2f1f4;color:#2c93a6">external · AppSheet</span>',
+        'Attendance, leave, on-duty — today an external AppSheet app on the Employee Master; to be consolidated into StrategicERP.',
+        ['Record daily attendance; manage leave &amp; on-duty with approval; feed payroll &amp; DPR headcount.'],
+        ['Attendance mark ⇒ dated record keyed to Employee ID.','Leave/OD approval updates status &amp; balance.','Approved time feeds payroll for the period.'])}
+
+      <h3 class="kb-sub">Appendix A — Route action vocabulary</h3>
+      <p class="kb-p">Reproduce action-level grants, not just view: <code>view · create · edit · verify · advance · update · approve · reject · close · export · schedule · setDefault</code>, plus dual <b>MD/SCM</b> approve-reject on Purchase View, and <b>approve/reject</b> on the MD payment queue.</p>
+
+      <h3 class="kb-sub">Appendix B — Payment request (voucher) fields</h3>
+      <table class="kb-tbl"><thead><tr><th>Section</th><th>Fields</th></tr></thead><tbody>
+        <tr><td>1 · Initiator</td><td>Date; Requested by; Department; Process; Manual/Auto</td></tr>
+        <tr><td>2 · Payment To</td><td>Payee type (Employee/Vendor/SC/Others); Payee</td></tr>
+        <tr><td>3 · Site &amp; Company</td><td>Site (auto-fills Company)</td></tr>
+        <tr><td>4 · Bill &amp; PO Ref</td><td>Order No; Bill No; Payment Terms; PO/Invoice/Paid/Pending value</td></tr>
+        <tr><td>5 · Financial</td><td>Currency; <b>Amount</b>; Nature; Account Code; GST; TDS</td></tr>
+        <tr><td>6 · Bank</td><td>A/C holder; number; IFSC; bank (auto-filled for known payee)</td></tr>
+        <tr><td>7 · Narrative</td><td>Narrative (required); attachments</td></tr>
+      </tbody></table>
+      <p class="kb-p">Submit rules: amount &gt; 0; payee present; amount ≤ pending value; duplicate-payment guard.</p>
+
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">These acceptance criteria are the UAT contract, module by module. The full document (with the role×module matrix and data-migration map) is the companion URD file.</p>
     </div>`;
 }
 
