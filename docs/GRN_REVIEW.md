@@ -185,4 +185,6 @@ admin@evgcpl.com`); `grnDailyDisableAll()` reverts. The flag lives in Script
 Properties, so no code edit is needed to flip it.
 
 CSV columns: `GRN No | GRN Date | GRN Timestamp | PO No | Vendor | Site |
-Invoice No | Part | GRN Qty | SI ID`.
+Invoice No | Part No | Part Description | GRN Qty | SI ID`. The StockIN Part key
+is resolved to Part No + Description via the `PO_Items_Actual` tab (the project
+also needs read access to the Purchase workbook).
