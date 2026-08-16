@@ -26,6 +26,10 @@ var GRN_DAILY_RECIPIENTS_TEST = 'admin@evgcpl.com';
 
 var GRN_DAILY_SHEET_ID = '1iMQxgqGilUh2_3NCZl5D-EMt-NC8FwugX83q2fWb8fE'; // v2_Stores
 var GRN_DAILY_TAB      = 'StockIN';
+// StockIN's "Part Details" is a KEY. Resolve it to a readable "PartNo | Description"
+// via the Purchase workbook's PO_Items_Actual tab (same join the portal uses).
+var GRN_DAILY_ITEMS_SHEET_ID = '1zcqF2tjjBETPuW25c9MBMo0zakBIBD6tksg5OstFA7c'; // Purchase workbook
+var GRN_DAILY_ITEMS_TAB      = 'PO_Items_Actual';
 var GRN_DAILY_SEND_WHEN_EMPTY = true;  // email a "no receipts" note even on empty days (confirms the job ran)
 
 // ── Recipient / mode helpers (flag stored in Script Properties) ──────────
@@ -135,21 +139,63 @@ function _grnDailyRows(startMs, endMs) {
 function _grnDailyCsv(data) {
   var tz = Session.getScriptTimeZone() || 'Asia/Kolkata';
   var cols = data.cols;
+  var matMap = _grnDailyMatMap();
   var esc = function (v) { v = (v == null ? '' : String(v)); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
   var get = function (row, c) { return c >= 0 ? row[c] : ''; };
   var dOnly = function (v) { var t = _grnDailyParseTs(v); return t ? Utilities.formatDate(new Date(t), tz, 'dd-MMM-yyyy') : (v == null ? '' : String(v)); };
   var dTime = function (v) { var t = _grnDailyParseTs(v); return t ? Utilities.formatDate(new Date(t), tz, 'dd-MMM-yyyy HH:mm:ss') : (v == null ? '' : String(v)); };
 
-  var head = ['GRN No', 'GRN Date', 'GRN Timestamp', 'PO No', 'Vendor', 'Site', 'Invoice No', 'Part', 'GRN Qty', 'SI ID'];
+  var head = ['GRN No', 'GRN Date', 'GRN Timestamp', 'PO No', 'Vendor', 'Site', 'Invoice No', 'Part No', 'Part Description', 'GRN Qty', 'SI ID'];
   var lines = [head.join(',')];
   data.rows.forEach(function (row) {
+    var part = _grnDailyPart(get(row, cols.part), matMap);
     lines.push([
       get(row, cols.grn), dOnly(get(row, cols.recv)), dTime(get(row, cols.ts)),
       get(row, cols.po), get(row, cols.vend), get(row, cols.site), get(row, cols.inv),
-      get(row, cols.part), get(row, cols.qty), get(row, cols.siid),
+      part.partNo, part.partDesc, get(row, cols.qty), get(row, cols.siid),
     ].map(esc).join(','));
   });
   return lines.join('\r\n');
+}
+
+// Build a map: normalised StockIN "Part Details" key → readable Material
+// Description ("PartNo | Description"), from the PO_Items_Actual tab.
+function _grnDailyMatMap() {
+  var map = {};
+  try {
+    var sh = SpreadsheetApp.openById(GRN_DAILY_ITEMS_SHEET_ID).getSheetByName(GRN_DAILY_ITEMS_TAB);
+    if (!sh) return map;
+    var values = sh.getDataRange().getValues();
+    if (values.length < 2) return map;
+    var headers = values[0];
+    var norm = function (s) { return String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toLowerCase(); };
+    var idx = {};
+    for (var c = 0; c < headers.length; c++) idx[norm(headers[c])] = c;
+    var col = function (names) { for (var i = 0; i < names.length; i++) { var p = idx[norm(names[i])]; if (p !== undefined) return p; } return -1; };
+    var cKey = col(['Part Details', 'Part Description']);
+    var cMd  = col(['Material Description', 'Material Desc', 'Material Name', 'Material']);
+    if (cKey < 0 || cMd < 0) return map;
+    for (var r = 1; r < values.length; r++) {
+      var k = norm(values[r][cKey]);
+      if (!k || map[k]) continue;
+      var md = String(values[r][cMd] == null ? '' : values[r][cMd]).trim();
+      if (md) map[k] = md;
+    }
+  } catch (e) {}
+  return map;
+}
+
+// Resolve a raw Part key to { partNo, partDesc } via the material map, then split
+// the readable "PartNo | Description". Falls back to the raw text when unmapped.
+function _grnDailyPart(raw, matMap) {
+  var s = String(raw == null ? '' : raw).trim();
+  var mapped = matMap[s.replace(/\s+/g, ' ').toLowerCase()];
+  if (mapped) s = String(mapped).trim();
+  var pipe = s.indexOf('|');
+  return {
+    partNo:   pipe >= 0 ? s.slice(0, pipe).trim() : '',
+    partDesc: pipe >= 0 ? s.slice(pipe + 1).trim() : s,
+  };
 }
 
 // Parse a Timestamp cell to millis. Sheet date cells arrive as Date objects;
