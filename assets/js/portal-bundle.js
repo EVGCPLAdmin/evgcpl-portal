@@ -2587,11 +2587,11 @@ function applyResolvedRole(resolved) {
 }
 
 const ROLE_ROUTES = {
-  md:        new Set(['dashboard','my-tasks','expense-ledger','md-command','md-payments','ledgers','vendor-ledger-po','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','subcontractor','po-register','stockin-register','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
+  md:        new Set(['dashboard','my-tasks','expense-ledger','md-command','md-payments','ledgers','vendor-ledger-po','tally-recon','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','hr-dashboard','my-profile','policies','recruitment','site-manager','safety','equipment','store','plant','scm','mrs','stores','vendor','subcontractor','po-register','stockin-register','accounts','planning','planning-overview','planning-setup','execution','plant','budget','project-setup','boq-planning','measurement-book','log-entry','asset-verification','asset-maintenance','dev-mode','settings','reports','data-hub','my-documents','rewards','apps','wall','plant-log','plant-verify','plant-maintenance','budgeting']),
   hr:        new Set(['dashboard','hr-dashboard','my-profile','policies','recruitment','mess-individual','rewards','reports','my-documents','apps','wall','planning','planning-overview','planning-setup','execution','budget','project-setup','boq-planning','measurement-book','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   site:      new Set(['dashboard','my-profile','safety','site-manager','store','scm','mrs','stores','recruitment','my-documents','apps','wall','execution','plant','planning-overview','planning-setup','plant-log','plant-verify','plant-maintenance','budgeting']),
   purchase:  new Set(['dashboard','my-profile','scm','mrs','stores','vendor','subcontractor','po-register','stockin-register','reports','my-documents','apps','wall','planning','planning-overview','execution','budget','boq-planning','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
-  accounts:  new Set(['dashboard','my-tasks','expense-ledger','my-profile','accounts','ledgers','vendor-ledger-po','subcontractor','po-register','stockin-register','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
+  accounts:  new Set(['dashboard','my-tasks','expense-ledger','my-profile','accounts','ledgers','vendor-ledger-po','tally-recon','subcontractor','po-register','stockin-register','accounts-kpi','accounts-v2','accounts-dashboard','accounts-worklist','planning','planning-overview','planning-setup','budget','project-setup','boq-planning','measurement-book','reports','my-documents','apps','rewards','wall','execution','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   employee:  new Set(['dashboard','my-profile','my-documents','accounts','policies','rewards','apps','wall','planning-overview','execution','planning-setup','plant','plant-log','plant-verify','plant-maintenance','budgeting']),
   dept_head: null,   // built dynamically from DEPT_HEAD_ROUTES below
   vendor:    new Set(['my-portal','my-orders','my-invoices','my-documents']),
@@ -3157,6 +3157,7 @@ function renderPage(page) {
     'ledgers':        () => renderLedgers('Employee'),
     'ledger-sc':      () => renderLedgers('Sub Contractor'),
     'vendor-ledger-po': renderVendorLedgerPO,
+    'tally-recon':    renderTallyRecon,
     'onboarding':     renderOnboardingPortal,
     'recruitment':    () => _rcOpenTab('overview'),
     'rec-requisitions': () => _rcOpenTab('requisitions'),
@@ -4937,7 +4938,12 @@ function renderVendorLedgerPO() {
       </div>
     </div>
     <div id="vplp-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading PO, StockIN &amp; payment data&hellip;</div></div>`;
-  _vplpEnsure().then(() => _vplpRenderBody()).catch(() => {
+  _vplpEnsure().then(() => {
+    _vplpRenderBody();
+    // Freeze today's balances for the Tally reconciliation (at most once a day).
+    // Done here because the numbers are already computed — see _tvrAutoSnapshot.
+    try { _tvrAutoSnapshot(); } catch (e) {}
+  }).catch(() => {
     const b = document.getElementById('vplp-body');
     if (b) b.innerHTML = '<div class="card card-pad" style="text-align:center;color:var(--danger);padding:2.5rem">&#9888; Could not load the PO / StockIN / payment data.</div>';
   });
@@ -6495,6 +6501,544 @@ window._vplpOBSubmit = async function() {
     _accToast('⚠ ' + ((resp && resp.message) || 'Could not save the opening balance'));
   }
 };
+// ═══════════════════════════════════════════════════════════════════════
+//  TALLY vs VENDOR LEDGER RECONCILIATION  (route 'tally-recon')
+//  ─────────────────────────────────────────────────────────────────────
+//  Compares a daily Tally vendor-ledger export against a SNAPSHOT of the
+//  Vendor Ledger (PO) Flat List, and reports the vendors whose closing
+//  balance disagrees.
+//
+//  Why a snapshot: the Flat List is computed live from POs, GRNs, reviews
+//  and payments, so it moves during the day. Diffing a moving number
+//  against a fixed Tally export produces noise. Instead the browser — the
+//  only place _vplpCompute() exists — freezes today's balances into the
+//  VendorLedgerSnapshot tab, and the backend diffs two fixed tables.
+//
+//  Backend: apps-script/TallyVendorReconcile.gs (actions tvrSaveBatch /
+//  tvrGetStatus / tvrSaveRules / tvrRunNow). Emailing + the daily trigger
+//  live there; this file only uploads, snapshots and displays.
+// ═══════════════════════════════════════════════════════════════════════
+let _tvrTab     = 'overview';
+let _tvrStatus  = null;   // last tvrGetStatus payload
+let _tvrParsed  = null;   // parsed-but-not-yet-uploaded Tally rows
+let _tvrBusy    = false;
+
+const _TVR_SNAP_LS = 'evg_tvr_last_snapshot';   // yyyy-mm-dd of the last auto-snapshot
+
+async function _tvrPost(payload) {
+  let res;
+  try {
+    res = await fetch(getExec('main'), {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload)
+    });
+  } catch (e) {
+    return { success: false, message: 'Could not reach the backend: ' + e.message };
+  }
+  try { return await res.json(); }
+  catch (e) { return { success: false, message: `Backend returned a non-JSON response (HTTP ${res.status}).` }; }
+}
+
+const _tvrInr = n => '₹' + Math.round(Math.abs(Number(n) || 0)).toLocaleString('en-IN');
+// Signed money — a mismatch's direction matters, so never hide the minus.
+const _tvrSigned = n => (Number(n) < 0 ? '−' : '') + _tvrInr(n);
+const _tvrTypeLabel = t => t === 'balance-diff' ? 'Balance differs'
+  : t === 'missing-in-portal' ? 'In Tally, not in portal'
+  : t === 'missing-in-tally' ? 'In portal, not in Tally' : t;
+
+// ── CSV parsing ────────────────────────────────────────────────────────
+// Quote-aware, so a vendor name containing a comma ("Acme Steel, Chennai")
+// survives. Handles "" escapes and both CRLF and LF. Tab-separated pastes
+// (straight out of Excel) are detected and split on tabs instead.
+function _tvrParseCSV(text) {
+  const src = String(text || '').replace(/^﻿/, '');
+  if (!src.trim()) return [];
+  // A pasted spreadsheet range is tab-separated; a saved export is comma-separated.
+  const firstLine = src.slice(0, src.indexOf('\n') < 0 ? src.length : src.indexOf('\n'));
+  const delim = (firstLine.split('\t').length > firstLine.split(',').length) ? '\t' : ',';
+  const rows = [];
+  let row = [], cell = '', inQ = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inQ) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { cell += '"'; i++; }   // "" → literal quote
+        else inQ = false;
+      } else cell += c;
+      continue;
+    }
+    if (c === '"') { inQ = true; continue; }
+    if (c === delim) { row.push(cell); cell = ''; continue; }
+    if (c === '\r') continue;
+    if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; continue; }
+    cell += c;
+  }
+  row.push(cell);
+  rows.push(row);
+  // Drop wholly blank lines — Tally exports are padded with them.
+  return rows.filter(r => r.some(v => String(v).trim() !== ''));
+}
+
+// Tally writes amounts as "1,23,456.78", "(1,234)" for negatives, and often
+// appends Dr/Cr. Mirrors _tvrNum() in TallyVendorReconcile.gs — keep both in
+// step, or the preview and the stored value will disagree.
+function _tvrNum(v) {
+  if (typeof v === 'number') return v;
+  let s = String(v == null ? '' : v).trim();
+  if (!s) return 0;
+  const cr = /cr\s*$/i.test(s), dr = /dr\s*$/i.test(s);
+  s = s.replace(/[₹,\s]/g, '').replace(/(dr|cr)$/i, '');
+  const neg = /^\(.*\)$/.test(s);
+  if (neg) s = s.slice(1, -1);
+  let n = parseFloat(s);
+  if (isNaN(n)) return 0;
+  if (neg) n = -n;
+  if (dr && n > 0) n = -n;
+  if (cr && n < 0) n = -n;
+  return n;
+}
+
+const _tvrNorm = s => String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toLowerCase();
+
+// Locate the header row and the three columns we need. Tally's export layout
+// varies by version and by which report was exported, so match on a list of
+// known aliases rather than a fixed position — and when nothing matches, say
+// which headers WERE found instead of guessing (a wrong guess would silently
+// reconcile the wrong column).
+const _TVR_COL_NAME = ['particulars', 'ledger name', 'ledger', 'vendor name', 'vendor', 'party name', 'party', 'name', 'account name'];
+const _TVR_COL_ACC  = ['a/c number', 'ac number', 'account number', 'a/c no', 'ac no', 'account no', 'bank a/c', 'bank account', 'acno'];
+const _TVR_COL_BAL  = ['closing balance', 'closing bal', 'closing', 'balance', 'clos. bal', 'outstanding', 'amount'];
+
+function _tvrMapRows(matrix) {
+  const find = (cells, aliases) => {
+    for (let c = 0; c < cells.length; c++) {
+      if (aliases.indexOf(_tvrNorm(cells[c])) >= 0) return c;
+    }
+    return -1;
+  };
+  // The header is rarely line 1 (Tally prefixes company name / report title /
+  // date range), so scan the first 15 lines for one carrying both a name and a
+  // balance column.
+  const limit = Math.min(matrix.length, 15);
+  for (let r = 0; r < limit; r++) {
+    const iName = find(matrix[r], _TVR_COL_NAME);
+    const iBal  = find(matrix[r], _TVR_COL_BAL);
+    if (iName < 0 || iBal < 0) continue;
+    const iAcc = find(matrix[r], _TVR_COL_ACC);
+    const rows = [], skipped = [];
+    for (let d = r + 1; d < matrix.length; d++) {
+      const cells = matrix[d];
+      const name = String(cells[iName] == null ? '' : cells[iName]).trim();
+      const balRaw = cells[iBal] == null ? '' : cells[iBal];
+      if (!name) continue;
+      // Tally's own total/summary lines are not vendors.
+      if (/^(grand\s+)?total$/i.test(name) || /^opening balance$/i.test(name)) continue;
+      if (String(balRaw).trim() === '') { skipped.push({ name, why: 'no closing balance' }); continue; }
+      rows.push({
+        name,
+        acc: iAcc >= 0 ? String(cells[iAcc] == null ? '' : cells[iAcc]).trim() : '',
+        balance: _tvrNum(balRaw)
+      });
+    }
+    return { ok: true, rows, skipped, headerRow: r, hasAcc: iAcc >= 0, headers: matrix[r] };
+  }
+  const seen = matrix.slice(0, limit).map(r => r.filter(c => String(c).trim() !== '').join(' | ')).filter(Boolean);
+  return { ok: false, rows: [], skipped: [], headers: seen };
+}
+
+// ── Page ───────────────────────────────────────────────────────────────
+function renderTallyRecon() {
+  const el = document.getElementById('mainContent');
+  el.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-row">
+        <div><h1>&#9878;&#65039; Tally vs Vendor Ledger</h1><p>Daily reconciliation &middot; Tally export vs a snapshot of the Vendor Ledger (PO) Flat List</p></div>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="_tvrCaptureSnapshot(this)" title="Freeze the portal's current vendor balances for comparison">&#128248; Capture Snapshot</button>
+          <button class="btn btn-primary btn-sm" onclick="_tvrRunReconcile(this)" title="Compare now and email the mismatches per the rules">&#9889; Run Reconcile</button>
+        </div>
+      </div>
+    </div>
+    <div id="tvr-body"><div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#9203; Loading reconciliation status&hellip;</div></div>`;
+  _tvrLoad();
+}
+
+async function _tvrLoad() {
+  const resp = await _tvrPost({ action: 'tvrGetStatus' });
+  if (!resp || resp.success === false) {
+    const b = document.getElementById('tvr-body');
+    if (b) b.innerHTML = `<div class="card card-pad" style="padding:2rem;text-align:center">
+      <div style="color:var(--danger);font-weight:700;margin-bottom:.5rem">&#9888; Could not load reconciliation status</div>
+      <div style="font-size:.82rem;color:var(--txt3)">${_mdpEsc((resp && resp.message) || 'No response from the backend.')}</div>
+      <div style="font-size:.75rem;color:var(--txt3);margin-top:.8rem">If this is the first run, deploy <code>TallyVendorReconcile.gs</code> and add its four actions to <code>Router.gs</code>.</div>
+    </div>`;
+    return;
+  }
+  _tvrStatus = resp;
+  _tvrRenderBody();
+}
+
+window._tvrSetTab = function (t) { _tvrTab = t; _tvrRenderBody(); };
+
+function _tvrRenderBody() {
+  const b = document.getElementById('tvr-body');
+  if (!b) return;
+  const isMD = STATE.role === 'md';
+  const tab = (t, label) => `<button onclick="_tvrSetTab('${t}')" class="btn btn-sm ${_tvrTab === t ? 'btn-primary' : 'btn-secondary'}" style="padding:4px 11px;font-size:.75rem">${label}</button>`;
+  const bar = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+    ${tab('overview', '&#128202; Executive Overview')}${tab('import', '&#128228; Import Tally Export')}${isMD ? tab('rules', '&#9881;&#65039; Notification Rules') : ''}
+    ${_tvrStatus && _tvrStatus.mode === 'TEST' ? `<span style="margin-left:auto;font-size:.66rem;font-weight:700;background:#fef3c7;color:#92400e;padding:3px 9px;border-radius:20px" title="Emails go only to the test recipient. Run tvrEnableAll() in Apps Script to mail the real recipients.">TEST MODE &middot; emails go to admin only</span>` : ''}
+  </div>`;
+  const view = _tvrTab === 'import' ? _tvrImportView()
+             : (_tvrTab === 'rules' && isMD) ? _tvrRulesView()
+             : _tvrOverviewView();
+  b.innerHTML = bar + view;
+}
+
+// ── Executive Overview ─────────────────────────────────────────────────
+function _tvrOverviewView() {
+  const s = _tvrStatus || {};
+  const ms = s.mismatches || [];
+  const esc = _mdpEsc;
+  const totalValue = ms.reduce((t, m) => t + Math.abs(Number(m.diff) || 0), 0);
+  const vendors = new Set(ms.map(m => _tvrNorm(m.name))).size;
+  const tally = s.tally || {}, snap = s.snapshot || {};
+  // Staleness is the whole point of snapshotting — surface it, don't bury it.
+  const staleHrs = _tvrAgeHours(snap.at);
+  const stale = staleHrs > 30;
+
+  const kpis = `<div class="evg-kpi-grid" style="margin-bottom:.8rem">
+    ${evgKpiCard({ icon: '&#9888;&#65039;', value: ms.length, label: 'Open Mismatches', accent: ms.length ? '#dc2626' : '#16a34a' })}
+    ${evgKpiCard({ icon: '&#128181;', value: _tvrInr(totalValue), label: 'Total Mismatch Value', accent: '#ea580c' })}
+    ${evgKpiCard({ icon: '&#127970;', value: vendors, label: 'Vendors Affected', accent: '#7c3aed' })}
+    ${evgKpiCard({ icon: '&#128228;', value: tally.at ? esc(String(tally.at).split(' ')[0]) : '—', label: 'Last Tally Upload' + (tally.by ? ' · ' + esc(String(tally.by).split('@')[0]) : ''), accent: '#2563eb' })}
+    ${evgKpiCard({ icon: stale ? '&#9203;' : '&#128248;', value: snap.at ? esc(String(snap.at).split(' ')[0]) : '—', label: 'Last Portal Snapshot' + (staleHrs >= 0 ? ` · ${staleHrs}h ago` : ''), accent: stale ? '#dc2626' : '#16a34a' })}
+  </div>`;
+
+  const warn = stale ? `<div class="card card-pad" style="margin-bottom:.8rem;padding:.6rem .8rem;background:#fef3c7;border-left:4px solid #f59e0b;font-size:.8rem">
+    <b>The portal snapshot is ${staleHrs} hours old.</b> The comparison below is against balances captured ${esc(snap.at || '—')}. Hit <b>&#128248; Capture Snapshot</b> to refresh, then <b>&#9889; Run Reconcile</b>.
+  </div>` : '';
+
+  const meta = `<div class="card card-pad" style="margin-bottom:.8rem;padding:.55rem .8rem;font-size:.74rem;color:var(--txt3);display:flex;gap:1.2rem;flex-wrap:wrap">
+    <span>Tally export: <b style="color:var(--txt2)">${tally.count || 0}</b> vendors &middot; ${esc(tally.at || 'never uploaded')}${tally.by ? ' by ' + esc(tally.by) : ''}</span>
+    <span>Portal snapshot: <b style="color:var(--txt2)">${snap.count || 0}</b> vendors &middot; ${esc(snap.at || 'never captured')}${snap.by ? ' by ' + esc(snap.by) : ''}</span>
+    ${s.runId ? `<span>Last run: <b style="color:var(--txt2)">${esc(s.runId)}</b></span>` : ''}
+  </div>`;
+
+  if (!ms.length) {
+    const never = !s.runId;
+    return kpis + warn + meta + `<div class="card card-pad" style="text-align:center;padding:2.5rem;color:var(--txt3)">
+      <div style="font-size:2rem;margin-bottom:.4rem">${never ? '&#128203;' : '&#9989;'}</div>
+      <div style="font-weight:700;color:var(--txt2)">${never ? 'No reconciliation has run yet' : 'No mismatches — Tally and the portal agree'}</div>
+      <div style="font-size:.82rem;margin-top:.35rem">${never ? 'Upload a Tally export, capture a snapshot, then run the reconcile.' : 'Every vendor\'s closing balance matched within ₹1.'}</div>
+    </div>`;
+  }
+
+  const body = ms.map(m => {
+    const diff = Number(m.diff) || 0;
+    const col = diff >= 0 ? '#b45309' : '#1d4ed8';
+    return `<tr>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(m.name)}${m.acc ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(m.acc)}]</span>` : ''}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right">${m.tally === '' || m.tally == null ? '—' : _tvrSigned(m.tally)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right">${m.portal === '' || m.portal == null ? '—' : _tvrSigned(m.portal)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:${col}">${_tvrSigned(diff)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.72rem;color:var(--txt3)">${esc(_tvrTypeLabel(m.type))}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.72rem">${m.ruleLabel === 'UNROUTED' ? '<span style="color:#dc2626;font-weight:700">Unrouted</span>' : esc(m.ruleLabel || '—')}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.7rem;color:var(--txt3);word-break:break-word">${esc(m.notifiedTo || '—')}</td>
+    </tr>`;
+  }).join('');
+
+  return kpis + warn + meta + `<div class="card"><div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:.78rem">
+      <thead><tr style="background:var(--g9);color:#fff;text-align:left">
+        <th style="padding:8px 9px">Vendor</th>
+        <th style="padding:8px 9px;text-align:right">Tally Balance</th>
+        <th style="padding:8px 9px;text-align:right">Portal Balance</th>
+        <th style="padding:8px 9px;text-align:right">Difference</th>
+        <th style="padding:8px 9px">Type</th>
+        <th style="padding:8px 9px">Rule</th>
+        <th style="padding:8px 9px">Notified</th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </div></div>`;
+}
+
+// Hours since a "dd-MMM-yyyy HH:mm" backend stamp; -1 when unparseable.
+function _tvrAgeHours(at) {
+  const t = Date.parse(String(at || '').replace(/-/g, ' '));
+  if (isNaN(t)) return -1;
+  return Math.round((Date.now() - t) / 36e5);
+}
+
+// ── Import tab ─────────────────────────────────────────────────────────
+function _tvrImportView() {
+  const s = _tvrStatus || {};
+  const esc = _mdpEsc;
+  const log = s.uploadLog || [];
+  const p = _tvrParsed;
+
+  let preview = '';
+  if (p && p.ok === false) {
+    preview = `<div class="card card-pad" style="margin-bottom:.8rem;background:#fef2f2;border-left:4px solid #dc2626">
+      <div style="font-weight:700;color:#b91c1c;margin-bottom:.4rem">&#9888; Couldn't find the columns</div>
+      <div style="font-size:.8rem;color:var(--txt2);margin-bottom:.5rem">The file needs a header row with a vendor-name column (Particulars / Ledger Name / Vendor Name) <b>and</b> a balance column (Closing Balance / Balance). These are the first rows found instead:</div>
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:.7rem;color:var(--txt3);background:var(--surface2);padding:.5rem .6rem;border-radius:6px;max-height:150px;overflow:auto">${(p.headers || []).map(h => esc(h)).join('<br>') || '(file was empty)'}</div>
+    </div>`;
+  } else if (p && p.rows && p.rows.length) {
+    const head = p.rows.slice(0, 8).map(r => `<tr>
+      <td style="padding:5px 9px;border-bottom:1px solid var(--border)">${esc(r.name)}</td>
+      <td style="padding:5px 9px;border-bottom:1px solid var(--border);font-size:.72rem;color:var(--txt3)">${esc(r.acc) || '—'}</td>
+      <td style="padding:5px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:600">${_tvrSigned(r.balance)}</td></tr>`).join('');
+    const total = p.rows.reduce((t, r) => t + r.balance, 0);
+    preview = `<div class="card" style="margin-bottom:.8rem">
+      <div style="padding:.6rem .8rem;border-bottom:1px solid var(--border);display:flex;gap:.8rem;align-items:center;flex-wrap:wrap">
+        <b style="font-size:.85rem">Preview</b>
+        <span style="font-size:.75rem;color:var(--txt3)">${p.rows.length} vendors &middot; net ${_tvrSigned(total)}${p.hasAcc ? '' : ' &middot; no A/C column (will match on name)'}</span>
+        ${p.skipped && p.skipped.length ? `<span style="font-size:.72rem;color:#c2410c">${p.skipped.length} row(s) skipped — no closing balance</span>` : ''}
+        <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="_tvrUpload(this)">&#128228; Upload ${p.rows.length} vendors</button>
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.78rem">
+        <thead><tr style="background:var(--surface2);text-align:left"><th style="padding:6px 9px">Vendor</th><th style="padding:6px 9px">A/C</th><th style="padding:6px 9px;text-align:right">Closing Balance</th></tr></thead>
+        <tbody>${head}</tbody>
+      </table></div>
+      ${p.rows.length > 8 ? `<div style="padding:.45rem .8rem;font-size:.72rem;color:var(--txt3);border-top:1px solid var(--border)">…and ${p.rows.length - 8} more</div>` : ''}
+    </div>`;
+  }
+
+  const logRows = log.map(b => `<tr>
+    <td style="padding:5px 9px;border-bottom:1px solid var(--border);white-space:nowrap">${esc(b.at)}</td>
+    <td style="padding:5px 9px;border-bottom:1px solid var(--border)">${esc(b.by)}</td>
+    <td style="padding:5px 9px;border-bottom:1px solid var(--border);text-align:right">${b.count}</td>
+    <td style="padding:5px 9px;border-bottom:1px solid var(--border);font-family:ui-monospace,Menlo,monospace;font-size:.68rem;color:var(--txt3)">${esc(b.batchId)}</td></tr>`).join('');
+
+  return `<div class="card card-pad" style="margin-bottom:.8rem">
+      <div style="font-weight:700;font-size:.9rem;margin-bottom:.3rem">Upload the daily Tally vendor ledger</div>
+      <div style="font-size:.79rem;color:var(--txt3);margin-bottom:.8rem">Export the vendor/sundry-creditors ledger from Tally as CSV or Excel, then choose the file (or paste the rows straight from Excel). Needs a vendor-name column and a closing-balance column; an A/C number column is used for matching when present.</div>
+      <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:.7rem">
+        <input type="file" id="tvr-file" accept=".csv,.tsv,.txt" onchange="_tvrPickFile(this)" style="font-size:.8rem">
+        <span style="font-size:.72rem;color:var(--txt3)">or paste below</span>
+      </div>
+      <textarea id="tvr-paste" rows="5" placeholder="Particulars,Closing Balance&#10;Acme Steel Pvt Ltd,125000&#10;…" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.75rem;border:1px solid var(--border);border-radius:6px;padding:.5rem;background:var(--surface2)"></textarea>
+      <div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm" onclick="_tvrParsePaste()">&#128269; Parse &amp; preview</button>
+        ${_tvrParsed ? '<button class="btn btn-secondary btn-sm" onclick="_tvrClearParsed()">Clear</button>' : ''}
+      </div>
+    </div>
+    ${preview}
+    <div class="card">
+      <div style="padding:.6rem .8rem;border-bottom:1px solid var(--border);font-weight:700;font-size:.85rem">Upload log <span style="font-weight:400;font-size:.74rem;color:var(--txt3)">— how fresh the Tally side is</span></div>
+      ${log.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.78rem">
+        <thead><tr style="background:var(--surface2);text-align:left"><th style="padding:6px 9px">Uploaded At</th><th style="padding:6px 9px">Uploaded By</th><th style="padding:6px 9px;text-align:right">Vendor Rows</th><th style="padding:6px 9px">Batch</th></tr></thead>
+        <tbody>${logRows}</tbody></table></div>`
+      : '<div style="padding:1.6rem;text-align:center;color:var(--txt3);font-size:.82rem">No Tally export has been uploaded yet.</div>'}
+    </div>`;
+}
+
+window._tvrPickFile = function (input) {
+  const f = input && input.files && input.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    _tvrParsed = _tvrMapRows(_tvrParseCSV(rd.result));
+    _tvrRenderBody();
+  };
+  rd.onerror = () => _accToast('⚠ Could not read that file');
+  rd.readAsText(f);
+};
+
+window._tvrParsePaste = function () {
+  const ta = document.getElementById('tvr-paste');
+  const txt = ta ? ta.value : '';
+  if (!String(txt).trim()) { _accToast('⚠ Paste the Tally rows first'); return; }
+  _tvrParsed = _tvrMapRows(_tvrParseCSV(txt));
+  _tvrRenderBody();
+};
+
+window._tvrClearParsed = function () { _tvrParsed = null; _tvrRenderBody(); };
+
+window._tvrUpload = async function (btn) {
+  const p = _tvrParsed;
+  if (!p || !p.rows || !p.rows.length) return;
+  if (_tvrBusy) return;
+  _tvrBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
+  const resp = await _tvrPost({
+    action: 'tvrSaveBatch', kind: 'tally',
+    uploadedBy: (STATE.user && (STATE.user.email || STATE.user.name)) || 'unknown',
+    rows: p.rows
+  });
+  _tvrBusy = false;
+  if (resp && resp.success !== false) {
+    _accToast(`✅ Uploaded ${resp.count} vendors from Tally`);
+    _tvrParsed = null;
+    await _tvrLoad();
+  } else {
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#128228; Upload'; }
+    _accToast('⚠ ' + ((resp && resp.message) || 'Upload failed'));
+  }
+};
+
+// ── Snapshot capture ───────────────────────────────────────────────────
+// Freezes the Vendor Ledger (PO) Flat List's current per-vendor balances.
+// Reuses _vplpEnsure/_vplpVendorRows so the snapshot is byte-for-byte what
+// the Flat List shows — no second implementation of the balance maths.
+async function _tvrBuildSnapshotRows(force) {
+  await _vplpEnsure(force);
+  return _vplpVendorRows()
+    .filter(r => r.credit > 0 || r.debit > 0)   // same filter the Flat List applies
+    // `acc` is the portal's Vendor ID (EGVE001…) — the only stable identifier a
+    // vendor has here. It matches the Tally A/C column only if the Tally ledger
+    // carries the same code; when it doesn't, the backend falls back to matching
+    // on the vendor name, which is why _tvrDiff tries A/C first and name second.
+    .map(r => ({ name: r.v.name, acc: r.v.vid || '', balance: r.bal }));
+}
+
+window._tvrCaptureSnapshot = async function (btn) {
+  if (_tvrBusy) return;
+  _tvrBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Capturing…'; }
+  try {
+    const rows = await _tvrBuildSnapshotRows(true);
+    if (!rows.length) { _accToast('⚠ No vendor activity to snapshot'); return; }
+    const resp = await _tvrPost({
+      action: 'tvrSaveBatch', kind: 'snapshot',
+      uploadedBy: (STATE.user && (STATE.user.email || STATE.user.name)) || 'unknown',
+      rows
+    });
+    if (resp && resp.success !== false) {
+      try { localStorage.setItem(_TVR_SNAP_LS, new Date().toISOString().slice(0, 10)); } catch (e) {}
+      _accToast(`✅ Snapshot captured — ${resp.count} vendors`);
+      await _tvrLoad();
+    } else {
+      _accToast('⚠ ' + ((resp && resp.message) || 'Snapshot failed'));
+    }
+  } catch (e) {
+    _accToast('⚠ Could not build the snapshot: ' + e.message);
+  } finally {
+    _tvrBusy = false;
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#128248; Capture Snapshot'; }
+  }
+};
+
+// Auto-capture at most once a day, from the Vendor Ledger page — by the time
+// that page has rendered, _vplpCompute() has already run, so the snapshot is
+// free. Keeps the daily 08:30 backend job supplied without anyone remembering
+// to press a button. Silent: never toasts, never blocks the page.
+function _tvrAutoSnapshot() {
+  let last = '';
+  try { last = localStorage.getItem(_TVR_SNAP_LS) || ''; } catch (e) {}
+  const today = new Date().toISOString().slice(0, 10);
+  if (last === today) return;
+  Promise.resolve()
+    .then(() => _tvrBuildSnapshotRows(false))
+    .then(rows => {
+      if (!rows.length) return null;
+      return _tvrPost({
+        action: 'tvrSaveBatch', kind: 'snapshot',
+        uploadedBy: (STATE.user && (STATE.user.email || STATE.user.name)) || 'auto',
+        rows
+      });
+    })
+    .then(resp => {
+      if (resp && resp.success !== false) {
+        try { localStorage.setItem(_TVR_SNAP_LS, today); } catch (e) {}
+      }
+    })
+    .catch(() => {});
+}
+
+// ── Run the reconcile on demand ────────────────────────────────────────
+window._tvrRunReconcile = async function (btn) {
+  if (_tvrBusy) return;
+  _tvrBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Reconciling…'; }
+  const resp = await _tvrPost({ action: 'tvrRunNow' });
+  _tvrBusy = false;
+  if (btn) { btn.disabled = false; btn.innerHTML = '&#9889; Run Reconcile'; }
+  if (resp && resp.success !== false) {
+    const mails = (resp.emails || []).reduce((t, e) => t + e.count, 0);
+    _accToast(`✅ ${resp.mismatches} mismatch(es) · ${mails} notified (${resp.mode})`);
+    await _tvrLoad();
+  } else {
+    _accToast('⚠ ' + ((resp && resp.message) || 'Reconcile failed'));
+  }
+};
+
+// ── Rules tab (MD only) ────────────────────────────────────────────────
+function _tvrRulesView() {
+  const rules = (_tvrStatus && _tvrStatus.rules) || [];
+  const esc = _mdpEsc;
+  const rows = rules.map((r, i) => `<tr>
+    <td style="padding:5px 7px"><input value="${esc(r.id)}" data-tvr-f="id" data-tvr-i="${i}" style="width:60px;font-size:.76rem;border:1px solid var(--border);border-radius:5px;padding:4px 6px;background:var(--surface2)"></td>
+    <td style="padding:5px 7px"><input type="number" value="${r.min}" data-tvr-f="min" data-tvr-i="${i}" style="width:95px;font-size:.76rem;border:1px solid var(--border);border-radius:5px;padding:4px 6px;background:var(--surface2)"></td>
+    <td style="padding:5px 7px"><input type="number" value="${esc(r.max)}" placeholder="no limit" data-tvr-f="max" data-tvr-i="${i}" style="width:95px;font-size:.76rem;border:1px solid var(--border);border-radius:5px;padding:4px 6px;background:var(--surface2)"></td>
+    <td style="padding:5px 7px"><input value="${esc(r.recipients)}" placeholder="a@x.com,b@x.com" data-tvr-f="recipients" data-tvr-i="${i}" style="width:100%;min-width:190px;font-size:.76rem;border:1px solid var(--border);border-radius:5px;padding:4px 6px;background:var(--surface2)"></td>
+    <td style="padding:5px 7px"><input value="${esc(r.label)}" data-tvr-f="label" data-tvr-i="${i}" style="width:100%;min-width:130px;font-size:.76rem;border:1px solid var(--border);border-radius:5px;padding:4px 6px;background:var(--surface2)"></td>
+    <td style="padding:5px 7px"><select data-tvr-f="active" data-tvr-i="${i}" style="font-size:.76rem;border:1px solid var(--border);border-radius:5px;padding:4px 6px;background:var(--surface2)">
+      <option value="Yes"${/^no$/i.test(r.active) ? '' : ' selected'}>Yes</option><option value="No"${/^no$/i.test(r.active) ? ' selected' : ''}>No</option></select></td>
+    <td style="padding:5px 7px"><button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:.72rem" onclick="_tvrDeleteRule(${i})" title="Remove this tier">&#10005;</button></td>
+  </tr>`).join('');
+
+  return `<div class="card card-pad" style="margin-bottom:.8rem">
+      <div style="font-weight:700;font-size:.9rem;margin-bottom:.3rem">Who gets told about a mismatch</div>
+      <div style="font-size:.79rem;color:var(--txt3)">Each mismatch is routed by the <b>absolute size of its difference</b> to the first tier whose range contains it. Leave <b>Max</b> blank for "no upper limit". Recipients are comma-separated. A mismatch matching no tier is logged as <b>Unrouted</b> and emailed to nobody — keep one open-ended tier so nothing falls through.</div>
+    </div>
+    <div class="card"><div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:.78rem">
+        <thead><tr style="background:var(--g9);color:#fff;text-align:left">
+          <th style="padding:7px 7px">Rule</th><th style="padding:7px 7px">Min ₹</th><th style="padding:7px 7px">Max ₹</th>
+          <th style="padding:7px 7px">Recipients</th><th style="padding:7px 7px">Label</th><th style="padding:7px 7px">Active</th><th style="padding:7px 7px"></th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="7" style="padding:1.4rem;text-align:center;color:var(--txt3)">No rules — nothing will be emailed.</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div style="padding:.6rem .8rem;border-top:1px solid var(--border);display:flex;gap:.5rem;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="_tvrAddRule()">&#10133; Add tier</button>
+      <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="_tvrSaveRules(this)">Save rules</button>
+    </div></div>`;
+}
+
+// Read the edited inputs back into _tvrStatus.rules so adding/removing a row
+// doesn't discard what's already typed into the other rows.
+function _tvrCollectRules() {
+  const out = ((_tvrStatus && _tvrStatus.rules) || []).map(r => ({ ...r }));
+  document.querySelectorAll('[data-tvr-f]').forEach(el => {
+    const i = +el.getAttribute('data-tvr-i'), f = el.getAttribute('data-tvr-f');
+    if (out[i]) out[i][f] = el.value;
+  });
+  return out;
+}
+
+window._tvrAddRule = function () {
+  const rules = _tvrCollectRules();
+  rules.push({ id: 'R' + (rules.length + 1), min: 0, max: '', recipients: '', label: '', active: 'Yes' });
+  _tvrStatus = { ..._tvrStatus, rules };
+  _tvrRenderBody();
+};
+
+window._tvrDeleteRule = function (i) {
+  const rules = _tvrCollectRules();
+  rules.splice(i, 1);
+  _tvrStatus = { ..._tvrStatus, rules };
+  _tvrRenderBody();
+};
+
+window._tvrSaveRules = async function (btn) {
+  const rules = _tvrCollectRules();
+  const bad = rules.find(r => String(r.active || 'Yes').toLowerCase() !== 'no' && !String(r.recipients || '').trim());
+  if (bad) { _accToast('⚠ Every active tier needs at least one recipient'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  const resp = await _tvrPost({ action: 'tvrSaveRules', rules });
+  if (btn) { btn.disabled = false; btn.textContent = 'Save rules'; }
+  if (resp && resp.success !== false) {
+    _accToast(`✅ Saved ${resp.count} rule(s)`);
+    await _tvrLoad();
+  } else {
+    _accToast('⚠ ' + ((resp && resp.message) || 'Could not save the rules'));
+  }
+};
+
 // ═══════════════════════════════════════════════════════════════════════
 //  PO & STOCKIN REGISTERS — consolidated data UIs with click-to-detail views.
 //  PO opens as a printable PO document (inspired by the AppSheet PO PDF) with
@@ -13442,6 +13986,7 @@ const MODULE_REGISTRY = [
   { route:'accounts-worklist', label:'Accounts Worklist',      section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-v2',       label:'Accounts Workspace',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
   { route:'accounts-kpi',      label:'Accounts KPI Cards',     section:'Accounts',         defStatus:'live', defRoles:['md','accounts','dept_head'] },
+  { route:'tally-recon',       label:'Tally vs Vendor Ledger', section:'Accounts',         defStatus:'live', defRoles:['md','accounts'] },
   { route:'salary-processing', label:'Salary Processing',      section:'Accounts',         defStatus:'live', defRoles:['md','accounts'] },
 
   // ── Planning ──────────────────────────────────────────────────
