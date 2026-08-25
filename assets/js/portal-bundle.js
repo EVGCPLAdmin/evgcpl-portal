@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.54.0';
-const PORTAL_BUILD    = 727;
-const PORTAL_BUILD_AT = '2026-08-25T12:30:03Z';
+const PORTAL_VERSION  = '4.55.0';
+const PORTAL_BUILD    = 728;
+const PORTAL_BUILD_AT = '2026-08-25T16:55:25Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -30,18 +30,38 @@ const PIN_SHEET_ID     = '1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0'; // User
 // ── Apps Script Endpoint Registry ─────────────────────────────────
 // All Apps Script /exec URLs are managed here. Override at runtime
 // from Config → 🔗 Apps Script Endpoints (saved to localStorage).
+//
+// ⚠️ EVERY KEY BELOW IS A SEPARATE APPS SCRIPT PROJECT, and each one needs
+// its OWN copy of Router.gs to have a doPost at all. "Router.gs" therefore
+// does NOT identify a deployment — saying "I redeployed Router" is ambiguous
+// across all of these. That ambiguity is exactly how the Tally reconciliation
+// shipped pointing at the wrong endpoint: its handlers were pasted into the
+// `accounts` project while the portal was calling `main`, which answered
+// "Unknown POST action: tvrGetStatus".
+//
+// So each entry carries a `files` list naming the .gs files pasted into THAT
+// project. Adding a server action means doing BOTH, in the right project:
+//   1. paste the handler .gs file into that project
+//   2. add the route to THAT PROJECT'S copy of Router.gs
+//   3. Deploy → Manage deployments → ✏️ → New version (the URL is unchanged;
+//      a brand-new /exec URL means you made a new deployment instead)
+//
+// `filesVerified: false` means the list is inferred from this entry's own
+// description and the Router action map, not confirmed against the live
+// project — use ▶︎ Test all to see which deployments actually answer.
+//
 // Adding a new endpoint:
-//   1. Add a new key here with a description and a defaultUrl
+//   1. Add a new key here with a description, a defaultUrl and its files
 //   2. Use it in code as: getExec('myKey')
 const EXEC_REGISTRY_DEFAULTS = {
-  portalConfig:{ label: 'Portal Config Backend',  desc: 'Standalone backend for the PortalConfig sheet (savePortalConfig / getPortalConfig). Independent of other handlers — never changes.', defaultUrl: 'https://script.google.com/macros/s/AKfycbys4NPojiI-1nBKcfbreM4HO8sehBH76ebjv4nQ_TfHcT_IXueUTBBl1Ew0SGYtGVRW/exec' },
-  main:        { label: 'Main Backend (default)', desc: 'Most portal POSTs (DPR, Safety, PCC, Onboarding, Reports). Default for getExec().', defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
-  pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet.',                                          defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
-  aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script.',                   defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
-  diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff).',       defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
-  pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
-  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app (Router.gs + AccountsHandlers.gs in one project): saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments. Override via the exec_accounts row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbxVfGLHkqtongMp8dduxARrNgBW7kinaxbekKnEct7WSlNPTJi7aCiR_A8W2vm0FAK6nw/exec' },
-  safety:      { label: 'Safety Handler',         desc: 'SafetyHandler.gs web app — Safety module writes (Incidents, DailyChecks). Override via the exec_safety row in the PortalConfig sheet.', defaultUrl: 'https://script.google.com/macros/s/AKfycbyFq6zSKgn-W3qNQPNoDplqiJHDaQTrrKLSK7gecZNiHSnU7Y4Buav3RiGfcvXtn9B3/exec' },
+  portalConfig:{ label: 'Portal Config Backend',  desc: 'Standalone backend for the PortalConfig sheet (savePortalConfig / getPortalConfig). Independent of other handlers — never changes.', files: ['Router.gs', 'PortalConfigBackend.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbys4NPojiI-1nBKcfbreM4HO8sehBH76ebjv4nQ_TfHcT_IXueUTBBl1Ew0SGYtGVRW/exec' },
+  main:        { label: 'Main Backend (default)', desc: 'Most portal POSTs (DPR, Safety, PCC, Onboarding, Reports). Default for getExec().', files: ['Router.gs', 'CoreWrites.gs', 'SafetyHandlers.gs', 'SheetRead.gs', 'ScheduledReports.gs', 'RecruitmentHandlers.gs', 'EmployeeProfileHandlers.gs', 'AIChat.gs', 'AiProxy.gs', 'SheetDiagnostic.gs', 'PCCHandlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
+  pinReset:    { label: 'PIN Reset',              desc: 'v2_PINReset bound to UserSecrets sheet. Currently the SAME deployment as main.',    files: ['Router.gs', 'PIN.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
+  aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script. Currently the SAME deployment as main.', files: ['Router.gs', 'AiProxy.gs', 'AIChat.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
+  diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff). Currently the SAME deployment as main.', files: ['Router.gs', 'SheetDiagnostic.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
+  pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     files: ['Router.gs', 'PCCHandlers.gs', 'AppsScript_Handlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
+  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app: saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments — PLUS the Tally reconciliation actions tvrSaveBatch / tvrGetStatus / tvrGetBatch / tvrSaveRules / tvrRunNow. Override via the exec_accounts row in the PortalConfig sheet.', files: ['Router.gs', 'AccountsHandlers.gs', 'TallyVendorReconcile.gs'], filesVerified: true, defaultUrl: 'https://script.google.com/macros/s/AKfycbyDrIBun9a72IIgEwE3zw0ihBQSTJEarleOo_xMVRmzupijGhwYVoiE-xsQGU1mx3zW7w/exec' },
+  safety:      { label: 'Safety Handler',         desc: 'SafetyHandler.gs web app — Safety module writes (Incidents, DailyChecks). Override via the exec_safety row in the PortalConfig sheet.', files: ['Router.gs', 'SafetyHandlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbyFq6zSKgn-W3qNQPNoDplqiJHDaQTrrKLSK7gecZNiHSnU7Y4Buav3RiGfcvXtn9B3/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
 
@@ -6522,13 +6542,20 @@ let _tvrTab     = 'overview';
 let _tvrStatus  = null;   // last tvrGetStatus payload
 let _tvrParsed  = null;   // parsed-but-not-yet-uploaded Tally rows
 let _tvrBusy    = false;
+let _tvrErr     = null;   // last backend error — shown in the Overview body, never instead of the tabs
+let _tvrViewRunId = '';   // run currently being viewed ('' = latest)
+let _tvrBatchView = null; // { kind, batchId, rows } when inspecting a stored batch
 
 const _TVR_SNAP_LS = 'evg_tvr_last_snapshot';   // yyyy-mm-dd of the last auto-snapshot
 
 async function _tvrPost(payload) {
   let res;
   try {
-    res = await fetch(getExec('main'), {
+    // 'accounts', NOT 'main'. TallyVendorReconcile.gs and the tvr* router cases
+    // are pasted into the Accounts Apps Script project; `main` is a different
+    // deployment that answers "Unknown POST action: tvrGetStatus". Every key in
+    // EXEC_REGISTRY_DEFAULTS is its own project with its own Router.gs copy.
+    res = await fetch(getExec('accounts'), {
       method: 'POST', headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload)
     });
@@ -6663,19 +6690,41 @@ function renderTallyRecon() {
   _tvrLoad();
 }
 
-async function _tvrLoad() {
-  const resp = await _tvrPost({ action: 'tvrGetStatus' });
+// Load the status panel. On failure this records the error and STILL renders the
+// page: the tab bar must survive a dead backend, because uploading a Tally export
+// is exactly what you'd want to do when there is no data yet. (An earlier version
+// replaced the whole body with an error card and returned before rendering the
+// tabs, which made the Import tab unreachable whenever the backend was
+// misconfigured — the upload button existed but nothing could get to it.)
+async function _tvrLoad(opts) {
+  opts = opts || {};
+  const payload = { action: 'tvrGetStatus' };
+  if (opts.runId) payload.runId = opts.runId;
+  const resp = await _tvrPost(payload);
   if (!resp || resp.success === false) {
-    const b = document.getElementById('tvr-body');
-    if (b) b.innerHTML = `<div class="card card-pad" style="padding:2rem;text-align:center">
-      <div style="color:var(--danger);font-weight:700;margin-bottom:.5rem">&#9888; Could not load reconciliation status</div>
-      <div style="font-size:.82rem;color:var(--txt3)">${_mdpEsc((resp && resp.message) || 'No response from the backend.')}</div>
-      <div style="font-size:.75rem;color:var(--txt3);margin-top:.8rem">If this is the first run, deploy <code>TallyVendorReconcile.gs</code> and add its four actions to <code>Router.gs</code>.</div>
-    </div>`;
-    return;
+    _tvrErr = (resp && resp.message) || 'No response from the backend.';
+    // Keep whatever status we already had; a failed refresh shouldn't blank the page.
+    _tvrRenderBody();
+    return false;
   }
+  _tvrErr = null;
   _tvrStatus = resp;
+  _tvrViewRunId = resp.runId || '';
   _tvrRenderBody();
+  return true;
+}
+
+// Rendered inside the Overview body only — never in place of the tab bar.
+function _tvrErrorCard() {
+  return `<div class="card card-pad" style="padding:1.6rem;text-align:center;border-left:4px solid var(--danger)">
+      <div style="color:var(--danger);font-weight:700;margin-bottom:.5rem">&#9888; Could not load reconciliation status</div>
+      <div style="font-size:.82rem;color:var(--txt3)">${_mdpEsc(_tvrErr || '')}</div>
+      <div style="font-size:.75rem;color:var(--txt3);margin-top:.8rem;line-height:1.5">
+        <b>tvrSaveBatch is not defined</b> → <code>TallyVendorReconcile.gs</code> hasn't been pasted into the Accounts Apps Script project.<br>
+        <b>Unknown POST action</b> → the file is there but that project's <code>Router.gs</code> wasn't redeployed after the <code>tvr*</code> cases were added.<br>
+        Either way you can still use <b>&#128228; Import Tally Export</b> above — uploads are queued to the same backend, so fix the deployment first.
+      </div>
+    </div>`;
 }
 
 window._tvrSetTab = function (t) { _tvrTab = t; _tvrRenderBody(); };
@@ -6700,8 +6749,40 @@ function _tvrOverviewView() {
   const s = _tvrStatus || {};
   const ms = s.mismatches || [];
   const esc = _mdpEsc;
+  // A failed status call shows here, inside the Overview — the tab bar above it
+  // stays usable so the Import tab is always reachable.
+  if (_tvrErr) return _tvrErrorCard();
   const totalValue = ms.reduce((t, m) => t + Math.abs(Number(m.diff) || 0), 0);
   const vendors = new Set(ms.map(m => _tvrNorm(m.name))).size;
+  // ── History picker ────────────────────────────────────────────────────
+  // Past runs are replayed from what was logged that day, never recomputed, so
+  // a historical view always shows what was actually reported and emailed.
+  const runs = s.runs || [];
+  const viewing = s.runId || '';
+  const isLatest = s.isLatestRun !== false;
+  const runOpts = runs.map(r =>
+    `<option value="${esc(r.runId)}"${r.runId === viewing ? ' selected' : ''}>${esc(r.date)} · ${r.count} mismatch${r.count === 1 ? '' : 'es'} · ${_tvrInr(r.totalValue)}${r.runId === s.latestRunId ? ' (latest)' : ''}</option>`
+  ).join('');
+  const picker = runs.length ? `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+      <label style="font-size:.66rem;font-weight:700;color:var(--txt3)">RECONCILIATION</label>
+      <select onchange="_tvrViewRun(this.value)" style="font-size:.8rem;border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2);max-width:100%">${runOpts}</select>
+      ${!isLatest ? `<button class="btn btn-secondary btn-sm" style="padding:3px 9px;font-size:.72rem" onclick="_tvrViewRun('')">&#8617; Back to latest</button>` : ''}
+      <span style="font-size:.68rem;color:var(--txt3);margin-left:auto">${runs.length} run${runs.length === 1 ? '' : 's'} on record</span>
+    </div>` : '';
+  const histBanner = (!isLatest && viewing) ? `<div class="card card-pad" style="margin-bottom:.8rem;padding:.55rem .8rem;background:#eef2ff;border-left:4px solid #6366f1;font-size:.8rem">
+      &#128337; <b>Viewing a past reconciliation</b> (${esc(viewing)}) — this is what was reported that day, not the current position.
+    </div>` : '';
+
+  // Days with a Tally upload but no snapshot. Unlike the Tally file, a past
+  // portal balance cannot be rebuilt later, so these days are permanently
+  // un-reconcilable — worth saying plainly rather than showing a silent hole.
+  const gaps = s.snapshotGaps || [];
+  const gapCard = gaps.length ? `<div class="card card-pad" style="margin-bottom:.8rem;padding:.6rem .8rem;background:#fff7ed;border-left:4px solid #f97316;font-size:.79rem">
+      <b>${gaps.length} day${gaps.length === 1 ? '' : 's'} with a Tally upload but no portal snapshot</b>
+      <div style="margin-top:.3rem;display:flex;gap:.3rem;flex-wrap:wrap">${gaps.map(d => `<code style="font-size:.7rem;padding:1px 6px;border-radius:4px;background:var(--surface2);border:1px solid var(--border)">${esc(d)}</code>`).join('')}</div>
+      <div style="margin-top:.35rem;color:var(--txt3);font-size:.74rem">These can't be reconciled after the fact — the Tally file is stored, but the portal balance for a past day can't be reconstructed once the underlying POs, GRNs and payments move on. A snapshot is captured automatically the first time someone opens the Vendor Ledger page each day.</div>
+    </div>` : '';
+
   const tally = s.tally || {}, snap = s.snapshot || {};
   // Staleness is the whole point of snapshotting — surface it, don't bury it.
   const staleHrs = _tvrAgeHours(snap.at);
@@ -6711,11 +6792,13 @@ function _tvrOverviewView() {
     ${evgKpiCard({ icon: '&#9888;&#65039;', value: ms.length, label: 'Open Mismatches', accent: ms.length ? '#dc2626' : '#16a34a' })}
     ${evgKpiCard({ icon: '&#128181;', value: _tvrInr(totalValue), label: 'Total Mismatch Value', accent: '#ea580c' })}
     ${evgKpiCard({ icon: '&#127970;', value: vendors, label: 'Vendors Affected', accent: '#7c3aed' })}
-    ${evgKpiCard({ icon: '&#128228;', value: tally.at ? esc(String(tally.at).split(' ')[0]) : '—', label: 'Last Tally Upload' + (tally.by ? ' · ' + esc(String(tally.by).split('@')[0]) : ''), accent: '#2563eb' })}
-    ${evgKpiCard({ icon: stale ? '&#9203;' : '&#128248;', value: snap.at ? esc(String(snap.at).split(' ')[0]) : '—', label: 'Last Portal Snapshot' + (staleHrs >= 0 ? ` · ${staleHrs}h ago` : ''), accent: stale ? '#dc2626' : '#16a34a' })}
+    ${evgKpiCard({ icon: '&#128228;', value: tally.at ? esc(String(tally.at).split(' ')[0]) : '—', label: (isLatest ? 'Last Tally Upload' : 'Current Tally Upload (not this run)') + (tally.by ? ' · ' + esc(String(tally.by).split('@')[0]) : ''), accent: '#2563eb' })}
+    ${evgKpiCard({ icon: stale ? '&#9203;' : '&#128248;', value: snap.at ? esc(String(snap.at).split(' ')[0]) : '—', label: (isLatest ? 'Last Portal Snapshot' : 'Current Snapshot (not this run)') + (staleHrs >= 0 ? ` · ${staleHrs}h ago` : ''), accent: stale ? '#dc2626' : '#16a34a' })}
   </div>`;
 
-  const warn = stale ? `<div class="card card-pad" style="margin-bottom:.8rem;padding:.6rem .8rem;background:#fef3c7;border-left:4px solid #f59e0b;font-size:.8rem">
+  // Suppressed while viewing history: it prompts you to refresh and re-run, which
+  // is about the current position, not the run on screen.
+  const warn = (stale && isLatest) ? `<div class="card card-pad" style="margin-bottom:.8rem;padding:.6rem .8rem;background:#fef3c7;border-left:4px solid #f59e0b;font-size:.8rem">
     <b>The portal snapshot is ${staleHrs} hours old.</b> The comparison below is against balances captured ${esc(snap.at || '—')}. Hit <b>&#128248; Capture Snapshot</b> to refresh, then <b>&#9889; Run Reconcile</b>.
   </div>` : '';
 
@@ -6727,7 +6810,7 @@ function _tvrOverviewView() {
 
   if (!ms.length) {
     const never = !s.runId;
-    return kpis + warn + meta + `<div class="card card-pad" style="text-align:center;padding:2.5rem;color:var(--txt3)">
+    return picker + histBanner + kpis + warn + gapCard + meta + `<div class="card card-pad" style="text-align:center;padding:2.5rem;color:var(--txt3)">
       <div style="font-size:2rem;margin-bottom:.4rem">${never ? '&#128203;' : '&#9989;'}</div>
       <div style="font-weight:700;color:var(--txt2)">${never ? 'No reconciliation has run yet' : 'No mismatches — Tally and the portal agree'}</div>
       <div style="font-size:.82rem;margin-top:.35rem">${never ? 'Upload a Tally export, capture a snapshot, then run the reconcile.' : 'Every vendor\'s closing balance matched within ₹1.'}</div>
@@ -6748,7 +6831,7 @@ function _tvrOverviewView() {
     </tr>`;
   }).join('');
 
-  return kpis + warn + meta + `<div class="card"><div style="overflow-x:auto">
+  return picker + histBanner + kpis + warn + gapCard + meta + `<div class="card"><div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Vendor</th>
@@ -6806,11 +6889,43 @@ function _tvrImportView() {
     </div>`;
   }
 
-  const logRows = log.map(b => `<tr>
+  const logRows = log.map(b => `<tr style="cursor:pointer" onclick="_tvrOpenBatch('tally','${esc(b.batchId)}')" title="View the rows uploaded in this batch">
     <td style="padding:5px 9px;border-bottom:1px solid var(--border);white-space:nowrap">${esc(b.at)}</td>
     <td style="padding:5px 9px;border-bottom:1px solid var(--border)">${esc(b.by)}</td>
     <td style="padding:5px 9px;border-bottom:1px solid var(--border);text-align:right">${b.count}</td>
     <td style="padding:5px 9px;border-bottom:1px solid var(--border);font-family:ui-monospace,Menlo,monospace;font-size:.68rem;color:var(--txt3)">${esc(b.batchId)}</td></tr>`).join('');
+
+  // ── Stored-batch viewer + past-date reconcile ─────────────────────────
+  const snapLog = s.snapshotLog || [];
+  const bv = _tvrBatchView;
+  const batchCard = bv ? `<div class="card" style="margin-bottom:.8rem;border-left:4px solid #6366f1">
+      <div style="padding:.6rem .8rem;border-bottom:1px solid var(--border);display:flex;gap:.7rem;align-items:center;flex-wrap:wrap">
+        <b style="font-size:.85rem">${bv.kind === 'tally' ? 'Tally upload' : 'Portal snapshot'} · ${esc(bv.at)}</b>
+        <span style="font-size:.73rem;color:var(--txt3)">${bv.rows.length} vendors · by ${esc(bv.by)} · <code style="font-size:.68rem">${esc(bv.batchId)}</code></span>
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto;padding:3px 9px;font-size:.72rem" onclick="_tvrCloseBatch()">&#10005; Close</button>
+      </div>
+      <div style="overflow-x:auto;max-height:340px"><table style="width:100%;border-collapse:collapse;font-size:.78rem">
+        <thead><tr style="background:var(--surface2);text-align:left;position:sticky;top:0"><th style="padding:6px 9px">Vendor</th><th style="padding:6px 9px">A/C</th><th style="padding:6px 9px;text-align:right">Closing Balance</th></tr></thead>
+        <tbody>${bv.rows.map(r => `<tr>
+          <td style="padding:5px 9px;border-bottom:1px solid var(--border)">${esc(r.name)}</td>
+          <td style="padding:5px 9px;border-bottom:1px solid var(--border);font-size:.72rem;color:var(--txt3)">${esc(r.acc) || '—'}</td>
+          <td style="padding:5px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:600">${_tvrSigned(r.balance)}</td></tr>`).join('')}</tbody>
+      </table></div>
+    </div>` : '';
+
+  const bOpt = (b, kind) => `<option value="${esc(b.batchId)}">${esc(b.at)} · ${b.count} vendors${b.by ? ' · ' + esc(String(b.by).split('@')[0]) : ''}</option>`;
+  const pastCard = (log.length && snapLog.length) ? `<div class="card card-pad" style="margin-bottom:.8rem">
+      <div style="font-weight:700;font-size:.88rem;margin-bottom:.25rem">Reconcile a past date</div>
+      <div style="font-size:.77rem;color:var(--txt3);margin-bottom:.6rem">Diff a specific Tally upload against a specific snapshot — for a day that was uploaded but never reconciled, or to re-check one after fixing data. This <b>adds</b> a new run; it never overwrites the original, and it does not email anyone unless you tick the box.</div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <label style="font-size:.68rem;font-weight:700;color:var(--txt3)">TALLY</label>
+        <select id="tvr-past-tally" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface2)">${log.map(b => bOpt(b, 'tally')).join('')}</select>
+        <label style="font-size:.68rem;font-weight:700;color:var(--txt3)">SNAPSHOT</label>
+        <select id="tvr-past-snap" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface2)">${snapLog.map(b => bOpt(b, 'snapshot')).join('')}</select>
+        <label style="font-size:.73rem;color:var(--txt3);display:flex;align-items:center;gap:.3rem"><input type="checkbox" id="tvr-past-email"> email the result</label>
+        <button class="btn btn-primary btn-sm" style="padding:4px 11px;font-size:.74rem" onclick="_tvrRunPast(this)">&#9889; Reconcile pair</button>
+      </div>
+    </div>` : '';
 
   return `<div class="card card-pad" style="margin-bottom:.8rem">
       <div style="font-weight:700;font-size:.9rem;margin-bottom:.3rem">Upload the daily Tally vendor ledger</div>
@@ -6826,6 +6941,8 @@ function _tvrImportView() {
       </div>
     </div>
     ${preview}
+    ${batchCard}
+    ${pastCard}
     <div class="card">
       <div style="padding:.6rem .8rem;border-bottom:1px solid var(--border);font-weight:700;font-size:.85rem">Upload log <span style="font-weight:400;font-size:.74rem;color:var(--txt3)">— how fresh the Tally side is</span></div>
       ${log.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.78rem">
@@ -6834,6 +6951,45 @@ function _tvrImportView() {
       : '<div style="padding:1.6rem;text-align:center;color:var(--txt3);font-size:.82rem">No Tally export has been uploaded yet.</div>'}
     </div>`;
 }
+
+// View a past reconciliation. '' returns to the latest.
+window._tvrViewRun = async function (runId) {
+  _tvrViewRunId = runId || '';
+  await _tvrLoad(runId ? { runId } : {});
+};
+
+window._tvrOpenBatch = async function (kind, batchId) {
+  const resp = await _tvrPost({ action: 'tvrGetBatch', kind, batchId });
+  if (!resp || resp.success === false) { _accToast('⚠ ' + ((resp && resp.message) || 'Could not load that batch')); return; }
+  _tvrBatchView = resp;
+  _tvrRenderBody();
+};
+window._tvrCloseBatch = function () { _tvrBatchView = null; _tvrRenderBody(); };
+
+// Reconcile a chosen (Tally, snapshot) pair. Appends a new run; silent by default.
+window._tvrRunPast = async function (btn) {
+  if (_tvrBusy) return;
+  const t = document.getElementById('tvr-past-tally');
+  const p = document.getElementById('tvr-past-snap');
+  const em = document.getElementById('tvr-past-email');
+  if (!t || !p) return;
+  _tvrBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Reconciling…'; }
+  const resp = await _tvrPost({
+    action: 'tvrRunNow',
+    tallyBatchId: t.value, snapshotBatchId: p.value,
+    skipEmail: !(em && em.checked)
+  });
+  _tvrBusy = false;
+  if (btn) { btn.disabled = false; btn.innerHTML = '&#9889; Reconcile pair'; }
+  if (resp && resp.success !== false) {
+    _accToast(`✅ ${resp.mismatches} mismatch(es)${resp.emailed ? ' · notified' : ' · not emailed'}`);
+    _tvrTab = 'overview';
+    await _tvrLoad({ runId: resp.runId });
+  } else {
+    _accToast('⚠ ' + ((resp && resp.message) || 'Reconcile failed'));
+  }
+};
 
 window._tvrPickFile = function (input) {
   const f = input && input.files && input.files[0];
@@ -14739,6 +14895,11 @@ function renderExecEndpointsCard() {
             spellcheck="false"
             style="width:100%;padding:.45rem .7rem;font-family:'Consolas','JetBrains Mono',monospace;font-size:11px;border:1.5px solid ${overridden ? '#f0a500' : 'var(--border)'};border-radius:6px;background:var(--surface2);color:var(--txt)">
           <div style="font-size:.7rem;color:var(--txt3);margin-top:.25rem">${meta.desc}</div>
+          ${(meta.files && meta.files.length) ? `<div style="margin-top:.3rem;display:flex;gap:.25rem;flex-wrap:wrap;align-items:center"
+              title="${meta.filesVerified ? 'Confirmed: these .gs files are in this Apps Script project.' : 'Inferred from this entry\'s description and the Router action map — not confirmed against the live project. Use \u25B6\uFE0E Test all to see which deployments answer.'}">
+              <span style="font-size:.6rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.03em">.gs files${meta.filesVerified ? '' : ' (unverified)'}</span>
+              ${meta.files.map(f => `<code style="font-size:.62rem;padding:1px 5px;border-radius:4px;background:var(--surface2);border:1px solid var(--border);color:${meta.filesVerified ? 'var(--txt2)' : 'var(--txt3)'};opacity:${meta.filesVerified ? '1' : '.75'}">${f}</code>`).join('')}
+            </div>` : ''}
         </div>
         <span id="execStatus-${k}" style="font-size:.66rem;padding:3px 9px;border-radius:8px;background:var(--surface2);color:var(--txt3);font-weight:600;white-space:nowrap">unknown</span>
         <div style="display:flex;gap:.3rem">

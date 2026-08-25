@@ -52,6 +52,7 @@ function doPost(e) {
     // ── Tally vs vendor ledger reconciliation (TallyVendorReconcile.gs) ──
     if (action === 'tvrSaveBatch')             return _wrap(tvrSaveBatch(body));
     if (action === 'tvrGetStatus')             return _wrap(tvrGetStatus(body));
+    if (action === 'tvrGetBatch')              return _wrap(tvrGetBatch(body));
     if (action === 'tvrSaveRules')             return _wrap(tvrSaveRules(body));
     if (action === 'tvrRunNow')                return _wrap(tvrRunNow(body));
 

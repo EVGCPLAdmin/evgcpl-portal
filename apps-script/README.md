@@ -30,11 +30,20 @@ and can be overridden per-environment from **Config → 🔗 Apps Script Endpoin
 | `SheetDiagnostic.gs` | `diagnoseSheet`, `listShares` — server-side sharing checks | Powers the Sharing-Doctor page |
 | `PCCHandlers.gs` | The 10 Project Cost Control actions: `saveProjectSetup`, `saveBOQ`, `saveWBS`, `saveWorkplan`, `saveManpower`, `saveMachinery`, `saveMaterials`, `saveOverheads`, `saveVariations`, `submitBudgetApproval` | Backed by sheet `1dQow9nD…` |
 | `WorkplanHandlers.gs` | Optional helper file for workplan-specific logic if you want to split it out | Not currently routed; merged into PCCHandlers |
+| `TallyVendorReconcile.gs` | Tally-vs-portal vendor reconciliation: `tvrSaveBatch`, `tvrGetStatus`, `tvrGetBatch`, `tvrSaveRules`, `tvrRunNow`, plus the daily 08:30 trigger `runDailyVendorReconcile` | Deployed in the **Accounts** project (with its own `Router.gs`), not `main`. Creates its four tabs on first use. |
 | `WORKPLAN_SCHEMA.md` | Reference for the per-activity Workplan schema (15 columns) | Documentation only |
 
 ---
 
-## First-time install (one Apps Script project)
+> **These files are NOT all in one project.** The portal's endpoint registry
+> (`EXEC_REGISTRY_DEFAULTS` in `portal-bundle.js`) lists several deployments, and
+> **each is a separate Apps Script project needing its own copy of `Router.gs`** —
+> so "Router.gs" does not identify a deployment. Adding a server action means
+> pasting the handler file into the right project *and* adding the route to **that
+> project's** `Router.gs`. Each registry entry shows its `.gs` file list in
+> **Config → 🔗 Apps Script Endpoints**.
+
+## First-time install (per Apps Script project)
 
 1. Open the master spreadsheet (the one tied to the `APPS_SCRIPT_URL` you're using).
 2. **Extensions → Apps Script** opens the bound project.
@@ -104,6 +113,7 @@ These are the actions the Router knows about, by category. If the portal posts a
 | Sheet | `diagnoseSheet`, `listShares` |
 | PCC | `saveProjectSetup`, `saveBOQ`, `saveWBS`, `saveWorkplan`, `saveManpower`, `saveMachinery`, `saveMaterials`, `saveOverheads`, `saveVariations`, `submitBudgetApproval` |
 | Accounts | `saveNewPaymentRequest`, `saveAccountsUpdate`, `saveVendorOpeningBalance`, `createPRFolder`, `uploadPRAttachment`, `listPRAttachments` |
+| Reconciliation | `tvrSaveBatch`, `tvrGetStatus`, `tvrGetBatch`, `tvrSaveRules`, `tvrRunNow` |
 | Portal config | `savePortalConfig`, `getPortalConfig` |
 | PIN | `verifyPin`, `resetPin` |
 
