@@ -249,6 +249,7 @@
     'ledgers':           'accounts.html',
     'ledger-sc':         'accounts.html',
     'vendor-ledger-po':  'accounts.html',
+    'tally-recon':       'accounts.html',
 
     // Reports
     'reports':           'reports.html',

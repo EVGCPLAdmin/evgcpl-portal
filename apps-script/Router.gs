@@ -49,6 +49,12 @@ function doPost(e) {
     if (action === 'runSchedulesNow')          return _ok(forceRunSchedules());
     if (action === 'getScheduleLog')           return _ok(getScheduleLog_(body.limit || 30));
 
+    // ── Tally vs vendor ledger reconciliation (TallyVendorReconcile.gs) ──
+    if (action === 'tvrSaveBatch')             return _wrap(tvrSaveBatch(body));
+    if (action === 'tvrGetStatus')             return _wrap(tvrGetStatus(body));
+    if (action === 'tvrSaveRules')             return _wrap(tvrSaveRules(body));
+    if (action === 'tvrRunNow')                return _wrap(tvrRunNow(body));
+
     // ── AI (AIChat.gs / AiProxy.gs) ────────────────────────────
     if (action === 'aiChat')                   return aiChat(body);
     if (action === 'aiProxy')                  return aiProxy(body);
