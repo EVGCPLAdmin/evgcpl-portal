@@ -5333,7 +5333,7 @@ function _vplpCompute() {
   // Vendor Master bridge: name → Vendor ID and bank-account → Vendor ID. Lets a
   // payment (which carries only the selected vendor NAME + account, no Vendor ID)
   // resolve to the same Vendor ID the POs use, so it nets instead of splitting.
-  const bridge = { nameToVid: {}, accToVid: {}, vidToUuid: {}, vidToName: {}, vidToDetail: {} };
+  const bridge = { nameToVid: {}, accToVid: {}, vidToUuid: {}, vidToName: {}, vidToDetail: {}, vidToGst: {} };
   (_vplpVMRows || []).forEach(r => {
     const vid = String(r['Vendor ID'] || '').toUpperCase().trim(); if (!vid) return;
     [r['Vendor Name'], r['Legal Name'], r['Vendor Acc Name'], r['A/C HOLDER NAME'], r['Account Holder Name']].forEach(nm => {
@@ -5344,6 +5344,10 @@ function _vplpCompute() {
     if (!bridge.vidToUuid[vid])   bridge.vidToUuid[vid]   = String(r['UUID'] || '').trim();
     if (!bridge.vidToName[vid])   bridge.vidToName[vid]   = String(r['Vendor Name'] || r['Legal Name'] || '').trim();
     if (!bridge.vidToDetail[vid]) bridge.vidToDetail[vid] = String(r['Vendor Detail'] || '').trim();
+    // A vendor can have several GST numbers (one per state/registration) across
+    // multiple Vendor Master rows — collect the distinct ones for a single cell.
+    const gst = String(r['GST'] || r['GSTIN'] || r['GST No'] || r['GST Number'] || r['GST No.'] || '').trim();
+    if (gst) { const arr = bridge.vidToGst[vid] = bridge.vidToGst[vid] || []; if (!arr.some(g => g.toUpperCase() === gst.toUpperCase())) arr.push(gst); }
   });
   // Vendors keyed by Vendor ID; payments that still don't resolve stay Unmapped.
   const vendors = {};
@@ -5865,6 +5869,9 @@ function _vplpFlatList(toggle) {
   const Topen = T.opCredit - T.opDebit, TpostCr = T.credit - T.opCredit, TpostDr = T.debit - T.opDebit;
   const m = x => x ? inr(x) : '—';
   const dc = n => n ? drcr(n) : '—';
+  // A vendor's GST number(s) from Vendor Master — several (one per state) shown
+  // pipe-separated in the one cell.
+  const gstOf = v => { const a = (v.vid && d.bridge && d.bridge.vidToGst[v.vid]) || []; return a.length ? esc(a.join(' | ')) : '—'; };
   const statChip = st => { const c = _VPLP_STATUS_META[st]; return `<span style="display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;font-weight:700;background:${c.bg};color:${c.color};padding:2px 9px;border-radius:20px;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:${c.dot}"></span>${c.label}</span>`; };
   const statBtn = (val, label, n) => `<button onclick="_vplpSetFlatStatus('${val}')" class="btn btn-sm ${_vplpFlatStatus === val ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 9px;font-size:.72rem">${label}${n != null ? ` (${n})` : ''}</button>`;
   const stat = (val, lbl, col) => `<div style="display:flex;flex-direction:column;line-height:1.1"><span style="font-size:.92rem;font-weight:800;${col ? `color:${col}` : ''}">${val}</span><span style="font-size:.58rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap">${lbl}</span></div>`;
@@ -5889,6 +5896,7 @@ function _vplpFlatList(toggle) {
   </div>`;
   const body = shown.map((r, i) => `<tr style="cursor:pointer" onclick="_vplpFlatOpen(${i})" title="Open detailed ledger">
     <td style="padding:6px 9px">${esc(r.v.name)}${r.v.vid ? ` <span style="color:var(--txt3);font-size:.72rem">[${esc(r.v.vid)}]</span>` : ''}${r.v.unmapped ? ' <span style="color:#c2410c;font-size:.66rem">·Unmapped</span>' : ''}</td>
+    <td style="padding:6px 9px;font-family:ui-monospace,Menlo,monospace;font-size:.7rem;color:var(--txt2);word-break:break-word">${gstOf(r.v)}</td>
     <td style="padding:6px 9px">${statChip(r.status)}</td>
     <td style="padding:6px 9px;text-align:right;color:#4f46e5;font-weight:600">${dc(r.opCredit - r.opDebit)}</td>
     <td style="padding:6px 9px;text-align:right;color:#b45309">${m(r.mat)}</td>
@@ -5900,6 +5908,7 @@ function _vplpFlatList(toggle) {
   const tfoot = `<tr style="background:var(--surface2);font-weight:700">
     <td style="padding:7px 9px">Totals &middot; ${shown.length}</td>
     <td style="padding:7px 9px"></td>
+    <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#4f46e5">${dc(Topen)}</td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(T.mat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(T.addl)}</td>
@@ -5910,7 +5919,7 @@ function _vplpFlatList(toggle) {
   return header + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
-        <th style="padding:8px 9px">Vendor</th><th style="padding:8px 9px">Balance Status</th>
+        <th style="padding:8px 9px">Vendor</th><th style="padding:8px 9px" title="GST number(s) from Vendor Master — multiple shown pipe-separated">GST No</th><th style="padding:8px 9px">Balance Status</th>
         <th style="padding:8px 9px;text-align:right" title="Net opening balance carried forward (before the opening date)">Opening (B/F)</th>
         <th style="padding:8px 9px;text-align:right">Material</th><th style="padding:8px 9px;text-align:right">Add'l</th>
         <th style="padding:8px 9px;text-align:right">Tax</th><th style="padding:8px 9px;text-align:right" title="Billed after the opening date">Billed (Cr)</th>
