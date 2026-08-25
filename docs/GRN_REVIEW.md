@@ -166,3 +166,25 @@ allowed emails/names (same mechanism as the payment-status restrictions).
 - `_vplpPOTotals(d, k)` = the single per-PO credit/breakdown helper shared by the
   per-vendor ledger and the Flat List (keeps balances identical).
 - `_vplpGRNReviewView()` / `_vplpGRNSubmit()` — the review UI + write.
+
+## Daily GRN email (yesterday's receipts as CSV)
+
+`apps-script/GRNDailyEmail.gs` emails a CSV of **yesterday's GRN receipts**
+(filtered by **GRN Timestamp** on the `StockIN` tab of v2_Stores) every day at
+~08:00 (the Apps Script project timezone — set it to Asia/Kolkata).
+
+Setup (once, in the Apps Script editor of a project that can read v2_Stores):
+1. Paste `GRNDailyEmail.gs`.
+2. `grnDailyTestNow()` — sends an immediate test for yesterday.
+3. `installGRNDailyTrigger()` — authorises + creates the daily 08:00 trigger.
+
+Recipients start in **TEST mode → only `admin@evgcpl.com`**. When approved
+("SendAllApproved"), run **`grnDailyEnableAll()`** once to switch to the full
+list (`shanthini2007@gmail.com, ars@ / stores@ / purchase@ / accounts@ /
+admin@evgcpl.com`); `grnDailyDisableAll()` reverts. The flag lives in Script
+Properties, so no code edit is needed to flip it.
+
+CSV columns: `GRN No | GRN Date | GRN Timestamp | PO No | Vendor | Site |
+Invoice No | Part No | Part Description | GRN Qty | SI ID`. The StockIN Part key
+is resolved to Part No + Description via the `PO_Items_Actual` tab (the project
+also needs read access to the Purchase workbook).

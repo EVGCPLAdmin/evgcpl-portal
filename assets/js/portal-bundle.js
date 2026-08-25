@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.53.0';
-const PORTAL_BUILD    = 720;
-const PORTAL_BUILD_AT = '2026-07-26T08:37:06Z';
+const PORTAL_VERSION  = '4.53.2';
+const PORTAL_BUILD    = 724;
+const PORTAL_BUILD_AT = '2026-08-25T06:39:34Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5206,8 +5206,9 @@ function _vplpCompute() {
     // GRN_No tab via CheckSum/UUID. Never the PO date.
     const csKey = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID'])).trim();
     const recvDate = _opGet(r, SC, ['Received On (At Site)', 'Received On (At)', 'Received On', 'GRN Received On', 'Received Date']) || grnDateMap[csKey] || '';
+    const recvTs = _opGet(r, SC, ['Timestamp', 'Time Stamp', 'Created On', 'Entry Timestamp', 'Created Timestamp', 'Created']) || '';
     e.qty += qty;
-    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev, recvDate });
+    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev, recvDate, recvTs });
   });
   // PO header: approval, vendor, date, Tax(b), Additional Charges(b). Keyed by
   // the normalised PO key (folds EGVE/EVGE spelling variants).
@@ -5385,7 +5386,7 @@ function _vplpCompute() {
       siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '', partNo: rc.partNo || '', partDesc: rc.partDesc || '',
       qty: rc.qty || 0, poRate: rc.poRate || 0, useRate: rc.useRate || 0, addl: rc.addl || 0,
       poTaxPct: rc.poTaxPct || 0, poTaxVal: rc.poTaxVal || 0,
-      credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null,
+      credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null, recvDate: rc.recvDate || '', recvTs: rc.recvTs || '',
       poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
     }));
   });
@@ -5457,8 +5458,47 @@ function _vplpRenderBody() {
 // getExec('accounts') action 'saveGRNReview' (append; latest per SI ID wins).
 let _vplpGRNFilter = 'pending';   // 'pending' | 'approved' | 'rejected' | 'all'
 let _vplpGRNSearch = '';
+let _vplpGRNDateFrom = '';        // GRN-date range filter (YYYY-MM-DD, inclusive)
+let _vplpGRNDateTo = '';
 const _GRN_CAP = 150;             // cap rendered rows — the queue can be thousands
+// A line's GRN date value (ms) — prefer the GRN Timestamp, else the received date.
+function _grnLineDateVal(l) { return _mdpDateVal(l.recvTs) || _mdpDateVal(l.recvDate) || 0; }
 window._vplpGRNSetFilter = function(f) { _vplpGRNFilter = f; _vplpRenderBody(); };
+window._vplpGRNSetDate = function(which, val) {
+  if (which === 'from') _vplpGRNDateFrom = val; else _vplpGRNDateTo = val;
+  _vplpRenderBody();
+};
+window._vplpGRNClearDates = function() { _vplpGRNDateFrom = ''; _vplpGRNDateTo = ''; _vplpRenderBody(); };
+// Download the current (search + status + date) filtered rows as CSV — the full
+// filtered set, not just the on-screen cap.
+window._vplpGRNExportCSV = function() {
+  const rows = window._vplpGRNFiltered || [];
+  if (!rows.length) { try { _accToast('No rows to export.'); } catch (e) {} return; }
+  const p2 = n => String(n).padStart(2, '0');
+  const dOnly = v => { const t = _grnTsVal(v); if (!t) return v ? String(v) : ''; const d = new Date(t); return p2(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear(); };
+  const dTime = v => { const t = _grnTsVal(v); if (!t) return v ? String(v) : ''; const d = new Date(t); return p2(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds()); };
+  const statusOf = l => (l.rev && l.rev.status) ? l.rev.status : 'Pending';
+  const cell = v => { v = (v == null ? '' : String(v)); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const round2 = n => (typeof n === 'number' && !isNaN(n) && n !== 0) ? Math.round(n * 100) / 100 : '';
+  const headers = ['GRN No', 'GRN Date', 'GRN Timestamp', 'PO No', 'Vendor', 'Vendor ID', 'Part No', 'Description', 'Invoice No', 'Qty', 'PO Rate', 'PO Tax %', 'PO Tax Value', 'Final Rate', 'Final Tax', 'Final Addl', 'Final Value', 'Status'];
+  const body = rows.map(l => {
+    const rev = l.rev || {};
+    return [
+      l.grn, dOnly(l.recvDate), dTime(l.recvTs), l.poNo, l.vendorName, l.vid, l.partNo, (l.partDesc || l.part),
+      l.inv, l.qty, l.poRate, round2(l.poTaxPct), round2(l.poTaxVal),
+      (rev.rate > 0 ? rev.rate : ''), (rev.tax > 0 ? rev.tax : ''), (rev.addl || ''), (rev.value > 0 ? rev.value : ''),
+      statusOf(l),
+    ].map(cell).join(',');
+  });
+  const csv = '﻿' + [headers.join(','), ...body].join('\r\n');   // BOM so Excel reads UTF-8
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'GRN_Review_' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  try { _accToast('⬇ Exported ' + rows.length + ' row(s)'); } catch (e) {}
+};
 let _grnSearchTimer = null;
 window._vplpGRNSearchInput = function(val) {
   _vplpGRNSearch = val;
@@ -5478,6 +5518,9 @@ function _vplpGRNReviewView() {
   const esc = _mdpEsc, d = _vplpData || {};
   const inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
   const inr2 = n => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const _p2 = n => String(n).padStart(2, '0');
+  const fmtD = v => { const t = _grnTsVal(v); if (!t) return v ? esc(String(v)) : '—'; const d = new Date(t); return _p2(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear(); };
+  const fmtTs = v => { const t = _grnTsVal(v); if (!t) return v ? esc(String(v)) : '—'; const d = new Date(t); return _p2(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear() + ' ' + _p2(d.getHours()) + ':' + _p2(d.getMinutes()); };
   const lines = (d.grnLines || []).slice();
   const statusOf = l => l.rev && l.rev.status ? l.rev.status : 'Pending';
   const isApp = l => /approv/i.test(statusOf(l)), isRej = l => /reject/i.test(statusOf(l));
@@ -5488,9 +5531,14 @@ function _vplpGRNReviewView() {
     : _vplpGRNFilter === 'rejected' ? lines.filter(isRej) : lines.filter(isPend);
   const q = _vplpGRNSearch.trim().toLowerCase();
   if (q) filtered = filtered.filter(l => (l.vendorName + ' ' + l.vid + ' ' + l.poNo + ' ' + l.grn + ' ' + (l.partDesc || l.part || '') + ' ' + (l.inv || '')).toLowerCase().includes(q));
+  // GRN-date range filter (inclusive; end-of-day for the "to" bound).
+  const dFrom = _vplpGRNDateFrom ? new Date(_vplpGRNDateFrom + 'T00:00:00').getTime() : 0;
+  const dTo = _vplpGRNDateTo ? new Date(_vplpGRNDateTo + 'T23:59:59').getTime() : 0;
+  if (dFrom || dTo) filtered = filtered.filter(l => { const t = _grnLineDateVal(l); if (!t) return false; if (dFrom && t < dFrom) return false; if (dTo && t > dTo) return false; return true; });
   const shown = filtered.slice(0, _GRN_CAP);   // cap rendered rows to keep it responsive
-  // stash for the submit handler (index-addressed)
+  // stash for the submit handler (index-addressed) + the full filtered set for CSV export
   window._vplpGRNShown = shown;
+  window._vplpGRNFiltered = filtered;
   const canReview = _grnCanReview();
   const notCfg = !GRN_REVIEW_SHEET_ID;
   const fbtn = (v, label, n) => `<button onclick="_vplpGRNSetFilter('${v}')" class="btn btn-sm ${_vplpGRNFilter === v ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 10px;font-size:.72rem">${label} (${n})</button>`;
@@ -5502,7 +5550,14 @@ function _vplpGRNReviewView() {
     </div>
     <div style="display:flex;gap:.9rem;align-items:center;flex-wrap:wrap">
       <input id="grn-search" value="${esc(_vplpGRNSearch)}" oninput="_vplpGRNSearchInput(this.value)" placeholder="Search vendor / PO / GRN / part…" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 10px;background:var(--surface2);min-width:230px">
+      <span style="display:flex;gap:.3rem;align-items:center;font-size:.7rem;color:var(--txt3)" title="Filter by GRN date (uses GRN Timestamp, else received date)">GRN date
+        <input type="date" value="${esc(_vplpGRNDateFrom)}" onchange="_vplpGRNSetDate('from',this.value)" style="font-size:.72rem;border:1px solid var(--border);border-radius:5px;padding:3px 5px;background:var(--surface2)">
+        <span>–</span>
+        <input type="date" value="${esc(_vplpGRNDateTo)}" onchange="_vplpGRNSetDate('to',this.value)" style="font-size:.72rem;border:1px solid var(--border);border-radius:5px;padding:3px 5px;background:var(--surface2)">
+        ${(_vplpGRNDateFrom || _vplpGRNDateTo) ? `<button onclick="_vplpGRNClearDates()" title="Clear date filter" class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:.68rem">&#10005;</button>` : ''}
+      </span>
       <span style="font-size:.66rem;color:var(--txt3)" title="No On/Off switch: each GRN uses its review entry when one exists (approved → its Final values; rejected → excluded); with no entry it uses the PO rate and still counts.">&#9432; Reviews applied automatically</span>
+      <button onclick="_vplpGRNExportCSV()" class="btn btn-sm btn-secondary" title="Download the filtered rows as CSV" style="padding:3px 9px;font-size:.72rem">&#8681; CSV</button>
       <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
     </div>
   </div>`;
@@ -5538,6 +5593,8 @@ function _vplpGRNReviewView() {
     const numInput = (fid, v, w, extra) => `<input id="grn-${fid}-${i}" type="number" step="0.01" value="${esc(v)}"${ro} ${extra || ''} style="width:${w}px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)">`;
     return `<tr onclick="_vplpGRNRowClick(event,${i})" style="cursor:pointer">
       <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
+      <td style="padding:6px 9px;white-space:nowrap;color:var(--txt2)">${fmtD(l.recvDate)}</td>
+      <td style="padding:6px 9px;white-space:nowrap;color:var(--txt3);font-size:.72rem">${fmtTs(l.recvTs)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
       <td style="padding:6px 9px"><div style="max-width:150px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3" title="${esc(l.vendorName)}${l.vid ? ' [' + esc(l.vid) + ']' : ''}">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</div></td>
       <td style="padding:6px 9px;font-size:.74rem"><div title="Click to open full details" style="max-width:280px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35">${l.partNo ? `<span style="font-weight:600">${esc(l.partNo)}</span>; ` : ''}${esc(l.partDesc || l.part)}</div></td>
@@ -5560,7 +5617,7 @@ function _vplpGRNReviewView() {
   return header + cfgWarn + permWarn + diagNote + capNote + `<div class="card"><div style="overflow:auto;max-height:380px">
     <table class="evg-ledger-tbl" data-evg-defaults="off" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="color:#fff;text-align:left">
-        <th style="${th}">GRN</th><th style="${th}">PO No</th><th style="${th}">Vendor</th>
+        <th style="${th}">GRN</th><th style="${th}">GRN Date</th><th style="${th}">GRN Timestamp</th><th style="${th}">PO No</th><th style="${th}">Vendor</th>
         <th style="${th}">Part No; Description</th><th style="${th}">Invoice</th><th style="${thR}">Qty</th>
         <th style="${thR}">PO Rate</th>
         <th style="${thR}">PO Tax %</th><th style="${thR}">PO Tax Value</th>
@@ -5647,6 +5704,9 @@ window._vplpGRNOpenModal = function(i) {
   window._vplpGRNModalLine = l;
   const esc = _mdpEsc, inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
   const inr2 = n => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const _p2m = n => String(n).padStart(2, '0');
+  const fmtD = v => { const t = _grnTsVal(v); if (!t) return v ? esc(String(v)) : '—'; const d = new Date(t); return _p2m(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear(); };
+  const fmtTs = v => { const t = _grnTsVal(v); if (!t) return v ? esc(String(v)) : '—'; const d = new Date(t); return _p2m(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear() + ' ' + _p2m(d.getHours()) + ':' + _p2m(d.getMinutes()); };
   const canReview = _grnCanReview();
   const ro = canReview ? '' : ' disabled';
   const st = (l.rev && l.rev.status) ? l.rev.status : 'Pending';
@@ -5698,6 +5758,8 @@ window._vplpGRNOpenModal = function(i) {
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem 1rem;padding:.8rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
       ${meta('Vendor', esc(l.vendorName) + (l.vid ? ` <span style="color:var(--txt3);font-weight:400">[${esc(l.vid)}]</span>` : ''))}
+      ${meta('GRN Date', fmtD(l.recvDate))}
+      ${meta('GRN Timestamp', fmtTs(l.recvTs))}
       ${meta('Invoice', esc(l.inv) || '—')}
       ${meta('Qty', (l.qty || 0).toLocaleString('en-IN'))}
       ${meta('PO Rate', inr(l.poRate))}
@@ -9889,26 +9951,83 @@ function _srkColLetter(cands) {
   for (const c of cands) { const v = low[c.toLowerCase().trim()]; if (v) return v; }
   return '';
 }
+// Map CheckSum / UUID / SI ID → Received On date, sourced from the GRN_No tab.
+// Used as a fallback when a StockIN row's own Received On (At) cell is blank.
+function _srkGRNDateMap() {
+  const m = {};
+  (_regGRNRows || []).forEach(g => {
+    const dt = String(g['Received On (At)'] || g['Received On'] || g['GRN Date'] || g['Date'] || '').trim();
+    if (!dt) return;
+    [g['CheckSum'], g['Check Sum'], g['UUID'], g['SI ID']].forEach(k => {
+      const kk = String(k || '').trim();
+      if (kk && !m[kk]) m[kk] = dt;
+    });
+  });
+  return m;
+}
+// PO Qty per line, keyed by (PO item CheckSum · Part Details) — the same join the
+// Open PO report uses to match StockIN receipts to their ordered PO line.
+function _srkPOQtyMap() {
+  const m = {};
+  const IC = _opColMap(_openPOItems || []);
+  (_openPOItems || []).forEach(x => {
+    const cs   = _opGet(x, IC, ['CheckSum', 'Check Sum']);
+    const part = _opGet(x, IC, ['Part Details', 'Part Description', 'Item Name', 'Item Description', 'Material', 'Description', 'Particulars', 'Item']);
+    const key  = _opNorm(cs) + '||' + _opNorm(part);
+    m[key] = (m[key] || 0) + _opNum(_opGet(x, IC, ['PO Qty', 'Qty', 'Quantity', 'Order Qty', 'Quantity Ordered']));
+  });
+  return m;
+}
 function _srkBuildRows() {
   const SC = _opColMap(_openPOStock || []);
   const grnMap = _siGRNMapBuild();
+  const grnDateMap = _srkGRNDateMap();
+  const poQtyMap = _srkPOQtyMap();
   const matMap = _opMatMap();
   return (_openPOStock || []).map((r, idx) => {
-    const checksum = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID']) || '').trim();
+    const checksum = String(_opGet(r, SC, ['CheckSum', 'Check Sum']) || '').trim();
+    const uuid     = String(_opGet(r, SC, ['UUID', 'Row UUID', 'GRN UUID']) || '').trim();
+    const siId     = String(_opGet(r, SC, ['SI ID', 'SIID', 'SI Id', 'SI No', 'StockIN ID']) || '').trim();
     const partRaw = _opGet(r, SC, ['Material Description', 'Part Details', 'Part Description', 'Material', 'Description']);
     const part = (_opPartReadable(partRaw, matMap).text) || partRaw || '';
+    // Unique per-row edit key: SI ID → UUID → CheckSum. CheckSum is per-GRN and
+    // shared across a GRN's line items, so matching a write on it hits only the
+    // first line — the bug where "only the first record gets edited".
+    let editVal, editCands;
+    if (siId)      { editVal = siId;     editCands = ['SI ID', 'SIID', 'SI Id', 'SI No', 'StockIN ID']; }
+    else if (uuid) { editVal = uuid;     editCands = ['UUID', 'Row UUID', 'GRN UUID']; }
+    else           { editVal = checksum; editCands = ['CheckSum', 'Check Sum']; }
+    // Received On: prefer the StockIN row's own date; if blank, fall back to the
+    // GRN_No table (keyed by CheckSum / UUID / SI ID) → its Received On date.
+    let received = _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Date', 'Date']);
+    if (!String(received || '').trim()) {
+      received = grnDateMap[checksum] || grnDateMap[uuid] || grnDateMap[siId] || received;
+    }
+    // Invoice Qty is on the StockIN row; PO Qty comes from the joined PO line.
+    const invRaw = _opGet(r, SC, ['Invoice Qty', 'Inv Qty', 'Invoice Quantity']);
+    const invQty = String(invRaw || '').trim() === '' ? null : _opNum(invRaw);
+    const poKey = _opNorm(_opGet(r, SC, ['PO No (Key)', 'PO (Key)', 'PO Key', 'PO No Key', 'POKey'])) + '||' +
+                  _opNorm(_opGet(r, SC, ['Part Details', 'Part Description']));
+    let poQty = (poKey in poQtyMap) ? poQtyMap[poKey] : null;
+    if (poQty == null) {   // fall back to a direct PO Qty column if the sheet has one
+      const d = _opGet(r, SC, ['PO Qty', 'Order Qty', 'Ordered Qty', 'PO Quantity']);
+      if (String(d || '').trim() !== '') poQty = _opNum(d);
+    }
+    const grnQty = _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty']));
     return {
-      idx, checksum,
-      siId:     String(_opGet(r, SC, ['SI ID', 'SIID', 'SI Id', 'SI No', 'StockIN ID']) || '').trim(),
+      idx, checksum, uuid, siId, editVal, editCands,
       grnNo:    _siGRNResolve(r, SC, grnMap),
-      received: _opGet(r, SC, ['Received On (At)', 'Received On', 'GRN Date', 'Date']),
+      received,
       site:     _opGet(r, SC, ['Site Name', 'Site']),
       vendor:   _opGet(r, SC, ['Vendor Name', 'Vendor']),
       poNo:     _opGet(r, SC, ['PO No', 'PO No (Key)']),
       part:     part || '—',
-      qty:      _opNum(_opGet(r, SC, ['GRN Qty', 'GRN Quantity', 'Received Qty'])),
+      poQty, invQty,
+      qty:      grnQty,
+      // Difference = Invoice Qty − GRN Qty (billed vs received). null when no invoice qty.
+      diff:     invQty == null ? null : (invQty - grnQty),
     };
-  }).filter(x => x.checksum || x.grnNo);
+  }).filter(x => x.checksum || x.uuid || x.siId || x.grnNo);
 }
 
 function renderStockRecon() {
@@ -9941,21 +10060,43 @@ function _srkRender() {
   const colWarn = (!_srkColLetter(['GRN Qty', 'GRN Quantity', 'Received Qty']) || !_srkColLetter(['CheckSum', 'Check Sum', 'UUID', 'SI ID']))
     ? `<div class="card card-pad" style="margin-bottom:1rem;background:#fff3e0;color:#9a3412;font-size:.78rem">&#9888; Could not resolve the StockIN <b>GRN Qty</b> / <b>CheckSum</b> columns from the sheet header — editing is disabled until those headers exist in StockIN.</div>`
     : '';
-  body.innerHTML = `${colWarn}
+  body.innerHTML = `${colWarn}${_srkTableCss()}
     <div class="card card-pad" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
       <input id="srkSearch" type="text" value="${_mdpEsc(_srkSearch)}" oninput="_srkSetSearch(this.value)" placeholder="Search GRN / PO / part / vendor / site&hellip;"
         style="flex:1;min-width:220px;font-size:.84rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface2)">
       <span id="srkCount" style="font-size:.72rem;color:var(--txt3)"></span>
     </div>
-    <div class="card"><table class="data-table" id="srkTable">
-      <thead><tr>
-        <th>GRN No</th><th>Received</th><th>Part</th><th>Site</th><th>Vendor</th>
-        <th style="text-align:right">GRN Qty</th>${canEdit ? '<th></th>' : ''}
-      </tr></thead>
-      <tbody id="srkTbody"></tbody>
-    </table></div>`;
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="overflow-x:auto">
+        <table class="srk-recon-tbl" id="srkTable" data-evg-defaults="off">
+          <thead><tr>
+            ${canEdit ? '<th class="srk-sticky" style="width:60px">Edit</th>' : ''}
+            <th>GRN No</th><th>Received</th><th>Part</th><th>Site</th><th>Vendor</th>
+            <th class="srk-num">PO Qty</th><th class="srk-num">Inv Qty</th>
+            <th class="srk-num">GRN Qty</th><th class="srk-num">Diff</th>
+          </tr></thead>
+          <tbody id="srkTbody"></tbody>
+        </table>
+      </div>
+    </div>`;
   _srkFill();
-  try { applyTableFeatures(); } catch (e) {}
+}
+// Scoped styles for the reconciliation grid: sticky left Edit column, 3-line
+// wrapped Part Description, and tightened widths so every column fits.
+function _srkTableCss() {
+  if (document.getElementById('srk-recon-css')) return '';
+  return `<style id="srk-recon-css">
+    .srk-recon-tbl{width:100%;border-collapse:collapse;font-size:.73rem;table-layout:auto}
+    .srk-recon-tbl th,.srk-recon-tbl td{padding:5px 7px;border-bottom:1px solid var(--border);vertical-align:top;text-align:left}
+    .srk-recon-tbl thead th{font-size:.66rem;text-transform:uppercase;letter-spacing:.02em;color:var(--txt3);white-space:nowrap;background:var(--surface2)}
+    .srk-recon-tbl td.srk-sticky,.srk-recon-tbl th.srk-sticky{position:sticky;left:0;z-index:2;background:var(--surface);box-shadow:1px 0 0 var(--border)}
+    .srk-recon-tbl thead th.srk-sticky{z-index:3;background:var(--surface2)}
+    .srk-recon-tbl tbody tr:hover td{background:var(--surface2)}
+    .srk-recon-tbl tbody tr:hover td.srk-sticky{background:var(--surface2)}
+    .srk-recon-part{max-width:230px;min-width:150px;white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;line-height:1.25}
+    .srk-recon-tbl td.srk-trunc{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .srk-recon-tbl td.srk-num,.srk-recon-tbl th.srk-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  </style>`;
 }
 function _srkVisible() {
   let rows = _srkRows || [];
@@ -9969,23 +10110,31 @@ function _srkFill() {
   const canEdit = typeof userCan !== 'function' || userCan('stock-recon', 'edit');
   const rows = _srkVisible();
   const cnt = document.getElementById('srkCount'); if (cnt) cnt.textContent = rows.length + ' receipt(s)';
-  const cols = canEdit ? 7 : 6;
+  const cols = (canEdit ? 1 : 0) + 9;
   if (!rows.length) { tb.innerHTML = `<tr><td colspan="${cols}" style="text-align:center;color:var(--txt3);padding:1.5rem">No StockIN records match.</td></tr>`; return; }
-  tb.innerHTML = rows.map(r => `<tr>
-    <td style="font-weight:600;color:var(--g7);font-family:monospace;font-size:.76rem">${esc(r.grnNo) || '—'}</td>
-    <td style="font-size:.78rem;white-space:nowrap">${_mdpFmtDate(r.received) || '—'}</td>
-    <td style="font-size:.8rem">${esc(r.part) || '—'}</td>
-    <td style="font-size:.78rem">${esc(r.site) || '—'}</td>
-    <td style="font-size:.78rem">${esc(r.vendor) || '—'}</td>
-    <td style="text-align:right;font-weight:600">${(r.qty || 0).toLocaleString('en-IN')}</td>
-    ${canEdit ? `<td style="text-align:right"><button onclick="_srkEdit('${esc(r.checksum)}')" class="btn btn-sm btn-secondary" style="font-size:.7rem">&#9998; Edit</button></td>` : ''}
-  </tr>`).join('');
-  const tbl = tb.closest('table'); if (tbl) try { updateTableBadge(tbl); } catch (e) {}
+  const fmtQ = v => (v == null) ? '—' : (Math.round(v * 100) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  tb.innerHTML = rows.map(r => {
+    const hasDiff = r.diff != null && Math.abs(r.diff) > 0.001;
+    const diffCell = r.diff == null ? '<span style="color:var(--txt3)">—</span>'
+      : `<span style="font-weight:700;color:${hasDiff ? '#c62828' : '#2e7d32'}">${(r.diff > 0 ? '+' : '') + fmtQ(r.diff)}</span>`;
+    return `<tr>
+    ${canEdit ? `<td class="srk-sticky"><button onclick="_srkEdit(${r.idx})" class="btn btn-sm btn-secondary" style="font-size:.68rem;padding:2px 8px">&#9998; Edit</button></td>` : ''}
+    <td style="font-weight:600;color:var(--g7);font-family:monospace;white-space:nowrap">${esc(r.grnNo) || '—'}</td>
+    <td style="white-space:nowrap">${_mdpFmtDate(r.received) || '—'}</td>
+    <td class="srk-recon-part" title="${esc(r.part)}">${esc(r.part) || '—'}</td>
+    <td class="srk-trunc" title="${esc(r.site)}">${esc(r.site) || '—'}</td>
+    <td class="srk-trunc" title="${esc(r.vendor)}">${esc(r.vendor) || '—'}</td>
+    <td class="srk-num">${fmtQ(r.poQty)}</td>
+    <td class="srk-num">${fmtQ(r.invQty)}</td>
+    <td class="srk-num" style="font-weight:700">${fmtQ(r.qty)}</td>
+    <td class="srk-num">${diffCell}</td>
+  </tr>`;
+  }).join('');
 }
 
-window._srkEdit = function(checksum) {
+window._srkEdit = function(idx) {
   if (typeof userCan === 'function' && !userCan('stock-recon', 'edit')) { alert('You do not have permission to edit stock.'); return; }
-  const r = (_srkRows || []).find(x => x.checksum === checksum); if (!r) return;
+  const r = (_srkRows || []).find(x => x.idx === Number(idx)); if (!r) return;
   const esc = _mdpEsc;
   let ov = document.getElementById('srkEditOverlay'); if (ov) ov.remove();
   ov = document.createElement('div');
@@ -9998,7 +10147,8 @@ window._srkEdit = function(checksum) {
       <div style="display:grid;grid-template-columns:auto 1fr;gap:.25rem .8rem;font-size:.76rem;margin-bottom:.9rem;color:var(--txt2)">
         <span style="color:var(--txt3)">Site</span><span>${esc(r.site) || '—'}</span>
         <span style="color:var(--txt3)">Vendor</span><span>${esc(r.vendor) || '—'}</span>
-        <span style="color:var(--txt3)">CheckSum</span><span style="font-family:monospace;font-size:.7rem;word-break:break-all">${esc(r.checksum) || '—'}</span>
+        <span style="color:var(--txt3)">SI ID</span><span style="font-family:monospace;font-size:.72rem;word-break:break-all">${esc(r.siId) || '—'}</span>
+        <span style="color:var(--txt3)">Match Key</span><span style="font-family:monospace;font-size:.7rem;word-break:break-all">${esc((r.editCands && r.editCands[0]) || 'CheckSum')}: ${esc(r.editVal) || '—'}</span>
         <span style="color:var(--txt3)">Current Qty</span><span style="font-weight:700">${(r.qty || 0).toLocaleString('en-IN')}</span>
       </div>
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">NEW GRN QTY</label>
@@ -10008,7 +10158,7 @@ window._srkEdit = function(checksum) {
       <div id="srkEditMsg" style="font-size:.74rem;color:var(--txt3);margin-top:.5rem;min-height:1em"></div>
       <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.6rem">
         <button onclick="document.getElementById('srkEditOverlay').remove()" class="btn btn-sm btn-secondary">Cancel</button>
-        <button id="srkSaveBtn" onclick="_srkSave('${esc(r.checksum)}')" class="btn btn-sm" style="background:#15803d;color:#fff;border:none">Save &amp; Log</button>
+        <button id="srkSaveBtn" onclick="_srkSave(${r.idx})" class="btn btn-sm" style="background:#15803d;color:#fff;border:none">Save &amp; Log</button>
       </div>
     </div>
   </div>`;
@@ -10036,8 +10186,8 @@ async function _srkPost(payload) {
   }
   return { ok, error, raw: j };
 }
-window._srkSave = async function(checksum) {
-  const r = (_srkRows || []).find(x => x.checksum === checksum); if (!r) return;
+window._srkSave = async function(idx) {
+  const r = (_srkRows || []).find(x => x.idx === Number(idx)); if (!r) return;
   const msg = document.getElementById('srkEditMsg');
   const setMsg = (t, c) => { if (msg) { msg.textContent = t; msg.style.color = c || 'var(--txt3)'; } };
   const inp = document.getElementById('srkNewQty');
@@ -10045,15 +10195,17 @@ window._srkSave = async function(checksum) {
   if (inp && (inp.value === '' || isNaN(parseFloat(inp.value)))) { setMsg('Enter a valid number.', 'var(--danger)'); return; }
   if (newQty === (r.qty || 0)) { setMsg('New value is the same as current.', 'var(--danger)'); return; }
   const qtyCol = _srkColLetter(['GRN Qty', 'GRN Quantity', 'Received Qty']);
-  const keyCol = _srkColLetter(['CheckSum', 'Check Sum', 'UUID', 'SI ID']);
-  if (!qtyCol || !keyCol) { setMsg('StockIN GRN Qty / CheckSum column not found in sheet header.', 'var(--danger)'); return; }
-  if (!r.checksum) { setMsg('This row has no CheckSum key — cannot match it safely.', 'var(--danger)'); return; }
+  // Match on the unique per-row key (SI ID → UUID → CheckSum) so the write lands
+  // on the exact StockIN line, not the first line that shares a GRN CheckSum.
+  const keyCol = _srkColLetter(r.editCands || ['CheckSum', 'Check Sum', 'UUID', 'SI ID']);
+  if (!qtyCol || !keyCol) { setMsg('StockIN GRN Qty / ' + ((r.editCands && r.editCands[0]) || 'CheckSum') + ' column not found in sheet header.', 'var(--danger)'); return; }
+  if (!r.editVal) { setMsg('This row has no SI ID / UUID / CheckSum key — cannot match it safely.', 'var(--danger)'); return; }
   const remark = (document.getElementById('srkRemark') || {}).value || '';
   const btn = document.getElementById('srkSaveBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   setMsg('Writing to StockIN…');
   const restoreBtn = () => { if (btn) { btn.disabled = false; btn.innerHTML = 'Save &amp; Log'; } };
   // 1) Write the new GRN Qty back into StockIN.
-  const up = await _srkPost({ action: 'updateCell', sheetId: STORES_SHEET_ID, tab: 'StockIN', matchCol: keyCol, matchVal: r.checksum, updateCol: qtyCol, updateVal: String(newQty) });
+  const up = await _srkPost({ action: 'updateCell', sheetId: STORES_SHEET_ID, tab: 'StockIN', matchCol: keyCol, matchVal: r.editVal, updateCol: qtyCol, updateVal: String(newQty) });
   if (!up.ok) { restoreBtn(); setMsg('StockIN not updated: ' + (up.error || 'backend rejected the write.'), 'var(--danger)'); return; }
   // 2) Append the audit row (generic schema — reused by Stock Out / Transfer).
   setMsg('Logging to AuditTrail…');
@@ -10061,9 +10213,10 @@ window._srkSave = async function(checksum) {
   // Ref No carries the GRN No plus the SI ID (StockIN row id) so the audit
   // trail is traceable back to the exact StockIN line, not just the GRN.
   const refNo = [r.grnNo, r.siId ? 'SI:' + r.siId : ''].filter(Boolean).join(' · ');
-  const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', refNo, r.checksum || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
+  const auditRow = [new Date().toISOString(), u.email || '', u.name || '', 'StockIN', 'Edit GRN Qty', refNo, r.checksum || r.editVal || '', 'GRN Qty', String(r.qty || 0), String(newQty), remark || ''];
   const au = await _srkPost({ action: 'appendRow', sheetId: STORES_SHEET_ID, tab: 'AuditTrail', row: auditRow });
   r.qty = newQty;                       // StockIN write already succeeded — reflect locally
+  r.diff = (r.invQty == null) ? null : (r.invQty - newQty);   // keep Diff column in sync
   _srkAudit = null;                     // audit view will re-fetch
   const ov = document.getElementById('srkEditOverlay'); if (ov) ov.remove();
   _srkFill();
@@ -17150,6 +17303,24 @@ const KB_ARTICLES = [
     updated: 'Jul 2026',
     body: _kbBodyRewards,
   },
+  {
+    id: 'handoff-overview',
+    title: 'StrategicERP Handoff — Overview',
+    category: 'Handoff',
+    icon: '📦',
+    summary: 'Migration handoff to StrategicERP — current architecture, the data & backend inventory, the access model, migration risks, the data-migration map and the cutover checklist.',
+    updated: 'Aug 2026',
+    body: _kbBodyHandoffOverview,
+  },
+  {
+    id: 'handoff-urd',
+    title: 'StrategicERP Handoff — Module Requirements (URD)',
+    category: 'Handoff',
+    icon: '📋',
+    summary: 'User Requirements Document — per-module functional requirements and testable acceptance criteria the new ERP must satisfy, plus the role/action and voucher appendices.',
+    updated: 'Aug 2026',
+    body: _kbBodyHandoffURD,
+  },
 ];
 
 function _kbEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -17431,7 +17602,7 @@ function _kbBodyGRNReview() {
       <table class="kb-tbl">
         <thead><tr><th>Step</th><th>What happens</th></tr></thead>
         <tbody>
-          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> plus read-only <b>PO Tax %</b> / <b>PO Tax Value</b> as reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
+          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, <b>GRN Date</b>, <b>GRN Timestamp</b>, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> plus read-only <b>PO Tax %</b> / <b>PO Tax Value</b> as reference. Filter by status, search, or a <b>GRN-date range</b>; <b>⬇ CSV</b> downloads the filtered rows. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
           <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
           <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one. Changed your mind? <b>↩ Move to Pending</b> undoes a decision and reverts the line to the PO rate, exactly like an un-reviewed one.</td></tr>
           <tr><td><b>4 · Post</b></td><td>Reviews take effect <b>automatically</b>: an approved line credits the ledger at its Final values, a rejected line drops out, and an un-reviewed line still counts at the PO rate. A count badge shows how many are still pending.</td></tr>
@@ -17835,6 +18006,165 @@ function _kbBodyRewards() {
         `<p class="kb-p">All on the <code>REWARDS</code> sheet — <code>Nomination</code>, <code>Posts</code>, <code>Reactions</code>, <code>Comments</code> — each written by the <b>main</b> backend's <code>appendRow</code>. Open to every role.</p>`
       )}
       <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">Recognition works when it's seen — nominations become wall posts the whole team can react to.</p>
+    </div>`;
+}
+
+// ── Article: StrategicERP Handoff — Overview ────────────────────
+function _kbBodyHandoffOverview() {
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Handoff · Migration to StrategicERP</div>
+      <h2 class="kb-h">StrategicERP Handoff — Overview</h2>
+      <p class="kb-p">The organisation is moving from this portal to <b>StrategicERP</b>. This article is the migration baseline: what the current system is, where its data and integrations live, how access works, the risks to watch, and the cutover plan. The companion article <b>“Module Requirements (URD)”</b> holds the per-module requirements and acceptance criteria.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> a static web app over ~16 Google Sheets and 5 Apps Script backends must become StrategicERP — preserving audit history, business keys, multi-currency, documents, and route+action access.
+      </div>
+
+      <h3 class="kb-sub">System at a glance</h3>
+      <table class="kb-tbl"><thead><tr><th>Aspect</th><th>Today</th><th>Migration implication</th></tr></thead><tbody>
+        <tr><td>Front end</td><td>Static HTML + one JS bundle</td><td>Re-implemented as ERP UI</td></tr>
+        <tr><td>Data store</td><td>~16 Google Spreadsheets, 60+ tabs</td><td>Migrate to ERP relational schema</td></tr>
+        <tr><td>Backend</td><td>5 Apps Script deployments</td><td>Replace with ERP logic / APIs</td></tr>
+        <tr><td>Auth</td><td>PIN login (Google login disabled)</td><td>Replace with ERP identity / SSO</td></tr>
+        <tr><td>Access</td><td>Access Groups (route + action grants)</td><td>Map to ERP roles &amp; permissions</td></tr>
+        <tr><td>Files</td><td>Google Drive folders</td><td>Migrate to ERP document store</td></tr>
+      </tbody></table>
+
+      <h3 class="kb-sub">Data inventory</h3>
+      <p class="kb-p">15 source spreadsheets feed the modules (full IDs are in the separate Backends Reference). Key ones:</p>
+      <table class="kb-tbl"><thead><tr><th>Spreadsheet</th><th>Primary tabs</th><th>Feeds</th></tr></thead><tbody>
+        <tr><td>Master</td><td>26 master tabs (Site, Vendor, Asset, UOM, Head, Cost Centre…)</td><td>All reference data</td></tr>
+        <tr><td>Purchase / SCM</td><td>MRS, PO_Actual, SiteMaster</td><td>Procurement, voucher PO items</td></tr>
+        <tr><td>Payments</td><td>PaymentRequest, AccountsUpdate</td><td>Accounts, approvals, ledgers</td></tr>
+        <tr><td>Stores</td><td>StockIN, GRN_No, StockLevels</td><td>Stores, GRN, Item Rate</td></tr>
+        <tr><td>Employee Register</td><td>0_EmployeeRegister_Live</td><td>HR, Access, Ledgers, Payroll</td></tr>
+        <tr><td>Expenses · PCC · DPR · Safety · Rewards · Recruitment · Rental</td><td>module-specific</td><td>respective modules</td></tr>
+      </tbody></table>
+
+      <h3 class="kb-sub">Integration inventory (Apps Script)</h3>
+      <table class="kb-tbl"><thead><tr><th>Deployment</th><th>Key actions</th></tr></thead><tbody>
+        <tr><td><code>main</code></td><td>appendRow, updateCell, Drive listing, report send, aiProxy, diagnoseSheet</td></tr>
+        <tr><td><code>portalConfig</code></td><td>savePortalConfig, getPortalConfig</td></tr>
+        <tr><td><code>accounts</code></td><td>saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, PR attachments</td></tr>
+        <tr><td><code>pcc</code></td><td>saveProjectSetup, saveBOQ, saveWBS, saveWorkplan</td></tr>
+        <tr><td><code>safety</code></td><td>incident / daily-check append</td></tr>
+      </tbody></table>
+
+      <h3 class="kb-sub">Migration risks to watch</h3>
+      <table class="kb-tbl"><thead><tr><th>#</th><th>Risk</th></tr></thead><tbody>
+        <tr><td>1</td><td><b>Append-only audit</b> — status changes are new rows, not edits; the live value is the latest. Migrate the <i>history</i>, not just current state.</td></tr>
+        <tr><td>2</td><td><b>Composite keys</b> — MR&nbsp;No → PO&nbsp;No → GRN&nbsp;No; party = Name+A/C; expense month = MCE-site|CashFor|period. Map to ERP foreign keys.</td></tr>
+        <tr><td>3</td><td><b>Multi-currency / country</b> — INR / TZS / XOF per site. ERP must be multi-currency from day one.</td></tr>
+        <tr><td>4</td><td><b>External AppSheet apps</b> — Attendance / Leave / On-Duty must be consolidated in.</td></tr>
+        <tr><td>5</td><td><b>Documents in Drive</b> — HR docs, policies, payment attachments must migrate with record links intact.</td></tr>
+        <tr><td>6</td><td><b>No referential integrity today</b> — expect to cleanse orphan / duplicate rows during migration.</td></tr>
+      </tbody></table>
+
+      <h3 class="kb-sub">Cutover checklist</h3>
+      ${_kbFlow([
+        { label: 'Freeze & snapshot', sub: 'export every tab', tone: 'start' },
+        { label: 'Migrate masters', sub: 'Employee, Site, Vendor…', edge: '1' },
+        { label: 'Migrate txns + history', sub: 'keys & status trail', edge: '2' },
+        { label: 'Docs + access + parallel-run', sub: 'reconcile finance', edge: '3' },
+        { label: 'Sign-off & decommission', sub: 'revoke sheet sharing', edge: '4', tone: 'end' },
+      ])}
+      <p class="kb-p">Migrate master data first; then transactional data <b>with keys and status history</b>; validate the MR→PO→GRN and payment chains reconcile; migrate documents; rebuild the access matrix; parallel-run finance for one cycle and reconcile ledger balances; consolidate Attendance/Leave/OD; decommission the Apps Script endpoints and revoke sheet sharing after sign-off.</p>
+
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">The non-negotiables for StrategicERP: keep the audit history, keep the business keys, be multi-currency, migrate the documents, and reproduce route+action access — not just coarse roles.</p>
+    </div>`;
+}
+
+// ── Article: StrategicERP Handoff — Module Requirements (URD) ────
+function _kbBodyHandoffURD() {
+  const mod = (n, title, purpose, frs, acs) => `
+    <h3 class="kb-sub">${n}. ${title}</h3>
+    <p class="kb-p" style="margin-bottom:.4rem">${purpose}</p>
+    <table class="kb-tbl"><thead><tr><th style="width:50%">Functional requirements</th><th>Acceptance criteria</th></tr></thead>
+      <tbody><tr><td><ul style="margin:0;padding-left:1.1rem">${frs.map(x => '<li style="margin-bottom:.25rem">' + x + '</li>').join('')}</ul></td>
+      <td><ul style="margin:0;padding-left:1.1rem">${acs.map(x => '<li style="margin-bottom:.25rem">' + x + '</li>').join('')}</ul></td></tr></tbody></table>`;
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Handoff · User Requirements Document</div>
+      <h2 class="kb-h">StrategicERP Handoff — Module Requirements (URD)</h2>
+      <p class="kb-p">The capability StrategicERP must deliver to replace this portal. Each module lists its <b>functional requirements (FR)</b> and testable <b>acceptance criteria (AC)</b> — the basis for UAT sign-off. Keywords: <i>shall</i> = mandatory, <i>should</i> = recommended.</p>
+
+      ${mod('1', 'Authentication &amp; Access Control',
+        'Authenticate users and govern which pages and actions each may access.',
+        ['Authenticate before access (target: ERP identity / SSO).','Access groups grant specific <b>routes</b> and <b>actions</b>; effective access = union of a user\'s groups.','Super-admin bypass + org-wide enforce switch.','Auto-assign active employees to a baseline profile; revoke when status ≠ Current (≤24h).','Scoped admins cannot escalate their own rights; external parties see only their own data.'],
+        ['Login shows only granted pages.','Lacking the approve action hides/disables Approve.','No group granting route X ⇒ X hidden & blocked when enforce is ON.','Status Current→other ⇒ baseline access removed within one cycle.','Vendor sees only their own orders/invoices/docs.'])}
+
+      ${mod('2', 'Dashboard &amp; My Tasks',
+        'Role-aware landing KPIs and a personal action queue.',
+        ['Role-specific KPI dashboard on login.','Consolidated <b>My Tasks</b> of items awaiting the user across modules.','Live figures, drill-through to source.'],
+        ['Accounts role sees finance KPIs; Employee sees personal.','An item awaiting the user appears in My Tasks with a link to act.','Clicking a KPI opens the filtered list.'])}
+
+      ${mod('3', 'HR &amp; People',
+        'Employee lifecycle — recruitment, onboarding, records, profiles, policies, transfers, mess.',
+        ['Recruitment pipeline MRF → Offer → Pre-Joining → Joining → Onboarding.','Onboarding creates the authoritative Employee record.','Employee Register with status/designation/grade/site/company.','Self-service My Profile; Policies Hub; inter-site transfers; individual mess/accommodation.'],
+        ['Dept-Head MRF appears for HR as “raised”.','Onboarding complete ⇒ Employee record exists (access follows on next sync).','Employee sees only their own profile.','Transfer records from/to site, reporting date &amp; manager, auditable.'])}
+
+      ${mod('4', 'Site Operations',
+        'Site manager workspace, safety, equipment, site store, plant overview.',
+        ['Site-scoped manager workspace.','Daily HSE checklist (10 checks) + safety score; incident reporting.','Track equipment &amp; site store; records dated &amp; immutable.'],
+        ['Checklist submit ⇒ dated record + score reflects checks done.','Incident report ⇒ dated record in the register.','Manager sees only assigned site(s).','Past checklist is read-only history.'])}
+
+      ${mod('5', 'Procurement &amp; Stores',
+        'MRS → PO → GRN → stock, plus vendor/SC portals and analytics.',
+        ['Raise MRS; convert to PO; record GRN vs PO (qty/invoice/part) updating stock.','Stock levels, transfers, stock-out, reconciliation.','Carry keys MR&nbsp;No → PO&nbsp;No → GRN&nbsp;No; Open PO &amp; Item Rate Master; Vendor/SC portals; PO approval gate.'],
+        ['PO carries originating MR No.','GRN carries PO No &amp; increments stock.','Open PO shows ordered − received.','Reconciliation shows variance.','Vendor portal shows only own POs.'])}
+
+      ${mod('6', 'Accounts &amp; Finance',
+        'Payment requests &amp; approval pipeline, ledgers, GRN valuation, cash/mess, payroll.',
+        ['Raise payment request (payee, site/company, bill &amp; PO ref, financials w/ currency/GST/TDS, bank, narrative, attachments).','Pipeline: Verify → MD Queue → Initiate → Paid → UTR → Completed, with Hold/Sent-back/Query/Rejected.','<b>Append-only</b> status history; per-transition permissions; MD approve/reject (reason to reject) single &amp; bulk.','Submit validation + duplicate-payment guard.','Vendor Ledger (Cr/Dr, opening bal, Payable/Advance/Settled); GRN Review valuation; party ledgers (Name+A/C); cash/mess by site-month; payroll.'],
+        ['Valid request ⇒ created “To be Verified” on worklist.','MD approve advances; reject w/o reason refused.','Every status change ⇒ new history entry; priors unchanged.','Unauthorised transition blocked.','Duplicate amount warns before continue.','Vendor Ledger shows Cr/Dr + closing status.','GRN review posts invoice-confirmed value.','Party statement shows running balance + Paid/Pending, exportable.','Site-month closes only when reconciled; UTR closes the request.'])}
+
+      ${mod('7', 'Planning (Budget &amp; Execution)',
+        'Project cost control (budget) and daily progress (DPR), tracked against each other.',
+        ['Cost control — BOQ, WBS, work plan, resources, dashboard.','Daily Progress Report of actuals.','Plan-vs-actual reporting.'],
+        ['BOQ/WBS/workplan persist &amp; populate dashboard.','DPR submit ⇒ dated progress record.','Budget vs DPR comparable per project.'])}
+
+      ${mod('8', 'Plant &amp; Machinery',
+        'Equipment usage, verification and maintenance.',
+        ['Daily plant log (usage/hours); asset verification; maintenance records.','Per-asset history across all three.'],
+        ['Daily log ⇒ dated usage record on the asset.','Verification ⇒ dated record.','Asset history shows log+verify+maintenance together.'])}
+
+      ${mod('9', 'Reports &amp; Data Hub',
+        'Read-only data access, master export, scheduled reports.',
+        ['Data Hub browse read-only; Master data with column selection + CSV (single &amp; bulk); define &amp; schedule report emails; no source mutation.'],
+        ['Data Hub view has no edit controls.','CSV reflects chosen columns.','Scheduled report emails on cadence automatically.'])}
+
+      ${mod('10', 'Configuration &amp; Administration',
+        'Admin without code — module status, data-source binding, site attributes, status permissions, schemas, endpoints.',
+        ['Set module status &amp; defaults; re-point any data source; Site Config (Country/Currency/Status) as a lookup + stamp onto records with preview-before-write; restrict status transitions; Schema Manager for fields/columns; central endpoints; no admin escalation.'],
+        ['Module Off ⇒ unavailable.','Re-point source ⇒ dependent view reads new source.','Site Config applies currency to dependent records; bulk write previews first.','Restricted transition blocked for non-permitted role.','Schema change applies everywhere it renders.'])}
+
+      ${mod('11', 'Employee Engagement (Rewards)',
+        'Peer recognition and a shared wall.',
+        ['Submit nominations; nominations surface on a wall with reactions &amp; comments.'],
+        ['Nomination ⇒ appears on the feed.','React/comment ⇒ recorded and visible.'])}
+
+      ${mod('12', 'Time &amp; Attendance <span class="kb-pill" style="background:#e2f1f4;color:#2c93a6">external · AppSheet</span>',
+        'Attendance, leave, on-duty — today an external AppSheet app on the Employee Master; to be consolidated into StrategicERP.',
+        ['Record daily attendance; manage leave &amp; on-duty with approval; feed payroll &amp; DPR headcount.'],
+        ['Attendance mark ⇒ dated record keyed to Employee ID.','Leave/OD approval updates status &amp; balance.','Approved time feeds payroll for the period.'])}
+
+      <h3 class="kb-sub">Appendix A — Route action vocabulary</h3>
+      <p class="kb-p">Reproduce action-level grants, not just view: <code>view · create · edit · verify · advance · update · approve · reject · close · export · schedule · setDefault</code>, plus dual <b>MD/SCM</b> approve-reject on Purchase View, and <b>approve/reject</b> on the MD payment queue.</p>
+
+      <h3 class="kb-sub">Appendix B — Payment request (voucher) fields</h3>
+      <table class="kb-tbl"><thead><tr><th>Section</th><th>Fields</th></tr></thead><tbody>
+        <tr><td>1 · Initiator</td><td>Date; Requested by; Department; Process; Manual/Auto</td></tr>
+        <tr><td>2 · Payment To</td><td>Payee type (Employee/Vendor/SC/Others); Payee</td></tr>
+        <tr><td>3 · Site &amp; Company</td><td>Site (auto-fills Company)</td></tr>
+        <tr><td>4 · Bill &amp; PO Ref</td><td>Order No; Bill No; Payment Terms; PO/Invoice/Paid/Pending value</td></tr>
+        <tr><td>5 · Financial</td><td>Currency; <b>Amount</b>; Nature; Account Code; GST; TDS</td></tr>
+        <tr><td>6 · Bank</td><td>A/C holder; number; IFSC; bank (auto-filled for known payee)</td></tr>
+        <tr><td>7 · Narrative</td><td>Narrative (required); attachments</td></tr>
+      </tbody></table>
+      <p class="kb-p">Submit rules: amount &gt; 0; payee present; amount ≤ pending value; duplicate-payment guard.</p>
+
+      <p class="kb-p" style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:1rem;font-weight:600;color:var(--txt1)">These acceptance criteria are the UAT contract, module by module. The full document (with the role×module matrix and data-migration map) is the companion URD file.</p>
     </div>`;
 }
 
@@ -21639,11 +21969,19 @@ async function _openPOEnsure(force) {
     if (!r || r.length < 5) { await new Promise(z => setTimeout(z, 600)); r = await fetchSheetSafe(tab, sid, { rawId: true, tq }); }
     return r || [];
   };
-  let items = await grab('PO_Items_Actual', PO_SHEET_ID, null);
-  if (!items || items.length < 5) items = await grab('PO_Items_Actual', PO_SHEET_ID, 'SELECT *');
-  const [hdr, stock] = await Promise.all([
-    grab(PO_TAB, PO_SHEET_ID, null),
-    grab('StockIN', STORES_SHEET_ID, null),
+  // No-query read, with a SELECT * fallback when a tab's gviz "no-query" read
+  // comes back empty/short (the same choke that hit PO_Items_Actual). Without
+  // this fallback on PO_Actual, an empty header read wipes every vendor's POs
+  // from the ledger while GRN Review (items+stock) still shows lines.
+  const grabFB = async (tab, sid) => {
+    let r = await grab(tab, sid, null);
+    if (!r || r.length < 5) r = await grab(tab, sid, 'SELECT *');
+    return r || [];
+  };
+  const [items, hdr, stock] = await Promise.all([
+    grabFB('PO_Items_Actual', PO_SHEET_ID),
+    grabFB(PO_TAB, PO_SHEET_ID),
+    grabFB('StockIN', STORES_SHEET_ID),
   ]);
   _openPOHeaders = hdr   || [];
   _openPOItems   = items || [];
