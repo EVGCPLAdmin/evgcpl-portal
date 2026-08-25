@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.53.0';
-const PORTAL_BUILD    = 722;
-const PORTAL_BUILD_AT = '2026-08-12T08:29:22Z';
+const PORTAL_VERSION  = '4.53.3';
+const PORTAL_BUILD    = 725;
+const PORTAL_BUILD_AT = '2026-08-25T06:45:40Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5206,8 +5206,9 @@ function _vplpCompute() {
     // GRN_No tab via CheckSum/UUID. Never the PO date.
     const csKey = String(_opGet(r, SC, ['CheckSum', 'Check Sum', 'UUID', 'SI ID'])).trim();
     const recvDate = _opGet(r, SC, ['Received On (At Site)', 'Received On (At)', 'Received On', 'GRN Received On', 'Received Date']) || grnDateMap[csKey] || '';
+    const recvTs = _opGet(r, SC, ['Timestamp', 'Time Stamp', 'Created On', 'Entry Timestamp', 'Created Timestamp', 'Created']) || '';
     e.qty += qty;
-    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev, recvDate });
+    e.rcpts.push({ no: _siGRNResolve(r, SC, grnMap), inv: String(_opGet(r, SC, ['Invoice No / ST No', 'Invoice No']) || '').trim(), idx, siId, qty, rev, recvDate, recvTs });
   });
   // PO header: approval, vendor, date, Tax(b), Additional Charges(b). Keyed by
   // the normalised PO key (folds EGVE/EVGE spelling variants).
@@ -5389,7 +5390,7 @@ function _vplpCompute() {
       siId: rc.siId || '', grn: rc.no || '', inv: rc.inv || '', idx: rc.idx, part: rc.part || '', partNo: rc.partNo || '', partDesc: rc.partDesc || '',
       qty: rc.qty || 0, poRate: rc.poRate || 0, useRate: rc.useRate || 0, addl: rc.addl || 0,
       poTaxPct: rc.poTaxPct || 0, poTaxVal: rc.poTaxVal || 0,
-      credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null,
+      credit: rc.credit || 0, approved: rc.approved, rev: rc.rev || null, recvDate: rc.recvDate || '', recvTs: rc.recvTs || '',
       poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
     }));
   });
@@ -5461,8 +5462,47 @@ function _vplpRenderBody() {
 // getExec('accounts') action 'saveGRNReview' (append; latest per SI ID wins).
 let _vplpGRNFilter = 'pending';   // 'pending' | 'approved' | 'rejected' | 'all'
 let _vplpGRNSearch = '';
+let _vplpGRNDateFrom = '';        // GRN-date range filter (YYYY-MM-DD, inclusive)
+let _vplpGRNDateTo = '';
 const _GRN_CAP = 150;             // cap rendered rows — the queue can be thousands
+// A line's GRN date value (ms) — prefer the GRN Timestamp, else the received date.
+function _grnLineDateVal(l) { return _mdpDateVal(l.recvTs) || _mdpDateVal(l.recvDate) || 0; }
 window._vplpGRNSetFilter = function(f) { _vplpGRNFilter = f; _vplpRenderBody(); };
+window._vplpGRNSetDate = function(which, val) {
+  if (which === 'from') _vplpGRNDateFrom = val; else _vplpGRNDateTo = val;
+  _vplpRenderBody();
+};
+window._vplpGRNClearDates = function() { _vplpGRNDateFrom = ''; _vplpGRNDateTo = ''; _vplpRenderBody(); };
+// Download the current (search + status + date) filtered rows as CSV — the full
+// filtered set, not just the on-screen cap.
+window._vplpGRNExportCSV = function() {
+  const rows = window._vplpGRNFiltered || [];
+  if (!rows.length) { try { _accToast('No rows to export.'); } catch (e) {} return; }
+  const p2 = n => String(n).padStart(2, '0');
+  const dOnly = v => { const t = _grnTsVal(v); if (!t) return v ? String(v) : ''; const d = new Date(t); return p2(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear(); };
+  const dTime = v => { const t = _grnTsVal(v); if (!t) return v ? String(v) : ''; const d = new Date(t); return p2(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds()); };
+  const statusOf = l => (l.rev && l.rev.status) ? l.rev.status : 'Pending';
+  const cell = v => { v = (v == null ? '' : String(v)); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const round2 = n => (typeof n === 'number' && !isNaN(n) && n !== 0) ? Math.round(n * 100) / 100 : '';
+  const headers = ['GRN No', 'GRN Date', 'GRN Timestamp', 'PO No', 'Vendor', 'Vendor ID', 'Part No', 'Description', 'Invoice No', 'Qty', 'PO Rate', 'PO Tax %', 'PO Tax Value', 'Final Rate', 'Final Tax', 'Final Addl', 'Final Value', 'Status'];
+  const body = rows.map(l => {
+    const rev = l.rev || {};
+    return [
+      l.grn, dOnly(l.recvDate), dTime(l.recvTs), l.poNo, l.vendorName, l.vid, l.partNo, (l.partDesc || l.part),
+      l.inv, l.qty, l.poRate, round2(l.poTaxPct), round2(l.poTaxVal),
+      (rev.rate > 0 ? rev.rate : ''), (rev.tax > 0 ? rev.tax : ''), (rev.addl || ''), (rev.value > 0 ? rev.value : ''),
+      statusOf(l),
+    ].map(cell).join(',');
+  });
+  const csv = '﻿' + [headers.join(','), ...body].join('\r\n');   // BOM so Excel reads UTF-8
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'GRN_Review_' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  try { _accToast('⬇ Exported ' + rows.length + ' row(s)'); } catch (e) {}
+};
 let _grnSearchTimer = null;
 window._vplpGRNSearchInput = function(val) {
   _vplpGRNSearch = val;
@@ -5482,6 +5522,9 @@ function _vplpGRNReviewView() {
   const esc = _mdpEsc, d = _vplpData || {};
   const inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
   const inr2 = n => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const _p2 = n => String(n).padStart(2, '0');
+  const fmtD = v => { const t = _grnTsVal(v); if (!t) return v ? esc(String(v)) : '—'; const d = new Date(t); return _p2(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear(); };
+  const fmtTs = v => { const t = _grnTsVal(v); if (!t) return v ? esc(String(v)) : '—'; const d = new Date(t); return _p2(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear() + ' ' + _p2(d.getHours()) + ':' + _p2(d.getMinutes()); };
   const lines = (d.grnLines || []).slice();
   const statusOf = l => l.rev && l.rev.status ? l.rev.status : 'Pending';
   const isApp = l => /approv/i.test(statusOf(l)), isRej = l => /reject/i.test(statusOf(l));
@@ -5492,9 +5535,14 @@ function _vplpGRNReviewView() {
     : _vplpGRNFilter === 'rejected' ? lines.filter(isRej) : lines.filter(isPend);
   const q = _vplpGRNSearch.trim().toLowerCase();
   if (q) filtered = filtered.filter(l => (l.vendorName + ' ' + l.vid + ' ' + l.poNo + ' ' + l.grn + ' ' + (l.partDesc || l.part || '') + ' ' + (l.inv || '')).toLowerCase().includes(q));
+  // GRN-date range filter (inclusive; end-of-day for the "to" bound).
+  const dFrom = _vplpGRNDateFrom ? new Date(_vplpGRNDateFrom + 'T00:00:00').getTime() : 0;
+  const dTo = _vplpGRNDateTo ? new Date(_vplpGRNDateTo + 'T23:59:59').getTime() : 0;
+  if (dFrom || dTo) filtered = filtered.filter(l => { const t = _grnLineDateVal(l); if (!t) return false; if (dFrom && t < dFrom) return false; if (dTo && t > dTo) return false; return true; });
   const shown = filtered.slice(0, _GRN_CAP);   // cap rendered rows to keep it responsive
-  // stash for the submit handler (index-addressed)
+  // stash for the submit handler (index-addressed) + the full filtered set for CSV export
   window._vplpGRNShown = shown;
+  window._vplpGRNFiltered = filtered;
   const canReview = _grnCanReview();
   const notCfg = !GRN_REVIEW_SHEET_ID;
   const fbtn = (v, label, n) => `<button onclick="_vplpGRNSetFilter('${v}')" class="btn btn-sm ${_vplpGRNFilter === v ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 10px;font-size:.72rem">${label} (${n})</button>`;
@@ -5506,7 +5554,14 @@ function _vplpGRNReviewView() {
     </div>
     <div style="display:flex;gap:.9rem;align-items:center;flex-wrap:wrap">
       <input id="grn-search" value="${esc(_vplpGRNSearch)}" oninput="_vplpGRNSearchInput(this.value)" placeholder="Search vendor / PO / GRN / part…" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:5px 10px;background:var(--surface2);min-width:230px">
+      <span style="display:flex;gap:.3rem;align-items:center;font-size:.7rem;color:var(--txt3)" title="Filter by GRN date (uses GRN Timestamp, else received date)">GRN date
+        <input type="date" value="${esc(_vplpGRNDateFrom)}" onchange="_vplpGRNSetDate('from',this.value)" style="font-size:.72rem;border:1px solid var(--border);border-radius:5px;padding:3px 5px;background:var(--surface2)">
+        <span>–</span>
+        <input type="date" value="${esc(_vplpGRNDateTo)}" onchange="_vplpGRNSetDate('to',this.value)" style="font-size:.72rem;border:1px solid var(--border);border-radius:5px;padding:3px 5px;background:var(--surface2)">
+        ${(_vplpGRNDateFrom || _vplpGRNDateTo) ? `<button onclick="_vplpGRNClearDates()" title="Clear date filter" class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:.68rem">&#10005;</button>` : ''}
+      </span>
       <span style="font-size:.66rem;color:var(--txt3)" title="No On/Off switch: each GRN uses its review entry when one exists (approved → its Final values; rejected → excluded); with no entry it uses the PO rate and still counts.">&#9432; Reviews applied automatically</span>
+      <button onclick="_vplpGRNExportCSV()" class="btn btn-sm btn-secondary" title="Download the filtered rows as CSV" style="padding:3px 9px;font-size:.72rem">&#8681; CSV</button>
       <button onclick="_vplpReload(this)" class="btn btn-sm btn-secondary" style="padding:3px 9px;font-size:.72rem">&#8635; Refresh</button>
     </div>
   </div>`;
@@ -5542,6 +5597,8 @@ function _vplpGRNReviewView() {
     const numInput = (fid, v, w, extra) => `<input id="grn-${fid}-${i}" type="number" step="0.01" value="${esc(v)}"${ro} ${extra || ''} style="width:${w}px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2)">`;
     return `<tr onclick="_vplpGRNRowClick(event,${i})" style="cursor:pointer">
       <td style="padding:6px 9px;white-space:nowrap"><a onclick="_siOpenDetail(${l.idx})" style="color:var(--g7);text-decoration:underline;cursor:pointer">${esc(l.grn) || 'GRN'}</a></td>
+      <td style="padding:6px 9px;white-space:nowrap;color:var(--txt2)">${fmtD(l.recvDate)}</td>
+      <td style="padding:6px 9px;white-space:nowrap;color:var(--txt3);font-size:.72rem">${fmtTs(l.recvTs)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(l.poNo)}</td>
       <td style="padding:6px 9px"><div style="max-width:150px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3" title="${esc(l.vendorName)}${l.vid ? ' [' + esc(l.vid) + ']' : ''}">${esc(l.vendorName)}${l.vid ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(l.vid)}]</span>` : ''}</div></td>
       <td style="padding:6px 9px;font-size:.74rem"><div title="Click to open full details" style="max-width:280px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35">${l.partNo ? `<span style="font-weight:600">${esc(l.partNo)}</span>; ` : ''}${esc(l.partDesc || l.part)}</div></td>
@@ -5564,7 +5621,7 @@ function _vplpGRNReviewView() {
   return header + cfgWarn + permWarn + diagNote + capNote + `<div class="card"><div style="overflow:auto;max-height:380px">
     <table class="evg-ledger-tbl" data-evg-defaults="off" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="color:#fff;text-align:left">
-        <th style="${th}">GRN</th><th style="${th}">PO No</th><th style="${th}">Vendor</th>
+        <th style="${th}">GRN</th><th style="${th}">GRN Date</th><th style="${th}">GRN Timestamp</th><th style="${th}">PO No</th><th style="${th}">Vendor</th>
         <th style="${th}">Part No; Description</th><th style="${th}">Invoice</th><th style="${thR}">Qty</th>
         <th style="${thR}">PO Rate</th>
         <th style="${thR}">PO Tax %</th><th style="${thR}">PO Tax Value</th>
@@ -5651,6 +5708,9 @@ window._vplpGRNOpenModal = function(i) {
   window._vplpGRNModalLine = l;
   const esc = _mdpEsc, inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
   const inr2 = n => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const _p2m = n => String(n).padStart(2, '0');
+  const fmtD = v => { const t = _grnTsVal(v); if (!t) return v ? esc(String(v)) : '—'; const d = new Date(t); return _p2m(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear(); };
+  const fmtTs = v => { const t = _grnTsVal(v); if (!t) return v ? esc(String(v)) : '—'; const d = new Date(t); return _p2m(d.getDate()) + _MDP_MON[d.getMonth()] + d.getFullYear() + ' ' + _p2m(d.getHours()) + ':' + _p2m(d.getMinutes()); };
   const canReview = _grnCanReview();
   const ro = canReview ? '' : ' disabled';
   const st = (l.rev && l.rev.status) ? l.rev.status : 'Pending';
@@ -5702,6 +5762,8 @@ window._vplpGRNOpenModal = function(i) {
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem 1rem;padding:.8rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
       ${meta('Vendor', esc(l.vendorName) + (l.vid ? ` <span style="color:var(--txt3);font-weight:400">[${esc(l.vid)}]</span>` : ''))}
+      ${meta('GRN Date', fmtD(l.recvDate))}
+      ${meta('GRN Timestamp', fmtTs(l.recvTs))}
       ${meta('Invoice', esc(l.inv) || '—')}
       ${meta('Qty', (l.qty || 0).toLocaleString('en-IN'))}
       ${meta('PO Rate', inr(l.poRate))}
@@ -13523,6 +13585,7 @@ const SHEETS_DIRECTORY = [
   { key:'SAFETY',  label:'Safety',                    defaultId:'1B8P0PawV43ksazbzhKsil1X6-INOfxx9PFvGycNOvDY', tabs:['Incidents','Checklist'], notes:'Incidents & SHE checklist' },
   { key:'REWARDS', label:'Rewards & Recognition',     defaultId:'1vz8HLopjlSF8TF7rzYuVu5JjqukT929I7aSx7kdehlI', tabs:['Nomination','BlogPosts'], notes:'R&R + wall posts' },
   { key:'BUDGET',  label:'IC Budget Template',        defaultId:'', tabs:['BOQ_Items','Project_Master','Resources'], notes:'Pending — upload template to Drive first' },
+  { key:'ATTLEAVE', label:'Attendance & Leave',       defaultId:'1rz_NBLAOHTLPraQPREY1HYtiR5XQHpTAsSL5O8gm-JQ', tabs:['Attendance-EG','Leave Request Form','Leave Approval'], notes:'HR Attendance + Leave — My Profile reads Leave Request Form for the Time Off tab' },
 ];
 
 // Apps Scripts deployed for the portal. Same exec URL handles all
@@ -17548,7 +17611,7 @@ function _kbBodyGRNReview() {
       <table class="kb-tbl">
         <thead><tr><th>Step</th><th>What happens</th></tr></thead>
         <tbody>
-          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> plus read-only <b>PO Tax %</b> / <b>PO Tax Value</b> as reference. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
+          <tr><td><b>1 · Queue</b></td><td>Each received StockIN line appears as a row — GRN No, <b>GRN Date</b>, <b>GRN Timestamp</b>, PO No, Vendor, Part, Invoice No, Qty, and the <b>PO Rate</b> plus read-only <b>PO Tax %</b> / <b>PO Tax Value</b> as reference. Filter by status, search, or a <b>GRN-date range</b>; <b>⬇ CSV</b> downloads the filtered rows. The part description is clamped to keep rows compact; <b>click anywhere on a row (any non-editable cell) or the ⤢ button to open a pop-out</b> with the full description, every field and action, and the <b>PO document + invoice attachments</b> (pulled from Drive).</td></tr>
           <tr><td><b>2 · Final figures</b></td><td>Off the invoice, Accounts enter <b>Final Rate</b>, <b>Final Tax</b>, <b>Final Additional Charges</b>, and <b>Final Value</b> (auto-computed but overridable). Final Value is what credits the ledger.</td></tr>
           <tr><td><b>3 · Decide</b></td><td>Click <b>✓ Approve</b> or <b>✗ Reject</b>. Approve needs a Final Value &gt; 0. Saved keyed by SI ID — reviewing the same GRN again <b>updates the same row</b>, it does not add a second one. Changed your mind? <b>↩ Move to Pending</b> undoes a decision and reverts the line to the PO rate, exactly like an un-reviewed one.</td></tr>
           <tr><td><b>4 · Post</b></td><td>Reviews take effect <b>automatically</b>: an approved line credits the ledger at its Final values, a rejected line drops out, and an un-reviewed line still counts at the PO rate. A count badge shows how many are still pending.</td></tr>
@@ -18555,6 +18618,19 @@ function renderMyProfile() {
                 </div>
               </div>
             </div>
+          </div>
+
+          <!-- My Leave Requests — lazy-loaded from the Leave Request Form tab -->
+          <div class="card">
+            <div class="card-head"><h3>🗓 My Leave Requests</h3><span class="hr-stat-pill">⬤ Live from Leave sheet</span></div>
+            <div class="card-body">
+              <div id="profile-leave-list">
+                <div style="display:flex;align-items:center;gap:.6rem;font-size:.8rem;color:var(--txt3);padding:.4rem 0">
+                  <div style="width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--g5);border-radius:50%;animation:spin 1s linear infinite;flex-shrink:0"></div>
+                  Loading your leave requests…
+                </div>
+              </div>
+            </div>
           </div>` : '<div style="text-align:center;padding:2rem;color:var(--txt3)">Employee record not found.</div>'}
         </section>
 
@@ -18606,6 +18682,7 @@ function renderMyProfile() {
   window._mpDocsLoaded = false;
   window._mpTeamLoaded = false;
   window._mpLedgerLoaded = false;
+  window._mpLeaveLoaded = false;
   // Restore last-opened tab (defaults to Summary)
   let savedTab = 'summary';
   try { savedTab = localStorage.getItem('evg_profile_tab') || 'summary'; } catch (e) {}
@@ -18624,6 +18701,94 @@ function _mpLoadLedger() {
     if (!tx.length) { c.innerHTML = `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2rem">No payment transactions found for <b>${_mdpEsc(name)}</b>.</div>`; return; }
     c.innerHTML = partyLedgerRender(tx, { onRowClick: '_accOpenPRDetail' });
   }).catch(() => { c.innerHTML = '<div class="card card-pad" style="text-align:center;color:var(--danger);padding:2rem">Could not load your statement.</div>'; });
+}
+
+// Time Off pane — the logged-in employee's own leave requests, read straight from
+// the "Leave Request Form" tab of the ATTLEAVE workbook. Self-contained: no
+// dependency on the (removed) HR Attendance/Leave module. Header names vary
+// between sheet revisions, so columns are picked defensively.
+async function _mpLoadLeaves() {
+  const c = document.getElementById('profile-leave-list');
+  if (!c) return;
+  const emp = window._mpEmp || {};
+  const sheetId = (typeof getSheetId === 'function') ? getSheetId('ATTLEAVE') : '';
+  if (!sheetId) {
+    c.innerHTML = `<div style="font-size:.8rem;color:var(--txt3);padding:.4rem 0">Leave workbook not configured — set the <b>ATTLEAVE</b> Sheet ID in Settings to see your leave requests.</div>`;
+    return;
+  }
+  const nrm = v => String(v == null ? '' : v).trim().toLowerCase();
+  const email = nrm(emp.email || STATE.user?.email || '');
+  const code  = nrm(emp.empCode || '');
+  const name  = nrm(emp.name || '');
+  try {
+    const rows = await fetchSheetSafe('Leave Request Form', sheetId, { rawId: true });
+    // Match a request to this employee by email / emp-code / name across any column.
+    const mine = (rows || []).filter(r => {
+      const vals = Object.values(r).map(nrm);
+      return (email && vals.includes(email)) || (code && vals.includes(code)) || (name && vals.includes(name));
+    });
+    if (!mine.length) {
+      c.innerHTML = `<div style="font-size:.8rem;color:var(--txt3);padding:.4rem 0">No leave requests found for your account.</div>`;
+      return;
+    }
+    // Defensive column picker: exact header match first, then substring.
+    const pick = (r, cands) => {
+      const keys = Object.keys(r);
+      for (const cand of cands) { const k = keys.find(k => nrm(k) === cand); if (k && r[k] !== '') return r[k]; }
+      for (const cand of cands) { const k = keys.find(k => nrm(k).includes(cand)); if (k && r[k] !== '') return r[k]; }
+      return '';
+    };
+    const fmtD = v => { const d = parseGvizDate(v); return (d && d.getTime()) ? d.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : (v || '—'); };
+    const badge = st => {
+      const s = nrm(st);
+      let bg = 'var(--surface2)', fg = 'var(--txt2)';
+      if (/approv/.test(s))              { bg = '#e8f5e9'; fg = '#2e7d32'; }
+      else if (/reject|declin/.test(s))  { bg = '#ffebee'; fg = '#c62828'; }
+      else if (/pending|await|l[12]/.test(s)) { bg = '#fff8e1'; fg = '#e65100'; }
+      return `<span style="display:inline-block;padding:.15rem .5rem;border-radius:7px;font-size:.7rem;font-weight:700;background:${bg};color:${fg}">${_mdpEsc(st || 'Pending')}</span>`;
+    };
+    const recs = mine.map(r => ({
+      type:    pick(r, ['leave type','type','leavetype']) || 'Leave',
+      from:    pick(r, ['from date','start date','date from','from','start']),
+      to:      pick(r, ['to date','end date','date to','to','end']),
+      days:    pick(r, ['no of days','number of days','no. of days','total days','days','duration']),
+      purpose: pick(r, ['purpose','reason','remarks','description']),
+      status:  pick(r, ['status','approval status','leave status']),
+    }));
+    // Newest first by from-date (fall back to original order).
+    recs.sort((a, b) => {
+      const da = parseGvizDate(a.from), db = parseGvizDate(b.from);
+      return ((db && db.getTime()) || 0) - ((da && da.getTime()) || 0);
+    });
+    const body = recs.map(r => `
+      <tr>
+        <td style="white-space:nowrap">${_mdpEsc(r.type)}</td>
+        <td style="white-space:nowrap">${fmtD(r.from)}</td>
+        <td style="white-space:nowrap">${fmtD(r.to)}</td>
+        <td style="text-align:right">${_mdpEsc(r.days || '—')}</td>
+        <td>${_mdpEsc(r.purpose || '—')}</td>
+        <td style="white-space:nowrap">${badge(r.status)}</td>
+      </tr>`).join('');
+    c.innerHTML = `
+      <div style="overflow-x:auto">
+        <table class="evg-table" style="width:100%;font-size:.82rem;border-collapse:collapse">
+          <thead>
+            <tr style="text-align:left;color:var(--txt3);font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">
+              <th style="padding:.4rem .5rem">Type</th>
+              <th style="padding:.4rem .5rem">From</th>
+              <th style="padding:.4rem .5rem">To</th>
+              <th style="padding:.4rem .5rem;text-align:right">Days</th>
+              <th style="padding:.4rem .5rem">Purpose</th>
+              <th style="padding:.4rem .5rem">Status</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+      <div style="font-size:.7rem;color:var(--txt3);margin-top:.5rem">${recs.length} request${recs.length===1?'':'s'} · status as recorded in the Leave sheet</div>`;
+  } catch (e) {
+    c.innerHTML = `<div style="font-size:.8rem;color:var(--danger);padding:.4rem 0">Could not load your leave requests.</div>`;
+  }
 }
 
 // Team pane — lazy-loaded on first open
@@ -21813,11 +21978,19 @@ async function _openPOEnsure(force) {
     if (!r || r.length < 5) { await new Promise(z => setTimeout(z, 600)); r = await fetchSheetSafe(tab, sid, { rawId: true, tq }); }
     return r || [];
   };
-  let items = await grab('PO_Items_Actual', PO_SHEET_ID, null);
-  if (!items || items.length < 5) items = await grab('PO_Items_Actual', PO_SHEET_ID, 'SELECT *');
-  const [hdr, stock] = await Promise.all([
-    grab(PO_TAB, PO_SHEET_ID, null),
-    grab('StockIN', STORES_SHEET_ID, null),
+  // No-query read, with a SELECT * fallback when a tab's gviz "no-query" read
+  // comes back empty/short (the same choke that hit PO_Items_Actual). Without
+  // this fallback on PO_Actual, an empty header read wipes every vendor's POs
+  // from the ledger while GRN Review (items+stock) still shows lines.
+  const grabFB = async (tab, sid) => {
+    let r = await grab(tab, sid, null);
+    if (!r || r.length < 5) r = await grab(tab, sid, 'SELECT *');
+    return r || [];
+  };
+  const [items, hdr, stock] = await Promise.all([
+    grabFB('PO_Items_Actual', PO_SHEET_ID),
+    grabFB(PO_TAB, PO_SHEET_ID),
+    grabFB('StockIN', STORES_SHEET_ID),
   ]);
   _openPOHeaders = hdr   || [];
   _openPOItems   = items || [];
@@ -24963,6 +25136,10 @@ function _mpShowTab(id) {
   if (id === 'ledger' && !window._mpLedgerLoaded) {
     window._mpLedgerLoaded = true;
     try { _mpLoadLedger(); } catch (e) {}
+  }
+  if (id === 'timeoff' && !window._mpLeaveLoaded) {
+    window._mpLeaveLoaded = true;
+    try { _mpLoadLeaves(); } catch (e) {}
   }
 }
 
