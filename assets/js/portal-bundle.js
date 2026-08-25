@@ -21866,11 +21866,19 @@ async function _openPOEnsure(force) {
     if (!r || r.length < 5) { await new Promise(z => setTimeout(z, 600)); r = await fetchSheetSafe(tab, sid, { rawId: true, tq }); }
     return r || [];
   };
-  let items = await grab('PO_Items_Actual', PO_SHEET_ID, null);
-  if (!items || items.length < 5) items = await grab('PO_Items_Actual', PO_SHEET_ID, 'SELECT *');
-  const [hdr, stock] = await Promise.all([
-    grab(PO_TAB, PO_SHEET_ID, null),
-    grab('StockIN', STORES_SHEET_ID, null),
+  // No-query read, with a SELECT * fallback when a tab's gviz "no-query" read
+  // comes back empty/short (the same choke that hit PO_Items_Actual). Without
+  // this fallback on PO_Actual, an empty header read wipes every vendor's POs
+  // from the ledger while GRN Review (items+stock) still shows lines.
+  const grabFB = async (tab, sid) => {
+    let r = await grab(tab, sid, null);
+    if (!r || r.length < 5) r = await grab(tab, sid, 'SELECT *');
+    return r || [];
+  };
+  const [items, hdr, stock] = await Promise.all([
+    grabFB('PO_Items_Actual', PO_SHEET_ID),
+    grabFB(PO_TAB, PO_SHEET_ID),
+    grabFB('StockIN', STORES_SHEET_ID),
   ]);
   _openPOHeaders = hdr   || [];
   _openPOItems   = items || [];
