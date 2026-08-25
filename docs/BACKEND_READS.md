@@ -30,8 +30,18 @@ on gviz (a query is itself a deliberate filter).
 
 ## What to deploy
 
-Add this `readSheet` case to the **main** Apps Script web app's `doPost`
-router (the one `getExec('main')` points at), then **redeploy** the web app.
+**The implementation now lives in the repo:** paste `apps-script/SheetRead.gs`
+into the **main** Apps Script project — it is already registered in
+`apps-script/Router.gs` (`if (action === 'readSheet') return readSheet(body);`)
+— then **redeploy a new version** of the main web app (the one `getExec('main')`
+points at).
+
+> **Date cells:** `SheetRead.gs` formats Date cells as `Date(y,m,d,h,mi,s)` to
+> match gviz exactly. `getValues()` returns dates in the **script project's
+> timezone**, so set the project timezone to **Asia/Kolkata** (Project Settings)
+> to avoid an off-by-one-day shift on date-only columns.
+
+The reference implementation below is equivalent (it inlines the router case):
 
 ```js
 function doPost(e) {

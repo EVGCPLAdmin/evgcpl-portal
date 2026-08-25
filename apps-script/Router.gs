@@ -75,6 +75,11 @@ function doPost(e) {
     // ── Diagnostics / schema inspection ────────────────────────
     if (action === 'getSheetHeaders')          return getSheetHeaders(body);
 
+    // ── Filter-immune full-tab read (SheetRead.gs) ─────────────
+    // Reads via getValues() so an active BASIC FILTER on the sheet no longer
+    // hides rows from the app (gviz honours the filter; this does not).
+    if (action === 'readSheet')                return readSheet(body);
+
     // ── Portal config (PortalConfig tab in Master sheet) ───────
     if (action === 'savePortalConfig')         return savePortalConfig(body);
     if (action === 'getPortalConfig')          return getPortalConfig(body);
