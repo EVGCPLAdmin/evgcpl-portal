@@ -6627,6 +6627,15 @@ function _tvrNum(v) {
 
 const _tvrNorm = s => String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toLowerCase();
 
+// 'SNAP-20260826-080200' → '2026-08-26'. Mirrors _tvrBatchDate() in
+// TallyVendorReconcile.gs — the id is generated server-side, so it's a more
+// reliable date source than re-parsing the human-formatted UploadedAt string.
+function _tvrBatchDateOf(batchId) {
+  const m = String(batchId || '').match(/(\d{4})(\d{2})(\d{2})-\d{6}$/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+}
+const _tvrToday = () => new Date().toISOString().slice(0, 10);
+
 // Locate the header row and the three columns we need. Tally's export layout
 // varies by version and by which report was exported, so match on a list of
 // known aliases rather than a fixed position — and when nothing matches, say
@@ -7029,11 +7038,41 @@ window._tvrUpload = async function (btn) {
     _accToast(`✅ Uploaded ${resp.count} vendors from Tally`);
     _tvrParsed = null;
     await _tvrLoad();
+    await _tvrOfferSnapshot();
   } else {
     if (btn) { btn.disabled = false; btn.innerHTML = '&#128228; Upload'; }
     _accToast('⚠ ' + ((resp && resp.message) || 'Upload failed'));
   }
 };
+
+// Offer to pair a fresh Tally upload with a portal snapshot.
+//
+// Asked here because this is the last moment it can be done for today: the
+// reconcile compares the latest Tally batch against the latest snapshot, and a
+// past portal balance cannot be reconstructed once the underlying POs, GRNs and
+// payments move on. Upload without a same-day snapshot and that day is either
+// compared against stale figures or becomes a permanent gap.
+//
+// Always asks (per request), but the wording adapts to whether today already has
+// one, so confirming a second capture is an informed choice rather than a nag.
+async function _tvrOfferSnapshot() {
+  const today = _tvrToday();
+  const existing = ((_tvrStatus && _tvrStatus.snapshotLog) || [])
+    .find(b => _tvrBatchDateOf(b.batchId) === today);
+
+  const msg = existing
+    ? `Tally upload saved.\n\nA vendor ledger snapshot was already captured today at ${existing.at} by ${existing.by} (${existing.count} vendors).\n\nCapture a fresh one now, so the comparison uses the portal's current balances?`
+    : `Tally upload saved.\n\nNo vendor ledger snapshot has been captured today. Without one, this upload is compared against an older snapshot — and today's portal balances can't be recovered later.\n\nCapture a snapshot now?`;
+
+  if (!confirm(msg)) {
+    if (!existing) _accToast('⚠ Uploaded without a snapshot — today may show as a gap');
+    return;
+  }
+  // The capture reloads PO, GRN and payment data to recompute balances, so say
+  // something before the wait rather than looking frozen.
+  _accToast('⏳ Capturing vendor ledger snapshot…');
+  await _tvrCaptureSnapshot(null);
+}
 
 // ── Snapshot capture ───────────────────────────────────────────────────
 // Freezes the Vendor Ledger (PO) Flat List's current per-vendor balances.
