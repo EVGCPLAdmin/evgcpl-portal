@@ -46,6 +46,12 @@ const PIN_SHEET_ID     = '1hN4VEDNpVLD3lKuBPYCTOaViv7UpveRfud2d2gy15D0'; // User
 //   3. Deploy → Manage deployments → ✏️ → New version (the URL is unchanged;
 //      a brand-new /exec URL means you made a new deployment instead)
 //
+// If a redeploy hands you a NEW /exec URL, that is the tell: "New deployment"
+// was used instead of versioning the existing one. The old URL keeps serving the
+// OLD code, so nothing errors — every portal still holding it just silently runs
+// against a stale deployment until someone updates the value here. Versioning the
+// existing deployment keeps the URL stable and avoids that entirely.
+//
 // `filesVerified: false` means the list is inferred from this entry's own
 // description and the Router action map, not confirmed against the live
 // project — use ▶︎ Test all to see which deployments actually answer.
@@ -60,7 +66,7 @@ const EXEC_REGISTRY_DEFAULTS = {
   aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script. Currently the SAME deployment as main.', files: ['Router.gs', 'AiProxy.gs', 'AIChat.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff). Currently the SAME deployment as main.', files: ['Router.gs', 'SheetDiagnostic.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     files: ['Router.gs', 'PCCHandlers.gs', 'AppsScript_Handlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
-  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app: saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments — PLUS the Tally reconciliation actions tvrSaveBatch / tvrGetStatus / tvrGetBatch / tvrSaveRules / tvrRunNow. Override via the exec_accounts row in the PortalConfig sheet.', files: ['Router.gs', 'AccountsHandlers.gs', 'TallyVendorReconcile.gs'], filesVerified: true, defaultUrl: 'https://script.google.com/macros/s/AKfycbyDrIBun9a72IIgEwE3zw0ihBQSTJEarleOo_xMVRmzupijGhwYVoiE-xsQGU1mx3zW7w/exec' },
+  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app: saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments — PLUS the Tally reconciliation actions tvrSaveBatch / tvrGetStatus / tvrGetBatch / tvrSaveRules / tvrRunNow. Override via the exec_accounts row in the PortalConfig sheet.', files: ['Router.gs', 'AccountsHandlers.gs', 'TallyVendorReconcile.gs'], filesVerified: true, defaultUrl: 'https://script.google.com/macros/s/AKfycbxgZK4IEjWKlx1VCkmKeWDdCPOOksLP3yfEe5LcdRwoxQRTvI6cy4FeKy0mTAh2m_CQLw/exec' },
   safety:      { label: 'Safety Handler',         desc: 'SafetyHandler.gs web app — Safety module writes (Incidents, DailyChecks). Override via the exec_safety row in the PortalConfig sheet.', files: ['Router.gs', 'SafetyHandlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbyFq6zSKgn-W3qNQPNoDplqiJHDaQTrrKLSK7gecZNiHSnU7Y4Buav3RiGfcvXtn9B3/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
@@ -14971,7 +14977,8 @@ function renderExecEndpointsCard() {
       </div>
       <div style="padding:.55rem 1rem;font-size:.7rem;color:var(--txt3);background:var(--surface2);border-top:1px solid var(--border);display:flex;align-items:center;gap:.5rem">
         <span>&#128161;</span>
-        <span><strong>How to deploy a new version:</strong> Apps Script Editor &rarr; Deploy &rarr; Manage Deployments &rarr; ✏️ on the active deployment &rarr; New version &rarr; Deploy. The exec URL stays the same; only redeploy is needed for the new code to be live.</span>
+        <span><strong>How to deploy a new version:</strong> Apps Script Editor &rarr; Deploy &rarr; Manage Deployments &rarr; ✏️ on the active deployment &rarr; New version &rarr; Deploy. The exec URL stays the same; only redeploy is needed for the new code to be live.<br>
+          <strong style="color:#b45309">Don't use Deploy &rarr; New deployment</strong> to ship a code change &mdash; that mints a <em>different</em> /exec URL. The old one keeps serving the OLD code rather than failing, so every portal still holding it silently runs against a stale backend until the URL above is updated everywhere.</span>
       </div>
     </div>`;
 }

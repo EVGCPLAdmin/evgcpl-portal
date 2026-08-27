@@ -74,6 +74,17 @@ After editing any `.gs` file:
 
 > **Common gotcha:** Apps Script Web Apps cache the deployed snapshot. Editing a `.gs` file is **not enough** — you have to redeploy a new version for the change to be visible at the exec URL.
 
+> **Do NOT use `Deploy → New deployment` to ship a code change.** That creates a
+> *second* deployment with a **different** `/exec` URL, and the original keeps
+> serving the OLD code instead of failing. Nothing errors — every portal still
+> holding the old URL just silently runs against a stale backend until the value
+> in `EXEC_REGISTRY_DEFAULTS` (and any saved override) is updated everywhere. Use
+> `Manage deployments → ✏️ → Version: New version` instead: same URL, forever.
+>
+> If you already have a new URL and need the portal on it now, you do not need a
+> code release — paste it into **Config → 🔗 Apps Script Endpoints** and use
+> **⬇ Force update Sheets & T1** to push it org-wide via the PortalConfig sheet.
+
 ---
 
 ## Testing a deployment
