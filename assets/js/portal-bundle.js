@@ -5366,7 +5366,7 @@ function _vplpCompute() {
   // Vendor Master bridge: name → Vendor ID and bank-account → Vendor ID. Lets a
   // payment (which carries only the selected vendor NAME + account, no Vendor ID)
   // resolve to the same Vendor ID the POs use, so it nets instead of splitting.
-  const bridge = { nameToVid: {}, accToVid: {}, vidToUuid: {}, vidToName: {}, vidToDetail: {}, vidToGst: {} };
+  const bridge = { nameToVid: {}, accToVid: {}, vidToUuid: {}, vidToName: {}, vidToDetail: {}, vidToGst: {}, vidToTallyUid: {} };
   (_vplpVMRows || []).forEach(r => {
     const vid = String(r['Vendor ID'] || '').toUpperCase().trim(); if (!vid) return;
     [r['Vendor Name'], r['Legal Name'], r['Vendor Acc Name'], r['A/C HOLDER NAME'], r['Account Holder Name']].forEach(nm => {
@@ -5381,6 +5381,14 @@ function _vplpCompute() {
     // multiple Vendor Master rows — collect the distinct ones for a single cell.
     const gst = String(r['GST'] || r['GSTIN'] || r['GST No'] || r['GST Number'] || r['GST No.'] || '').trim();
     if (gst) { const arr = bridge.vidToGst[vid] = bridge.vidToGst[vid] || []; if (!arr.some(g => g.toUpperCase() === gst.toUpperCase())) arr.push(gst); }
+    // TallyUID — the Tally ledger's $GUID, recorded against the vendor in
+    // Vendor Master. It is the only identifier Tally and the portal share by
+    // construction (names drift, bank A/Cs aren't in the Tally export), so the
+    // reconciliation joins on this first. Blank for vendors not linked yet.
+    if (!bridge.vidToTallyUid[vid]) {
+      const tuid = String(r['TallyUID'] || r['Tally UID'] || r['TallyGUID'] || r['Tally GUID'] || r['Tally ID'] || '').trim();
+      if (tuid) bridge.vidToTallyUid[vid] = tuid;
+    }
   });
   // Vendors keyed by Vendor ID; payments that still don't resolve stay Unmapped.
   const vendors = {};
@@ -6612,6 +6620,136 @@ function _tvrParseCSV(text) {
   return rows.filter(r => r.some(v => String(v).trim() !== ''));
 }
 
+// ── Minimal .xlsx reader ─────────────────────────────────────────────────
+// Tally's "Ledger ID Fetch" export is a refreshable .xlsx, not CSV, and asking
+// for a daily Save-As would invite stale re-exports. So read the workbook
+// directly. No library: a .xlsx is a ZIP of XML, and the browser can inflate
+// with DecompressionStream — nothing is added to the CSP.
+//
+// Deliberately narrow: enough of the spec to read a machine-generated sheet of
+// strings and numbers, not a general xlsx implementation.
+function _tvrU16(b, o) { return b[o] | (b[o + 1] << 8); }
+function _tvrU32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
+
+// Walk the ZIP central directory → { name: {offset, method, compSize} }.
+// The central directory is authoritative; local headers may omit sizes.
+function _tvrZipIndex(buf) {
+  // End-of-central-directory: scan back for the 0x06054b50 signature (the
+  // trailing comment field means it isn't at a fixed offset).
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= 0 && i > buf.length - 66000; i--) {
+    if (_tvrU32(buf, i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('Not a valid .xlsx (no ZIP end-of-central-directory found)');
+  const count = _tvrU16(buf, eocd + 10);
+  let p = _tvrU32(buf, eocd + 16);
+  const out = {};
+  for (let n = 0; n < count; n++) {
+    if (_tvrU32(buf, p) !== 0x02014b50) break;
+    const method = _tvrU16(buf, p + 10);
+    const compSize = _tvrU32(buf, p + 20);
+    const nameLen = _tvrU16(buf, p + 28);
+    const extraLen = _tvrU16(buf, p + 30);
+    const cmtLen = _tvrU16(buf, p + 32);
+    const lho = _tvrU32(buf, p + 42);
+    let name = '';
+    for (let i = 0; i < nameLen; i++) name += String.fromCharCode(buf[p + 46 + i]);
+    out[name] = { lho, method, compSize };
+    p += 46 + nameLen + extraLen + cmtLen;
+  }
+  return out;
+}
+
+async function _tvrZipRead(buf, entry) {
+  // The local header's own name/extra lengths give the true data offset.
+  const p = entry.lho;
+  if (_tvrU32(buf, p) !== 0x04034b50) throw new Error('Corrupt .xlsx (bad local file header)');
+  const start = p + 30 + _tvrU16(buf, p + 26) + _tvrU16(buf, p + 28);
+  const slice = buf.subarray(start, start + entry.compSize);
+  if (entry.method === 0) return new TextDecoder().decode(slice);      // stored
+  if (entry.method !== 8) throw new Error('Unsupported .xlsx compression method ' + entry.method);
+  const ds = new DecompressionStream('deflate-raw');
+  const stream = new Blob([slice]).stream().pipeThrough(ds);
+  return new TextDecoder().decode(new Uint8Array(await new Response(stream).arrayBuffer()));
+}
+
+// "BC12" → 0-based column index. Cells are SPARSE in xlsx — an empty cell is
+// simply absent — so a row must be rebuilt from each cell's own reference or
+// every column after a blank one shifts left. Tally leaves $_ClosingBalance
+// empty on zero-balance ledgers, so this is the difference between correct
+// figures and silently reading the wrong column.
+function _tvrColIdx(ref) {
+  let n = 0;
+  for (let i = 0; i < ref.length; i++) {
+    const c = ref.charCodeAt(i);
+    if (c < 65 || c > 90) break;
+    n = n * 26 + (c - 64);
+  }
+  return n - 1;
+}
+
+const _tvrXmlText = s => String(s)
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+  .replace(/&apos;/g, "'").replace(/&#(\d+);/g, (m, d) => String.fromCharCode(+d))
+  .replace(/&amp;/g, '&');
+
+// Concatenate the <t> runs of one shared string (rich text splits a value
+// across several runs; joining them keeps the vendor name intact).
+function _tvrSharedStrings(xml) {
+  if (!xml) return [];
+  return (xml.match(/<si\b[\s\S]*?<\/si>|<si\b[^>]*\/>/g) || []).map(si => {
+    const runs = si.match(/<t\b[^>]*>([\s\S]*?)<\/t>/g) || [];
+    return runs.map(t => _tvrXmlText(t.replace(/^<t\b[^>]*>/, '').replace(/<\/t>$/, ''))).join('');
+  });
+}
+
+function _tvrSheetMatrix(xml, shared) {
+  const rows = [];
+  const rowRe = /<row\b[^>]*>([\s\S]*?)<\/row>|<row\b[^>]*\/>/g;
+  let rm;
+  while ((rm = rowRe.exec(xml))) {
+    const inner = rm[1] || '';
+    const cells = [];
+    const cellRe = /<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g;
+    let cm;
+    while ((cm = cellRe.exec(inner))) {
+      const attrs = cm[1] || '', body = cm[2] || '';
+      const refM = /\br="([A-Z]+)\d+"/.exec(attrs);
+      const idx = refM ? _tvrColIdx(refM[1]) : cells.length;
+      const type = (/\bt="([^"]+)"/.exec(attrs) || [])[1] || 'n';
+      let val = '';
+      if (type === 'inlineStr') {
+        val = (body.match(/<t\b[^>]*>([\s\S]*?)<\/t>/g) || [])
+          .map(t => _tvrXmlText(t.replace(/^<t\b[^>]*>/, '').replace(/<\/t>$/, ''))).join('');
+      } else {
+        const vM = /<v>([\s\S]*?)<\/v>/.exec(body);
+        val = vM ? _tvrXmlText(vM[1]) : '';
+        if (type === 's') val = shared[+val] != null ? shared[+val] : '';
+      }
+      while (cells.length < idx) cells.push('');   // hold the sparse gap open
+      cells[idx] = val;
+    }
+    rows.push(cells);
+  }
+  return rows;
+}
+
+// Returns every worksheet as a matrix, in workbook order, so the caller can
+// pick the one whose headers it recognises (the export ships a "Steps"
+// instructions sheet alongside "Ledger").
+async function _tvrParseXlsx(arrayBuffer) {
+  const buf = new Uint8Array(arrayBuffer);
+  const zip = _tvrZipIndex(buf);
+  const shared = _tvrSharedStrings(zip['xl/sharedStrings.xml'] ? await _tvrZipRead(buf, zip['xl/sharedStrings.xml']) : '');
+  const names = Object.keys(zip)
+    .filter(n => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))
+    .sort((a, b) => (+a.replace(/\D/g, '')) - (+b.replace(/\D/g, '')));
+  if (!names.length) throw new Error('No worksheets found in the .xlsx');
+  const out = [];
+  for (const n of names) out.push(_tvrSheetMatrix(await _tvrZipRead(buf, zip[n]), shared));
+  return out;
+}
+
 // Tally writes amounts as "1,23,456.78", "(1,234)" for negatives, and often
 // appends Dr/Cr. Mirrors _tvrNum() in TallyVendorReconcile.gs — keep both in
 // step, or the preview and the stored value will disagree.
@@ -6647,9 +6785,18 @@ const _tvrToday = () => new Date().toISOString().slice(0, 10);
 // known aliases rather than a fixed position — and when nothing matches, say
 // which headers WERE found instead of guessing (a wrong guess would silently
 // reconcile the wrong column).
-const _TVR_COL_NAME = ['particulars', 'ledger name', 'ledger', 'vendor name', 'vendor', 'party name', 'party', 'name', 'account name'];
+// Tally's own export ("Ledger ID Fetch") prefixes every field with $, so the
+// literal headers are $Name / $_ClosingBalance / $GUID — none of which match a
+// plain-English alias. Both spellings are listed rather than stripping "$",
+// because a hand-made CSV uses the plain ones.
+const _TVR_COL_NAME = ['$name', 'particulars', 'ledger name', 'ledger', 'vendor name', 'vendor', 'party name', 'party', 'name', 'account name'];
 const _TVR_COL_ACC  = ['a/c number', 'ac number', 'account number', 'a/c no', 'ac no', 'account no', 'bank a/c', 'bank account', 'acno'];
-const _TVR_COL_BAL  = ['closing balance', 'closing bal', 'closing', 'balance', 'clos. bal', 'outstanding', 'amount'];
+// $_ClosingBalance is the live closing figure. $_ThisYearBalance and the
+// quarter columns are deliberately NOT aliases — they are different numbers and
+// silently reconciling one of those would be worse than failing to parse.
+const _TVR_COL_BAL  = ['$_closingbalance', 'closing balance', 'closing bal', 'closing', 'balance', 'clos. bal', 'outstanding', 'amount'];
+const _TVR_COL_GUID = ['$guid', 'guid', 'tallyuid', 'tally uid', 'tally guid', 'ledger id', 'uid'];
+const _TVR_COL_PARENT = ['$parent', 'parent', 'group', 'ledger group', 'under'];
 
 function _tvrMapRows(matrix) {
   const find = (cells, aliases) => {
@@ -6667,7 +6814,10 @@ function _tvrMapRows(matrix) {
     const iBal  = find(matrix[r], _TVR_COL_BAL);
     if (iName < 0 || iBal < 0) continue;
     const iAcc = find(matrix[r], _TVR_COL_ACC);
+    const iGuid = find(matrix[r], _TVR_COL_GUID);
+    const iParent = find(matrix[r], _TVR_COL_PARENT);
     const rows = [], skipped = [];
+    let blankBal = 0;
     for (let d = r + 1; d < matrix.length; d++) {
       const cells = matrix[d];
       const name = String(cells[iName] == null ? '' : cells[iName]).trim();
@@ -6675,14 +6825,21 @@ function _tvrMapRows(matrix) {
       if (!name) continue;
       // Tally's own total/summary lines are not vendors.
       if (/^(grand\s+)?total$/i.test(name) || /^opening balance$/i.test(name)) continue;
-      if (String(balRaw).trim() === '') { skipped.push({ name, why: 'no closing balance' }); continue; }
+      // Tally omits $_ClosingBalance entirely on a nil-balance ledger. In the
+      // sample every one of the 322 blanks also had a zero opening, so blank
+      // means zero — NOT unknown. Dropping them would hide a portal balance
+      // that Tally says should be nil, which is a mismatch worth seeing.
+      if (String(balRaw).trim() === '') blankBal++;
       rows.push({
         name,
         acc: iAcc >= 0 ? String(cells[iAcc] == null ? '' : cells[iAcc]).trim() : '',
-        balance: _tvrNum(balRaw)
+        balance: _tvrNum(balRaw),
+        guid: iGuid >= 0 ? String(cells[iGuid] == null ? '' : cells[iGuid]).trim() : '',
+        parent: iParent >= 0 ? String(cells[iParent] == null ? '' : cells[iParent]).trim() : ''
       });
     }
-    return { ok: true, rows, skipped, headerRow: r, hasAcc: iAcc >= 0, headers: matrix[r] };
+    return { ok: true, rows, skipped, blankBal, headerRow: r, hasAcc: iAcc >= 0,
+             hasGuid: iGuid >= 0, hasParent: iParent >= 0, headers: matrix[r] };
   }
   const seen = matrix.slice(0, limit).map(r => r.filter(c => String(c).trim() !== '').join(' | ')).filter(Boolean);
   return { ok: false, rows: [], skipped: [], headers: seen };
@@ -6803,6 +6960,70 @@ function _tvrOverviewView() {
   const staleHrs = _tvrAgeHours(snap.at);
   const stale = staleHrs > 30;
 
+  // ── Sign-convention check ─────────────────────────────────────────────
+  // Tally's $_ClosingBalance sign is not self-evident (the sample export had
+  // Sundry Creditors on BOTH signs), and getting it backwards inverts every
+  // comparison — every vendor would show a false mismatch of roughly double its
+  // balance. So rather than guess, show the matched pairs and let the totals
+  // make the answer obvious. Judged on the sum of absolute differences: if
+  // flipping collapses it, the current setting is wrong.
+  const chk = s.signCheck || [];
+  const sumNow  = chk.reduce((t, m) => t + Math.abs(m.tally - m.portal), 0);
+  const sumFlip = chk.reduce((t, m) => t + Math.abs(-m.tally - m.portal), 0);
+  const flipIsBetter = chk.length >= 3 && sumFlip < sumNow * 0.5;
+  const signCard = chk.length ? `<div class="card card-pad" style="margin-bottom:.8rem;padding:.65rem .8rem;${flipIsBetter ? 'background:#fef2f2;border-left:4px solid #dc2626' : 'background:var(--surface2);border-left:4px solid #94a3b8'}">
+      <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:.45rem">
+        <b style="font-size:.85rem">${flipIsBetter ? '&#9888; Tally\'s sign convention looks inverted' : 'Sign convention check'}</b>
+        <span style="font-size:.73rem;color:var(--txt3)">Tally figures are currently used <b>${s.signFlip ? 'negated' : 'as exported'}</b>.</span>
+        <button class="btn ${flipIsBetter ? 'btn-primary' : 'btn-secondary'} btn-sm" style="margin-left:auto;padding:3px 10px;font-size:.72rem" onclick="_tvrFlipSign(${s.signFlip ? 'false' : 'true'}, this)">
+          ${s.signFlip ? 'Use Tally figures as exported' : 'Negate Tally figures'}
+        </button>
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.75rem">
+        <thead><tr style="text-align:left;color:var(--txt3)">
+          <th style="padding:3px 8px;font-weight:600">Vendor</th>
+          <th style="padding:3px 8px;text-align:right;font-weight:600">Tally (as exported)</th>
+          <th style="padding:3px 8px;text-align:right;font-weight:600">Portal</th>
+          <th style="padding:3px 8px;text-align:right;font-weight:600">Diff now</th>
+          <th style="padding:3px 8px;text-align:right;font-weight:600">Diff if flipped</th>
+        </tr></thead><tbody>
+        ${chk.map(m => {
+          const dn = Math.abs(m.tally - m.portal), df = Math.abs(-m.tally - m.portal);
+          return `<tr>
+            <td style="padding:3px 8px">${esc(m.name)}</td>
+            <td style="padding:3px 8px;text-align:right">${_tvrSigned(m.tallyRaw)}</td>
+            <td style="padding:3px 8px;text-align:right">${_tvrSigned(m.portal)}</td>
+            <td style="padding:3px 8px;text-align:right;font-weight:${dn <= df ? '700' : '400'};color:${dn <= df ? '#15803d' : 'var(--txt3)'}">${_tvrInr(dn)}</td>
+            <td style="padding:3px 8px;text-align:right;font-weight:${df < dn ? '700' : '400'};color:${df < dn ? '#15803d' : 'var(--txt3)'}">${_tvrInr(df)}</td>
+          </tr>`; }).join('')}
+        </tbody></table></div>
+      <div style="font-size:.71rem;color:var(--txt3);margin-top:.35rem">Total difference across these ${chk.length}: <b>${_tvrInr(sumNow)}</b> as-is vs <b>${_tvrInr(sumFlip)}</b> flipped. The smaller column is the right convention.</div>
+    </div>` : '';
+
+  // ── Ledgers Tally has that the portal can't identify ──────────────────
+  // The export is the whole chart of accounts, so most unmatched rows are not
+  // vendors at all. Only non-zero ones are listed, and as a separate "link
+  // these" job rather than as mismatches — otherwise ~1,000 rows of bank, GST
+  // and salary ledgers would bury the real findings.
+  const unl = s.unlinked || [];
+  const unlCard = unl.length ? `<div class="card" style="margin-bottom:.8rem">
+      <div style="padding:.55rem .8rem;border-bottom:1px solid var(--border);display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+        <b style="font-size:.85rem">&#128279; ${s.unlinkedTotal || unl.length} Tally ledger${(s.unlinkedTotal || unl.length) === 1 ? '' : 's'} with a balance and no TallyUID match</b>
+        <span style="font-size:.72rem;color:var(--txt3)">Not counted as mismatches. Add the GUID to <b>TallyUID</b> in Vendor Master to bring one into the reconciliation.</span>
+      </div>
+      <div style="overflow-x:auto;max-height:260px"><table style="width:100%;border-collapse:collapse;font-size:.76rem">
+        <thead><tr style="background:var(--surface2);text-align:left;position:sticky;top:0">
+          <th style="padding:5px 9px">Ledger</th><th style="padding:5px 9px">Tally group</th>
+          <th style="padding:5px 9px;text-align:right">Balance</th><th style="padding:5px 9px">GUID</th></tr></thead>
+        <tbody>${unl.map(u => `<tr>
+          <td style="padding:4px 9px">${esc(u.name)}</td>
+          <td style="padding:4px 9px;color:var(--txt3);font-size:.72rem">${esc(u.parent) || '—'}</td>
+          <td style="padding:4px 9px;text-align:right;font-weight:600">${_tvrSigned(u.tally)}</td>
+          <td style="padding:4px 9px;font-family:ui-monospace,Menlo,monospace;font-size:.66rem;color:var(--txt3);word-break:break-all">${esc(u.guid) || '—'}</td></tr>`).join('')}</tbody>
+      </table></div>
+      ${(s.unlinkedTotal || 0) > unl.length ? `<div style="padding:.4rem .8rem;font-size:.71rem;color:var(--txt3);border-top:1px solid var(--border)">Showing ${unl.length} of ${s.unlinkedTotal}.</div>` : ''}
+    </div>` : '';
+
   const kpis = `<div class="evg-kpi-grid" style="margin-bottom:.8rem">
     ${evgKpiCard({ icon: '&#9888;&#65039;', value: ms.length, label: 'Open Mismatches', accent: ms.length ? '#dc2626' : '#16a34a' })}
     ${evgKpiCard({ icon: '&#128181;', value: _tvrInr(totalValue), label: 'Total Mismatch Value', accent: '#ea580c' })}
@@ -6825,7 +7046,7 @@ function _tvrOverviewView() {
 
   if (!ms.length) {
     const never = !s.runId;
-    return picker + histBanner + kpis + warn + gapCard + meta + `<div class="card card-pad" style="text-align:center;padding:2.5rem;color:var(--txt3)">
+    return picker + histBanner + kpis + warn + signCard + gapCard + unlCard + meta + `<div class="card card-pad" style="text-align:center;padding:2.5rem;color:var(--txt3)">
       <div style="font-size:2rem;margin-bottom:.4rem">${never ? '&#128203;' : '&#9989;'}</div>
       <div style="font-weight:700;color:var(--txt2)">${never ? 'No reconciliation has run yet' : 'No mismatches — Tally and the portal agree'}</div>
       <div style="font-size:.82rem;margin-top:.35rem">${never ? 'Upload a Tally export, capture a snapshot, then run the reconcile.' : 'Every vendor\'s closing balance matched within ₹1.'}</div>
@@ -6846,7 +7067,7 @@ function _tvrOverviewView() {
     </tr>`;
   }).join('');
 
-  return picker + histBanner + kpis + warn + gapCard + meta + `<div class="card"><div style="overflow-x:auto">
+  return picker + histBanner + kpis + warn + signCard + gapCard + unlCard + meta + `<div class="card"><div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Vendor</th>
@@ -6892,8 +7113,12 @@ function _tvrImportView() {
     preview = `<div class="card" style="margin-bottom:.8rem">
       <div style="padding:.6rem .8rem;border-bottom:1px solid var(--border);display:flex;gap:.8rem;align-items:center;flex-wrap:wrap">
         <b style="font-size:.85rem">Preview</b>
-        <span style="font-size:.75rem;color:var(--txt3)">${p.rows.length} vendors &middot; net ${_tvrSigned(total)}${p.hasAcc ? '' : ' &middot; no A/C column (will match on name)'}</span>
-        ${p.skipped && p.skipped.length ? `<span style="font-size:.72rem;color:#c2410c">${p.skipped.length} row(s) skipped — no closing balance</span>` : ''}
+        <span style="font-size:.75rem;color:var(--txt3)">${p.rows.length} ledgers &middot; net ${_tvrSigned(total)}</span>
+        ${p.hasGuid
+          ? '<span style="font-size:.72rem;color:#15803d;font-weight:600">&#10003; GUID column found — matching on Vendor Master TallyUID</span>'
+          : '<span style="font-size:.72rem;color:#c2410c">No GUID column — falling back to A/C then name matching</span>'}
+        ${p.blankBal ? `<span style="font-size:.72rem;color:var(--txt3)">${p.blankBal} blank balance(s) read as 0</span>` : ''}
+        
         <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="_tvrUpload(this)">&#128228; Upload ${p.rows.length} vendors</button>
       </div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.78rem">
@@ -6944,9 +7169,9 @@ function _tvrImportView() {
 
   return `<div class="card card-pad" style="margin-bottom:.8rem">
       <div style="font-weight:700;font-size:.9rem;margin-bottom:.3rem">Upload the daily Tally vendor ledger</div>
-      <div style="font-size:.79rem;color:var(--txt3);margin-bottom:.8rem">Export the vendor/sundry-creditors ledger from Tally as CSV or Excel, then choose the file (or paste the rows straight from Excel). Needs a vendor-name column and a closing-balance column; an A/C number column is used for matching when present.</div>
+      <div style="font-size:.79rem;color:var(--txt3);margin-bottom:.8rem">Refresh the Tally <b>Ledger ID Fetch</b> workbook (Query &rarr; Refresh, with Tally open) and upload the <b>.xlsx as-is</b> &mdash; no need to save it as CSV. A pasted CSV/TSV works too. Only ledgers whose <b>$GUID</b> matches a <b>TallyUID</b> in Vendor Master are reconciled; the rest of the chart of accounts is listed separately as unlinked.</div>
       <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:.7rem">
-        <input type="file" id="tvr-file" accept=".csv,.tsv,.txt" onchange="_tvrPickFile(this)" style="font-size:.8rem">
+        <input type="file" id="tvr-file" accept=".xlsx,.csv,.tsv,.txt" onchange="_tvrPickFile(this)" style="font-size:.8rem">
         <span style="font-size:.72rem;color:var(--txt3)">or paste below</span>
       </div>
       <textarea id="tvr-paste" rows="5" placeholder="Particulars,Closing Balance&#10;Acme Steel Pvt Ltd,125000&#10;…" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.75rem;border:1px solid var(--border);border-radius:6px;padding:.5rem;background:var(--surface2)"></textarea>
@@ -6968,6 +7193,20 @@ function _tvrImportView() {
 }
 
 // View a past reconciliation. '' returns to the latest.
+// Flip how Tally's exported sign is interpreted. Applied at compare time, so
+// this re-reconciles the stored batches — no re-upload needed.
+window._tvrFlipSign = async function (flip, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  const resp = await _tvrPost({ action: 'tvrSetSign', flip: !!flip });
+  if (resp && resp.success !== false) {
+    _accToast('✅ ' + (resp.message || 'Sign convention updated'));
+    await _tvrLoad();
+  } else {
+    if (btn) btn.disabled = false;
+    _accToast('⚠ ' + ((resp && resp.message) || 'Could not update the sign convention'));
+  }
+};
+
 window._tvrViewRun = async function (runId) {
   _tvrViewRunId = runId || '';
   await _tvrLoad(runId ? { runId } : {});
@@ -7006,16 +7245,44 @@ window._tvrRunPast = async function (btn) {
   }
 };
 
+// Accepts the Tally .xlsx straight from the refreshable workbook, or a CSV/TSV.
+// Detection is by content (ZIP files start "PK\x03\x04"), not by extension, so a
+// workbook saved with the wrong suffix still reads correctly.
 window._tvrPickFile = function (input) {
   const f = input && input.files && input.files[0];
   if (!f) return;
   const rd = new FileReader();
-  rd.onload = () => {
-    _tvrParsed = _tvrMapRows(_tvrParseCSV(rd.result));
+  rd.onerror = () => _accToast('⚠ Could not read that file');
+  rd.onload = async () => {
+    const buf = rd.result;
+    const head = new Uint8Array(buf.slice(0, 4));
+    const isZip = head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04;
+    try {
+      if (isZip) {
+        if (typeof DecompressionStream === 'undefined') {
+          _tvrParsed = { ok: false, headers: ['This browser cannot open .xlsx (no DecompressionStream). Export the sheet as CSV, or use a current Chrome/Edge/Safari/Firefox.'] };
+        } else {
+          // The export ships a "Steps" instructions sheet next to "Ledger", so
+          // try each sheet and keep the first with recognisable headers rather
+          // than assuming a position or a name.
+          const sheets = await _tvrParseXlsx(buf);
+          let best = null;
+          for (const m of sheets) {
+            const got = _tvrMapRows(m);
+            if (got.ok && got.rows.length) { best = got; break; }
+            if (!best) best = got;
+          }
+          _tvrParsed = best || { ok: false, headers: ['The workbook had no readable sheets.'] };
+        }
+      } else {
+        _tvrParsed = _tvrMapRows(_tvrParseCSV(new TextDecoder().decode(new Uint8Array(buf))));
+      }
+    } catch (e) {
+      _tvrParsed = { ok: false, headers: ['Could not read the file: ' + e.message] };
+    }
     _tvrRenderBody();
   };
-  rd.onerror = () => _accToast('⚠ Could not read that file');
-  rd.readAsText(f);
+  rd.readAsArrayBuffer(f);
 };
 
 window._tvrParsePaste = function () {
@@ -7037,7 +7304,9 @@ window._tvrUpload = async function (btn) {
   const resp = await _tvrPost({
     action: 'tvrSaveBatch', kind: 'tally',
     uploadedBy: (STATE.user && (STATE.user.email || STATE.user.name)) || 'unknown',
-    rows: p.rows
+    // guid/parent ride along so the backend can join on Vendor Master's
+    // TallyUID and name an unlinked ledger's group without re-opening Tally.
+    rows: p.rows.map(r => ({ name: r.name, acc: r.acc, balance: r.balance, guid: r.guid || '', parent: r.parent || '' }))
   });
   _tvrBusy = false;
   if (resp && resp.success !== false) {
@@ -7086,13 +7355,14 @@ async function _tvrOfferSnapshot() {
 // the Flat List shows — no second implementation of the balance maths.
 async function _tvrBuildSnapshotRows(force) {
   await _vplpEnsure(force);
+  const bridge = (_vplpData && _vplpData.bridge) || {};
+  const uidOf = vid => (vid && bridge.vidToTallyUid && bridge.vidToTallyUid[vid]) || '';
   return _vplpVendorRows()
     .filter(r => r.credit > 0 || r.debit > 0)   // same filter the Flat List applies
-    // `acc` is the portal's Vendor ID (EGVE001…) — the only stable identifier a
-    // vendor has here. It matches the Tally A/C column only if the Tally ledger
-    // carries the same code; when it doesn't, the backend falls back to matching
-    // on the vendor name, which is why _tvrDiff tries A/C first and name second.
-    .map(r => ({ name: r.v.name, acc: r.v.vid || '', balance: r.bal }));
+    // tallyUid is the join the backend prefers (Vendor Master's TallyUID vs
+    // Tally's $GUID). `acc` (the portal Vendor ID) and the name remain as
+    // fallbacks for vendors that haven't been linked yet.
+    .map(r => ({ name: r.v.name, acc: r.v.vid || '', balance: r.bal, tallyUid: uidOf(r.v.vid) }));
 }
 
 window._tvrCaptureSnapshot = async function (btn) {
