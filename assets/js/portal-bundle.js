@@ -6568,7 +6568,7 @@ const _TVR_SNAP_LS = 'evg_tvr_last_snapshot';   // yyyy-mm-dd of the last auto-s
 // behind this build. Without this check a stale deployment shows up only as
 // "Unknown POST action: tvrGetBatch" the moment someone clicks the feature that
 // needs it — an error that says nothing about the actual cause.
-const TVR_REQUIRED_BACKEND = 3;
+const TVR_REQUIRED_BACKEND = 4;
 
 async function _tvrPost(payload) {
   let res;
@@ -7046,10 +7046,34 @@ function _tvrOverviewView() {
       ${(s.unlinkedTotal || 0) > unl.length ? `<div style="padding:.4rem .8rem;font-size:.71rem;color:var(--txt3);border-top:1px solid var(--border)">Showing ${unl.length} of ${s.unlinkedTotal}.</div>` : ''}
     </div>` : '';
 
+  // ── Portal vendors with no TallyUID ───────────────────────────────────
+  // Since TallyUID is the only matcher, these are simply not being reconciled.
+  // Reported apart from mismatches: nothing is known about Tally's view of them,
+  // so calling them "missing from Tally" would assert more than the data shows.
+  const up = s.unlinkedPortal || [];
+  const cover = (s.totalPortal || 0) ? Math.round((s.linkedPortal || 0) / s.totalPortal * 100) : 0;
+  const upCard = up.length ? `<div class="card" style="margin-bottom:.8rem">
+      <div style="padding:.55rem .8rem;border-bottom:1px solid var(--border);display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+        <b style="font-size:.85rem">&#9888; ${s.unlinkedPortalTotal || up.length} portal vendor${(s.unlinkedPortalTotal || up.length) === 1 ? '' : 's'} with a balance and no TallyUID</b>
+        <span style="font-size:.72rem;color:var(--txt3)">Not reconciled at all — paste the ledger's <b>$GUID</b> into <b>TallyUID</b> in Vendor Master.</span>
+      </div>
+      <div style="overflow-x:auto;max-height:240px"><table style="width:100%;border-collapse:collapse;font-size:.76rem">
+        <thead><tr style="background:var(--surface2);text-align:left;position:sticky;top:0">
+          <th style="padding:5px 9px">Vendor (Vendor Master)</th><th style="padding:5px 9px">Vendor ID</th>
+          <th style="padding:5px 9px;text-align:right">Portal Balance</th></tr></thead>
+        <tbody>${up.map(u => `<tr>
+          <td style="padding:4px 9px">${esc(u.name)}</td>
+          <td style="padding:4px 9px;font-family:ui-monospace,Menlo,monospace;font-size:.7rem">${esc(u.vid) || '—'}</td>
+          <td style="padding:4px 9px;text-align:right;font-weight:600">${_tvrSigned(u.portal)}</td></tr>`).join('')}</tbody>
+      </table></div>
+      ${(s.unlinkedPortalTotal || 0) > up.length ? `<div style="padding:.4rem .8rem;font-size:.71rem;color:var(--txt3);border-top:1px solid var(--border)">Showing ${up.length} of ${s.unlinkedPortalTotal}.</div>` : ''}
+    </div>` : '';
+
   const kpis = `<div class="evg-kpi-grid" style="margin-bottom:.8rem">
     ${evgKpiCard({ icon: '&#9888;&#65039;', value: ms.length, label: 'Open Mismatches', accent: ms.length ? '#dc2626' : '#16a34a' })}
     ${evgKpiCard({ icon: '&#128181;', value: _tvrInr(totalValue), label: 'Total Mismatch Value', accent: '#ea580c' })}
     ${evgKpiCard({ icon: '&#127970;', value: vendors, label: 'Vendors Affected', accent: '#7c3aed' })}
+    ${evgKpiCard({ icon: '&#128279;', value: (s.totalPortal ? `${s.linkedPortal}/${s.totalPortal}` : '—'), label: `Linked by TallyUID${s.totalPortal ? ` · ${cover}%` : ''}`, accent: cover >= 90 ? '#16a34a' : cover >= 50 ? '#ea580c' : '#dc2626' })}
     ${evgKpiCard({ icon: '&#128228;', value: tally.at ? esc(String(tally.at).split(' ')[0]) : '—', label: (isLatest ? 'Last Tally Upload' : 'Current Tally Upload (not this run)') + (tally.by ? ' · ' + esc(String(tally.by).split('@')[0]) : ''), accent: '#2563eb' })}
     ${evgKpiCard({ icon: stale ? '&#9203;' : '&#128248;', value: snap.at ? esc(String(snap.at).split(' ')[0]) : '—', label: (isLatest ? 'Last Portal Snapshot' : 'Current Snapshot (not this run)') + (staleHrs >= 0 ? ` · ${staleHrs}h ago` : ''), accent: stale ? '#dc2626' : '#16a34a' })}
   </div>`;
@@ -7068,7 +7092,7 @@ function _tvrOverviewView() {
 
   if (!ms.length) {
     const never = !s.runId;
-    return picker + histBanner + kpis + warn + signCard + gapCard + unlCard + meta + `<div class="card card-pad" style="text-align:center;padding:2.5rem;color:var(--txt3)">
+    return picker + histBanner + kpis + warn + signCard + gapCard + upCard + unlCard + meta + `<div class="card card-pad" style="text-align:center;padding:2.5rem;color:var(--txt3)">
       <div style="font-size:2rem;margin-bottom:.4rem">${never ? '&#128203;' : '&#9989;'}</div>
       <div style="font-weight:700;color:var(--txt2)">${never ? 'No reconciliation has run yet' : 'No mismatches — Tally and the portal agree'}</div>
       <div style="font-size:.82rem;margin-top:.35rem">${never ? 'Upload a Tally export, capture a snapshot, then run the reconcile.' : 'Every vendor\'s closing balance matched within ₹1.'}</div>
@@ -7095,7 +7119,7 @@ function _tvrOverviewView() {
     </tr>`;
   }).join('');
 
-  return picker + histBanner + kpis + warn + signCard + gapCard + unlCard + meta + `<div class="card"><div style="overflow-x:auto">
+  return picker + histBanner + kpis + warn + signCard + gapCard + upCard + unlCard + meta + `<div class="card"><div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Vendor <span style="font-weight:400;opacity:.7">(Vendor Master)</span></th>
@@ -7459,7 +7483,12 @@ window._tvrRunReconcile = async function (btn) {
   if (btn) { btn.disabled = false; btn.innerHTML = '&#9889; Run Reconcile'; }
   if (resp && resp.success !== false) {
     const mails = (resp.emails || []).reduce((t, e) => t + e.count, 0);
-    _accToast(`✅ ${resp.mismatches} mismatch(es) · ${mails} notified (${resp.mode})`);
+    const errs = resp.emailErrors || [];
+    // The reconciliation is written to the sheet before any mail is sent, so a
+    // failed send never means a lost run — say so rather than showing a bare tick.
+    _accToast(errs.length
+      ? `⚠ ${resp.mismatches} mismatch(es) saved, but ${errs.length} email(s) failed: ${_mdpEsc(errs[0].error || '')}`
+      : `✅ ${resp.mismatches} mismatch(es) · ${mails} notified (${resp.mode})`);
     await _tvrLoad();
   } else {
     _accToast('⚠ ' + ((resp && resp.message) || 'Reconcile failed'));

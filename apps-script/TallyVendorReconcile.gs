@@ -85,6 +85,11 @@ var TVR_TAB_MISMATCH = 'Mismatches';
 // Balances within this many rupees of each other are treated as equal — Tally
 // and the portal round differently, so an exact compare would flag everything.
 var TVR_TOLERANCE = 1;
+// Rows rendered inline in the mail. Beyond this the full list goes as a CSV
+// attachment instead: Apps Script caps the message BODY well below the overall
+// message size, and a first run with hundreds of mismatches blew that limit
+// ("Limit Exceeded: Email Body Size"), which previously failed the whole run.
+var TVR_EMAIL_MAX_ROWS = 60;
 // A snapshot older than this is flagged as stale in the email.
 var TVR_STALE_HOURS = 30;
 
@@ -97,7 +102,8 @@ var TVR_TEST_RECIPIENT = 'admin@evgcpl.com';
 // feature that needs it. Editing a .gs file is not enough: Apps Script serves
 // the last DEPLOYED snapshot, so a redeploy is always required.
 //   1 = initial   2 = +tvrGetBatch/history   3 = +tvrSetSign, GUID matching
-var TVR_BACKEND_VERSION = 3;
+//   4 = TallyUID is the ONLY matcher; portal-side unlinked + coverage reported
+var TVR_BACKEND_VERSION = 4;
 
 // Tally's $_ClosingBalance sign convention is NOT self-evident from the export:
 // in the sample, Sundry Creditors carried both signs (197 positive, 180
@@ -457,14 +463,17 @@ function _tvrDiff(tallyRows, snapRows) {
 
   var mismatches = [], unlinked = [], matched = [];
   T.forEach(function (t) {
+    // TallyUID in Vendor Master is an exact copy of Tally's $GUID, so it is the
+    // ONLY matcher. Name and Vendor-ID-code fallbacks were removed deliberately:
+    // once a definitive key exists, a fuzzy fallback can only ever pair the
+    // wrong two ledgers — and it would do so silently, producing a confident
+    // balance comparison between unrelated accounts. A vendor with no TallyUID
+    // is reported as unlinked (on whichever side it is missing), never guessed.
     var m = pick(byUid, t.guid), how = 'guid';
-    if (!m) { m = pick(byAcc, t.vidInName); how = 'vid-in-name'; }
-    if (!m) { m = pick(byAcc, t.acc); how = 'acc'; }
-    if (!m) { m = pick(byName, t.name); how = 'name'; }
     if (!m) {
-      // Not a portal vendor, or not linked yet. Only worth surfacing if it
-      // actually holds money. vidInName rides along so the portal can say
-      // "this looks like MV10" and make linking a one-step job.
+      // No Vendor Master row carries this GUID. Only worth surfacing if it holds
+      // money. vidInName is carried purely as a SUGGESTION for whoever fills in
+      // TallyUID — it never takes part in matching.
       if (Math.abs(t.bal) > TVR_TOLERANCE) {
         unlinked.push({ name: t.name, acc: t.acc, guid: t.guid, parent: t.parent,
                         tally: t.bal, raw: t.raw, vidInName: t.vidInName });
@@ -484,10 +493,19 @@ function _tvrDiff(tallyRows, snapRows) {
     }
   });
 
-  // Portal vendors with a real balance that Tally never mentioned.
+  // Portal vendors left over. Two very different situations, kept apart:
+  //   • no TallyUID       → not linked yet. Nothing is known about Tally's view
+  //                         of this vendor, so calling it "missing from Tally"
+  //                         would be an assertion the data does not support.
+  //   • has a TallyUID    → genuinely absent from the export. A real finding.
+  var unlinkedPortal = [];
   S.forEach(function (s) {
     if (s.used) return;
     if (Math.abs(s.bal) <= TVR_TOLERANCE) return;
+    if (!s.uid) {
+      unlinkedPortal.push({ name: s.name, vid: s.acc, portal: s.bal });
+      return;
+    }
     mismatches.push({ name: s.name, tallyName: '', acc: s.acc, guid: '', vid: s.acc,
                       tallyUid: s.uid, matchedBy: '',
                       tally: '', portal: s.bal, diff: -s.bal, type: 'missing-in-tally' });
@@ -495,7 +513,14 @@ function _tvrDiff(tallyRows, snapRows) {
 
   mismatches.sort(function (a, b) { return Math.abs(b.diff) - Math.abs(a.diff); });
   unlinked.sort(function (a, b) { return Math.abs(b.tally) - Math.abs(a.tally); });
-  return { mismatches: mismatches, unlinked: unlinked, matched: matched };
+  unlinkedPortal.sort(function (a, b) { return Math.abs(b.portal) - Math.abs(a.portal); });
+  // linkedPortal / totalPortal give the coverage figure: how much of the vendor
+  // book is actually being reconciled, which strict matching makes essential to
+  // show — an empty mismatch list means nothing if only a handful are linked.
+  var linkedPortal = 0;
+  S.forEach(function (s) { if (s.uid) linkedPortal++; });
+  return { mismatches: mismatches, unlinked: unlinked, matched: matched,
+           unlinkedPortal: unlinkedPortal, linkedPortal: linkedPortal, totalPortal: S.length };
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -584,13 +609,26 @@ function runDailyVendorReconcile(opts) {
 
   var staleHrs = _tvrAgeHours(snap.at);
   var sent = [];
+  var emailErrors = [];
   if (!opts.skipEmail) {
     Object.keys(buckets).forEach(function (k) {
       var b = buckets[k];
       var to = _tvrSendAll() ? b.recipients.join(',') : TVR_TEST_RECIPIENT;
-      MailApp.sendEmail(to, _tvrSubject(b.items, dateStr), _tvrBody(b.items, dateStr, tally, snap, staleHrs),
-                        { name: 'EVGCPL Portal', htmlBody: _tvrHtml(b.items, dateStr, tally, snap, staleHrs) });
-      sent.push({ to: to, count: b.items.length });
+      // The reconciliation itself has already been written to the sheet by this
+      // point. A mail that can't be delivered must not throw that away, so each
+      // send is isolated and its failure reported rather than raised.
+      try {
+        var opt = { name: 'EVGCPL Portal', htmlBody: _tvrHtml(b.items, dateStr, tally, snap, staleHrs) };
+        if (b.items.length > TVR_EMAIL_MAX_ROWS) {
+          opt.attachments = [Utilities.newBlob('\ufeff' + _tvrCsv(b.items), 'text/csv',
+                             'mismatches_' + runId + '.csv')];   // BOM so Excel opens it as UTF-8
+        }
+        MailApp.sendEmail(to, _tvrSubject(b.items, dateStr),
+                          _tvrBody(b.items, dateStr, tally, snap, staleHrs), opt);
+        sent.push({ to: to, count: b.items.length });
+      } catch (err) {
+        emailErrors.push({ to: to, count: b.items.length, error: String(err && err.message || err) });
+      }
     });
   }
 
@@ -602,7 +640,8 @@ function runDailyVendorReconcile(opts) {
     tallyLedgers: tally.rows.length, unlinked: diff.unlinked.length,
     emails: sent, mode: _tvrSendAll() ? 'ALL' : 'TEST', snapshotAgeHours: staleHrs,
     tallyBatch: tally.batchId, snapshotBatch: snap.batchId,
-    historical: historical, emailed: !opts.skipEmail, signFlip: _tvrSignFlip()
+    historical: historical, emailed: !opts.skipEmail, signFlip: _tvrSignFlip(),
+    emailErrors: emailErrors
   };
 }
 
@@ -611,6 +650,22 @@ function _tvrAgeHours(at) {
   var t = Date.parse(String(at || '').replace(/-/g, ' '));
   if (isNaN(t)) return -1;
   return Math.round((Date.now() - t) / 36e5);
+}
+
+// Full mismatch list for the attachment — every row, no cap.
+function _tvrCsv(items) {
+  var esc = function (v) {
+    v = (v == null ? '' : String(v));
+    return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  };
+  var lines = [['Vendor (Vendor Master)', 'Vendor ID', 'Tally UID', 'Tally Name',
+                'Tally Balance', 'Portal Balance', 'Difference', 'Type', 'Matched By'].join(',')];
+  items.forEach(function (m) {
+    lines.push([m.name, m.vid || '', m.tallyUid || '', m.tallyName || '',
+                m.tally === '' ? '' : m.tally, m.portal === '' ? '' : m.portal,
+                m.diff, _tvrTypeLabel(m.type), m.matchedBy || ''].map(esc).join(','));
+  });
+  return lines.join('\r\n');
 }
 
 function _tvrSubject(items, dateStr) {
@@ -637,7 +692,13 @@ function _tvrBody(items, dateStr, tally, snap, staleHrs) {
   lines.push('Tally export uploaded ' + tally.at + ' by ' + tally.by + ' (' + tally.rows.length + ' vendors).');
   lines.push('Portal snapshot captured ' + snap.at + ' by ' + snap.by + ' (' + snap.rows.length + ' vendors).');
   lines.push('');
-  items.forEach(function (m) {
+  var shown = items.slice(0, TVR_EMAIL_MAX_ROWS);
+  if (items.length > shown.length) {
+    lines.push('Showing the largest ' + shown.length + ' of ' + items.length +
+               ' — the full list is attached as CSV.');
+    lines.push('');
+  }
+  shown.forEach(function (m) {
     lines.push('• ' + m.name + (m.acc ? ' [' + m.acc + ']' : ''));
     lines.push('    Tally: ' + (m.tally === '' ? '—' : _tvrInr(m.tally)) +
                '   Portal: ' + (m.portal === '' ? '—' : _tvrInr(m.portal)) +
@@ -656,7 +717,12 @@ function _tvrHtml(items, dateStr, tally, snap, staleHrs) {
     ? '<p style="background:#fef3c7;border-left:4px solid #f59e0b;padding:10px 12px;margin:0 0 14px;font-size:13px">' +
       '<b>Snapshot is ' + staleHrs + ' hours old</b> (captured ' + esc(snap.at) + '). Open the Vendor Ledger page in the portal to refresh it, then re-run.</p>'
     : '';
-  var rows = items.map(function (m) {
+  var shown = items.slice(0, TVR_EMAIL_MAX_ROWS);
+  var moreNote = items.length > shown.length
+    ? '<p style="font-size:12px;color:#6b7280;margin:0 0 10px">Showing the largest <b>' + shown.length +
+      '</b> of <b>' + items.length + '</b>. The full list is attached as a CSV.</p>'
+    : '';
+  var rows = shown.map(function (m) {
     var col = m.diff >= 0 ? '#b45309' : '#1d4ed8';
     return '<tr>' +
       '<td style="padding:6px 9px;border-bottom:1px solid #e5e7eb">' + esc(m.name) +
@@ -673,6 +739,7 @@ function _tvrHtml(items, dateStr, tally, snap, staleHrs) {
     '<p style="font-size:12px;color:#6b7280;margin:0 0 12px">' +
       'Tally export uploaded ' + esc(tally.at) + ' by ' + esc(tally.by) + ' (' + tally.rows.length + ' vendors)<br>' +
       'Portal snapshot captured ' + esc(snap.at) + ' by ' + esc(snap.by) + ' (' + snap.rows.length + ' vendors)</p>' +
+    moreNote +
     '<table style="border-collapse:collapse;font-size:13px;width:100%">' +
     '<thead><tr style="background:#1f2937;color:#fff;text-align:left">' +
       '<th style="padding:8px 9px">Vendor</th><th style="padding:8px 9px;text-align:right">Tally</th>' +
@@ -744,6 +811,10 @@ function tvrGetStatus(body) {
     signFlip: _tvrSignFlip(),
     unlinked: live.unlinked.slice(0, 200),
     unlinkedTotal: live.unlinked.length,
+    unlinkedPortal: (live.unlinkedPortal || []).slice(0, 200),
+    unlinkedPortalTotal: (live.unlinkedPortal || []).length,
+    linkedPortal: live.linkedPortal || 0,
+    totalPortal: live.totalPortal || 0,
     matchedCount: live.matched.length,
     // A few matched pairs, biggest first — enough to eyeball the sign convention.
     signCheck: live.matched.slice().sort(function (a, b) {
