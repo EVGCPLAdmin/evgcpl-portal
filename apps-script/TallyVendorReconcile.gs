@@ -90,6 +90,15 @@ var TVR_STALE_HOURS = 30;
 
 var TVR_TEST_RECIPIENT = 'admin@evgcpl.com';
 
+// Bumped whenever this file gains an action or changes a stored shape. The
+// portal compares it against the build it expects and says plainly when the
+// deployed script is older — otherwise a stale deployment surfaces only as a
+// cryptic "Unknown POST action: <name>" at the moment someone clicks the
+// feature that needs it. Editing a .gs file is not enough: Apps Script serves
+// the last DEPLOYED snapshot, so a redeploy is always required.
+//   1 = initial   2 = +tvrGetBatch/history   3 = +tvrSetSign, GUID matching
+var TVR_BACKEND_VERSION = 3;
+
 // Tally's $_ClosingBalance sign convention is NOT self-evident from the export:
 // in the sample, Sundry Creditors carried both signs (197 positive, 180
 // negative), so "creditors are negative" does not hold. The portal's own
@@ -124,7 +133,7 @@ var TVR_HEADERS = {};
 TVR_HEADERS[TVR_TAB_TALLY]    = ['UploadedAt', 'UploadedBy', 'BatchId', 'Vendor Name', 'A/C Number', 'Closing Balance', 'GUID', 'Parent'];
 TVR_HEADERS[TVR_TAB_SNAPSHOT] = ['UploadedAt', 'UploadedBy', 'BatchId', 'Vendor Name', 'A/C Number', 'Closing Balance', 'TallyUID'];
 TVR_HEADERS[TVR_TAB_RULES]    = ['RuleID', 'MinAmount', 'MaxAmount', 'Recipients', 'Label', 'Active'];
-TVR_HEADERS[TVR_TAB_MISMATCH] = ['Date', 'RunId', 'Vendor Name', 'A/C Number', 'TallyBalance', 'PortalBalance', 'Diff', 'Type', 'NotifiedTo', 'RuleLabel', 'GUID', 'MatchedBy'];
+TVR_HEADERS[TVR_TAB_MISMATCH] = ['Date', 'RunId', 'Vendor Name', 'A/C Number', 'TallyBalance', 'PortalBalance', 'Diff', 'Type', 'NotifiedTo', 'RuleLabel', 'GUID', 'MatchedBy', 'Vendor ID', 'TallyUID'];
 
 // Seeded on first use so the rules table is never empty (an empty table would
 // silently route nothing). Edit from the portal's Rules tab, not here.
@@ -399,6 +408,17 @@ function _tvrBatchLog(tab, limit) {
 //
 // Returns { mismatches, unlinked, matched } where `matched` backs the
 // sign-convention check in the portal.
+// Their Tally ledgers embed the portal Vendor ID as a name suffix —
+// "Srons Engineers Private Limited-MV10" against Vendor ID MV10. In the sample
+// export 248 of 1,169 ledgers used it and 245 of those were Sundry Creditors,
+// so this one rule links most vendors before a single TallyUID is filled in.
+// Kept strict (a trailing -LETTERS+DIGITS token only) and only accepted when it
+// equals a real Vendor ID, so it can't invent a match.
+function _tvrVidInName(n) {
+  var m = /-\s*([A-Za-z]{1,6}\d{1,6})\s*$/.exec(String(n || ''));
+  return m ? m[1] : '';
+}
+
 function _tvrDiff(tallyRows, snapRows) {
   var T = tallyRows.map(function (r) {
     return {
@@ -408,6 +428,7 @@ function _tvrDiff(tallyRows, snapRows) {
       parent: String(r['Parent'] || '').trim(),
       raw: _tvrNum(r['Closing Balance']),        // exactly as Tally exported it
       bal: _tvrTallyBal(r['Closing Balance']),   // in the portal's convention
+      vidInName: _tvrVidInName(r['Vendor Name']),
       used: false
     };
   }).filter(function (r) { return r.name; });
@@ -437,21 +458,28 @@ function _tvrDiff(tallyRows, snapRows) {
   var mismatches = [], unlinked = [], matched = [];
   T.forEach(function (t) {
     var m = pick(byUid, t.guid), how = 'guid';
+    if (!m) { m = pick(byAcc, t.vidInName); how = 'vid-in-name'; }
     if (!m) { m = pick(byAcc, t.acc); how = 'acc'; }
     if (!m) { m = pick(byName, t.name); how = 'name'; }
     if (!m) {
       // Not a portal vendor, or not linked yet. Only worth surfacing if it
-      // actually holds money.
+      // actually holds money. vidInName rides along so the portal can say
+      // "this looks like MV10" and make linking a one-step job.
       if (Math.abs(t.bal) > TVR_TOLERANCE) {
-        unlinked.push({ name: t.name, acc: t.acc, guid: t.guid, parent: t.parent, tally: t.bal, raw: t.raw });
+        unlinked.push({ name: t.name, acc: t.acc, guid: t.guid, parent: t.parent,
+                        tally: t.bal, raw: t.raw, vidInName: t.vidInName });
       }
       return;
     }
     m.used = true; t.used = true;
-    matched.push({ name: m.name || t.name, guid: t.guid, matchedBy: how, tallyRaw: t.raw, tally: t.bal, portal: m.bal });
+    // The displayed name is always the portal's (Vendor Master) spelling; Tally's
+    // is kept alongside so a naming difference is visible rather than confusing.
+    matched.push({ name: m.name || t.name, tallyName: t.name, guid: t.guid, vid: m.acc,
+                   tallyUid: m.uid, matchedBy: how, tallyRaw: t.raw, tally: t.bal, portal: m.bal });
     var diff = t.bal - m.bal;
     if (Math.abs(diff) > TVR_TOLERANCE) {
-      mismatches.push({ name: m.name || t.name, acc: t.acc || m.acc, guid: t.guid, matchedBy: how,
+      mismatches.push({ name: m.name || t.name, tallyName: t.name, acc: t.acc || m.acc,
+                        guid: t.guid, vid: m.acc, tallyUid: m.uid, matchedBy: how,
                         tally: t.bal, portal: m.bal, diff: diff, type: 'balance-diff' });
     }
   });
@@ -460,7 +488,8 @@ function _tvrDiff(tallyRows, snapRows) {
   S.forEach(function (s) {
     if (s.used) return;
     if (Math.abs(s.bal) <= TVR_TOLERANCE) return;
-    mismatches.push({ name: s.name, acc: s.acc, guid: '', matchedBy: '',
+    mismatches.push({ name: s.name, tallyName: '', acc: s.acc, guid: '', vid: s.acc,
+                      tallyUid: s.uid, matchedBy: '',
                       tally: '', portal: s.bal, diff: -s.bal, type: 'missing-in-tally' });
   });
 
@@ -547,7 +576,8 @@ function runDailyVendorReconcile(opts) {
     var sh = _tvrSheet(TVR_TAB_MISMATCH);
     var rows = mismatches.map(function (m) {
       return [dateStr, runId, m.name, m.acc, m.tally, m.portal, m.diff, m.type,
-              m.notifiedTo, m.rule ? m.rule.label : 'UNROUTED', m.guid || '', m.matchedBy || ''];
+              m.notifiedTo, m.rule ? m.rule.label : 'UNROUTED', m.guid || '', m.matchedBy || '',
+              m.vid || '', m.tallyUid || ''];
     });
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
   }
@@ -710,6 +740,7 @@ function tvrGetStatus(body) {
 
   return {
     success: true,
+    backendVersion: TVR_BACKEND_VERSION,
     signFlip: _tvrSignFlip(),
     unlinked: live.unlinked.slice(0, 200),
     unlinkedTotal: live.unlinked.length,
@@ -733,7 +764,8 @@ function tvrGetStatus(body) {
         tally: r['TallyBalance'], portal: r['PortalBalance'], diff: _tvrNum(r['Diff']),
         type: String(r['Type'] || ''), notifiedTo: String(r['NotifiedTo'] || ''),
         ruleLabel: String(r['RuleLabel'] || ''), guid: String(r['GUID'] || ''),
-        matchedBy: String(r['MatchedBy'] || '')
+        matchedBy: String(r['MatchedBy'] || ''), vid: String(r['Vendor ID'] || ''),
+        tallyUid: String(r['TallyUID'] || '')
       };
     }),
     rules: _tvrRows(TVR_TAB_RULES).map(function (r) {
