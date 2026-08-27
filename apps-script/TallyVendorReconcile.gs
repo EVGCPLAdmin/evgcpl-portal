@@ -41,11 +41,30 @@
  *        if (action === 'tvrGetBatch')   return tvrGetBatch(body);
  *        if (action === 'tvrSaveRules')  return tvrSaveRules(body);
  *        if (action === 'tvrRunNow')     return tvrRunNow(body);
+ *        if (action === 'tvrSetSign')    return tvrSetSign(body);
  *
  *   3. Run  installVendorReconcileTrigger()  once → authorises the script and
  *      creates the daily 08:30 trigger. The four tabs are created automatically
  *      on first use, so there is nothing to hand-build.
  *   4. Run  tvrTestNow()  to reconcile + email immediately without waiting.
+ *
+ * ── Linking a vendor (this is what makes the match work) ───────────────
+ *   The join is Tally's $GUID against a TallyUID column in the Vendor Master
+ *   tab (7-VendorMaster_Actual). The Tally export is the WHOLE chart of
+ *   accounts — in the sample, 1,169 ledgers of which only 587 were Sundry
+ *   Creditors — so a ledger is only reconciled once its GUID is recorded
+ *   against a vendor. Unlinked ledgers holding a balance are listed on the
+ *   portal page as "needs linking" rather than reported as mismatches.
+ *   Name and A/C matching remain as fallbacks for vendors not yet linked.
+ *
+ * ── Sign convention ───────────────────────────────────────────────────
+ *   Tally's $_ClosingBalance sign is not self-evident and was NOT assumed:
+ *   in the sample, Sundry Creditors carried both signs. Figures are stored
+ *   exactly as exported and converted at compare time via TVR_SIGN_FLIP.
+ *   The portal's Overview shows the matched pairs side by side with the
+ *   total difference each way, so the correct setting is obvious on the
+ *   first upload; one button (tvrSetSign) switches it, and because the flip
+ *   happens at compare time nothing needs re-uploading.
  *
  * ── Recipients (test → all) ────────────────────────────────────────────
  *   Starts in TEST mode: every mail goes ONLY to TVR_TEST_RECIPIENT, whatever
@@ -71,11 +90,41 @@ var TVR_STALE_HOURS = 30;
 
 var TVR_TEST_RECIPIENT = 'admin@evgcpl.com';
 
+// Tally's $_ClosingBalance sign convention is NOT self-evident from the export:
+// in the sample, Sundry Creditors carried both signs (197 positive, 180
+// negative), so "creditors are negative" does not hold. The portal's own
+// convention is fixed and documented (_vplpBalStatus: a POSITIVE balance means
+// we owe the vendor). Rather than guess — a wrong guess inverts every
+// comparison and reports a false mismatch of roughly double the balance for
+// every vendor — Tally figures are stored EXACTLY as exported and the flip is
+// applied at compare time from this flag, so changing it re-reconciles without
+// re-uploading anything. Set it from the portal once the first upload's
+// side-by-side makes the convention obvious.
+function _tvrSignFlip() {
+  return PropertiesService.getScriptProperties().getProperty('TVR_SIGN_FLIP') === 'true';
+}
+function tvrSetSign(body) {
+  body = body || {};
+  var flip = !!body.flip;
+  if (flip) PropertiesService.getScriptProperties().setProperty('TVR_SIGN_FLIP', 'true');
+  else PropertiesService.getScriptProperties().deleteProperty('TVR_SIGN_FLIP');
+  return { success: true, signFlip: flip,
+           message: flip ? 'Tally balances will be negated before comparing.'
+                         : 'Tally balances will be compared as exported.' };
+}
+// One place that turns a stored Tally figure into the portal's convention.
+function _tvrTallyBal(v) { var n = _tvrNum(v); return _tvrSignFlip() ? -n : n; }
+
 var TVR_HEADERS = {};
-TVR_HEADERS[TVR_TAB_TALLY]    = ['UploadedAt', 'UploadedBy', 'BatchId', 'Vendor Name', 'A/C Number', 'Closing Balance'];
-TVR_HEADERS[TVR_TAB_SNAPSHOT] = ['UploadedAt', 'UploadedBy', 'BatchId', 'Vendor Name', 'A/C Number', 'Closing Balance'];
+// GUID (Tally's $GUID) and TallyUID (the Vendor Master column) are the real
+// join between the two systems; name and A/C stay as fallbacks for ledgers that
+// haven't been linked yet. Parent is Tally's ledger group ("Sundry Creditors",
+// "Employee Creditors", …) — kept so an unlinked ledger can be identified
+// without going back to Tally.
+TVR_HEADERS[TVR_TAB_TALLY]    = ['UploadedAt', 'UploadedBy', 'BatchId', 'Vendor Name', 'A/C Number', 'Closing Balance', 'GUID', 'Parent'];
+TVR_HEADERS[TVR_TAB_SNAPSHOT] = ['UploadedAt', 'UploadedBy', 'BatchId', 'Vendor Name', 'A/C Number', 'Closing Balance', 'TallyUID'];
 TVR_HEADERS[TVR_TAB_RULES]    = ['RuleID', 'MinAmount', 'MaxAmount', 'Recipients', 'Label', 'Active'];
-TVR_HEADERS[TVR_TAB_MISMATCH] = ['Date', 'RunId', 'Vendor Name', 'A/C Number', 'TallyBalance', 'PortalBalance', 'Diff', 'Type', 'NotifiedTo', 'RuleLabel'];
+TVR_HEADERS[TVR_TAB_MISMATCH] = ['Date', 'RunId', 'Vendor Name', 'A/C Number', 'TallyBalance', 'PortalBalance', 'Diff', 'Type', 'NotifiedTo', 'RuleLabel', 'GUID', 'MatchedBy'];
 
 // Seeded on first use so the rules table is never empty (an empty table would
 // silently route nothing). Edit from the portal's Rules tab, not here.
@@ -229,7 +278,12 @@ function tvrSaveBatch(body) {
     var r = rows[i] || {};
     var name = String(r.name == null ? '' : r.name).trim();
     if (!name) continue;                       // a nameless row can never be matched
-    out.push([at, by, batchId, name, String(r.acc == null ? '' : r.acc).trim(), _tvrNum(r.balance)]);
+    var base = [at, by, batchId, name, String(r.acc == null ? '' : r.acc).trim(), _tvrNum(r.balance)];
+    // Tally rows carry the ledger GUID + group; snapshot rows carry the Vendor
+    // Master TallyUID. Stored raw — the sign flip happens at compare time.
+    if (kind === 'tally') base.push(String(r.guid == null ? '' : r.guid).trim(), String(r.parent == null ? '' : r.parent).trim());
+    else base.push(String(r.tallyUid == null ? '' : r.tallyUid).trim());
+    out.push(base);
   }
   if (!out.length) return { success: false, message: 'tvrSaveBatch: every row was missing a vendor name' };
 
@@ -328,52 +382,91 @@ function _tvrBatchLog(tab, limit) {
 // ledger exports often carry only the ledger name — so match on A/C first and
 // fall back to the normalised name for whatever is left over. Anything still
 // unmatched on either side is itself a reported mismatch.
+// Match Tally ledgers to portal vendors and classify every row.
+//
+// Join order, strongest first:
+//   1. GUID  — Tally's $GUID against the TallyUID column in Vendor Master. This
+//              is the only identifier both systems agree on by construction.
+//   2. A/C   — the portal's Vendor ID, when the Tally export happens to carry it.
+//   3. Name  — normalised, for ledgers not yet linked.
+//
+// The export is the WHOLE chart of accounts (in the sample, 1,169 ledgers of
+// which only 587 were Sundry Creditors — the rest bank, GST, salary, asset and
+// employee ledgers). Reporting every unmatched ledger as a mismatch would bury
+// the real ones under ~1,000 rows of noise, so anything that never matches is
+// returned separately as `unlinked` — non-zero ones only, since a zero-balance
+// ledger nobody linked is not worth anyone's attention.
+//
+// Returns { mismatches, unlinked, matched } where `matched` backs the
+// sign-convention check in the portal.
 function _tvrDiff(tallyRows, snapRows) {
-  var norm = function (list) {
-    return list.map(function (r) {
-      return {
-        name: String(r['Vendor Name'] || '').trim(),
-        acc: String(r['A/C Number'] || '').trim(),
-        bal: _tvrNum(r['Closing Balance']),
-        used: false
-      };
-    }).filter(function (r) { return r.name; });
-  };
-  var T = norm(tallyRows), S = norm(snapRows);
+  var T = tallyRows.map(function (r) {
+    return {
+      name: String(r['Vendor Name'] || '').trim(),
+      acc: String(r['A/C Number'] || '').trim(),
+      guid: String(r['GUID'] || '').trim(),
+      parent: String(r['Parent'] || '').trim(),
+      raw: _tvrNum(r['Closing Balance']),        // exactly as Tally exported it
+      bal: _tvrTallyBal(r['Closing Balance']),   // in the portal's convention
+      used: false
+    };
+  }).filter(function (r) { return r.name; });
 
-  var byAcc = {}, byName = {};
+  var S = snapRows.map(function (r) {
+    return {
+      name: String(r['Vendor Name'] || '').trim(),
+      acc: String(r['A/C Number'] || '').trim(),
+      uid: String(r['TallyUID'] || '').trim(),
+      bal: _tvrNum(r['Closing Balance']),
+      used: false
+    };
+  }).filter(function (r) { return r.name; });
+
+  var byUid = {}, byAcc = {}, byName = {};
   S.forEach(function (s) {
+    if (s.uid) { var u = _tvrNorm(s.uid); if (!byUid[u]) byUid[u] = s; }
     if (s.acc) { var a = _tvrNorm(s.acc); if (!byAcc[a]) byAcc[a] = s; }
     var n = _tvrNorm(s.name); if (!byName[n]) byName[n] = s;
   });
+  var pick = function (map, key) {
+    if (!key) return null;
+    var m = map[_tvrNorm(key)];
+    return (m && !m.used) ? m : null;
+  };
 
-  var out = [];
+  var mismatches = [], unlinked = [], matched = [];
   T.forEach(function (t) {
-    var m = null;
-    if (t.acc && byAcc[_tvrNorm(t.acc)] && !byAcc[_tvrNorm(t.acc)].used) m = byAcc[_tvrNorm(t.acc)];
-    if (!m && byName[_tvrNorm(t.name)] && !byName[_tvrNorm(t.name)].used) m = byName[_tvrNorm(t.name)];
+    var m = pick(byUid, t.guid), how = 'guid';
+    if (!m) { m = pick(byAcc, t.acc); how = 'acc'; }
+    if (!m) { m = pick(byName, t.name); how = 'name'; }
     if (!m) {
-      out.push({ name: t.name, acc: t.acc, tally: t.bal, portal: '', diff: t.bal, type: 'missing-in-portal' });
+      // Not a portal vendor, or not linked yet. Only worth surfacing if it
+      // actually holds money.
+      if (Math.abs(t.bal) > TVR_TOLERANCE) {
+        unlinked.push({ name: t.name, acc: t.acc, guid: t.guid, parent: t.parent, tally: t.bal, raw: t.raw });
+      }
       return;
     }
     m.used = true; t.used = true;
+    matched.push({ name: m.name || t.name, guid: t.guid, matchedBy: how, tallyRaw: t.raw, tally: t.bal, portal: m.bal });
     var diff = t.bal - m.bal;
     if (Math.abs(diff) > TVR_TOLERANCE) {
-      out.push({ name: m.name || t.name, acc: t.acc || m.acc, tally: t.bal, portal: m.bal, diff: diff, type: 'balance-diff' });
+      mismatches.push({ name: m.name || t.name, acc: t.acc || m.acc, guid: t.guid, matchedBy: how,
+                        tally: t.bal, portal: m.bal, diff: diff, type: 'balance-diff' });
     }
   });
 
-  // Vendors the portal knows about that never appeared in the Tally export.
-  // A zero-balance vendor missing from Tally is normal (nothing to post), so
-  // only a non-zero portal balance is worth anyone's attention.
+  // Portal vendors with a real balance that Tally never mentioned.
   S.forEach(function (s) {
     if (s.used) return;
     if (Math.abs(s.bal) <= TVR_TOLERANCE) return;
-    out.push({ name: s.name, acc: s.acc, tally: '', portal: s.bal, diff: -s.bal, type: 'missing-in-tally' });
+    mismatches.push({ name: s.name, acc: s.acc, guid: '', matchedBy: '',
+                      tally: '', portal: s.bal, diff: -s.bal, type: 'missing-in-tally' });
   });
 
-  out.sort(function (a, b) { return Math.abs(b.diff) - Math.abs(a.diff); });
-  return out;
+  mismatches.sort(function (a, b) { return Math.abs(b.diff) - Math.abs(a.diff); });
+  unlinked.sort(function (a, b) { return Math.abs(b.tally) - Math.abs(a.tally); });
+  return { mismatches: mismatches, unlinked: unlinked, matched: matched };
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -429,7 +522,8 @@ function runDailyVendorReconcile(opts) {
   if (!tally.rows.length) return { success: false, message: 'No Tally export has been uploaded yet.' };
   if (!snap.rows.length)  return { success: false, message: 'No vendor ledger snapshot has been captured yet.' };
 
-  var mismatches = _tvrDiff(tally.rows, snap.rows);
+  var diff = _tvrDiff(tally.rows, snap.rows);
+  var mismatches = diff.mismatches;
   var rules = _tvrRules();
   var now = new Date();
   var runId = 'RUN-' + Utilities.formatDate(now, _tvrTz(), 'yyyyMMdd-HHmmss');
@@ -453,7 +547,7 @@ function runDailyVendorReconcile(opts) {
     var sh = _tvrSheet(TVR_TAB_MISMATCH);
     var rows = mismatches.map(function (m) {
       return [dateStr, runId, m.name, m.acc, m.tally, m.portal, m.diff, m.type,
-              m.notifiedTo, m.rule ? m.rule.label : 'UNROUTED'];
+              m.notifiedTo, m.rule ? m.rule.label : 'UNROUTED', m.guid || '', m.matchedBy || ''];
     });
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
   }
@@ -472,10 +566,13 @@ function runDailyVendorReconcile(opts) {
 
   return {
     success: true, runId: runId, mismatches: mismatches.length,
-    vendorsCompared: tally.rows.length, emails: sent,
-    mode: _tvrSendAll() ? 'ALL' : 'TEST', snapshotAgeHours: staleHrs,
+    // vendorsCompared is the MATCHED count, not the export's row count — the
+    // export is the whole chart of accounts, so "1,169 compared" would be a lie.
+    vendorsCompared: diff.matched.length,
+    tallyLedgers: tally.rows.length, unlinked: diff.unlinked.length,
+    emails: sent, mode: _tvrSendAll() ? 'ALL' : 'TEST', snapshotAgeHours: staleHrs,
     tallyBatch: tally.batchId, snapshotBatch: snap.batchId,
-    historical: historical, emailed: !opts.skipEmail
+    historical: historical, emailed: !opts.skipEmail, signFlip: _tvrSignFlip()
   };
 }
 
@@ -605,8 +702,22 @@ function tvrGetStatus(body) {
   var wantRun = String(body.runId || '') || newestRun;
   var current = all.filter(function (r) { return String(r['RunId'] || '') === wantRun; });
 
+  // Recompute the current pairing so the portal can show what is linked, what
+  // isn't, and whether the sign convention looks right — all from stored data,
+  // no re-upload. Cheap: two flat tables.
+  var live = (tally.rows.length && snap.rows.length) ? _tvrDiff(tally.rows, snap.rows)
+                                                     : { mismatches: [], unlinked: [], matched: [] };
+
   return {
     success: true,
+    signFlip: _tvrSignFlip(),
+    unlinked: live.unlinked.slice(0, 200),
+    unlinkedTotal: live.unlinked.length,
+    matchedCount: live.matched.length,
+    // A few matched pairs, biggest first — enough to eyeball the sign convention.
+    signCheck: live.matched.slice().sort(function (a, b) {
+      return Math.abs(b.portal) - Math.abs(a.portal);
+    }).slice(0, 6),
     tally:    { batchId: tally.batchId, at: tally.at, by: tally.by, count: tally.rows.length },
     snapshot: { batchId: snap.batchId,  at: snap.at,  by: snap.by,  count: snap.rows.length },
     uploadLog: _tvrBatchLog(TVR_TAB_TALLY, body.logLimit || 15),
@@ -621,7 +732,8 @@ function tvrGetStatus(body) {
         name: String(r['Vendor Name'] || ''), acc: String(r['A/C Number'] || ''),
         tally: r['TallyBalance'], portal: r['PortalBalance'], diff: _tvrNum(r['Diff']),
         type: String(r['Type'] || ''), notifiedTo: String(r['NotifiedTo'] || ''),
-        ruleLabel: String(r['RuleLabel'] || '')
+        ruleLabel: String(r['RuleLabel'] || ''), guid: String(r['GUID'] || ''),
+        matchedBy: String(r['MatchedBy'] || '')
       };
     }),
     rules: _tvrRows(TVR_TAB_RULES).map(function (r) {

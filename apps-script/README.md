@@ -30,7 +30,7 @@ and can be overridden per-environment from **Config → 🔗 Apps Script Endpoin
 | `SheetDiagnostic.gs` | `diagnoseSheet`, `listShares` — server-side sharing checks | Powers the Sharing-Doctor page |
 | `PCCHandlers.gs` | The 10 Project Cost Control actions: `saveProjectSetup`, `saveBOQ`, `saveWBS`, `saveWorkplan`, `saveManpower`, `saveMachinery`, `saveMaterials`, `saveOverheads`, `saveVariations`, `submitBudgetApproval` | Backed by sheet `1dQow9nD…` |
 | `WorkplanHandlers.gs` | Optional helper file for workplan-specific logic if you want to split it out | Not currently routed; merged into PCCHandlers |
-| `TallyVendorReconcile.gs` | Tally-vs-portal vendor reconciliation: `tvrSaveBatch`, `tvrGetStatus`, `tvrGetBatch`, `tvrSaveRules`, `tvrRunNow`, plus the daily 08:30 trigger `runDailyVendorReconcile` | Deployed in the **Accounts** project (with its own `Router.gs`), not `main`. Creates its four tabs on first use. |
+| `TallyVendorReconcile.gs` | Tally-vs-portal vendor reconciliation: `tvrSaveBatch`, `tvrGetStatus`, `tvrGetBatch`, `tvrSaveRules`, `tvrRunNow`, `tvrSetSign`, plus the daily 08:30 trigger `runDailyVendorReconcile` | Deployed in the **Accounts** project (with its own `Router.gs`), not `main`. Creates its four tabs on first use. |
 | `WORKPLAN_SCHEMA.md` | Reference for the per-activity Workplan schema (15 columns) | Documentation only |
 
 ---
@@ -74,6 +74,17 @@ After editing any `.gs` file:
 
 > **Common gotcha:** Apps Script Web Apps cache the deployed snapshot. Editing a `.gs` file is **not enough** — you have to redeploy a new version for the change to be visible at the exec URL.
 
+> **Do NOT use `Deploy → New deployment` to ship a code change.** That creates a
+> *second* deployment with a **different** `/exec` URL, and the original keeps
+> serving the OLD code instead of failing. Nothing errors — every portal still
+> holding the old URL just silently runs against a stale backend until the value
+> in `EXEC_REGISTRY_DEFAULTS` (and any saved override) is updated everywhere. Use
+> `Manage deployments → ✏️ → Version: New version` instead: same URL, forever.
+>
+> If you already have a new URL and need the portal on it now, you do not need a
+> code release — paste it into **Config → 🔗 Apps Script Endpoints** and use
+> **⬇ Force update Sheets & T1** to push it org-wide via the PortalConfig sheet.
+
 ---
 
 ## Testing a deployment
@@ -113,7 +124,7 @@ These are the actions the Router knows about, by category. If the portal posts a
 | Sheet | `diagnoseSheet`, `listShares` |
 | PCC | `saveProjectSetup`, `saveBOQ`, `saveWBS`, `saveWorkplan`, `saveManpower`, `saveMachinery`, `saveMaterials`, `saveOverheads`, `saveVariations`, `submitBudgetApproval` |
 | Accounts | `saveNewPaymentRequest`, `saveAccountsUpdate`, `saveVendorOpeningBalance`, `createPRFolder`, `uploadPRAttachment`, `listPRAttachments` |
-| Reconciliation | `tvrSaveBatch`, `tvrGetStatus`, `tvrGetBatch`, `tvrSaveRules`, `tvrRunNow` |
+| Reconciliation | `tvrSaveBatch`, `tvrGetStatus`, `tvrGetBatch`, `tvrSaveRules`, `tvrRunNow`, `tvrSetSign` |
 | Portal config | `savePortalConfig`, `getPortalConfig` |
 | PIN | `verifyPin`, `resetPin` |
 

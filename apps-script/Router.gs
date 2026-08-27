@@ -55,6 +55,7 @@ function doPost(e) {
     if (action === 'tvrGetBatch')              return _wrap(tvrGetBatch(body));
     if (action === 'tvrSaveRules')             return _wrap(tvrSaveRules(body));
     if (action === 'tvrRunNow')                return _wrap(tvrRunNow(body));
+    if (action === 'tvrSetSign')               return _wrap(tvrSetSign(body));
 
     // ── AI (AIChat.gs / AiProxy.gs) ────────────────────────────
     if (action === 'aiChat')                   return aiChat(body);
