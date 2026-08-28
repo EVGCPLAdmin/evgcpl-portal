@@ -6591,7 +6591,7 @@ const _TVR_SNAP_LS = 'evg_tvr_last_snapshot';   // yyyy-mm-dd of the last auto-s
 // behind this build. Without this check a stale deployment shows up only as
 // "Unknown POST action: tvrGetBatch" the moment someone clicks the feature that
 // needs it — an error that says nothing about the actual cause.
-const TVR_REQUIRED_BACKEND = 6;
+const TVR_REQUIRED_BACKEND = 7;
 
 async function _tvrPost(payload) {
   let res;
@@ -6948,8 +6948,8 @@ function _tvrRenderBody() {
       <b>&#9888; The deployed Apps Script is older than this portal build</b>
       <span style="color:var(--txt3)">(reports v${bv || '—'}, needs v${TVR_REQUIRED_BACKEND})</span>
       <div style="margin-top:.35rem;color:var(--txt2);line-height:1.55">
-        Actions added since that deployment fail with <code>Unknown POST action</code> — <code>tvrGetBatch</code> (viewing a stored batch) and <code>tvrSetSign</code> (the sign convention). Matching also still uses the old name-only rules, which is why one vendor can appear twice: once "in Tally, not in portal" and once the reverse.
-        <div style="margin-top:.3rem">Fix: in the Apps Script project, paste the current <code>TallyVendorReconcile.gs</code> <b>and</b> <code>Router.gs</code>, then <b>Deploy &rarr; Manage deployments &rarr; &#9998; &rarr; Version: New version</b>. Editing the files is not enough — Apps Script serves the last deployed snapshot. Then press <b>&#9889; Run Reconcile</b> to rebuild the comparison.</div>
+        ${bv && bv < 5 ? `<b>This is why every vendor is showing as &ldquo;In portal, not in Tally&rdquo; with a blank Tally UID and Vendor ID.</b> Before v5 the script only wrote a tab&rsquo;s header row when it <i>created</i> the tab, so the GUID / TallyUID / Vendor&nbsp;ID columns were written into tabs that had no header for them &mdash; and were then dropped on read. Nothing can match without the GUID, so every portal vendor falls out the other side. The figures themselves are fine; the comparison never happened.` : `Actions added since that deployment fail with <code>Unknown POST action</code>, and Vendor&nbsp;ID / Tally&nbsp;UID may come back blank.`}
+        <div style="margin-top:.3rem">Fix: in the Apps Script project, <b>select all in the editor and replace</b> the contents of <code>TallyVendorReconcile.gs</code> <b>and</b> <code>Router.gs</code> &mdash; adding a new deployment does not change the code &mdash; then <b>Deploy &rarr; Manage deployments &rarr; &#9998; &rarr; Version: New version</b>. Reload this page: this banner disappears only when the script itself reports v${TVR_REQUIRED_BACKEND}. Then press <b>&#9889; Run Reconcile</b> to rebuild the comparison.</div>
       </div>
     </div>` : '';
 
