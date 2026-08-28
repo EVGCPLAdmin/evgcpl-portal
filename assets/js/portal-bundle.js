@@ -5474,18 +5474,35 @@ function _vplpCompute() {
     const vts = _mdpDateVal(r['Timestamp'] || r['Created On'] || r['Created Date'] || r['Created'] || r['AW'] || '') || 0;
     if (vts > (bridge.vidToTs[vid] || 0)) bridge.vidToTs[vid] = vts;
   });
-  // Vendors keyed by Vendor ID; payments that still don't resolve stay Unmapped.
+  // Canonical vendor key: a Vendor ID's Tally UID when linked, else the Vendor ID
+  // itself. Several Vendor IDs that are actually ONE vendor share a Tally UID, so
+  // routing every vendor-keyed lookup through this nets their POs, payments and
+  // opening balances into a single reconciled ledger entry.
+  bridge.canon = function (vid) { const u = String(vid == null ? '' : vid).toUpperCase().trim(); return (u && bridge.vidToTallyUid[u]) ? bridge.vidToTallyUid[u] : u; };
+  // Vendors keyed by the CANONICAL (Tally) key; payments that still don't resolve
+  // stay Unmapped.
   const vendors = {};
-  // ALWAYS take the vendor name from the Vendor Master (by Vendor ID) — it's the
-  // authoritative record. The PO's typed Vendor Name is only a fallback when the
-  // ID isn't in the master (e.g. MV353 is "Anas Stone Crusher" in the master even
-  // if a PO was raised under it with a different name).
+  // Display name/ID for a merged vendor comes from its best Vendor Master record —
+  // ACTIVE first, then latest by timestamp — so a retired duplicate ID doesn't
+  // supply the name. The PO's typed Vendor Name is only a fallback when the ID
+  // isn't in the master.
   const getV = (vid, name, acc) => {
-    const key = vid ? vid : ('UNMAP:' + _opNorm(name || '?'));
+    const rv = String(vid || '').toUpperCase().trim();      // raw Vendor ID
+    const ck = bridge.canon(rv);                            // canonical (Tally) key
+    const key = ck ? ck : ('UNMAP:' + _opNorm(name || '?'));
     let v = vendors[key];
-    if (!v) v = vendors[key] = { key, vid: vid || '', name: (vid && (bridge.vidToName[vid] || vendorById[vid])) || name || '(Unmapped)', acc: acc || '', uuid: (vid && bridge.vidToUuid[vid]) || '', detail: (vid && bridge.vidToDetail[vid]) || '', poKeys: {}, payCount: 0, unmapped: !vid };
+    if (!v) v = vendors[key] = { key, vid: '', vids: [], tallyUid: (rv && bridge.vidToTallyUid[rv]) || '', name: '', _rank: -Infinity, acc: acc || '', uuid: '', detail: '', poKeys: {}, payCount: 0, unmapped: !ck };
+    if (rv && !v.vids.includes(rv)) v.vids.push(rv);        // every Vendor ID netted into this entry
+    if (rv) {
+      // Rank this Vendor ID's master record: active outweighs any timestamp.
+      const active = bridge.vidToActive[rv] !== false;
+      const rank = (active ? 1e15 : 0) + (bridge.vidToTs[rv] || 0);
+      const mName = bridge.vidToName[rv] || vendorById[rv] || '';
+      if (rank >= v._rank) { v._rank = rank; v.vid = rv; if (mName) v.name = mName; if (bridge.vidToUuid[rv]) v.uuid = bridge.vidToUuid[rv]; if (bridge.vidToDetail[rv]) v.detail = bridge.vidToDetail[rv]; }
+    }
+    if (!v.vid && rv) v.vid = rv;
+    if (!v.name) v.name = name || '(Unmapped)';
     if (acc && !v.acc) v.acc = acc;
-    if (vid && (bridge.vidToName[vid] || vendorById[vid])) v.name = bridge.vidToName[vid] || vendorById[vid];
     return v;
   };
   // Include a PO if it has counted receipts OR pending-review receipts (so the
@@ -5502,7 +5519,10 @@ function _vplpCompute() {
   Object.keys(obByKey).forEach(key => {
     const o = obByKey[key];
     const v = getV(key, o.name || vendorById[key] || o.code, '');
-    v.opening = o;
+    // A Tally-merged vendor can carry an opening balance under more than one of
+    // its Vendor IDs — combine them (sum Cr/Dr; keep the later "as on" date).
+    if (!v.opening) v.opening = o;
+    else v.opening = Object.assign({}, v.opening, { credit: (v.opening.credit || 0) + (o.credit || 0), debit: (v.opening.debit || 0) + (o.debit || 0), date: (_mdpDateVal(o.date) > _mdpDateVal(v.opening.date)) ? o.date : v.opening.date });
   });
   const list = Object.values(vendors).sort((a, b) => (a.unmapped - b.unmapped) || (a.name || '').localeCompare(b.name || ''));
   // Flat list of every received StockIN line (with its review), for the GRN
@@ -5557,17 +5577,22 @@ function _vplpRenderBody() {
   if (_vplpView === 'openings') { c.innerHTML = toggle + _vplpOBListView(); return; }
   if (_vplpView === 'grnreview') { c.innerHTML = toggle + _vplpGRNReviewView(); return; }
   // Type-and-search vendor picker (347+ vendors → a combobox beats a native select).
-  const selV = d.vendors.find(x => x.key === _vplpVendor);
-  const selLabel = selV ? `${selV.name}${selV.vid ? ` [${selV.vid}]` : ''}` : '';
-  const vendorItems = d.vendors.map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${v.vid}]` : ''}${v.unmapped ? ' ·Unmapped' : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay` }));
+  // Tally-merged vendors show "primaryID +N"; selection may arrive as a raw
+  // Vendor ID (from a PR voucher / PO page), so resolve it to its merged entry.
+  const _vidStr = v => (v.vids && v.vids.length > 1) ? `${v.vid || v.vids[0]} +${v.vids.length - 1}` : v.vid;
+  const _selCanon = (d.bridge && d.bridge.canon) ? d.bridge.canon(_vplpVendor) : _vplpVendor;
+  const selV = d.vendors.find(x => x.key === _vplpVendor) || d.vendors.find(x => x.key === _selCanon) || d.vendors.find(x => (x.vids || []).includes(String(_vplpVendor || '').toUpperCase()));
+  const selLabel = selV ? `${selV.name}${selV.vid ? ` [${_vidStr(selV)}]` : ''}` : '';
+  const vendorItems = d.vendors.map(v => ({ v: v.key, label: `${v.name}${v.vid ? ` [${_vidStr(v)}]` : ''}${v.unmapped ? ' ·Unmapped' : ''}`, sub: `${Object.keys(v.poKeys).length} PO · ${v.payCount} pay${(v.vids && v.vids.length > 1) ? ` · ${v.vids.length} IDs · Tally` : ''}` }));
   // Vendor picker (selection).
   const picker = `<div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:240px;max-width:520px">
       <label style="font-size:.7rem;font-weight:700;color:var(--txt3)">VENDOR <span style="font-weight:400">&middot; ${d.vendors.length}</span></label>
       ${evgComboHtml({ id: 'vplp-vendor-search', items: vendorItems, value: selLabel, placeholder: 'Type a vendor name or ID…', onPick: '_vplpSetVendor' })}
     </div>`;
   if (!_vplpVendor) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${picker}</div>` + `<div class="card card-pad" style="text-align:center;color:var(--txt3);padding:2.5rem">&#128209; Select a vendor to view their Dr/Cr ledger &mdash; or switch to <b>Flat List</b> for all vendors.</div>`; return; }
-  const v = d.vendors.find(x => x.key === _vplpVendor);
+  const v = selV;   // resolves a raw Vendor ID to its Tally-merged entry
   if (!v) { c.innerHTML = toggle + `<div class="card card-pad" style="margin-bottom:1rem">${picker}</div>`; return; }
+  if (_vplpVendor !== v.key) _vplpVendor = v.key;   // pin selection to the canonical key
   const obTag = v.opening ? ` &middot; <span style="color:#3730a3">Opening ${'₹' + Math.round((v.opening.credit || 0) - (v.opening.debit || 0)).toLocaleString('en-IN')} ${(v.opening.credit >= v.opening.debit) ? 'Cr' : 'Dr'}</span>` : '';
   // Selection + selected-vendor summary, SIDE BY SIDE in one compact card.
   const summary = `<div style="flex:2;min-width:260px;display:flex;justify-content:space-between;align-items:center;gap:.6rem;flex-wrap:wrap">
@@ -5981,7 +6006,7 @@ function _vplpVendorRows() {
     if (r.payTo !== 'Vendor') return;
     if (!(r.status && r.status.cat === 'completed')) return;
     const vid = _vplpResolveVid(r);
-    const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
+    const key = vid ? d.bridge.canon(vid) : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
     (payByKey[key] = payByKey[key] || []).push({ dv: _mdpDateVal(_vplpPayDate(r)), amt: r.amount });
   });
   return d.vendors.map(v => {
@@ -6019,7 +6044,7 @@ function _vplpVendorStatusMap() {
 window._vplpStatusForPR = function(r) {
   if (!r || r.payTo !== 'Vendor' || !_vplpData) return null;
   const vid = _vplpResolveVid(r);
-  const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
+  const key = vid ? _vplpData.bridge.canon(vid) : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
   const m = _vplpVendorStatusMap()[key];
   if (!m) return null;
   return { status: m.status, bal: m.bal, credit: m.credit, debit: m.debit, meta: _VPLP_STATUS_META[m.status] };
@@ -6057,7 +6082,21 @@ function _vplpFlatList(toggle) {
   const dc = n => n ? drcr(n) : '—';
   // A vendor's GST number(s) from Vendor Master — several (one per state) shown
   // pipe-separated in the one cell.
-  const gstOf = v => { const a = (v.vid && d.bridge && d.bridge.vidToGst[v.vid]) || []; return a.length ? esc(a.join(' | ')) : '—'; };
+  // GST number(s) across ALL of a (possibly Tally-merged) vendor's Vendor IDs.
+  const gstOf = v => {
+    const ids = (v.vids && v.vids.length) ? v.vids : (v.vid ? [v.vid] : []);
+    const out = [];
+    ids.forEach(id => ((d.bridge && d.bridge.vidToGst[id]) || []).forEach(g => { if (g && !out.some(x => x.toUpperCase() === g.toUpperCase())) out.push(g); }));
+    return out.length ? esc(out.join(' | ')) : '—';
+  };
+  // Vendor ID label — a Tally-merged vendor shows "primaryID +N" (all IDs in the
+  // tooltip) so it's clear the row nets several IDs into one.
+  const vidLabel = v => {
+    const ids = (v.vids && v.vids.length) ? v.vids : (v.vid ? [v.vid] : []);
+    if (!ids.length) return '';
+    if (ids.length === 1) return ` <span style="color:var(--txt3);font-size:.72rem">[${esc(ids[0])}]</span>`;
+    return ` <span style="color:var(--txt3);font-size:.72rem;cursor:help" title="Netted by Tally UID: ${esc(ids.join(', '))}">[${esc(v.vid || ids[0])} +${ids.length - 1}]</span>`;
+  };
   const statChip = st => { const c = _VPLP_STATUS_META[st]; return `<span style="display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;font-weight:700;background:${c.bg};color:${c.color};padding:2px 9px;border-radius:20px;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:${c.dot}"></span>${c.label}</span>`; };
   const statBtn = (val, label, n) => `<button onclick="_vplpSetFlatStatus('${val}')" class="btn btn-sm ${_vplpFlatStatus === val ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 9px;font-size:.72rem">${label}${n != null ? ` (${n})` : ''}</button>`;
   const stat = (val, lbl, col) => `<div style="display:flex;flex-direction:column;line-height:1.1"><span style="font-size:.92rem;font-weight:800;${col ? `color:${col}` : ''}">${val}</span><span style="font-size:.58rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap">${lbl}</span></div>`;
@@ -6081,7 +6120,7 @@ function _vplpFlatList(toggle) {
     </div>
   </div>`;
   const body = shown.map((r, i) => `<tr style="cursor:pointer" onclick="_vplpFlatOpen(${i})" title="Open detailed ledger">
-    <td style="padding:6px 9px">${esc(r.v.name)}${r.v.vid ? ` <span style="color:var(--txt3);font-size:.72rem">[${esc(r.v.vid)}]</span>` : ''}${r.v.unmapped ? ' <span style="color:#c2410c;font-size:.66rem">·Unmapped</span>' : ''}</td>
+    <td style="padding:6px 9px">${esc(r.v.name)}${vidLabel(r.v)}${r.v.unmapped ? ' <span style="color:#c2410c;font-size:.66rem">·Unmapped</span>' : ''}</td>
     <td style="padding:6px 9px;font-family:ui-monospace,Menlo,monospace;font-size:.7rem;color:var(--txt2);word-break:break-word">${gstOf(r.v)}</td>
     <td style="padding:6px 9px">${statChip(r.status)}</td>
     <td style="padding:6px 9px;text-align:right;color:#4f46e5;font-weight:600">${dc(r.opCredit - r.opDebit)}</td>
@@ -6303,7 +6342,7 @@ function _vplpLedger(v, embedOpts) {
     if (r.payTo !== 'Vendor') return;
     if (!(r.status && r.status.cat === 'completed')) return;
     const vid = _vplpResolveVid(r);
-    const key = vid ? vid : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
+    const key = vid ? d.bridge.canon(vid) : ('UNMAP:' + _opNorm(r.paidTo || r.vendor || '?'));
     if (key !== v.key) return;
     all.push({ date: _vplpPayDate(r), ref: r.requestId || r.uuid, type: 'Payment' + (r.orderNo ? ' · ' + esc(r.orderNo) : ''), payRaw: r.raw || null, kind: 'dr', mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: r.amount, status: r.status, utr: r.utr, uuid: r.uuid });
   });
@@ -6507,7 +6546,9 @@ function _vplpDrawOBForm(dr, prefillKey) {
   const today = new Date().toLocaleDateString('en-CA');
   const cur = (d.vendors || []).find(x => x.key === prefillKey);
   // Existing (current) opening balance for this vendor → prefill = Edit mode.
-  const obEx = (d.obByKey && d.obByKey[prefillKey]) || null;
+  // Fall back to the vendor's attached opening (a Tally-merged vendor is keyed by
+  // its Tally UID, but obByKey is keyed by the raw Vendor ID it was recorded under).
+  const obEx = (d.obByKey && d.obByKey[prefillKey]) || (cur && cur.opening) || null;
   const isEdit = !!obEx;
   const ymd = s => { const t = _mdpDateVal(s); return t ? new Date(t).toLocaleDateString('en-CA') : ''; };
   const asOnVal = isEdit && obEx.asOn ? (ymd(obEx.asOn) || today) : today;
@@ -10057,8 +10098,9 @@ async function _pvLoadVendorLedger(r) {
       const hit = d.vendors.find(v => _opNorm(v.name) === vn);
       if (hit) vendorKey = hit.key;
     }
-    _pvLedgerVendorKey = vendorKey;
-    const v = vendorKey ? d.vendors.find(x => x.key === vendorKey) : null;
+    // Canonicalise a raw Vendor ID to its Tally-merged key so the netted ledger resolves.
+    _pvLedgerVendorKey = vendorKey ? ((d.bridge && d.bridge.canon) ? d.bridge.canon(vendorKey) : vendorKey) : vendorKey;
+    const v = _pvLedgerVendorKey ? (d.vendors.find(x => x.key === _pvLedgerVendorKey) || d.vendors.find(x => (x.vids || []).includes(String(vendorKey).toUpperCase()))) : null;
     if (!v) { box.innerHTML = `<div style="font-size:.78rem;color:var(--txt3);padding:.5rem 0">No PO ledger activity found for <b>${_mdpEsc(r.vendor || '—')}</b>.</div>`; return; }
     box.innerHTML = _vplpLedger(v, { fy: _pvLedgerFY, onChangeFY: '_pvSetLedgerFY' });
     applyTableFeatures(box);
