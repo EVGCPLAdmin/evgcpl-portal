@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.59.3';
-const PORTAL_BUILD    = 739;
-const PORTAL_BUILD_AT = '2026-08-28T11:05:28Z';
+const PORTAL_VERSION  = '4.60.0';
+const PORTAL_BUILD    = 740;
+const PORTAL_BUILD_AT = '2026-08-28T11:31:44Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -209,6 +209,45 @@ function getExec(key) {
   } catch (e) { /* ignore */ }
   // T3: Compiled default
   return (EXEC_REGISTRY_DEFAULTS[key] || EXEC_REGISTRY_DEFAULTS.main).defaultUrl;
+}
+
+// Same resolution as getExec(), but reporting WHICH tier won.
+//
+// getExec() returning a URL is not enough to explain behaviour: a saved
+// override (T1 localStorage or T2 the PortalConfig sheet) silently outranks the
+// compiled default, so shipping a new defaultUrl moves nobody who has one. That
+// is invisible from the portal — it looks exactly like a deployment that was
+// never updated, and the symptom is a backend reporting an OLD contract version
+// straight after a correct redeploy of the NEW url. Anything reporting on a
+// deployment should show the tier, not just the address.
+function getExecResolved(key) {
+  const compiled = (EXEC_REGISTRY_DEFAULTS[key] || EXEC_REGISTRY_DEFAULTS.main).defaultUrl;
+  const ok = (v) => v && /^https:\/\/script\.google\.com\/macros\//.test(v);
+  try {
+    const overrides = JSON.parse(localStorage.getItem(EXEC_LS_KEY) || '{}');
+    if (ok(overrides[key])) {
+      return { url: overrides[key], tier: 'T1', source: 'this browser (Config → Apps Script Endpoints)',
+               overridden: overrides[key] !== compiled, compiled };
+    }
+    const sheetVal = (window._SHEET_CONFIG || {})['exec_' + key];
+    if (ok(sheetVal)) {
+      return { url: sheetVal, tier: 'T2', source: `the PortalConfig sheet (exec_${key})`,
+               overridden: sheetVal !== compiled, compiled };
+    }
+  } catch (e) { /* fall through to the compiled default */ }
+  return { url: compiled, tier: 'T3', source: 'the compiled default in this portal build',
+           overridden: false, compiled };
+}
+
+// Drop a T1 override so the compiled default takes over again. Only clears this
+// browser's copy — a T2 sheet value needs the Endpoints card, which says so.
+function clearExecOverride(key) {
+  try {
+    const o = JSON.parse(localStorage.getItem(EXEC_LS_KEY) || '{}');
+    delete o[key];
+    localStorage.setItem(EXEC_LS_KEY, JSON.stringify(o));
+  } catch (e) { /* nothing saved to clear */ }
+  location.reload();
 }
 
 // Save overrides (called from the Config → Endpoints page)
@@ -6943,6 +6982,31 @@ function _tvrRenderBody() {
   </div>`;
   // Shown above every tab: a stale backend breaks features on all of them.
   const bv = (_tvrStatus && _tvrStatus.backendVersion) || 0;
+  // Names the deployment actually being called, and the tier the URL came from.
+  // Without this, "I deployed the new version and it still reports the old one"
+  // has two indistinguishable causes — the paste didn't land, or a saved
+  // override is sending the portal to a DIFFERENT, older deployment entirely.
+  const _tvrEndpointNote = () => {
+    const r = getExecResolved('accounts');
+    const id = (r.url.match(/\/s\/([^/]+)\//) || [])[1] || r.url;
+    const short = id.length > 26 ? id.slice(0, 14) + '…' + id.slice(-8) : id;
+    if (!r.overridden) {
+      return `<div style="margin-top:.45rem;font-size:.72rem;color:var(--txt3)">
+        Calling deployment <code title="${_mdpEsc(r.url)}">${_mdpEsc(short)}</code> &middot; from ${r.source}.
+        If that is the deployment you just versioned, the paste did not land &mdash; check the file, not the deploy.</div>`;
+    }
+    // The override case: the portal is not calling the URL this build ships.
+    return `<div style="margin-top:.45rem;padding:.45rem .6rem;background:#fffbeb;border-left:3px solid #f59e0b;font-size:.74rem;line-height:1.5">
+      <b>This portal is NOT calling the deployment this build ships.</b> The URL comes from ${r.source}
+      (tier ${r.tier}), which outranks the compiled default, so redeploying the new one changes nothing here.<br>
+      Using <code title="${_mdpEsc(r.url)}">${_mdpEsc(short)}</code>
+      &middot; build default is <code title="${_mdpEsc(r.compiled)}">${_mdpEsc((r.compiled.match(/\/s\/([^/]+)\//) || [])[1].slice(0, 14))}…</code>
+      ${r.tier === 'T1'
+        ? `<div style="margin-top:.35rem"><button class="btn btn-sm" onclick="clearExecOverride('accounts')">Use the build default</button>
+             <span style="color:var(--txt3)">&nbsp;clears this browser's saved override and reloads.</span></div>`
+        : `<div style="margin-top:.35rem">Clear the <code>exec_accounts</code> row in the PortalConfig sheet, or update it to the new URL, from <b>Config &rarr; &#128279; Apps Script Endpoints</b>.</div>`}
+    </div>`;
+  };
   const stale = _tvrStatus && !_tvrErr && bv < TVR_REQUIRED_BACKEND;
   const staleBanner = stale ? `<div class="card card-pad" style="margin-bottom:.7rem;padding:.6rem .8rem;background:#fef2f2;border-left:4px solid #dc2626;font-size:.8rem">
       <b>&#9888; The deployed Apps Script is older than this portal build</b>
@@ -6950,6 +7014,7 @@ function _tvrRenderBody() {
       <div style="margin-top:.35rem;color:var(--txt2);line-height:1.55">
         ${bv && bv < 5 ? `<b>This is why every vendor is showing as &ldquo;In portal, not in Tally&rdquo; with a blank Tally UID and Vendor ID.</b> Before v5 the script only wrote a tab&rsquo;s header row when it <i>created</i> the tab, so the GUID / TallyUID / Vendor&nbsp;ID columns were written into tabs that had no header for them &mdash; and were then dropped on read. Nothing can match without the GUID, so every portal vendor falls out the other side. The figures themselves are fine; the comparison never happened.` : `Actions added since that deployment fail with <code>Unknown POST action</code>, and Vendor&nbsp;ID / Tally&nbsp;UID may come back blank.`}
         <div style="margin-top:.3rem">Fix: in the Apps Script project, <b>select all in the editor and replace</b> the contents of <code>TallyVendorReconcile.gs</code> <b>and</b> <code>Router.gs</code> &mdash; adding a new deployment does not change the code &mdash; then <b>Deploy &rarr; Manage deployments &rarr; &#9998; &rarr; Version: New version</b>. Reload this page: this banner disappears only when the script itself reports v${TVR_REQUIRED_BACKEND}. Then press <b>&#9889; Run Reconcile</b> to rebuild the comparison.</div>
+        ${_tvrEndpointNote()}
       </div>
     </div>` : '';
 
