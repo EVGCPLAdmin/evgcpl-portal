@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.58.0';
-const PORTAL_BUILD    = 734;
-const PORTAL_BUILD_AT = '2026-08-27T19:53:45Z';
+const PORTAL_VERSION  = '4.59.1';
+const PORTAL_BUILD    = 737;
+const PORTAL_BUILD_AT = '2026-08-28T10:29:39Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -66,7 +66,7 @@ const EXEC_REGISTRY_DEFAULTS = {
   aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script. Currently the SAME deployment as main.', files: ['Router.gs', 'AiProxy.gs', 'AIChat.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff). Currently the SAME deployment as main.', files: ['Router.gs', 'SheetDiagnostic.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     files: ['Router.gs', 'PCCHandlers.gs', 'AppsScript_Handlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
-  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app: saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments — PLUS the Tally reconciliation actions tvrSaveBatch / tvrGetStatus / tvrGetBatch / tvrSaveRules / tvrRunNow. Override via the exec_accounts row in the PortalConfig sheet.', files: ['Router.gs', 'AccountsHandlers.gs', 'TallyVendorReconcile.gs'], filesVerified: true, defaultUrl: 'https://script.google.com/macros/s/AKfycbwxQviiWbMsDMnfE6kcLEwEl80_J4legGzUSCmH-8oWn6CDURL9qgc1VvMDk8ZggWX3WA/exec' },
+  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app: saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments — PLUS the Tally reconciliation actions tvrSaveBatch / tvrGetStatus / tvrGetBatch / tvrSaveRules / tvrRunNow. Override via the exec_accounts row in the PortalConfig sheet.', files: ['Router.gs', 'AccountsHandlers.gs', 'TallyVendorReconcile.gs'], filesVerified: true, defaultUrl: 'https://script.google.com/macros/s/AKfycbyRy1L_xnj7ihxgk3REqpUf3IrDBSE2vlNsia_9kQPLaI5GMMuT8AYbJU0dxnyZ_nHHjg/exec' },
   safety:      { label: 'Safety Handler',         desc: 'SafetyHandler.gs web app — Safety module writes (Incidents, DailyChecks). Override via the exec_safety row in the PortalConfig sheet.', files: ['Router.gs', 'SafetyHandlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbyFq6zSKgn-W3qNQPNoDplqiJHDaQTrrKLSK7gecZNiHSnU7Y4Buav3RiGfcvXtn9B3/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
@@ -4574,6 +4574,15 @@ function _mdpReject(uuid) {
 //  PaymentRequest-style rows and it renders KPIs + a running-balance
 //  table. Reuse it from any page that has such rows.
 // ══════════════════════════════════════════════════════════════
+// "Active/Inactive?" → boolean. Anything that isn't recognisably a retirement
+// marker counts as ACTIVE, blanks included: wrongly retiring a live vendor
+// would drop it from the merge's display candidates for no good reason.
+function _tvrNormActive(v) {
+  const s = String(v == null ? '' : v).trim().toLowerCase();
+  if (!s) return true;
+  return !/^(in-?active|blocked|closed|disabled|deleted|superseded|dormant|no|n|0|false)$/.test(s) && !/inactiv/.test(s);
+}
+
 const PARTY_TYPES = ['Vendor', 'Sub Contractor', 'Employee', 'Others'];
 
 function _plPartyKey(r) { return [r.payTo || '', r.paidTo || r.vendor || '', r.acNumber || ''].join('|'); }
@@ -5366,7 +5375,7 @@ function _vplpCompute() {
   // Vendor Master bridge: name → Vendor ID and bank-account → Vendor ID. Lets a
   // payment (which carries only the selected vendor NAME + account, no Vendor ID)
   // resolve to the same Vendor ID the POs use, so it nets instead of splitting.
-  const bridge = { nameToVid: {}, accToVid: {}, vidToUuid: {}, vidToName: {}, vidToDetail: {}, vidToGst: {}, vidToTallyUid: {} };
+  const bridge = { nameToVid: {}, accToVid: {}, vidToUuid: {}, vidToName: {}, vidToDetail: {}, vidToGst: {}, vidToTallyUid: {}, vidToActive: {}, vidToTs: {} };
   (_vplpVMRows || []).forEach(r => {
     const vid = String(r['Vendor ID'] || '').toUpperCase().trim(); if (!vid) return;
     [r['Vendor Name'], r['Legal Name'], r['Vendor Acc Name'], r['A/C HOLDER NAME'], r['Account Holder Name']].forEach(nm => {
@@ -5389,6 +5398,20 @@ function _vplpCompute() {
       const tuid = String(r['TallyUID'] || r['Tally UID'] || r['TallyGUID'] || r['Tally GUID'] || r['Tally ID'] || '').trim();
       if (tuid) bridge.vidToTallyUid[vid] = tuid;
     }
+    // Active flag (column AS) and created timestamp (column AW). Several Vendor
+    // IDs can share one TallyUID — the same real vendor entered more than once —
+    // and the reconciliation merges them, taking the display name/ID from the
+    // ACTIVE record, latest by timestamp. gviz returns header-keyed rows when it
+    // can detect a header and letter-keyed rows when it can't, so both are read
+    // (the same `r['Name'] || r['Letter']` fallback used elsewhere in this file).
+    // A vendor counts as active unless the cell says otherwise: a blank must not
+    // silently retire a live vendor.
+    if (bridge.vidToActive[vid] !== true) {
+      const st = _tvrNormActive(r['Active/Inactive?'] || r['Active/Inactive'] || r['Status'] || r['Vendor Status'] || r['Active'] || r['AS'] || '');
+      bridge.vidToActive[vid] = st;
+    }
+    const vts = _mdpDateVal(r['Timestamp'] || r['Created On'] || r['Created Date'] || r['Created'] || r['AW'] || '') || 0;
+    if (vts > (bridge.vidToTs[vid] || 0)) bridge.vidToTs[vid] = vts;
   });
   // Vendors keyed by Vendor ID; payments that still don't resolve stay Unmapped.
   const vendors = {};
@@ -6568,7 +6591,7 @@ const _TVR_SNAP_LS = 'evg_tvr_last_snapshot';   // yyyy-mm-dd of the last auto-s
 // behind this build. Without this check a stale deployment shows up only as
 // "Unknown POST action: tvrGetBatch" the moment someone clicks the feature that
 // needs it — an error that says nothing about the actual cause.
-const TVR_REQUIRED_BACKEND = 4;
+const TVR_REQUIRED_BACKEND = 6;
 
 async function _tvrPost(payload) {
   let res;
@@ -7073,7 +7096,7 @@ function _tvrOverviewView() {
     ${evgKpiCard({ icon: '&#9888;&#65039;', value: ms.length, label: 'Open Mismatches', accent: ms.length ? '#dc2626' : '#16a34a' })}
     ${evgKpiCard({ icon: '&#128181;', value: _tvrInr(totalValue), label: 'Total Mismatch Value', accent: '#ea580c' })}
     ${evgKpiCard({ icon: '&#127970;', value: vendors, label: 'Vendors Affected', accent: '#7c3aed' })}
-    ${evgKpiCard({ icon: '&#128279;', value: (s.totalPortal ? `${s.linkedPortal}/${s.totalPortal}` : '—'), label: `Linked by TallyUID${s.totalPortal ? ` · ${cover}%` : ''}`, accent: cover >= 90 ? '#16a34a' : cover >= 50 ? '#ea580c' : '#dc2626' })}
+    ${evgKpiCard({ icon: '&#128279;', value: (s.totalPortal ? `${s.linkedPortal}/${s.totalPortal}` : '—'), label: `Linked by TallyUID${s.totalPortal ? ` · ${cover}%` : ''}${s.mergedGroups ? ` · ${s.mergedGroups} merged` : ''}`, accent: cover >= 90 ? '#16a34a' : cover >= 50 ? '#ea580c' : '#dc2626' })}
     ${evgKpiCard({ icon: '&#128228;', value: tally.at ? esc(String(tally.at).split(' ')[0]) : '—', label: (isLatest ? 'Last Tally Upload' : 'Current Tally Upload (not this run)') + (tally.by ? ' · ' + esc(String(tally.by).split('@')[0]) : ''), accent: '#2563eb' })}
     ${evgKpiCard({ icon: stale ? '&#9203;' : '&#128248;', value: snap.at ? esc(String(snap.at).split(' ')[0]) : '—', label: (isLatest ? 'Last Portal Snapshot' : 'Current Snapshot (not this run)') + (staleHrs >= 0 ? ` · ${staleHrs}h ago` : ''), accent: stale ? '#dc2626' : '#16a34a' })}
   </div>`;
@@ -7108,7 +7131,8 @@ function _tvrOverviewView() {
     return `<tr>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(m.name)}
         ${tn ? `<div style="font-size:.68rem;color:var(--txt3)">Tally: ${esc(tn)}</div>` : ''}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:ui-monospace,Menlo,monospace;font-size:.7rem">${esc(m.vid) || '<span style="color:#c2410c">—</span>'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:ui-monospace,Menlo,monospace;font-size:.7rem">${esc(m.vid) || '<span style="color:#c2410c">—</span>'}
+        ${(m.mergedIds && m.mergedIds.length > 1) ? `<div style="font-size:.62rem;color:#7c3aed;font-family:inherit" title="These Vendor IDs share one TallyUID, so their balances are summed and the active/latest record supplies the name shown">+${m.mergedIds.length - 1} merged: ${esc(m.mergedIds.join(', '))}</div>` : ''}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:ui-monospace,Menlo,monospace;font-size:.64rem;color:var(--txt3);word-break:break-all;max-width:190px">${esc(m.tallyUid) || (m.guid ? `<span title="Tally has a GUID but Vendor Master has no TallyUID for this vendor" style="color:#c2410c">not linked</span>` : '—')}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right">${m.tally === '' || m.tally == null ? '—' : _tvrSigned(m.tally)}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right">${m.portal === '' || m.portal == null ? '—' : _tvrSigned(m.portal)}</td>
@@ -7416,7 +7440,13 @@ async function _tvrBuildSnapshotRows(force) {
     // tallyUid is the join the backend prefers (Vendor Master's TallyUID vs
     // Tally's $GUID). `acc` (the portal Vendor ID) and the name remain as
     // fallbacks for vendors that haven't been linked yet.
-    .map(r => ({ name: r.v.name, acc: r.v.vid || '', balance: r.bal, tallyUid: uidOf(r.v.vid) }));
+    .map(r => ({
+      name: r.v.name, acc: r.v.vid || '', balance: r.bal, tallyUid: uidOf(r.v.vid),
+      // Carried so the backend can pick the display record when several Vendor
+      // IDs share one TallyUID: active first, then latest timestamp.
+      active: (bridge.vidToActive && bridge.vidToActive[r.v.vid] !== false) ? 1 : 0,
+      ts: (bridge.vidToTs && bridge.vidToTs[r.v.vid]) || 0
+    }));
 }
 
 window._tvrCaptureSnapshot = async function (btn) {
