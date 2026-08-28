@@ -118,7 +118,9 @@ var TVR_TEST_RECIPIENT = 'admin@evgcpl.com';
 //       written but never read back, so GUID matching silently found nothing)
 //   6 = Vendor IDs sharing a TallyUID are merged (balances summed, display
 //       record = active + latest); snapshot carries Active + VMTimestamp
-var TVR_BACKEND_VERSION = 6;
+//   7 = Vendor ID + Tally UID are columns in the mismatch EMAIL too, and a
+//       replayed run backfills them by UID when logged before those columns
+var TVR_BACKEND_VERSION = 7;
 
 // Tally's $_ClosingBalance sign convention is NOT self-evident from the export:
 // in the sample, Sundry Creditors carried both signs (197 positive, 180
@@ -815,8 +817,15 @@ function _tvrBody(items, dateStr, tally, snap, staleHrs) {
                ' — the full list is attached as CSV.');
     lines.push('');
   }
+  // Vendor ID and Tally UID are on every line, not just in the portal: the
+  // recipient's next step is to open one of the two systems and look the vendor
+  // up, and a name alone is ambiguous — Vendor Master holds the same real vendor
+  // under several spellings, which is exactly why the UID is the matcher.
   shown.forEach(function (m) {
-    lines.push('• ' + m.name + (m.acc ? ' [' + m.acc + ']' : ''));
+    lines.push('• ' + m.name);
+    lines.push('    Vendor ID: ' + (m.vid || '—') +
+               (m.mergedIds && m.mergedIds.length > 1 ? ' (merged: ' + m.mergedIds.join(', ') + ')' : '') +
+               '   Tally UID: ' + (m.tallyUid || m.guid || '—'));
     lines.push('    Tally: ' + (m.tally === '' ? '—' : _tvrInr(m.tally)) +
                '   Portal: ' + (m.portal === '' ? '—' : _tvrInr(m.portal)) +
                '   Diff: ' + _tvrInr(m.diff) + '   (' + _tvrTypeLabel(m.type) + ')');
@@ -839,11 +848,20 @@ function _tvrHtml(items, dateStr, tally, snap, staleHrs) {
     ? '<p style="font-size:12px;color:#6b7280;margin:0 0 10px">Showing the largest <b>' + shown.length +
       '</b> of <b>' + items.length + '</b>. The full list is attached as a CSV.</p>'
     : '';
+  var cell = 'padding:6px 9px;border-bottom:1px solid #e5e7eb';
   var rows = shown.map(function (m) {
     var col = m.diff >= 0 ? '#b45309' : '#1d4ed8';
+    // Merged Vendor IDs are named rather than hidden: the balance on this row is
+    // their SUM, so anyone checking it against one ID alone would not reconcile.
+    var vid = esc(m.vid || '—') +
+      (m.mergedIds && m.mergedIds.length > 1
+        ? '<br><span style="color:#6b7280;font-size:11px">+' + (m.mergedIds.length - 1) +
+          ' merged: ' + esc(m.mergedIds.join(', ')) + '</span>' : '');
     return '<tr>' +
-      '<td style="padding:6px 9px;border-bottom:1px solid #e5e7eb">' + esc(m.name) +
-        (m.acc ? ' <span style="color:#6b7280;font-size:11px">[' + esc(m.acc) + ']</span>' : '') + '</td>' +
+      '<td style="' + cell + '">' + esc(m.name) + '</td>' +
+      '<td style="' + cell + ';font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px">' + vid + '</td>' +
+      '<td style="' + cell + ';font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#374151;word-break:break-all">' +
+        esc(m.tallyUid || m.guid || '—') + '</td>' +
       '<td style="padding:6px 9px;border-bottom:1px solid #e5e7eb;text-align:right">' + (m.tally === '' ? '—' : _tvrInr(m.tally)) + '</td>' +
       '<td style="padding:6px 9px;border-bottom:1px solid #e5e7eb;text-align:right">' + (m.portal === '' ? '—' : _tvrInr(m.portal)) + '</td>' +
       '<td style="padding:6px 9px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;color:' + col + '">' + _tvrInr(m.diff) + '</td>' +
@@ -859,7 +877,9 @@ function _tvrHtml(items, dateStr, tally, snap, staleHrs) {
     moreNote +
     '<table style="border-collapse:collapse;font-size:13px;width:100%">' +
     '<thead><tr style="background:#1f2937;color:#fff;text-align:left">' +
-      '<th style="padding:8px 9px">Vendor</th><th style="padding:8px 9px;text-align:right">Tally</th>' +
+      '<th style="padding:8px 9px">Vendor (Vendor Master)</th>' +
+      '<th style="padding:8px 9px">Vendor ID</th><th style="padding:8px 9px">Tally UID</th>' +
+      '<th style="padding:8px 9px;text-align:right">Tally</th>' +
       '<th style="padding:8px 9px;text-align:right">Portal</th><th style="padding:8px 9px;text-align:right">Diff</th>' +
       '<th style="padding:8px 9px">Type</th></tr></thead><tbody>' + rows + '</tbody></table>' +
     '<p style="color:#9ca3af;font-size:11px;margin-top:16px">— EVGCPL Portal (automated daily vendor reconciliation)</p></div>';
@@ -922,6 +942,20 @@ function tvrGetStatus(body) {
   var live = (tally.rows.length && snap.rows.length) ? _tvrDiff(tally.rows, snap.rows)
                                                      : { mismatches: [], unlinked: [], matched: [] };
 
+  // Backfill Vendor ID / merged IDs onto REPLAYED rows that predate those
+  // columns. A run logged before the Mismatches tab carried them stores only the
+  // GUID, so the portal would render an empty Vendor ID for history that is
+  // otherwise perfectly good. The fill is keyed on the UID and nothing else —
+  // never the name — so it can only ever attach a Vendor ID to the very ledger
+  // the row was already about. A row with no UID stored (logged before the GUID
+  // column existed) stays blank: there is nothing to key on, and guessing is
+  // what this whole design exists to avoid.
+  var byUidLive = {};
+  (live.matched || []).concat(live.mismatches || []).forEach(function (m) {
+    var u = _tvrNorm(m.tallyUid || m.guid);
+    if (u && !byUidLive[u]) byUidLive[u] = m;
+  });
+
   return {
     success: true,
     backendVersion: TVR_BACKEND_VERSION,
@@ -948,13 +982,18 @@ function tvrGetStatus(body) {
     runs: _tvrRunIndex(60),
     snapshotGaps: _tvrSnapshotGaps(30),
     mismatches: current.map(function (r) {
+      var uid = String(r['TallyUID'] || '') || String(r['GUID'] || '');
+      var fill = byUidLive[_tvrNorm(uid)] || {};
+      var mergedIds = String(r['MergedIDs'] || '').split(/[,;]/).map(function (s) { return s.trim(); }).filter(Boolean);
       return {
         name: String(r['Vendor Name'] || ''), acc: String(r['A/C Number'] || ''),
         tally: r['TallyBalance'], portal: r['PortalBalance'], diff: _tvrNum(r['Diff']),
         type: String(r['Type'] || ''), notifiedTo: String(r['NotifiedTo'] || ''),
-        ruleLabel: String(r['RuleLabel'] || ''), guid: String(r['GUID'] || ''),
-        matchedBy: String(r['MatchedBy'] || ''), vid: String(r['Vendor ID'] || ''),
-        tallyUid: String(r['TallyUID'] || ''), mergedIds: String(r['MergedIDs'] || '').split(/[,;]/).filter(Boolean)
+        ruleLabel: String(r['RuleLabel'] || ''), guid: String(r['GUID'] || '') || (fill.guid || ''),
+        matchedBy: String(r['MatchedBy'] || ''),
+        vid: String(r['Vendor ID'] || '') || (fill.vid || ''),
+        tallyUid: uid,
+        mergedIds: mergedIds.length ? mergedIds : (fill.mergedIds || [])
       };
     }),
     rules: _tvrRows(TVR_TAB_RULES).map(function (r) {

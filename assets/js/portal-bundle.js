@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.59.1';
-const PORTAL_BUILD    = 737;
-const PORTAL_BUILD_AT = '2026-08-28T10:29:39Z';
+const PORTAL_VERSION  = '4.59.3';
+const PORTAL_BUILD    = 739;
+const PORTAL_BUILD_AT = '2026-08-28T11:05:28Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -66,7 +66,7 @@ const EXEC_REGISTRY_DEFAULTS = {
   aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script. Currently the SAME deployment as main.', files: ['Router.gs', 'AiProxy.gs', 'AIChat.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff). Currently the SAME deployment as main.', files: ['Router.gs', 'SheetDiagnostic.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     files: ['Router.gs', 'PCCHandlers.gs', 'AppsScript_Handlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
-  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app: saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments — PLUS the Tally reconciliation actions tvrSaveBatch / tvrGetStatus / tvrGetBatch / tvrSaveRules / tvrRunNow. Override via the exec_accounts row in the PortalConfig sheet.', files: ['Router.gs', 'AccountsHandlers.gs', 'TallyVendorReconcile.gs'], filesVerified: true, defaultUrl: 'https://script.google.com/macros/s/AKfycbyRy1L_xnj7ihxgk3REqpUf3IrDBSE2vlNsia_9kQPLaI5GMMuT8AYbJU0dxnyZ_nHHjg/exec' },
+  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app: saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments — PLUS the Tally reconciliation actions tvrSaveBatch / tvrGetStatus / tvrGetBatch / tvrSaveRules / tvrRunNow. Override via the exec_accounts row in the PortalConfig sheet.', files: ['Router.gs', 'AccountsHandlers.gs', 'TallyVendorReconcile.gs'], filesVerified: true, defaultUrl: 'https://script.google.com/macros/s/AKfycbwEeA7ZFcatNxhtz-cYVGcOwiesA2xzeqV2sqfeQplPEXrqZO_rWwdXzcbiWAW-ciEMPQ/exec' },
   safety:      { label: 'Safety Handler',         desc: 'SafetyHandler.gs web app — Safety module writes (Incidents, DailyChecks). Override via the exec_safety row in the PortalConfig sheet.', files: ['Router.gs', 'SafetyHandlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbyFq6zSKgn-W3qNQPNoDplqiJHDaQTrrKLSK7gecZNiHSnU7Y4Buav3RiGfcvXtn9B3/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
@@ -6591,7 +6591,7 @@ const _TVR_SNAP_LS = 'evg_tvr_last_snapshot';   // yyyy-mm-dd of the last auto-s
 // behind this build. Without this check a stale deployment shows up only as
 // "Unknown POST action: tvrGetBatch" the moment someone clicks the feature that
 // needs it — an error that says nothing about the actual cause.
-const TVR_REQUIRED_BACKEND = 6;
+const TVR_REQUIRED_BACKEND = 7;
 
 async function _tvrPost(payload) {
   let res;
@@ -6948,8 +6948,8 @@ function _tvrRenderBody() {
       <b>&#9888; The deployed Apps Script is older than this portal build</b>
       <span style="color:var(--txt3)">(reports v${bv || '—'}, needs v${TVR_REQUIRED_BACKEND})</span>
       <div style="margin-top:.35rem;color:var(--txt2);line-height:1.55">
-        Actions added since that deployment fail with <code>Unknown POST action</code> — <code>tvrGetBatch</code> (viewing a stored batch) and <code>tvrSetSign</code> (the sign convention). Matching also still uses the old name-only rules, which is why one vendor can appear twice: once "in Tally, not in portal" and once the reverse.
-        <div style="margin-top:.3rem">Fix: in the Apps Script project, paste the current <code>TallyVendorReconcile.gs</code> <b>and</b> <code>Router.gs</code>, then <b>Deploy &rarr; Manage deployments &rarr; &#9998; &rarr; Version: New version</b>. Editing the files is not enough — Apps Script serves the last deployed snapshot. Then press <b>&#9889; Run Reconcile</b> to rebuild the comparison.</div>
+        ${bv && bv < 5 ? `<b>This is why every vendor is showing as &ldquo;In portal, not in Tally&rdquo; with a blank Tally UID and Vendor ID.</b> Before v5 the script only wrote a tab&rsquo;s header row when it <i>created</i> the tab, so the GUID / TallyUID / Vendor&nbsp;ID columns were written into tabs that had no header for them &mdash; and were then dropped on read. Nothing can match without the GUID, so every portal vendor falls out the other side. The figures themselves are fine; the comparison never happened.` : `Actions added since that deployment fail with <code>Unknown POST action</code>, and Vendor&nbsp;ID / Tally&nbsp;UID may come back blank.`}
+        <div style="margin-top:.3rem">Fix: in the Apps Script project, <b>select all in the editor and replace</b> the contents of <code>TallyVendorReconcile.gs</code> <b>and</b> <code>Router.gs</code> &mdash; adding a new deployment does not change the code &mdash; then <b>Deploy &rarr; Manage deployments &rarr; &#9998; &rarr; Version: New version</b>. Reload this page: this banner disappears only when the script itself reports v${TVR_REQUIRED_BACKEND}. Then press <b>&#9889; Run Reconcile</b> to rebuild the comparison.</div>
       </div>
     </div>` : '';
 
