@@ -53,9 +53,20 @@
  *   tab (7-VendorMaster_Actual). The Tally export is the WHOLE chart of
  *   accounts — in the sample, 1,169 ledgers of which only 587 were Sundry
  *   Creditors — so a ledger is only reconciled once its GUID is recorded
- *   against a vendor. Unlinked ledgers holding a balance are listed on the
- *   portal page as "needs linking" rather than reported as mismatches.
- *   Name and A/C matching remain as fallbacks for vendors not yet linked.
+ *   against a vendor. TallyUID is the ONLY matcher — there is deliberately no
+ *   name or A/C fallback, because once a definitive key exists a fuzzy fallback
+ *   can only pair the wrong two ledgers, and it would do so silently.
+ *
+ *   So an unlinked vendor is never guessed at; it is reported, on whichever
+ *   side it is missing:
+ *     • Tally ledger with no Vendor Master TallyUID  → "unlinked" list
+ *     • Portal vendor with a balance and no TallyUID → its own list, NOT
+ *       "missing from Tally" (nothing is known about Tally's view of it)
+ *     • Portal vendor WITH a TallyUID that Tally never mentioned → a real
+ *       mismatch
+ *   The portal shows a coverage figure (linked / total vendors) beside the
+ *   mismatch count, because an empty mismatch list means nothing if only a
+ *   fraction of the vendor book is linked.
  *
  * ── Sign convention ───────────────────────────────────────────────────
  *   Tally's $_ClosingBalance sign is not self-evident and was NOT assumed:
