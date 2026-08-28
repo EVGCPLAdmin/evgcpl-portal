@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.56.0';
-const PORTAL_BUILD    = 731;
-const PORTAL_BUILD_AT = '2026-08-27T19:03:59Z';
+const PORTAL_VERSION  = '4.58.0';
+const PORTAL_BUILD    = 734;
+const PORTAL_BUILD_AT = '2026-08-27T19:53:45Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -66,7 +66,7 @@ const EXEC_REGISTRY_DEFAULTS = {
   aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script. Currently the SAME deployment as main.', files: ['Router.gs', 'AiProxy.gs', 'AIChat.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff). Currently the SAME deployment as main.', files: ['Router.gs', 'SheetDiagnostic.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     files: ['Router.gs', 'PCCHandlers.gs', 'AppsScript_Handlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
-  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app: saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments — PLUS the Tally reconciliation actions tvrSaveBatch / tvrGetStatus / tvrGetBatch / tvrSaveRules / tvrRunNow. Override via the exec_accounts row in the PortalConfig sheet.', files: ['Router.gs', 'AccountsHandlers.gs', 'TallyVendorReconcile.gs'], filesVerified: true, defaultUrl: 'https://script.google.com/macros/s/AKfycbxgZK4IEjWKlx1VCkmKeWDdCPOOksLP3yfEe5LcdRwoxQRTvI6cy4FeKy0mTAh2m_CQLw/exec' },
+  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app: saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments — PLUS the Tally reconciliation actions tvrSaveBatch / tvrGetStatus / tvrGetBatch / tvrSaveRules / tvrRunNow. Override via the exec_accounts row in the PortalConfig sheet.', files: ['Router.gs', 'AccountsHandlers.gs', 'TallyVendorReconcile.gs'], filesVerified: true, defaultUrl: 'https://script.google.com/macros/s/AKfycbwxQviiWbMsDMnfE6kcLEwEl80_J4legGzUSCmH-8oWn6CDURL9qgc1VvMDk8ZggWX3WA/exec' },
   safety:      { label: 'Safety Handler',         desc: 'SafetyHandler.gs web app — Safety module writes (Incidents, DailyChecks). Override via the exec_safety row in the PortalConfig sheet.', files: ['Router.gs', 'SafetyHandlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbyFq6zSKgn-W3qNQPNoDplqiJHDaQTrrKLSK7gecZNiHSnU7Y4Buav3RiGfcvXtn9B3/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
@@ -6562,6 +6562,14 @@ let _tvrBatchView = null; // { kind, batchId, rows } when inspecting a stored ba
 
 const _TVR_SNAP_LS = 'evg_tvr_last_snapshot';   // yyyy-mm-dd of the last auto-snapshot
 
+// The Apps Script backend this page needs. TallyVendorReconcile.gs reports its
+// own TVR_BACKEND_VERSION; anything older (or absent, which is what a
+// pre-versioning deployment looks like) means the .gs files in the project are
+// behind this build. Without this check a stale deployment shows up only as
+// "Unknown POST action: tvrGetBatch" the moment someone clicks the feature that
+// needs it — an error that says nothing about the actual cause.
+const TVR_REQUIRED_BACKEND = 4;
+
 async function _tvrPost(payload) {
   let res;
   try {
@@ -6910,10 +6918,22 @@ function _tvrRenderBody() {
     ${tab('overview', '&#128202; Executive Overview')}${tab('import', '&#128228; Import Tally Export')}${isMD ? tab('rules', '&#9881;&#65039; Notification Rules') : ''}
     ${_tvrStatus && _tvrStatus.mode === 'TEST' ? `<span style="margin-left:auto;font-size:.66rem;font-weight:700;background:#fef3c7;color:#92400e;padding:3px 9px;border-radius:20px" title="Emails go only to the test recipient. Run tvrEnableAll() in Apps Script to mail the real recipients.">TEST MODE &middot; emails go to admin only</span>` : ''}
   </div>`;
+  // Shown above every tab: a stale backend breaks features on all of them.
+  const bv = (_tvrStatus && _tvrStatus.backendVersion) || 0;
+  const stale = _tvrStatus && !_tvrErr && bv < TVR_REQUIRED_BACKEND;
+  const staleBanner = stale ? `<div class="card card-pad" style="margin-bottom:.7rem;padding:.6rem .8rem;background:#fef2f2;border-left:4px solid #dc2626;font-size:.8rem">
+      <b>&#9888; The deployed Apps Script is older than this portal build</b>
+      <span style="color:var(--txt3)">(reports v${bv || '—'}, needs v${TVR_REQUIRED_BACKEND})</span>
+      <div style="margin-top:.35rem;color:var(--txt2);line-height:1.55">
+        Actions added since that deployment fail with <code>Unknown POST action</code> — <code>tvrGetBatch</code> (viewing a stored batch) and <code>tvrSetSign</code> (the sign convention). Matching also still uses the old name-only rules, which is why one vendor can appear twice: once "in Tally, not in portal" and once the reverse.
+        <div style="margin-top:.3rem">Fix: in the Apps Script project, paste the current <code>TallyVendorReconcile.gs</code> <b>and</b> <code>Router.gs</code>, then <b>Deploy &rarr; Manage deployments &rarr; &#9998; &rarr; Version: New version</b>. Editing the files is not enough — Apps Script serves the last deployed snapshot. Then press <b>&#9889; Run Reconcile</b> to rebuild the comparison.</div>
+      </div>
+    </div>` : '';
+
   const view = _tvrTab === 'import' ? _tvrImportView()
              : (_tvrTab === 'rules' && isMD) ? _tvrRulesView()
              : _tvrOverviewView();
-  b.innerHTML = bar + view;
+  b.innerHTML = bar + staleBanner + view;
 }
 
 // ── Executive Overview ─────────────────────────────────────────────────
@@ -7014,20 +7034,46 @@ function _tvrOverviewView() {
       <div style="overflow-x:auto;max-height:260px"><table style="width:100%;border-collapse:collapse;font-size:.76rem">
         <thead><tr style="background:var(--surface2);text-align:left;position:sticky;top:0">
           <th style="padding:5px 9px">Ledger</th><th style="padding:5px 9px">Tally group</th>
+          <th style="padding:5px 9px" title="A Vendor ID code found at the end of the Tally ledger name">Looks like</th>
           <th style="padding:5px 9px;text-align:right">Balance</th><th style="padding:5px 9px">GUID</th></tr></thead>
         <tbody>${unl.map(u => `<tr>
           <td style="padding:4px 9px">${esc(u.name)}</td>
           <td style="padding:4px 9px;color:var(--txt3);font-size:.72rem">${esc(u.parent) || '—'}</td>
+          <td style="padding:4px 9px;font-family:ui-monospace,Menlo,monospace;font-size:.7rem;color:${u.vidInName ? '#15803d' : 'var(--txt3)'}">${esc(u.vidInName) || '—'}</td>
           <td style="padding:4px 9px;text-align:right;font-weight:600">${_tvrSigned(u.tally)}</td>
           <td style="padding:4px 9px;font-family:ui-monospace,Menlo,monospace;font-size:.66rem;color:var(--txt3);word-break:break-all">${esc(u.guid) || '—'}</td></tr>`).join('')}</tbody>
       </table></div>
       ${(s.unlinkedTotal || 0) > unl.length ? `<div style="padding:.4rem .8rem;font-size:.71rem;color:var(--txt3);border-top:1px solid var(--border)">Showing ${unl.length} of ${s.unlinkedTotal}.</div>` : ''}
     </div>` : '';
 
+  // ── Portal vendors with no TallyUID ───────────────────────────────────
+  // Since TallyUID is the only matcher, these are simply not being reconciled.
+  // Reported apart from mismatches: nothing is known about Tally's view of them,
+  // so calling them "missing from Tally" would assert more than the data shows.
+  const up = s.unlinkedPortal || [];
+  const cover = (s.totalPortal || 0) ? Math.round((s.linkedPortal || 0) / s.totalPortal * 100) : 0;
+  const upCard = up.length ? `<div class="card" style="margin-bottom:.8rem">
+      <div style="padding:.55rem .8rem;border-bottom:1px solid var(--border);display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+        <b style="font-size:.85rem">&#9888; ${s.unlinkedPortalTotal || up.length} portal vendor${(s.unlinkedPortalTotal || up.length) === 1 ? '' : 's'} with a balance and no TallyUID</b>
+        <span style="font-size:.72rem;color:var(--txt3)">Not reconciled at all — paste the ledger's <b>$GUID</b> into <b>TallyUID</b> in Vendor Master.</span>
+      </div>
+      <div style="overflow-x:auto;max-height:240px"><table style="width:100%;border-collapse:collapse;font-size:.76rem">
+        <thead><tr style="background:var(--surface2);text-align:left;position:sticky;top:0">
+          <th style="padding:5px 9px">Vendor (Vendor Master)</th><th style="padding:5px 9px">Vendor ID</th>
+          <th style="padding:5px 9px;text-align:right">Portal Balance</th></tr></thead>
+        <tbody>${up.map(u => `<tr>
+          <td style="padding:4px 9px">${esc(u.name)}</td>
+          <td style="padding:4px 9px;font-family:ui-monospace,Menlo,monospace;font-size:.7rem">${esc(u.vid) || '—'}</td>
+          <td style="padding:4px 9px;text-align:right;font-weight:600">${_tvrSigned(u.portal)}</td></tr>`).join('')}</tbody>
+      </table></div>
+      ${(s.unlinkedPortalTotal || 0) > up.length ? `<div style="padding:.4rem .8rem;font-size:.71rem;color:var(--txt3);border-top:1px solid var(--border)">Showing ${up.length} of ${s.unlinkedPortalTotal}.</div>` : ''}
+    </div>` : '';
+
   const kpis = `<div class="evg-kpi-grid" style="margin-bottom:.8rem">
     ${evgKpiCard({ icon: '&#9888;&#65039;', value: ms.length, label: 'Open Mismatches', accent: ms.length ? '#dc2626' : '#16a34a' })}
     ${evgKpiCard({ icon: '&#128181;', value: _tvrInr(totalValue), label: 'Total Mismatch Value', accent: '#ea580c' })}
     ${evgKpiCard({ icon: '&#127970;', value: vendors, label: 'Vendors Affected', accent: '#7c3aed' })}
+    ${evgKpiCard({ icon: '&#128279;', value: (s.totalPortal ? `${s.linkedPortal}/${s.totalPortal}` : '—'), label: `Linked by TallyUID${s.totalPortal ? ` · ${cover}%` : ''}`, accent: cover >= 90 ? '#16a34a' : cover >= 50 ? '#ea580c' : '#dc2626' })}
     ${evgKpiCard({ icon: '&#128228;', value: tally.at ? esc(String(tally.at).split(' ')[0]) : '—', label: (isLatest ? 'Last Tally Upload' : 'Current Tally Upload (not this run)') + (tally.by ? ' · ' + esc(String(tally.by).split('@')[0]) : ''), accent: '#2563eb' })}
     ${evgKpiCard({ icon: stale ? '&#9203;' : '&#128248;', value: snap.at ? esc(String(snap.at).split(' ')[0]) : '—', label: (isLatest ? 'Last Portal Snapshot' : 'Current Snapshot (not this run)') + (staleHrs >= 0 ? ` · ${staleHrs}h ago` : ''), accent: stale ? '#dc2626' : '#16a34a' })}
   </div>`;
@@ -7046,7 +7092,7 @@ function _tvrOverviewView() {
 
   if (!ms.length) {
     const never = !s.runId;
-    return picker + histBanner + kpis + warn + signCard + gapCard + unlCard + meta + `<div class="card card-pad" style="text-align:center;padding:2.5rem;color:var(--txt3)">
+    return picker + histBanner + kpis + warn + signCard + gapCard + upCard + unlCard + meta + `<div class="card card-pad" style="text-align:center;padding:2.5rem;color:var(--txt3)">
       <div style="font-size:2rem;margin-bottom:.4rem">${never ? '&#128203;' : '&#9989;'}</div>
       <div style="font-weight:700;color:var(--txt2)">${never ? 'No reconciliation has run yet' : 'No mismatches — Tally and the portal agree'}</div>
       <div style="font-size:.82rem;margin-top:.35rem">${never ? 'Upload a Tally export, capture a snapshot, then run the reconcile.' : 'Every vendor\'s closing balance matched within ₹1.'}</div>
@@ -7056,21 +7102,29 @@ function _tvrOverviewView() {
   const body = ms.map(m => {
     const diff = Number(m.diff) || 0;
     const col = diff >= 0 ? '#b45309' : '#1d4ed8';
+    // Name is the Vendor Master spelling; Tally's is shown beneath only when it
+    // differs, so a naming difference is visible without being the headline.
+    const tn = m.tallyName && _tvrNorm(m.tallyName) !== _tvrNorm(m.name) ? m.tallyName : '';
     return `<tr>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(m.name)}${m.acc ? ` <span style="color:var(--txt3);font-size:.7rem">[${esc(m.acc)}]</span>` : ''}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border)">${esc(m.name)}
+        ${tn ? `<div style="font-size:.68rem;color:var(--txt3)">Tally: ${esc(tn)}</div>` : ''}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:ui-monospace,Menlo,monospace;font-size:.7rem">${esc(m.vid) || '<span style="color:#c2410c">—</span>'}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:ui-monospace,Menlo,monospace;font-size:.64rem;color:var(--txt3);word-break:break-all;max-width:190px">${esc(m.tallyUid) || (m.guid ? `<span title="Tally has a GUID but Vendor Master has no TallyUID for this vendor" style="color:#c2410c">not linked</span>` : '—')}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right">${m.tally === '' || m.tally == null ? '—' : _tvrSigned(m.tally)}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right">${m.portal === '' || m.portal == null ? '—' : _tvrSigned(m.portal)}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:${col}">${_tvrSigned(diff)}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.72rem;color:var(--txt3)">${esc(_tvrTypeLabel(m.type))}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.72rem;color:var(--txt3)">${esc(_tvrTypeLabel(m.type))}${m.matchedBy ? `<div style="font-size:.64rem;opacity:.8">matched by ${esc(m.matchedBy)}</div>` : ''}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.72rem">${m.ruleLabel === 'UNROUTED' ? '<span style="color:#dc2626;font-weight:700">Unrouted</span>' : esc(m.ruleLabel || '—')}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.7rem;color:var(--txt3);word-break:break-word">${esc(m.notifiedTo || '—')}</td>
     </tr>`;
   }).join('');
 
-  return picker + histBanner + kpis + warn + signCard + gapCard + unlCard + meta + `<div class="card"><div style="overflow-x:auto">
+  return picker + histBanner + kpis + warn + signCard + gapCard + upCard + unlCard + meta + `<div class="card"><div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
-        <th style="padding:8px 9px">Vendor</th>
+        <th style="padding:8px 9px">Vendor <span style="font-weight:400;opacity:.7">(Vendor Master)</span></th>
+        <th style="padding:8px 9px">Vendor ID</th>
+        <th style="padding:8px 9px" title="Tally's $GUID, via the TallyUID column in Vendor Master">Tally UID</th>
         <th style="padding:8px 9px;text-align:right">Tally Balance</th>
         <th style="padding:8px 9px;text-align:right">Portal Balance</th>
         <th style="padding:8px 9px;text-align:right">Difference</th>
@@ -7429,7 +7483,12 @@ window._tvrRunReconcile = async function (btn) {
   if (btn) { btn.disabled = false; btn.innerHTML = '&#9889; Run Reconcile'; }
   if (resp && resp.success !== false) {
     const mails = (resp.emails || []).reduce((t, e) => t + e.count, 0);
-    _accToast(`✅ ${resp.mismatches} mismatch(es) · ${mails} notified (${resp.mode})`);
+    const errs = resp.emailErrors || [];
+    // The reconciliation is written to the sheet before any mail is sent, so a
+    // failed send never means a lost run — say so rather than showing a bare tick.
+    _accToast(errs.length
+      ? `⚠ ${resp.mismatches} mismatch(es) saved, but ${errs.length} email(s) failed: ${_mdpEsc(errs[0].error || '')}`
+      : `✅ ${resp.mismatches} mismatch(es) · ${mails} notified (${resp.mode})`);
     await _tvrLoad();
   } else {
     _accToast('⚠ ' + ((resp && resp.message) || 'Reconcile failed'));
