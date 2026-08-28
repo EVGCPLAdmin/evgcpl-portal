@@ -7002,8 +7002,28 @@ const TVR_VIEWS = [
   { id: 'import',   label: '&#128228; Import Tally Export', mdOnly: false },
   { id: 'rules',    label: '&#9881;&#65039; Notification Rules', mdOnly: true }
 ];
-const TVR_VIEWS_LS = 'tvr_views';          // personal, this browser
-const TVR_VIEWS_PC = 'tvr_default_views';  // org-wide default (PortalConfig sheet)
+// The blocks stacked down the Executive Overview, in their default order.
+// Arrangeable for the same reason the tabs are: which of these earns screen
+// space depends on where the reconciliation is. While vendors are still being
+// linked the two unlinked lists are the whole job; once coverage is high they
+// are noise and the mismatch table is the page.
+const TVR_SECTIONS = [
+  { id: 'kpis',     label: '&#128202; KPI cards' },
+  { id: 'picker',   label: '&#128337; Run history picker' },
+  { id: 'signCard', label: '&#9878;&#65039; Sign convention check' },
+  { id: 'gapCard',  label: '&#128197; Days missing a snapshot' },
+  { id: 'upCard',   label: '&#128681; Portal vendors with no TallyUID' },
+  { id: 'unlCard',  label: '&#128712; Unlinked Tally ledgers' },
+  { id: 'meta',     label: '&#8505;&#65039; Upload / snapshot freshness' },
+  { id: 'table',    label: '&#128203; Mismatch table' }
+];
+
+// Two arrangeable surfaces, one implementation. Each resolves personal
+// localStorage → org default (PortalConfig) → compiled, per docs/DEFAULTS.md.
+const TVR_ARRANGE = {
+  tabs:     { items: TVR_VIEWS,    ls: 'tvr_views',    pc: 'tvr_default_views',    noun: 'views' },
+  overview: { items: TVR_SECTIONS, ls: 'tvr_sections', pc: 'tvr_default_sections', noun: 'sections' }
+};
 
 function _tvrIsAdmin() {
   return STATE.role === 'md' || STATE.role === 'admin' ||
@@ -7012,55 +7032,62 @@ function _tvrIsAdmin() {
 
 // personal (localStorage) → org default (PortalConfig) → compiled.
 // Same chain as every other arrangement in the portal (see docs/DEFAULTS.md).
-function _tvrViewArr() {
+function _tvrViewArr(what) {
+  const spec = TVR_ARRANGE[what];
   try {
-    const ls = localStorage.getItem(TVR_VIEWS_LS);
+    const ls = localStorage.getItem(spec.ls);
     if (ls) { const o = JSON.parse(ls); if (o && Array.isArray(o.order)) return o; }
   } catch (e) { /* fall through to the org default */ }
-  const org = pcReadJSON(TVR_VIEWS_PC, null);
+  const org = pcReadJSON(spec.pc, null);
   if (org && Array.isArray(org.order)) return org;
-  return { order: TVR_VIEWS.map(v => v.id), hidden: [] };
+  return { order: spec.items.map(v => v.id), hidden: [] };
 }
 
-// The views to render: saved order first, then any view the arrangement never
-// mentioned (a view added by a later build must not be invisible to everyone
+// The items to render: saved order first, then any item the arrangement never
+// mentioned (one added by a later build must not be invisible to everyone
 // holding an older saved arrangement), minus hidden, minus role-barred.
-function _tvrViews() {
-  const arr = _tvrViewArr();
+function _tvrViews(what) {
+  const spec = TVR_ARRANGE[what || 'tabs'];
+  const arr = _tvrViewArr(what || 'tabs');
   const hidden = new Set(arr.hidden || []);
-  const known = new Set(TVR_VIEWS.map(v => v.id));
+  const known = new Set(spec.items.map(v => v.id));
   const ordered = (arr.order || []).filter(id => known.has(id));
-  TVR_VIEWS.forEach(v => { if (!ordered.includes(v.id)) ordered.push(v.id); });
+  spec.items.forEach(v => { if (!ordered.includes(v.id)) ordered.push(v.id); });
   const isMD = _tvrIsAdmin();
   return ordered
-    .map(id => TVR_VIEWS.find(v => v.id === id))
+    .map(id => spec.items.find(v => v.id === id))
     .filter(v => v && !hidden.has(v.id) && (!v.mdOnly || isMD));
 }
 
 // Persist an arrangement. `scope` 'me' writes localStorage; 'org' writes the
 // PortalConfig sheet AND clears the personal copy, so the admin setting the
 // default actually sees the default rather than their own stale override.
-async function _tvrSaveViews(arr, scope) {
+async function _tvrSaveViews(what, arr, scope) {
+  const spec = TVR_ARRANGE[what];
   if (scope === 'org') {
-    try { localStorage.removeItem(TVR_VIEWS_LS); } catch (e) { /* nothing cached */ }
-    const res = await pcWriteJSON(TVR_VIEWS_PC, arr);
+    try { localStorage.removeItem(spec.ls); } catch (e) { /* nothing cached */ }
+    const res = await pcWriteJSON(spec.pc, arr);
     if (!res.ok) { alert('Could not save the org-wide default: ' + (res.message || 'unknown error')); return false; }
     return true;
   }
-  try { localStorage.setItem(TVR_VIEWS_LS, JSON.stringify(arr)); }
+  try { localStorage.setItem(spec.ls, JSON.stringify(arr)); }
   catch (e) { alert('Could not save: ' + e.message); return false; }
   return true;
 }
 
-// Draft arrangement while the manager panel is open.
+// Draft arrangement while the manager panel is open, and which surface it is
+// for ('tabs' or 'overview'). One panel serves both.
 let _tvrViewDraft = null;
+let _tvrViewWhat  = 'tabs';
 
-window._tvrViewsOpen = function () {
-  const arr = _tvrViewArr();
+window._tvrViewsOpen = function (what) {
+  _tvrViewWhat = TVR_ARRANGE[what] ? what : 'tabs';
+  const spec = TVR_ARRANGE[_tvrViewWhat];
+  const arr = _tvrViewArr(_tvrViewWhat);
   const hidden = new Set(arr.hidden || []);
-  const known = new Set(TVR_VIEWS.map(v => v.id));
+  const known = new Set(spec.items.map(v => v.id));
   const order = (arr.order || []).filter(id => known.has(id));
-  TVR_VIEWS.forEach(v => { if (!order.includes(v.id)) order.push(v.id); });
+  spec.items.forEach(v => { if (!order.includes(v.id)) order.push(v.id); });
   _tvrViewDraft = { order, hidden: [...hidden] };
   _tvrRenderBody();
 };
@@ -7078,58 +7105,63 @@ window._tvrViewToggle = function (id) {
   if (!_tvrViewDraft) return;
   const h = _tvrViewDraft.hidden, i = h.indexOf(id);
   if (i >= 0) { h.splice(i, 1); _tvrRenderBody(); return; }
-  // Never let the last view be hidden. An empty tab bar is unrecoverable from
-  // the UI — the manager button lives IN that bar — and this page has already
-  // shipped one bug where the Import tab became unreachable.
+  // Never let the last item be hidden. For the tabs that is unrecoverable from
+  // the UI — the manager button lives IN that bar, and this page has already
+  // shipped one bug where the Import tab became unreachable. For the Overview
+  // it would leave a blank page with no way back.
   const left = _tvrViewDraft.order.filter(x => x !== id && !h.includes(x));
-  if (!left.length) { alert('At least one view has to stay visible.'); return; }
+  if (!left.length) { alert('At least one ' + TVR_ARRANGE[_tvrViewWhat].noun.replace(/s$/, '') + ' has to stay visible.'); return; }
   h.push(id);
   _tvrRenderBody();
 };
 
 window._tvrViewsReset = function () {
-  _tvrViewDraft = { order: TVR_VIEWS.map(v => v.id), hidden: [] };
+  _tvrViewDraft = { order: TVR_ARRANGE[_tvrViewWhat].items.map(v => v.id), hidden: [] };
   _tvrRenderBody();
 };
 
 window._tvrViewsApply = async function (scope, btn) {
   if (!_tvrViewDraft) return;
   if (btn) { btn.disabled = true; btn.dataset.t = btn.innerHTML; btn.textContent = 'Saving…'; }
-  const ok = await _tvrSaveViews({ order: [..._tvrViewDraft.order], hidden: [..._tvrViewDraft.hidden] }, scope);
+  const ok = await _tvrSaveViews(_tvrViewWhat, { order: [..._tvrViewDraft.order], hidden: [..._tvrViewDraft.hidden] }, scope);
   if (btn) { btn.disabled = false; btn.innerHTML = btn.dataset.t; }
   if (!ok) return;
   _tvrViewDraft = null;
   // The active tab may have just been hidden; land on the first one still shown.
-  const vis = _tvrViews();
+  const vis = _tvrViews('tabs');
   if (!vis.some(v => v.id === _tvrTab)) _tvrTab = (vis[0] || {}).id || 'overview';
   _tvrRenderBody();
 };
 
-// The manager panel. Reorder with ▲▼ and show/hide with the eye — deliberately
-// buttons rather than drag-and-drop, since this bar is used on phones too.
+// The manager panel, shared by both surfaces. Reorder with the arrows and
+// show/hide with the toggle — deliberately buttons rather than drag-and-drop,
+// since this page is used on phones too.
 function _tvrViewsPanel() {
   if (!_tvrViewDraft) return '';
+  const spec = TVR_ARRANGE[_tvrViewWhat];
   const hidden = new Set(_tvrViewDraft.hidden);
   const rows = _tvrViewDraft.order.map((id, i) => {
-    const v = TVR_VIEWS.find(x => x.id === id); if (!v) return '';
+    const v = spec.items.find(x => x.id === id); if (!v) return '';
     const off = hidden.has(id);
-    return `<div style="display:flex;align-items:center;gap:.4rem;padding:.3rem .1rem;border-bottom:1px solid var(--bdr)">
+    return `<div style="display:flex;align-items:center;gap:.4rem;padding:.3rem .1rem;border-bottom:1px solid var(--border)">
       <button class="btn btn-sm btn-secondary" style="padding:1px 7px" onclick="_tvrViewMove('${id}',-1)" ${i === 0 ? 'disabled' : ''} title="Move up">&#9650;</button>
       <button class="btn btn-sm btn-secondary" style="padding:1px 7px" onclick="_tvrViewMove('${id}',1)" ${i === _tvrViewDraft.order.length - 1 ? 'disabled' : ''} title="Move down">&#9660;</button>
       <span style="flex:1;font-size:.8rem;${off ? 'opacity:.45;text-decoration:line-through' : ''}">${v.label}${v.mdOnly ? ' <span style="font-size:.66rem;color:var(--txt3)">(admin only)</span>' : ''}</span>
       <button class="btn btn-sm ${off ? 'btn-secondary' : 'btn-primary'}" style="padding:1px 9px;font-size:.7rem" onclick="_tvrViewToggle('${id}')">${off ? 'Hidden' : 'Shown'}</button>
     </div>`;
   }).join('');
-  return `<div class="card card-pad" style="margin-bottom:.7rem;padding:.6rem .8rem">
-    <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem">
-      <b style="font-size:.82rem">Arrange views</b>
+  const isTabs = _tvrViewWhat === 'tabs';
+  return `<div class="card card-pad" style="margin-bottom:.7rem;padding:.6rem .8rem;border-left:3px solid var(--g6)">
+    <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem;flex-wrap:wrap">
+      <b style="font-size:.82rem">${isTabs ? 'Arrange tabs' : 'Arrange Overview sections'}</b>
       <span style="font-size:.7rem;color:var(--txt3)">Reorder with &#9650;&#9660;, toggle to hide.</span>
       <button class="btn btn-sm btn-secondary" style="margin-left:auto;padding:2px 9px;font-size:.7rem" onclick="_tvrViewsClose()">Cancel</button>
     </div>
     ${rows}
+    ${isTabs ? '' : `<div style="font-size:.68rem;color:var(--txt3);margin-top:.4rem">A section only appears when it has something to show. Warnings about a stale snapshot, and the notice shown while viewing a past run, are always displayed &mdash; hiding a caveat about the figures would make them look more trustworthy than they are.</div>`}
     <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem">
       <button class="btn btn-sm btn-primary" style="font-size:.72rem" onclick="_tvrViewsApply('me',this)">Save for me</button>
-      ${_tvrIsAdmin() ? `<button class="btn btn-sm" style="font-size:.72rem;background:#0f766e;color:#fff" onclick="_tvrViewsApply('org',this)" title="Writes the tvr_default_views row in the PortalConfig sheet — the default for everyone without a personal arrangement">&#9733; Set as org default</button>` : ''}
+      ${_tvrIsAdmin() ? `<button class="btn btn-sm" style="font-size:.72rem;background:#0f766e;color:#fff" onclick="_tvrViewsApply('org',this)" title="Writes ${spec.pc} in the PortalConfig sheet — the default for everyone without a personal arrangement">&#9733; Set as org default</button>` : ''}
       <button class="btn btn-sm btn-secondary" style="font-size:.72rem;margin-left:auto" onclick="_tvrViewsReset()">Reset to default</button>
     </div>
   </div>`;
@@ -7148,7 +7180,8 @@ function _tvrRenderBody() {
   if (!views.some(v => v.id === _tvrTab)) _tvrTab = (views[0] || {}).id || 'overview';
   const bar = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
     ${views.map(v => tab(v.id, v.label)).join('')}
-    <button onclick="_tvrViewsOpen()" class="btn btn-sm btn-secondary" style="padding:4px 9px;font-size:.72rem" title="Show, hide and reorder the views on this page">&#9881; Views</button>
+    <button onclick="_tvrViewsOpen('tabs')" class="btn btn-sm btn-secondary" style="padding:4px 9px;font-size:.72rem" title="Show, hide and reorder the tabs on this page">&#9881; Tabs</button>
+    ${_tvrTab === 'overview' ? `<button onclick="_tvrViewsOpen('overview')" class="btn btn-sm btn-secondary" style="padding:4px 9px;font-size:.72rem" title="Show, hide and reorder the blocks down the Executive Overview — KPI cards, sign check, unlinked lists, mismatch table">&#9881; Sections</button>` : ''}
     <button onclick="_kbGoto('tally-recon')" class="btn btn-sm btn-secondary" style="padding:4px 9px;font-size:.72rem" title="How to use this page — upload, snapshot, matching, rules and the sign convention">&#128218; How to use</button>
     ${_tvrStatus && _tvrStatus.mode === 'TEST' ? `<span style="margin-left:auto;font-size:.66rem;font-weight:700;background:#fef3c7;color:#92400e;padding:3px 9px;border-radius:20px" title="Emails go only to the test recipient. Run tvrEnableAll() in Apps Script to mail the real recipients.">TEST MODE &middot; emails go to admin only</span>` : ''}
   </div>` + _tvrViewsPanel();
@@ -7353,11 +7386,11 @@ function _tvrOverviewView() {
 
   if (!ms.length) {
     const never = !s.runId;
-    return picker + histBanner + kpis + warn + signCard + gapCard + upCard + unlCard + meta + `<div class="card card-pad" style="text-align:center;padding:2.5rem;color:var(--txt3)">
+    return _tvrLayout({ picker, kpis, signCard, gapCard, upCard, unlCard, meta, table: `<div class="card card-pad" style="text-align:center;padding:2.5rem;color:var(--txt3)">
       <div style="font-size:2rem;margin-bottom:.4rem">${never ? '&#128203;' : '&#9989;'}</div>
       <div style="font-weight:700;color:var(--txt2)">${never ? 'No reconciliation has run yet' : 'No mismatches — Tally and the portal agree'}</div>
       <div style="font-size:.82rem;margin-top:.35rem">${never ? 'Upload a Tally export, capture a snapshot, then run the reconcile.' : 'Every vendor\'s closing balance matched within ₹1.'}</div>
-    </div>`;
+    </div>` }, histBanner + warn);
   }
 
   const body = ms.map(m => {
@@ -7381,7 +7414,7 @@ function _tvrOverviewView() {
     </tr>`;
   }).join('');
 
-  return picker + histBanner + kpis + warn + signCard + gapCard + upCard + unlCard + meta + `<div class="card"><div style="overflow-x:auto">
+  return _tvrLayout({ picker, kpis, signCard, gapCard, upCard, unlCard, meta, table: `<div class="card"><div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Vendor <span style="font-weight:400;opacity:.7">(Vendor Master)</span></th>
@@ -7396,7 +7429,18 @@ function _tvrOverviewView() {
       </tr></thead>
       <tbody>${body}</tbody>
     </table>
-  </div></div>`;
+  </div></div>` }, histBanner + warn);
+}
+
+// Stack the Overview from the saved section arrangement.
+//
+// `pinned` is rendered first and is NOT arrangeable: it carries the stale-
+// snapshot warning and the "you are viewing a past run" notice. Both are
+// caveats about how much the figures on this page can be trusted, and a
+// caveat that can be switched off makes the numbers look more reliable than
+// they are — the opposite of what this page exists to do.
+function _tvrLayout(parts, pinned) {
+  return (pinned || '') + _tvrViews('overview').map(sec => parts[sec.id] || '').join('');
 }
 
 // Hours since a "dd-MMM-yyyy HH:mm" backend stamp; -1 when unparseable.
@@ -19039,7 +19083,17 @@ function _kbBodyTallyRecon() {
       <p class="kb-p">Days with a Tally upload but <b>no snapshot</b> are called out separately. Those can never be reconciled later: the Tally file is stored, but a past portal balance cannot be reconstructed once the underlying POs, GRNs and payments have moved on. That is what the snapshot prompt after each upload is protecting against.</p>
 
       <h3 class="kb-sub">Arranging the views</h3>
-      <p class="kb-p">The <b>&#9881; Views</b> button reorders or hides the tabs on this page. <b>Save for me</b> applies to your browser only; admins also get <b>&#9733; Set as org default</b>, which applies to everyone who has not set their own. At least one view must stay visible. <b>Reset to default</b> restores the original set.</p>
+      <p class="kb-p">Two things are arrangeable, each with its own button in the tab bar:</p>
+      <table class="kb-tbl">
+        <thead><tr><th>Button</th><th>Arranges</th></tr></thead>
+        <tbody>
+          <tr><td><b>&#9881; Tabs</b></td><td>The tabs across the top — Executive Overview, Import Tally Export, Notification Rules</td></tr>
+          <tr><td><b>&#9881; Sections</b></td><td>The blocks down the Executive Overview — KPI cards, run picker, sign check, snapshot gaps, the two unlinked lists, the freshness line and the mismatch table</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p">Reorder with &#9650;&#9660;, toggle to hide. <b>Save for me</b> applies to your browser only; admins also get <b>&#9733; Set as org default</b>, which applies to everyone who has not set their own arrangement. At least one item must stay visible, and <b>Reset to default</b> restores the original set.</p>
+      <p class="kb-p">Two things are deliberately <b>not</b> hideable: the warning that the snapshot is stale, and the notice shown while you are viewing a past run. Both are caveats about how far the figures on screen can be trusted, and a caveat you can switch off makes the numbers look more reliable than they are.</p>
+      <p class="kb-p">This is worth using. While vendors are still being linked, the two unlinked lists are the whole job and the mismatch table is premature; once coverage is high the reverse is true. Put the block you are actually working from at the top.</p>
 
       <h3 class="kb-sub">When the red banner appears</h3>
       <p class="kb-p">A red banner means the deployed Apps Script is older than this portal build. It names <b>which deployment is being called and where that URL came from</b> — which matters, because a saved endpoint override outranks the URL the build ships, and then redeploying changes nothing. If the banner says an override is winning, the button in it repoints the portal at the right deployment.</p>
