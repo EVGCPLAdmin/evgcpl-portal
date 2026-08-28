@@ -116,7 +116,9 @@ var TVR_TEST_RECIPIENT = 'admin@evgcpl.com';
 //   4 = TallyUID is the ONLY matcher; portal-side unlinked + coverage reported
 //   5 = existing tabs get their header row migrated (new columns were being
 //       written but never read back, so GUID matching silently found nothing)
-var TVR_BACKEND_VERSION = 5;
+//   6 = Vendor IDs sharing a TallyUID are merged (balances summed, display
+//       record = active + latest); snapshot carries Active + VMTimestamp
+var TVR_BACKEND_VERSION = 6;
 
 // Tally's $_ClosingBalance sign convention is NOT self-evident from the export:
 // in the sample, Sundry Creditors carried both signs (197 positive, 180
@@ -150,9 +152,9 @@ var TVR_HEADERS = {};
 // "Employee Creditors", …) — kept so an unlinked ledger can be identified
 // without going back to Tally.
 TVR_HEADERS[TVR_TAB_TALLY]    = ['UploadedAt', 'UploadedBy', 'BatchId', 'Vendor Name', 'A/C Number', 'Closing Balance', 'GUID', 'Parent'];
-TVR_HEADERS[TVR_TAB_SNAPSHOT] = ['UploadedAt', 'UploadedBy', 'BatchId', 'Vendor Name', 'A/C Number', 'Closing Balance', 'TallyUID'];
+TVR_HEADERS[TVR_TAB_SNAPSHOT] = ['UploadedAt', 'UploadedBy', 'BatchId', 'Vendor Name', 'A/C Number', 'Closing Balance', 'TallyUID', 'Active', 'VMTimestamp'];
 TVR_HEADERS[TVR_TAB_RULES]    = ['RuleID', 'MinAmount', 'MaxAmount', 'Recipients', 'Label', 'Active'];
-TVR_HEADERS[TVR_TAB_MISMATCH] = ['Date', 'RunId', 'Vendor Name', 'A/C Number', 'TallyBalance', 'PortalBalance', 'Diff', 'Type', 'NotifiedTo', 'RuleLabel', 'GUID', 'MatchedBy', 'Vendor ID', 'TallyUID'];
+TVR_HEADERS[TVR_TAB_MISMATCH] = ['Date', 'RunId', 'Vendor Name', 'A/C Number', 'TallyBalance', 'PortalBalance', 'Diff', 'Type', 'NotifiedTo', 'RuleLabel', 'GUID', 'MatchedBy', 'Vendor ID', 'TallyUID', 'MergedIDs'];
 
 // Seeded on first use so the rules table is never empty (an empty table would
 // silently route nothing). Edit from the portal's Rules tab, not here.
@@ -351,7 +353,8 @@ function tvrSaveBatch(body) {
     // Tally rows carry the ledger GUID + group; snapshot rows carry the Vendor
     // Master TallyUID. Stored raw — the sign flip happens at compare time.
     if (kind === 'tally') base.push(String(r.guid == null ? '' : r.guid).trim(), String(r.parent == null ? '' : r.parent).trim());
-    else base.push(String(r.tallyUid == null ? '' : r.tallyUid).trim());
+    else base.push(String(r.tallyUid == null ? '' : r.tallyUid).trim(),
+                   r.active ? 1 : 0, _tvrNum(r.ts));
     out.push(base);
   }
   if (!out.length) return { success: false, message: 'tvrSaveBatch: every row was missing a vendor name' };
@@ -499,13 +502,49 @@ function _tvrDiff(tallyRows, snapRows) {
       acc: String(r['A/C Number'] || '').trim(),
       uid: String(r['TallyUID'] || '').trim(),
       bal: _tvrNum(r['Closing Balance']),
+      active: _tvrNum(r['Active']) ? 1 : 0,
+      ts: _tvrNum(r['VMTimestamp']),
       used: false
     };
   }).filter(function (r) { return r.name; });
 
-  var byUid = {}, byAcc = {}, byName = {};
+  // Several Vendor IDs can carry the SAME TallyUID — one real vendor entered
+  // more than once in Vendor Master. Tally holds a single ledger for it, so the
+  // portal side must be merged before comparing: otherwise one arbitrary record
+  // is matched, its partial balance is reported as a mismatch, and the others
+  // surface as phantom unlinked vendors. Balances are summed; the display name
+  // and Vendor ID come from the ACTIVE record, latest by Vendor Master
+  // timestamp, per the rule for which record represents the vendor.
+  var groups = {};
   S.forEach(function (s) {
-    if (s.uid) { var u = _tvrNorm(s.uid); if (!byUid[u]) byUid[u] = s; }
+    if (!s.uid) return;
+    var u = _tvrNorm(s.uid);
+    (groups[u] = groups[u] || []).push(s);
+  });
+  var byUid = {}, byAcc = {}, byName = {};
+  Object.keys(groups).forEach(function (u) {
+    var g = groups[u];
+    if (g.length === 1) { byUid[u] = g[0]; return; }
+    // Pick the representative: active beats inactive; then latest timestamp;
+    // then the largest balance, so the choice is at least deterministic when
+    // Vendor Master gives us nothing to separate them.
+    var rep = g.slice().sort(function (a, b) {
+      return (b.active - a.active) || (b.ts - a.ts) || (Math.abs(b.bal) - Math.abs(a.bal));
+    })[0];
+    var total = 0;
+    g.forEach(function (x) { total += x.bal; x.used = true; });
+    byUid[u] = {
+      name: rep.name, acc: rep.acc, uid: rep.uid, bal: total, used: false,
+      mergedIds: g.map(function (x) { return x.acc; }).filter(Boolean),
+      mergedCount: g.length,
+      // Recorded so a merge is never invisible: the portal shows which Vendor
+      // IDs were combined, and whether the pick had an active flag to go on.
+      mergedActive: g.filter(function (x) { return x.active; }).length
+    };
+    // The group's members are represented by the merged row from here on.
+    g.forEach(function (x) { x.used = true; });
+  });
+  S.forEach(function (s) {
     if (s.acc) { var a = _tvrNorm(s.acc); if (!byAcc[a]) byAcc[a] = s; }
     var n = _tvrNorm(s.name); if (!byName[n]) byName[n] = s;
   });
@@ -514,6 +553,10 @@ function _tvrDiff(tallyRows, snapRows) {
     var m = map[_tvrNorm(key)];
     return (m && !m.used) ? m : null;
   };
+  // Merged rows stand in for their group, so clear the used flag the grouping
+  // set on the members (the members themselves stay used and are never
+  // reported separately).
+  Object.keys(byUid).forEach(function (u) { byUid[u].used = false; });
 
   var mismatches = [], unlinked = [], matched = [];
   T.forEach(function (t) {
@@ -538,12 +581,14 @@ function _tvrDiff(tallyRows, snapRows) {
     // The displayed name is always the portal's (Vendor Master) spelling; Tally's
     // is kept alongside so a naming difference is visible rather than confusing.
     matched.push({ name: m.name || t.name, tallyName: t.name, guid: t.guid, vid: m.acc,
-                   tallyUid: m.uid, matchedBy: how, tallyRaw: t.raw, tally: t.bal, portal: m.bal });
+                   tallyUid: m.uid, matchedBy: how, tallyRaw: t.raw, tally: t.bal, portal: m.bal,
+                   mergedIds: m.mergedIds || [], mergedCount: m.mergedCount || 1 });
     var diff = t.bal - m.bal;
     if (Math.abs(diff) > TVR_TOLERANCE) {
       mismatches.push({ name: m.name || t.name, tallyName: t.name, acc: t.acc || m.acc,
                         guid: t.guid, vid: m.acc, tallyUid: m.uid, matchedBy: how,
-                        tally: t.bal, portal: m.bal, diff: diff, type: 'balance-diff' });
+                        tally: t.bal, portal: m.bal, diff: diff, type: 'balance-diff',
+                        mergedIds: m.mergedIds || [], mergedCount: m.mergedCount || 1 });
     }
   });
 
@@ -553,6 +598,9 @@ function _tvrDiff(tallyRows, snapRows) {
   //                         would be an assertion the data does not support.
   //   • has a TallyUID    → genuinely absent from the export. A real finding.
   var unlinkedPortal = [];
+  // Merged group members were marked used during grouping, so only genuinely
+  // unmatched rows reach this loop; a merged vendor that Tally never mentioned
+  // is reported once, through its merged row below.
   S.forEach(function (s) {
     if (s.used) return;
     if (Math.abs(s.bal) <= TVR_TOLERANCE) return;
@@ -571,10 +619,25 @@ function _tvrDiff(tallyRows, snapRows) {
   // linkedPortal / totalPortal give the coverage figure: how much of the vendor
   // book is actually being reconciled, which strict matching makes essential to
   // show — an empty mismatch list means nothing if only a handful are linked.
+  // A merged vendor with a TallyUID that Tally never mentioned is still a real
+  // finding — report it once, from the merged row.
+  Object.keys(byUid).forEach(function (u) {
+    var m = byUid[u];
+    if (m.used || !m.mergedCount || m.mergedCount < 2) return;
+    if (Math.abs(m.bal) <= TVR_TOLERANCE) return;
+    mismatches.push({ name: m.name, tallyName: '', acc: m.acc, guid: '', vid: m.acc,
+                      tallyUid: m.uid, matchedBy: '', tally: '', portal: m.bal,
+                      diff: -m.bal, type: 'missing-in-tally',
+                      mergedIds: m.mergedIds || [], mergedCount: m.mergedCount });
+  });
+
   var linkedPortal = 0;
   S.forEach(function (s) { if (s.uid) linkedPortal++; });
+  var mergedGroups = 0;
+  Object.keys(byUid).forEach(function (u) { if ((byUid[u].mergedCount || 1) > 1) mergedGroups++; });
   return { mismatches: mismatches, unlinked: unlinked, matched: matched,
-           unlinkedPortal: unlinkedPortal, linkedPortal: linkedPortal, totalPortal: S.length };
+           unlinkedPortal: unlinkedPortal, linkedPortal: linkedPortal, totalPortal: S.length,
+           mergedGroups: mergedGroups };
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -656,7 +719,7 @@ function runDailyVendorReconcile(opts) {
     var rows = mismatches.map(function (m) {
       return [dateStr, runId, m.name, m.acc, m.tally, m.portal, m.diff, m.type,
               m.notifiedTo, m.rule ? m.rule.label : 'UNROUTED', m.guid || '', m.matchedBy || '',
-              m.vid || '', m.tallyUid || ''];
+              m.vid || '', m.tallyUid || '', (m.mergedIds || []).join(',')];
     });
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
   }
@@ -869,6 +932,7 @@ function tvrGetStatus(body) {
     unlinkedPortalTotal: (live.unlinkedPortal || []).length,
     linkedPortal: live.linkedPortal || 0,
     totalPortal: live.totalPortal || 0,
+    mergedGroups: live.mergedGroups || 0,
     matchedCount: live.matched.length,
     // A few matched pairs, biggest first — enough to eyeball the sign convention.
     signCheck: live.matched.slice().sort(function (a, b) {
@@ -890,7 +954,7 @@ function tvrGetStatus(body) {
         type: String(r['Type'] || ''), notifiedTo: String(r['NotifiedTo'] || ''),
         ruleLabel: String(r['RuleLabel'] || ''), guid: String(r['GUID'] || ''),
         matchedBy: String(r['MatchedBy'] || ''), vid: String(r['Vendor ID'] || ''),
-        tallyUid: String(r['TallyUID'] || '')
+        tallyUid: String(r['TallyUID'] || ''), mergedIds: String(r['MergedIDs'] || '').split(/[,;]/).filter(Boolean)
       };
     }),
     rules: _tvrRows(TVR_TAB_RULES).map(function (r) {
