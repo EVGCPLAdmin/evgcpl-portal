@@ -250,6 +250,28 @@ function clearExecOverride(key) {
   location.reload();
 }
 
+// Repoint ONE endpoint at the URL this build ships: rewrites the PortalConfig
+// row (T2, org-wide) and drops any T1 override, so nothing above the compiled
+// default is left to shadow it. Deliberately single-key — the Endpoints card's
+// Force-update button rewrites all eight at once, which is the wrong instrument
+// when exactly one row has drifted and the others may be intentional.
+window.fixExecEndpoint = async function (key, btn) {
+  const target = (EXEC_REGISTRY_DEFAULTS[key] || {}).defaultUrl;
+  if (!target) return;
+  if (btn) { btn.dataset.t = btn.innerHTML; btn.disabled = true; btn.textContent = 'Updating…'; }
+  try { const o = JSON.parse(localStorage.getItem(EXEC_LS_KEY) || '{}'); delete o[key];
+        localStorage.setItem(EXEC_LS_KEY, JSON.stringify(o)); } catch (e) { /* nothing saved */ }
+  const res = await _pcWriteRaw('exec_' + key, target);
+  if (!res.ok) {
+    if (btn) { btn.disabled = false; btn.innerHTML = btn.dataset.t; }
+    alert('Could not update the PortalConfig sheet: ' + (res.message || 'unknown error') +
+          '\n\nThe browser-level override was still cleared, so this browser will now use the build default.');
+    location.reload();
+    return;
+  }
+  location.reload();
+};
+
 // Save overrides (called from the Config → Endpoints page)
 function setExecOverrides(map) {
   try { localStorage.setItem(EXEC_LS_KEY, JSON.stringify(map || {})); }
@@ -6971,15 +6993,165 @@ function _tvrErrorCard() {
 
 window._tvrSetTab = function (t) { _tvrTab = t; _tvrRenderBody(); };
 
+// ── Views: which tabs this page shows, and in what order ───────────────
+// Compiled definition. `mdOnly` is a permission, NOT an arrangement choice —
+// it is applied after the saved arrangement so hiding a rule cannot grant
+// anyone a view their role does not allow.
+const TVR_VIEWS = [
+  { id: 'overview', label: '&#128202; Executive Overview', mdOnly: false },
+  { id: 'import',   label: '&#128228; Import Tally Export', mdOnly: false },
+  { id: 'rules',    label: '&#9881;&#65039; Notification Rules', mdOnly: true }
+];
+const TVR_VIEWS_LS = 'tvr_views';          // personal, this browser
+const TVR_VIEWS_PC = 'tvr_default_views';  // org-wide default (PortalConfig sheet)
+
+function _tvrIsAdmin() {
+  return STATE.role === 'md' || STATE.role === 'admin' ||
+         (typeof _accIsAdmin === 'function' && _accIsAdmin());
+}
+
+// personal (localStorage) → org default (PortalConfig) → compiled.
+// Same chain as every other arrangement in the portal (see docs/DEFAULTS.md).
+function _tvrViewArr() {
+  try {
+    const ls = localStorage.getItem(TVR_VIEWS_LS);
+    if (ls) { const o = JSON.parse(ls); if (o && Array.isArray(o.order)) return o; }
+  } catch (e) { /* fall through to the org default */ }
+  const org = pcReadJSON(TVR_VIEWS_PC, null);
+  if (org && Array.isArray(org.order)) return org;
+  return { order: TVR_VIEWS.map(v => v.id), hidden: [] };
+}
+
+// The views to render: saved order first, then any view the arrangement never
+// mentioned (a view added by a later build must not be invisible to everyone
+// holding an older saved arrangement), minus hidden, minus role-barred.
+function _tvrViews() {
+  const arr = _tvrViewArr();
+  const hidden = new Set(arr.hidden || []);
+  const known = new Set(TVR_VIEWS.map(v => v.id));
+  const ordered = (arr.order || []).filter(id => known.has(id));
+  TVR_VIEWS.forEach(v => { if (!ordered.includes(v.id)) ordered.push(v.id); });
+  const isMD = _tvrIsAdmin();
+  return ordered
+    .map(id => TVR_VIEWS.find(v => v.id === id))
+    .filter(v => v && !hidden.has(v.id) && (!v.mdOnly || isMD));
+}
+
+// Persist an arrangement. `scope` 'me' writes localStorage; 'org' writes the
+// PortalConfig sheet AND clears the personal copy, so the admin setting the
+// default actually sees the default rather than their own stale override.
+async function _tvrSaveViews(arr, scope) {
+  if (scope === 'org') {
+    try { localStorage.removeItem(TVR_VIEWS_LS); } catch (e) { /* nothing cached */ }
+    const res = await pcWriteJSON(TVR_VIEWS_PC, arr);
+    if (!res.ok) { alert('Could not save the org-wide default: ' + (res.message || 'unknown error')); return false; }
+    return true;
+  }
+  try { localStorage.setItem(TVR_VIEWS_LS, JSON.stringify(arr)); }
+  catch (e) { alert('Could not save: ' + e.message); return false; }
+  return true;
+}
+
+// Draft arrangement while the manager panel is open.
+let _tvrViewDraft = null;
+
+window._tvrViewsOpen = function () {
+  const arr = _tvrViewArr();
+  const hidden = new Set(arr.hidden || []);
+  const known = new Set(TVR_VIEWS.map(v => v.id));
+  const order = (arr.order || []).filter(id => known.has(id));
+  TVR_VIEWS.forEach(v => { if (!order.includes(v.id)) order.push(v.id); });
+  _tvrViewDraft = { order, hidden: [...hidden] };
+  _tvrRenderBody();
+};
+window._tvrViewsClose = function () { _tvrViewDraft = null; _tvrRenderBody(); };
+
+window._tvrViewMove = function (id, delta) {
+  if (!_tvrViewDraft) return;
+  const o = _tvrViewDraft.order, i = o.indexOf(id), j = i + delta;
+  if (i < 0 || j < 0 || j >= o.length) return;
+  o.splice(j, 0, o.splice(i, 1)[0]);
+  _tvrRenderBody();
+};
+
+window._tvrViewToggle = function (id) {
+  if (!_tvrViewDraft) return;
+  const h = _tvrViewDraft.hidden, i = h.indexOf(id);
+  if (i >= 0) { h.splice(i, 1); _tvrRenderBody(); return; }
+  // Never let the last view be hidden. An empty tab bar is unrecoverable from
+  // the UI — the manager button lives IN that bar — and this page has already
+  // shipped one bug where the Import tab became unreachable.
+  const left = _tvrViewDraft.order.filter(x => x !== id && !h.includes(x));
+  if (!left.length) { alert('At least one view has to stay visible.'); return; }
+  h.push(id);
+  _tvrRenderBody();
+};
+
+window._tvrViewsReset = function () {
+  _tvrViewDraft = { order: TVR_VIEWS.map(v => v.id), hidden: [] };
+  _tvrRenderBody();
+};
+
+window._tvrViewsApply = async function (scope, btn) {
+  if (!_tvrViewDraft) return;
+  if (btn) { btn.disabled = true; btn.dataset.t = btn.innerHTML; btn.textContent = 'Saving…'; }
+  const ok = await _tvrSaveViews({ order: [..._tvrViewDraft.order], hidden: [..._tvrViewDraft.hidden] }, scope);
+  if (btn) { btn.disabled = false; btn.innerHTML = btn.dataset.t; }
+  if (!ok) return;
+  _tvrViewDraft = null;
+  // The active tab may have just been hidden; land on the first one still shown.
+  const vis = _tvrViews();
+  if (!vis.some(v => v.id === _tvrTab)) _tvrTab = (vis[0] || {}).id || 'overview';
+  _tvrRenderBody();
+};
+
+// The manager panel. Reorder with ▲▼ and show/hide with the eye — deliberately
+// buttons rather than drag-and-drop, since this bar is used on phones too.
+function _tvrViewsPanel() {
+  if (!_tvrViewDraft) return '';
+  const hidden = new Set(_tvrViewDraft.hidden);
+  const rows = _tvrViewDraft.order.map((id, i) => {
+    const v = TVR_VIEWS.find(x => x.id === id); if (!v) return '';
+    const off = hidden.has(id);
+    return `<div style="display:flex;align-items:center;gap:.4rem;padding:.3rem .1rem;border-bottom:1px solid var(--bdr)">
+      <button class="btn btn-sm btn-secondary" style="padding:1px 7px" onclick="_tvrViewMove('${id}',-1)" ${i === 0 ? 'disabled' : ''} title="Move up">&#9650;</button>
+      <button class="btn btn-sm btn-secondary" style="padding:1px 7px" onclick="_tvrViewMove('${id}',1)" ${i === _tvrViewDraft.order.length - 1 ? 'disabled' : ''} title="Move down">&#9660;</button>
+      <span style="flex:1;font-size:.8rem;${off ? 'opacity:.45;text-decoration:line-through' : ''}">${v.label}${v.mdOnly ? ' <span style="font-size:.66rem;color:var(--txt3)">(admin only)</span>' : ''}</span>
+      <button class="btn btn-sm ${off ? 'btn-secondary' : 'btn-primary'}" style="padding:1px 9px;font-size:.7rem" onclick="_tvrViewToggle('${id}')">${off ? 'Hidden' : 'Shown'}</button>
+    </div>`;
+  }).join('');
+  return `<div class="card card-pad" style="margin-bottom:.7rem;padding:.6rem .8rem">
+    <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem">
+      <b style="font-size:.82rem">Arrange views</b>
+      <span style="font-size:.7rem;color:var(--txt3)">Reorder with &#9650;&#9660;, toggle to hide.</span>
+      <button class="btn btn-sm btn-secondary" style="margin-left:auto;padding:2px 9px;font-size:.7rem" onclick="_tvrViewsClose()">Cancel</button>
+    </div>
+    ${rows}
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem">
+      <button class="btn btn-sm btn-primary" style="font-size:.72rem" onclick="_tvrViewsApply('me',this)">Save for me</button>
+      ${_tvrIsAdmin() ? `<button class="btn btn-sm" style="font-size:.72rem;background:#0f766e;color:#fff" onclick="_tvrViewsApply('org',this)" title="Writes the tvr_default_views row in the PortalConfig sheet — the default for everyone without a personal arrangement">&#9733; Set as org default</button>` : ''}
+      <button class="btn btn-sm btn-secondary" style="font-size:.72rem;margin-left:auto" onclick="_tvrViewsReset()">Reset to default</button>
+    </div>
+  </div>`;
+}
+
 function _tvrRenderBody() {
   const b = document.getElementById('tvr-body');
   if (!b) return;
   const isMD = STATE.role === 'md';
   const tab = (t, label) => `<button onclick="_tvrSetTab('${t}')" class="btn btn-sm ${_tvrTab === t ? 'btn-primary' : 'btn-secondary'}" style="padding:4px 11px;font-size:.75rem">${label}</button>`;
+  // Views come from the saved arrangement (personal → org → compiled), so a
+  // hidden or reordered tab is honoured here rather than hard-coded.
+  const views = _tvrViews();
+  // An arrangement can hide the tab that is currently open — fall back rather
+  // than render an empty body under a bar that no longer offers that tab.
+  if (!views.some(v => v.id === _tvrTab)) _tvrTab = (views[0] || {}).id || 'overview';
   const bar = `<div class="card card-pad" style="margin-bottom:.7rem;padding:.5rem .7rem;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
-    ${tab('overview', '&#128202; Executive Overview')}${tab('import', '&#128228; Import Tally Export')}${isMD ? tab('rules', '&#9881;&#65039; Notification Rules') : ''}
+    ${views.map(v => tab(v.id, v.label)).join('')}
+    <button onclick="_tvrViewsOpen()" class="btn btn-sm btn-secondary" style="padding:4px 9px;font-size:.72rem" title="Show, hide and reorder the views on this page">&#9881; Views</button>
+    <button onclick="_kbGoto('tally-recon')" class="btn btn-sm btn-secondary" style="padding:4px 9px;font-size:.72rem" title="How to use this page — upload, snapshot, matching, rules and the sign convention">&#128218; How to use</button>
     ${_tvrStatus && _tvrStatus.mode === 'TEST' ? `<span style="margin-left:auto;font-size:.66rem;font-weight:700;background:#fef3c7;color:#92400e;padding:3px 9px;border-radius:20px" title="Emails go only to the test recipient. Run tvrEnableAll() in Apps Script to mail the real recipients.">TEST MODE &middot; emails go to admin only</span>` : ''}
-  </div>`;
+  </div>` + _tvrViewsPanel();
   // Shown above every tab: a stale backend breaks features on all of them.
   const bv = (_tvrStatus && _tvrStatus.backendVersion) || 0;
   // Names the deployment actually being called, and the tier the URL came from.
@@ -7004,7 +7176,8 @@ function _tvrRenderBody() {
       ${r.tier === 'T1'
         ? `<div style="margin-top:.35rem"><button class="btn btn-sm" onclick="clearExecOverride('accounts')">Use the build default</button>
              <span style="color:var(--txt3)">&nbsp;clears this browser's saved override and reloads.</span></div>`
-        : `<div style="margin-top:.35rem">Clear the <code>exec_accounts</code> row in the PortalConfig sheet, or update it to the new URL, from <b>Config &rarr; &#128279; Apps Script Endpoints</b>.</div>`}
+        : `<div style="margin-top:.35rem"><button class="btn btn-sm" onclick="fixExecEndpoint('accounts', this)">Point the sheet at the build default</button>
+             <span style="color:var(--txt3)">&nbsp;rewrites the <code>exec_accounts</code> row for everyone, then reloads.</span></div>`}
     </div>`;
   };
   const stale = _tvrStatus && !_tvrErr && bv < TVR_REQUIRED_BACKEND;
@@ -18354,6 +18527,15 @@ const KB_ARTICLES = [
     body: _kbBodyAccounts,
   },
   {
+    id: 'tally-recon',
+    title: 'Tally vs Vendor Ledger — How to Use',
+    category: 'Accounts',
+    icon: '⚖️',
+    summary: 'The daily reconciliation: uploading the Tally export, capturing a portal snapshot, why TallyUID is the only matcher, reading the mismatch list, notification rules, and the sign convention.',
+    updated: 'Aug 2026',
+    body: _kbBodyTallyRecon,
+  },
+  {
     id: 'grn-review',
     title: 'GRN Accounts Review',
     category: 'Accounts',
@@ -18547,6 +18729,9 @@ function _kbLayers(useIt, howBuilt) {
 function renderKnowledgeBase() {
   const el = document.getElementById('mainContent');
   if (!el) return;
+  // A deep link from another page (📚 How to use) wins over the default article.
+  const _pending = _kbTakePending();
+  if (_pending) { _kbCurrentId = _pending; _kbSearch = ''; }
   if (!_kbCurrentId && KB_ARTICLES.length) _kbCurrentId = KB_ARTICLES[0].id;
 
   const q = _kbSearch.trim().toLowerCase();
@@ -18632,6 +18817,29 @@ function renderKnowledgeBase() {
     </style>`;
 }
 window._kbOpen = function(id) { _kbCurrentId = id; renderKnowledgeBase(); try { document.querySelector('.kb-article')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} };
+
+// Open a specific article from anywhere in the portal.
+// The Knowledge Base lives on dashboard.html, so a link from another page is a
+// full page load and nothing in memory survives it. The hash is already spoken
+// for — multi-page-bootstrap matches it against route names exactly — so the
+// wanted article is handed over in localStorage and consumed on arrival.
+const KB_PENDING_LS = 'kb_open_article';
+window._kbGoto = function (id) {
+  if (KB_ARTICLES.some(a => a.id === id)) {
+    try { localStorage.setItem(KB_PENDING_LS, id); } catch (e) { /* falls back to the index */ }
+  }
+  navigate('knowledge-base');
+};
+// Consume a pending deep link, once. Cleared immediately so a later visit to
+// the Knowledge Base opens the index rather than replaying an old link.
+function _kbTakePending() {
+  try {
+    const id = localStorage.getItem(KB_PENDING_LS);
+    if (!id) return null;
+    localStorage.removeItem(KB_PENDING_LS);
+    return KB_ARTICLES.some(a => a.id === id) ? id : null;
+  } catch (e) { return null; }
+}
 window._kbSearchInput = function(v) {
   _kbSearch = v;
   // Re-render only the index + keep focus/caret in the search box.
@@ -18757,6 +18965,89 @@ function _kbBodyAccounts() {
 }
 
 // ── Article: GRN Accounts Review ────────────────────────────────
+function _kbBodyTallyRecon() {
+  const node = (t, s, cls) => `<div class="kb-node ${cls || ''}"><div class="kb-node-t">${t}</div><div class="kb-node-s">${s}</div></div>`;
+  const arrow = (e) => `<div class="kb-arrow">${e ? `<div class="kb-edge">${e}</div>` : ''}<div class="kb-arrow-g">&#10230;</div></div>`;
+  return `
+    <div class="card card-pad">
+      <div class="kb-kicker">Accounts &middot; Tally vs Vendor Ledger</div>
+      <h2 class="kb-h">&#9878;&#65039; Tally vs Vendor Ledger — How to Use</h2>
+      <p class="kb-p">Every day this page compares <b>what Tally says we owe each vendor</b> against <b>what the portal's Vendor Ledger (PO) says</b>, and emails the differences to whoever the rules route them to.</p>
+
+      <div style="background:rgba(46,125,50,.07);border:1px solid var(--g5);border-left:3px solid var(--g6);border-radius:10px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.9rem;color:var(--txt2)">
+        <b>In one line:</b> upload today's Tally export, save a snapshot of the Vendor Ledger, press <b>&#9889; Run Reconcile</b>. Vendors are matched on <b>TallyUID only</b> — anything not linked is reported separately, never guessed at.
+      </div>
+
+      <h3 class="kb-sub">The daily flow</h3>
+      <div class="kb-flow">
+        ${node('1. Export from Tally', 'Ledger list with $GUID, $Name, $_ClosingBalance', 'kb-node-start')}
+        ${arrow('.xlsx')}
+        ${node('2. Import Tally Export', 'Upload here. Logged with who + when', '')}
+        ${arrow('prompt')}
+        ${node('3. Capture Snapshot', 'Freezes today’s portal balances', '')}
+        ${arrow('compare')}
+        ${node('4. Run Reconcile', 'Mismatches listed + emailed', 'kb-node-end')}
+      </div>
+      <p class="kb-p">After a Tally upload the page <b>asks whether to save a vendor ledger snapshot too</b>. Say yes on a normal day. The two sides must be from the same day for the comparison to mean anything — the portal's figures move continuously as POs, GRNs and payments are booked, which is the whole reason a snapshot is taken rather than read live.</p>
+
+      <h3 class="kb-sub">Why a snapshot at all</h3>
+      <p class="kb-p">Tally's number is a closing balance — a fixed figure as at the moment of export. The portal's is computed live from purchase orders, goods receipts, accounts reviews, taxes and opening balances. Comparing a fixed number against a moving one would report differences that are really just the clock. The snapshot pins the portal side to a point in time so a difference means a genuine disagreement.</p>
+      <p class="kb-p">A snapshot is only as fresh as the last time someone opened the Vendor Ledger page. Every mismatch email states the snapshot's age, and one older than <b>30 hours</b> is flagged at the top of the mail.</p>
+
+      <h3 class="kb-sub">Matching: TallyUID and nothing else</h3>
+      <p class="kb-p">The join is Tally's <code>$GUID</code> against the <b>TallyUID</b> column in Vendor Master. There is deliberately <b>no fallback to vendor name or A/C number</b>. Names disagree between the two systems constantly — <i>M/S. SRONS ENGINEERS PRIVATE LIMITED</i> against <i>Srons Engineers Pvt Ltd</i> — and a fuzzy match would pair the wrong two ledgers <b>silently</b>, producing a confident balance comparison between unrelated accounts. That is worse than reporting nothing.</p>
+      <p class="kb-p">So a vendor with no TallyUID is never guessed at. It is reported, on whichever side it is missing:</p>
+      <table class="kb-tbl">
+        <thead><tr><th>Situation</th><th>Where it appears</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td>Tally ledger with no matching TallyUID in Vendor Master</td><td><b>Unlinked Tally ledgers</b></td><td>If it is a real vendor, paste its GUID into that vendor's TallyUID column</td></tr>
+          <tr><td>Portal vendor with a balance but no TallyUID</td><td><b>Unlinked portal vendors</b></td><td>Fill in TallyUID. It is <i>not</i> called "missing from Tally" — nothing is known about Tally's view of it</td></tr>
+          <tr><td>Portal vendor <i>with</i> a TallyUID that Tally never mentioned</td><td><b>Mismatches</b> — "In portal, not in Tally"</td><td>A real finding: the ledger is absent from the export</td></tr>
+          <tr><td>Both sides linked, balances differ by more than &#8377;1</td><td><b>Mismatches</b> — "Balance differs"</td><td>The core case. Investigate the vendor</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p">The Tally export is the <b>whole chart of accounts</b> — bank, GST, salary and asset ledgers as well as creditors — so most unlinked rows are simply not vendors and can be ignored. Watch the <b>coverage figure</b> (linked / total vendors) beside the mismatch count: an empty mismatch list means nothing if only a fraction of the vendor book is linked.</p>
+
+      <h3 class="kb-sub">Several Vendor IDs, one vendor</h3>
+      <p class="kb-p">Vendor Master often holds the same real vendor under several Vendor IDs, all carrying one TallyUID, while Tally has a single ledger. Those rows are <b>merged before comparison</b> and their balances summed — otherwise one partial balance would be reported as a mismatch against Tally's total, and the rest would surface as phantom unlinked vendors.</p>
+      <p class="kb-p">The displayed name and Vendor ID come from the <b>Active</b> record (column AS), latest by <b>Timestamp</b> (column AW). The merge is never silent: the row lists every Vendor ID combined, and the mismatch email names them too — the balance shown is their sum, so checking it against a single ID will not reconcile.</p>
+
+      <h3 class="kb-sub">The sign convention</h3>
+      <div class="kb-fork">
+        <div class="kb-fork-q">Is Tally's closing balance the same sign as the portal's?</div>
+        <div class="kb-fork-outs">
+          <div class="kb-fork-out"><span class="kb-fork-when" style="background:#dcfce7;color:#15803d">Matches</span><span class="kb-fork-then">Leave it. Figures compare as exported.</span></div>
+          <div class="kb-fork-out"><span class="kb-fork-when" style="background:#fee2e2;color:#b91c1c">Inverted</span><span class="kb-fork-then">Press the flip button. Every Tally figure is negated at compare time.</span></div>
+        </div>
+      </div>
+      <p class="kb-p">This was <b>not assumed</b>: in the sample export, Sundry Creditors carried both signs, so "creditors are negative" does not hold. A wrong guess would invert every comparison and report a false mismatch of roughly double the balance for <i>every</i> vendor. Tally figures are therefore stored exactly as exported and the flip is applied when comparing — so <b>changing it re-reconciles without re-uploading anything</b>. The Overview shows matched pairs side by side with the total difference each way; the right setting is obvious at a glance.</p>
+
+      <h3 class="kb-sub">Notification rules</h3>
+      <p class="kb-p">Rules route a mismatch by <b>amount</b>. The first rule whose band contains the difference wins, and each recipient gets <b>one mail</b> listing everything routed to them.</p>
+      <table class="kb-tbl">
+        <thead><tr><th>Band</th><th>Goes to</th></tr></thead>
+        <tbody>
+          <tr><td>Under &#8377;5,000</td><td>Accounts</td></tr>
+          <tr><td>&#8377;5,000 and above</td><td>Accounts + MD</td></tr>
+        </tbody>
+      </table>
+      <p class="kb-p">Edit these on the <b>Notification Rules</b> tab, not in the sheet. A blank upper bound means no ceiling. Mails carry the <b>Vendor Name, Vendor ID and Tally UID</b> so the vendor can be looked up in either system; beyond 60 rows the full list comes as a CSV attachment.</p>
+      <p class="kb-p"><b>Test mode.</b> The system starts by sending every mail to the admin address only, whatever the rules say, with <code>[TEST]</code> in the subject — the amber badge in the tab bar shows when this is on. Once the routing looks right, run <code>tvrEnableAll()</code> once in Apps Script to start mailing the real recipients.</p>
+
+      <h3 class="kb-sub">Looking back</h3>
+      <p class="kb-p">Every upload and snapshot is kept, so the tab bar's history picker can <b>replay any past run exactly as it was reported that day</b> — never recomputed from data that has since moved. You can also reconcile a chosen past pair; a re-run appends a new entry and never rewrites the original, and it does not re-notify anyone who already dealt with it.</p>
+      <p class="kb-p">Days with a Tally upload but <b>no snapshot</b> are called out separately. Those can never be reconciled later: the Tally file is stored, but a past portal balance cannot be reconstructed once the underlying POs, GRNs and payments have moved on. That is what the snapshot prompt after each upload is protecting against.</p>
+
+      <h3 class="kb-sub">Arranging the views</h3>
+      <p class="kb-p">The <b>&#9881; Views</b> button reorders or hides the tabs on this page. <b>Save for me</b> applies to your browser only; admins also get <b>&#9733; Set as org default</b>, which applies to everyone who has not set their own. At least one view must stay visible. <b>Reset to default</b> restores the original set.</p>
+
+      <h3 class="kb-sub">When the red banner appears</h3>
+      <p class="kb-p">A red banner means the deployed Apps Script is older than this portal build. It names <b>which deployment is being called and where that URL came from</b> — which matters, because a saved endpoint override outranks the URL the build ships, and then redeploying changes nothing. If the banner says an override is winning, the button in it repoints the portal at the right deployment.</p>
+      <p class="kb-p">To identify any deployment, open its <code>/exec</code> URL with <code>?action=__whoami__</code> in a browser: it reports the backend version and the actions that deployment can actually serve.</p>
+    </div>
+  `;
+}
+
 function _kbBodyGRNReview() {
   const okPill = '<span class="kb-pill" style="background:#dcfce7;color:#15803d">Approved</span>';
   const pendPill = '<span class="kb-pill" style="background:#fef3c7;color:#b45309">Pending</span>';
