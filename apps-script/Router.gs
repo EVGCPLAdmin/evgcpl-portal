@@ -2,15 +2,119 @@
  * ════════════════════════════════════════════════════════════════
  *  EVGCPL Portal — Apps Script Router  (canonical doPost/doGet)
  *  ────────────────────────────────────────────────────────────────
- *  This is the ONLY doPost/doGet that should exist in the bound
- *  Apps Script project. If you have another Code.gs with doPost,
- *  DELETE its doPost function before deploying this.
+ *  This is the ONLY doPost/doGet that should exist in an Apps Script
+ *  project. If you have another Code.gs with doPost, DELETE its
+ *  doPost function before deploying this.
+ *
+ *  ── ONE FILE, MANY PROJECTS ────────────────────────────────────
+ *  The portal talks to SIX separate Apps Script projects (portalConfig,
+ *  main, pcc, accounts, safety, pinReset — see EXEC_REGISTRY_DEFAULTS in
+ *  portal-bundle.js). This same Router.gs is pasted into each of them, but
+ *  each project holds only SOME of the handler files: the Accounts project
+ *  has AccountsHandlers.gs and TallyVendorReconcile.gs and has never had
+ *  PCCHandlers.gs or RecruitmentHandlers.gs.
+ *
+ *  So most actions listed below are, in any given project, names of
+ *  functions that do not exist there. That is expected and fine — but the
+ *  old router called them directly, so asking a project for an action it
+ *  does not own produced a raw "saveBOQ is not defined" ReferenceError,
+ *  which reads like a bug in the handler rather than "you called the wrong
+ *  deployment". Dispatch now goes through ACTION_OWNER: an action whose
+ *  handler is absent is reported as NOT SERVED BY THIS DEPLOYMENT, naming
+ *  the file that provides it.
+ *
+ *  Nothing needs to be deleted per project. Paste this file everywhere as
+ *  it is; each deployment answers for what it actually has.
+ *
+ *  ── Diagnosing "wrong deployment" ──────────────────────────────
+ *  POST {"action":"__whoami__"} to any /exec URL. It replies with the
+ *  actions that deployment can actually serve and the backend versions it
+ *  reports — which is how you tell two deployments of the same project
+ *  apart without guessing from a URL.
  *
  *  Add a new action:
- *    1. Add the handler function in any .gs file in this project
- *    2. Register it below in the action map
- *    3. Deploy → New version (exec URL stays the same)
+ *    1. Add the handler function in a .gs file in the RIGHT project
+ *    2. Register it in ACTION_OWNER below (name → the file providing it)
+ *    3. Wire it into the dispatch block in doPost
+ *    4. Deploy → Manage deployments → ✏️ → New version
+ *       (NOT "New deployment" — that mints a new /exec URL and leaves every
+ *        portal still holding the old one silently on the old code)
  * ═══════════════════════════════════════════════════════════════ */
+
+// Action → the .gs file that provides its handler. Used only to explain a
+// missing handler; it never affects dispatch. Keeping it beside the dispatch
+// block is deliberate: a name added to one and not the other is obvious.
+var ACTION_OWNER = {
+  appendRow: 'CoreWrites.gs',  appendRowMapped: 'CoreWrites.gs',
+  updateCell: 'CoreWrites.gs', batchUpdate: 'CoreWrites.gs',
+  closeSafetyIncident: 'SafetyHandlers.gs',
+
+  saveScheduledReport: 'ScheduledReports.gs', deleteScheduledReport: 'ScheduledReports.gs',
+  runReportNow: 'ScheduledReports.gs', runSchedulesNow: 'ScheduledReports.gs',
+  getScheduleLog: 'ScheduledReports.gs',
+
+  tvrSaveBatch: 'TallyVendorReconcile.gs', tvrGetStatus: 'TallyVendorReconcile.gs',
+  tvrGetBatch: 'TallyVendorReconcile.gs',  tvrSaveRules: 'TallyVendorReconcile.gs',
+  tvrRunNow: 'TallyVendorReconcile.gs',    tvrSetSign: 'TallyVendorReconcile.gs',
+
+  aiChat: 'AIChat.gs', aiProxy: 'AiProxy.gs',
+  diagnoseSheet: 'SheetDiagnostic.gs', listShares: 'SheetDiagnostic.gs',
+
+  saveProjectSetup: 'PCCHandlers.gs', saveBOQ: 'PCCHandlers.gs',
+  saveWBS: 'PCCHandlers.gs', deleteWBSRow: 'PCCHandlers.gs',
+  deleteActivity: 'PCCHandlers.gs', saveWorkplan: 'PCCHandlers.gs',
+  saveManpower: 'PCCHandlers.gs', saveMachinery: 'PCCHandlers.gs',
+  saveMaterials: 'PCCHandlers.gs', saveOverheads: 'PCCHandlers.gs',
+  saveVariations: 'PCCHandlers.gs', submitBudgetApproval: 'PCCHandlers.gs',
+
+  getSheetHeaders: 'SheetDiagnostic.gs', readSheet: 'SheetRead.gs',
+  savePortalConfig: 'PortalConfigBackend.gs', getPortalConfig: 'PortalConfigBackend.gs',
+  verifyPin: 'PIN.gs', resetPin: 'PIN.gs',
+
+  saveMRF: 'RecruitmentHandlers.gs', updateMRF: 'RecruitmentHandlers.gs',
+  updateMRFStatus: 'RecruitmentHandlers.gs', getMRFs: 'RecruitmentHandlers.gs',
+  saveOffer: 'RecruitmentHandlers.gs', updateOfferStatus: 'RecruitmentHandlers.gs',
+  createJoiningEntry: 'RecruitmentHandlers.gs', getJoiningList: 'RecruitmentHandlers.gs',
+  getJoiningListSchema: 'RecruitmentHandlers.gs', savePreJoining: 'RecruitmentHandlers.gs',
+  markAsJoined: 'RecruitmentHandlers.gs', assignEmpCode: 'RecruitmentHandlers.gs',
+  sendOfferEmail: 'RecruitmentHandlers.gs', updateApptLetter: 'RecruitmentHandlers.gs',
+
+  saveNewPaymentRequest: 'AccountsHandlers.gs', saveAccountsUpdate: 'AccountsHandlers.gs',
+  saveVendorOpeningBalance: 'AccountsHandlers.gs', saveGRNReview: 'AccountsHandlers.gs',
+  createPRFolder: 'AccountsHandlers.gs', uploadPRAttachment: 'AccountsHandlers.gs',
+  listPRAttachments: 'AccountsHandlers.gs'
+};
+
+// Is a handler actually present in THIS project? Top-level function
+// declarations land on the global object under the V8 runtime; the try/catch
+// and the `this` fallback keep this from throwing under the legacy runtime,
+// where a missing name would otherwise be a ReferenceError of its own.
+function _has(name) {
+  try {
+    var g = (typeof globalThis !== 'undefined') ? globalThis : this;
+    return !!g && typeof g[name] === 'function';
+  } catch (err) {
+    return false;
+  }
+}
+
+// Every action this deployment can actually serve.
+function _served() {
+  var out = [];
+  Object.keys(ACTION_OWNER).forEach(function (a) { if (_has(a)) out.push(a); });
+  return out.sort();
+}
+
+// The "you called the wrong deployment" answer. Says what is missing, which
+// file provides it, and what this deployment DOES serve — enough to identify
+// the right /exec URL without opening the editor.
+function _notServed(action) {
+  var owner = ACTION_OWNER[action] || 'an unknown file';
+  return _err('Action "' + action + '" is NOT SERVED BY THIS DEPLOYMENT. Its handler lives in ' +
+    owner + ', which is not in this Apps Script project. Either you are calling the wrong /exec ' +
+    'URL, or ' + owner + ' needs to be added here and redeployed. This deployment serves: ' +
+    _served().join(', '));
+}
 
 // ════════════════════════════════════════════════════════════════
 // doPost — main entry point for portal writes
@@ -33,8 +137,14 @@ function doPost(e) {
   try {
     // ── Diagnostics ─────────────────────────────────────────────
     if (action === '__ping__')                 return _ok({ message: 'pong', at: new Date().toISOString() });
+    if (action === '__whoami__')               return _ok(_whoami());
 
-    // ── Generic writes (SafetyHandlers.gs) ─────────────────────
+    // A registered action whose handler is absent belongs to another project.
+    // Answering that plainly here keeps it from surfacing as a ReferenceError
+    // from inside a handler that was never actually reached.
+    if (ACTION_OWNER[action] && !_has(action)) return _notServed(action);
+
+    // ── Generic writes (CoreWrites.gs) ─────────────────────────
     if (action === 'appendRow')                return appendRow(body);
     if (action === 'appendRowMapped')          return appendRowMapped(body);
     if (action === 'updateCell')               return updateCell(body);
@@ -121,12 +231,33 @@ function doPost(e) {
     if (action === 'uploadPRAttachment')       return _wrap(uploadPRAttachment(body));
     if (action === 'listPRAttachments')        return _wrap(listPRAttachments(body));
 
-    return _err('Unknown POST action: ' + action);
+    return _err('Unknown POST action: ' + action + '. This deployment serves: ' + _served().join(', '));
 
   } catch (err) {
     Logger.log('[doPost] action=' + action + ' error: ' + err);
     return _err('Server error in ' + action + ': ' + err.message);
   }
+}
+
+// What this deployment is and what it can do. The one call that settles
+// "which deployment am I actually talking to" — a question a URL alone
+// cannot answer once several deployments of the same project exist.
+function _whoami() {
+  var out = {
+    at: new Date().toISOString(),
+    served: _served(),
+    registered: Object.keys(ACTION_OWNER).sort()
+  };
+  // Backend contract versions, when the file that owns one is present here.
+  try { if (typeof TVR_BACKEND_VERSION !== 'undefined') out.tvrBackendVersion = TVR_BACKEND_VERSION; }
+  catch (err) { /* not in this project */ }
+  try { out.timeZone = Session.getScriptTimeZone(); } catch (err) { /* no auth */ }
+  // Which of the known handler files this project appears to hold, inferred
+  // from which of their actions resolved.
+  var files = {};
+  Object.keys(ACTION_OWNER).forEach(function (a) { if (_has(a)) files[ACTION_OWNER[a]] = true; });
+  out.files = Object.keys(files).sort();
+  return out;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -137,6 +268,10 @@ function doGet(e) {
   if (!action || action === '__ping__') {
     return _ok({ message: 'EVGCPL Portal API alive', at: new Date().toISOString() });
   }
+  // Reachable from a browser address bar, which is the fastest way to identify
+  // a deployment when several URLs are in play.
+  if (action === '__whoami__')                 return _ok(_whoami());
+  if (ACTION_OWNER[action] && !_has(action))   return _notServed(action);
   if (action === 'diagnoseSheet')              return diagnoseSheet(e.parameter);
   if (action === 'listShares')                 return listShares(e.parameter);
   if (action === 'getScheduleLog')             return _ok(getScheduleLog_(e.parameter.limit || 30));
