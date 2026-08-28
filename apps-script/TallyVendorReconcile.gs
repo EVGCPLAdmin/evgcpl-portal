@@ -114,7 +114,9 @@ var TVR_TEST_RECIPIENT = 'admin@evgcpl.com';
 // the last DEPLOYED snapshot, so a redeploy is always required.
 //   1 = initial   2 = +tvrGetBatch/history   3 = +tvrSetSign, GUID matching
 //   4 = TallyUID is the ONLY matcher; portal-side unlinked + coverage reported
-var TVR_BACKEND_VERSION = 4;
+//   5 = existing tabs get their header row migrated (new columns were being
+//       written but never read back, so GUID matching silently found nothing)
+var TVR_BACKEND_VERSION = 5;
 
 // Tally's $_ClosingBalance sign convention is NOT self-evident from the export:
 // in the sample, Sundry Creditors carried both signs (197 positive, 180
@@ -206,18 +208,59 @@ function tvrTestNow() { return runDailyVendorReconcile(); }
 function _tvrSheet(tab) {
   var ss = SpreadsheetApp.openById(TVR_SHEET_ID);
   var sh = ss.getSheetByName(tab);
+  var want = TVR_HEADERS[tab] || [];
   if (!sh) {
     sh = ss.insertSheet(tab);
-    var head = TVR_HEADERS[tab] || [];
-    if (head.length) {
-      sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold');
+    if (want.length) {
+      sh.getRange(1, 1, 1, want.length).setValues([want]).setFontWeight('bold');
       sh.setFrozenRows(1);
     }
     if (tab === TVR_TAB_RULES) {
       sh.getRange(2, 1, TVR_DEFAULT_RULES.length, TVR_DEFAULT_RULES[0].length).setValues(TVR_DEFAULT_RULES);
     }
+    return sh;
   }
+  _tvrMigrateHeaders(sh, want);
   return sh;
+}
+
+// Bring an EXISTING tab's header row up to date.
+//
+// Headers used to be written only when a tab was first created, so a sheet
+// built by an earlier version kept its original columns forever. Later versions
+// then wrote wider rows — GUID/Parent on the Tally tab, TallyUID on the
+// snapshot, Vendor ID/TallyUID on Mismatches — and the values landed in the
+// sheet but the header row never named them. Since _tvrRows() is header-keyed
+// and skips unnamed columns, those values were written and then silently
+// dropped on read: matching by GUID would have failed on every row while
+// looking, from the outside, like nothing was linked.
+//
+// Every header change so far has been an APPEND, so filling in blanks at the
+// end is safe. A cell that already holds a DIFFERENT name is left untouched —
+// renaming someone's column, or shifting data under a relabelled header, would
+// be far worse than reporting the mismatch.
+function _tvrMigrateHeaders(sh, want) {
+  if (!want.length) return;
+  var lastCol = Math.max(sh.getLastColumn(), 1);
+  var have = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  var norm = function (v) { return String(v == null ? '' : v).trim(); };
+  var writes = [], conflicts = [];
+  for (var i = 0; i < want.length; i++) {
+    var cur = norm(have[i]);
+    if (cur === norm(want[i])) continue;
+    if (cur === '') { writes.push(i); continue; }
+    conflicts.push('col ' + (i + 1) + ': sheet has "' + cur + '", expected "' + want[i] + '"');
+  }
+  if (conflicts.length) {
+    Logger.log('[TVR] "' + sh.getName() + '" header differs from the expected layout, left as-is: ' + conflicts.join('; '));
+    return;   // don't touch a sheet whose columns were rearranged by hand
+  }
+  if (!writes.length) return;
+  // One write covering the whole expected width keeps the row consistent.
+  sh.getRange(1, 1, 1, want.length).setValues([want]).setFontWeight('bold');
+  if (sh.getFrozenRows() < 1) sh.setFrozenRows(1);
+  Logger.log('[TVR] "' + sh.getName() + '" header extended with: ' +
+             writes.map(function (i) { return want[i]; }).join(', '));
 }
 
 // All data rows of a tab as header-keyed objects.
