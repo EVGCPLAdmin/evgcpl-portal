@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.63.0';
-const PORTAL_BUILD    = 743;
-const PORTAL_BUILD_AT = '2026-08-28T12:50:06Z';
+const PORTAL_VERSION  = '4.63.1';
+const PORTAL_BUILD    = 744;
+const PORTAL_BUILD_AT = '2026-08-31T08:22:09Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5996,6 +5996,33 @@ function _vplpPOTotals(d, k) {
     totMat, unMat, uf,
   };
 }
+// Fraction of a PO's credit that posts AFTER a vendor's opening-balance date,
+// weighted by each receipt's own credit.
+//
+// Returns 1 when there is no opening date, when the PO has no dated receipts to
+// judge by (fall back to the PO's own date, as before), or when every receipt is
+// after — so the only POs this changes are the ones that genuinely straddle the
+// opening date, which is the case the flat list previously got wrong.
+function _vplpPostOBShare(d, k, obDv, info) {
+  if (!obDv) return 1;
+  const rcpts = (d.poRcpt && d.poRcpt[k]) || [];
+  let total = 0, post = 0, dated = 0;
+  rcpts.forEach(rc => {
+    const c = rc.credit || 0;
+    if (c <= 0) return;
+    const dv = _mdpDateVal(rc.recvTs) || _mdpDateVal(rc.recvDate) || 0;
+    total += c;
+    if (dv) { dated += c; if (dv > obDv) post += c; }
+  });
+  // Nothing dated to go on → the PO's own date decides, all or nothing.
+  if (!total || !dated) return _mdpDateVal((info || {}).date) > obDv ? 1 : 0;
+  // Undated receipts follow the PO's date so they are neither lost nor
+  // double-counted; an undated receipt on a post-opening PO still posts.
+  const undated = total - dated;
+  const undatedPost = (undated > 0 && _mdpDateVal((info || {}).date) > obDv) ? undated : 0;
+  return (post + undatedPost) / total;
+}
+
 function _vplpVendorRows() {
   const d = _vplpData;
   if (!d) return [];
@@ -6019,8 +6046,22 @@ function _vplpVendorRows() {
       const i = d.poInfo[k] || {};
       const t = _vplpPOTotals(d, k);
       if (t.credit <= 0) return;
-      if (!after(_mdpDateVal(i.date))) return;   // pre-opening → closed, excluded
-      mat += t.mat; addl += t.addl; taxA += t.taxA; taxB += t.taxB; poCredit += t.credit;
+      // Credit posts when the goods are RECEIVED, not when the PO was raised —
+      // that is the date the per-vendor ledger splits on, so this must use it
+      // too or the two views disagree for any PO straddling the opening date:
+      // one raised before it but received after was dropped whole (already in
+      // the opening, said the PO date — but it wasn't), and one raised after it
+      // had its whole credit counted even where receipts predated the opening,
+      // double-counting against the opening balance.
+      //
+      // Apportioned by each receipt's own credit rather than all-or-nothing, so
+      // a PO received either side of the opening date contributes only its
+      // post-opening part. With no opening date, or every receipt after it, the
+      // share is 1 and this is exactly the old figure.
+      const share = _vplpPostOBShare(d, k, obDv, i);
+      if (share <= 0) return;
+      mat += t.mat * share; addl += t.addl * share; taxA += t.taxA * share;
+      taxB += t.taxB * share; poCredit += t.credit * share;
     });
     let payDebit = 0;
     (payByKey[v.key] || []).forEach(p => { if (after(p.dv)) payDebit += p.amt; });
@@ -7447,7 +7488,7 @@ function _tvrOverviewView() {
         ${(m.mergedIds && m.mergedIds.length > 1) ? `<div style="font-size:.62rem;color:#7c3aed;font-family:inherit" title="These Vendor IDs share one TallyUID, so their balances are summed and the active/latest record supplies the name shown">+${m.mergedIds.length - 1} merged: ${esc(m.mergedIds.join(', '))}</div>` : ''}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:ui-monospace,Menlo,monospace;font-size:.64rem;color:var(--txt3);word-break:break-all;max-width:190px">${esc(m.tallyUid) || (m.guid ? `<span title="Tally has a GUID but Vendor Master has no TallyUID for this vendor" style="color:#c2410c">not linked</span>` : '—')}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right">${m.tally === '' || m.tally == null ? '—' : _tvrSigned(m.tally)}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right">${m.portal === '' || m.portal == null ? '—' : _tvrSigned(m.portal)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right" title="${_tvrPortalWhy(m)}">${m.portal === '' || m.portal == null ? '—' : _tvrSigned(m.portal)}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:${col}">${_tvrSigned(diff)}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.72rem;color:var(--txt3)">${esc(_tvrTypeLabel(m.type))}${m.matchedBy ? `<div style="font-size:.64rem;opacity:.8">matched by ${esc(m.matchedBy)}</div>` : ''}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.72rem">${m.ruleLabel === 'UNROUTED' ? '<span style="color:#dc2626;font-weight:700">Unrouted</span>' : esc(m.ruleLabel || '—')}</td>
@@ -7482,6 +7523,60 @@ function _tvrOverviewView() {
 // they are — the opposite of what this page exists to do.
 function _tvrLayout(parts, pinned) {
   return (pinned || '') + _tvrViews('overview').map(sec => parts[sec.id] || '').join('');
+}
+
+// Why the portal balance is what it is — opening + credit − debit, from the
+// LIVE ledger, keyed by TallyUID.
+//
+// A stored mismatch is a single net figure, so a disagreement gives no clue
+// whether the portal counted the wrong goods or missed the payments. The
+// browser already computes the breakdown to render the Vendor Ledger, so it
+// costs nothing to show it, and the difference between this live figure and
+// the snapshot's stored one is itself the answer when they disagree: the
+// snapshot is out of date.
+let _tvrBreakdownCache = null, _tvrBreakdownFor = null;
+function _tvrBreakdown() {
+  if (!_vplpData) return null;                       // ledger not loaded on this page yet
+  if (_tvrBreakdownCache && _tvrBreakdownFor === _vplpData) return _tvrBreakdownCache;
+  const map = {};
+  try {
+    const bridge = _vplpData.bridge || {};
+    _vplpVendorRows().forEach(r => {
+      const uid = (bridge.vidToTallyUid && bridge.vidToTallyUid[r.v.vid]) || '';
+      if (!uid) return;
+      const k = String(uid).trim().toLowerCase();
+      const e = map[k] || (map[k] = { opening: 0, credit: 0, debit: 0, bal: 0 });
+      // Summed, matching how the backend merges Vendor IDs sharing one TallyUID.
+      e.opening += (r.opCredit || 0) - (r.opDebit || 0);
+      e.credit  += r.credit || 0;
+      e.debit   += r.debit || 0;
+      e.bal     += r.bal || 0;
+    });
+  } catch (e) { return null; }
+  _tvrBreakdownCache = map; _tvrBreakdownFor = _vplpData;
+  return map;
+}
+function _tvrPortalWhy(m) {
+  const map = _tvrBreakdown();
+  const uid = String(m.tallyUid || m.guid || '').trim().toLowerCase();
+  const e = uid && map ? map[uid] : null;
+  if (!e) return 'Portal closing balance as captured in the snapshot.';
+  const f = n => _tvrInrPlain(n);
+  const live = `Live now: opening ${f(e.opening)} + credit ${f(e.credit)} − paid ${f(e.debit)} = ${f(e.bal)}`;
+  const stored = Number(m.portal);
+  if (!isFinite(stored)) return live;
+  const drift = e.bal - stored;
+  return Math.abs(drift) <= 1
+    ? live + '\nMatches the snapshot.'
+    : live + `\nSnapshot held ${f(stored)} — ${f(Math.abs(drift))} ${drift > 0 ? 'lower' : 'higher'} than the ledger says now, so the snapshot is stale. Capture a fresh one and re-run.`;
+}
+// Plain signed rupees for a title attribute (no markup, no entities).
+function _tvrInrPlain(n) {
+  const v = Math.round(Math.abs(Number(n) || 0));
+  const s = String(v);
+  const grouped = s.length <= 3 ? s
+    : s.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + s.slice(-3);
+  return (Number(n) < 0 ? '-' : '') + 'Rs ' + grouped;
 }
 
 // Hours since a "dd-MMM-yyyy HH:mm" backend stamp; -1 when unparseable.
