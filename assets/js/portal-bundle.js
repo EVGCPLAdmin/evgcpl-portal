@@ -6734,7 +6734,7 @@ const _TVR_SNAP_LS = 'evg_tvr_last_snapshot';   // yyyy-mm-dd of the last auto-s
 // behind this build. Without this check a stale deployment shows up only as
 // "Unknown POST action: tvrGetBatch" the moment someone clicks the feature that
 // needs it — an error that says nothing about the actual cause.
-const TVR_REQUIRED_BACKEND = 7;
+const TVR_REQUIRED_BACKEND = 8;
 
 async function _tvrPost(payload) {
   let res;
@@ -7593,16 +7593,32 @@ function _tvrBreakdown() {
 // states it, and dimmed at zero so the rows that carry one stand out.
 function _tvrOpeningCell(m) {
   const cell = 'padding:6px 9px;border-bottom:1px solid var(--border);text-align:right';
-  const map = _tvrBreakdown();
-  if (!map) return `<td style="${cell};color:var(--txt3)" title="Open the Vendor Ledger page once and return — the opening balance is read from that data.">·</td>`;
   const uid = String(m.tallyUid || m.guid || '').trim().toLowerCase();
-  const e = uid ? map[uid] : null;
-  if (!e) return `<td style="${cell};color:var(--txt3)">—</td>`;
-  if (Math.abs(e.opening) <= 1) return `<td style="${cell};color:var(--txt3);opacity:.55" title="No opening balance — this vendor's ledger starts at zero.">0</td>`;
+  const map = _tvrBreakdown();
+  const e = (uid && map) ? map[uid] : null;
+  // The value STORED with the run wins over the live ledger: it is the opening
+  // balance that was in force on the day, and it is what that run's email
+  // reported. They differ only when someone has edited an opening balance since
+  // — which the tooltip then says outright, because that edit is very likely the
+  // explanation for the mismatch being looked at.
+  const stored = (m.opening === undefined || m.opening === null || m.opening === '')
+    ? null : Number(m.opening);
+  const val = (stored !== null && isFinite(stored)) ? stored : (e ? e.opening : null);
+  if (val === null) {
+    return map
+      ? `<td style="${cell};color:var(--txt3)">—</td>`
+      : `<td style="${cell};color:var(--txt3)" title="Loading the Vendor Ledger. Runs made once the Apps Script is on v${TVR_REQUIRED_BACKEND} store the opening balance with the run, so it shows without waiting.">·</td>`;
+  }
+  if (Math.abs(val) <= 1) return `<td style="${cell};color:var(--txt3);opacity:.55" title="No opening balance — this vendor's ledger starts at zero.">0</td>`;
   // A positive opening is Cr (we owe it, carried forward); negative is Dr.
-  const cr = e.opening > 0;
+  const cr = val > 0;
+  const drift = (stored !== null && isFinite(stored) && e && Math.abs(stored - e.opening) > 1)
+    ? `\nThe ledger now says ${_tvrInrPlain(e.opening)} — the opening balance has been edited since this run.` : '';
+  const why = (e
+    ? `Carried forward, already inside the Portal Balance. Live: opening ${_tvrInrPlain(e.opening)} + credit ${_tvrInrPlain(e.credit)} − paid ${_tvrInrPlain(e.debit)} = ${_tvrInrPlain(e.bal)}`
+    : 'Carried forward, already inside the Portal Balance. Stored with this run.') + drift;
   return `<td style="${cell};font-weight:600;color:${cr ? '#b45309' : '#1d4ed8'}"
-    title="Carried forward, already inside the Portal Balance. Live: opening ${_tvrInrPlain(e.opening)} + credit ${_tvrInrPlain(e.credit)} − paid ${_tvrInrPlain(e.debit)} = ${_tvrInrPlain(e.bal)}">${_tvrInrPlain(Math.abs(e.opening))} <span style="font-size:.66rem;opacity:.75">${cr ? 'Cr' : 'Dr'}</span></td>`;
+    title="${why}">${_tvrInrPlain(Math.abs(val))} <span style="font-size:.66rem;opacity:.75">${cr ? 'Cr' : 'Dr'}</span></td>`;
 }
 
 function _tvrPortalWhy(m) {
@@ -7909,6 +7925,12 @@ async function _tvrBuildSnapshotRows(force) {
     // fallbacks for vendors that haven't been linked yet.
     .map(r => ({
       name: r.v.name, acc: r.v.vid || '', balance: r.bal, tallyUid: uidOf(r.v.vid),
+      // The carried-forward part of that balance, signed the same way (+Cr, −Dr).
+      // Stored WITH the snapshot rather than read live at display time, so a past
+      // run replays the opening balance that was actually in force on the day
+      // instead of whatever it has since been edited to — and so the emailed
+      // mismatch, which no browser is there to enrich, can state it at all.
+      opening: (r.opCredit || 0) - (r.opDebit || 0),
       // Carried so the backend can pick the display record when several Vendor
       // IDs share one TallyUID: active first, then latest timestamp.
       active: (bridge.vidToActive && bridge.vidToActive[r.v.vid] !== false) ? 1 : 0,
