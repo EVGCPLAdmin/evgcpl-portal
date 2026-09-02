@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.65.1';
-const PORTAL_BUILD    = 747;
-const PORTAL_BUILD_AT = '2026-08-31T08:59:35Z';
+const PORTAL_VERSION  = '4.66.0';
+const PORTAL_BUILD    = 748;
+const PORTAL_BUILD_AT = '2026-09-02T14:41:50Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -5340,6 +5340,9 @@ function _vplpCompute() {
   //   poUnMat  = Σ un-reviewed material   poUnTaxA = Σ un-reviewed Tax(a)
   //   poPending = Σ rejected receipts (excluded from the balance)
   const poRevCr = {}, poRevMat = {}, poRevTaxA = {}, poRevAddl = {}, poUnMat = {}, poUnTaxA = {}, poRcpt = {}, poPending = {};
+  // Total ORDERED value per PO (all lines, received or not): Σ (Qty × Rate + line
+  // tax) + the PO header's Tax(b)/Sub Total(b). Shown in the ledger as reference.
+  const poOrderVal = {};
   // Phase 1 — group PO lines by (PO || item). Each line is a rate tier (kept in
   // PO-line order) and contributes any receipts booked against it to a shared
   // pool. Different items on the same PO stay in separate, independent groups.
@@ -5366,6 +5369,8 @@ function _vplpCompute() {
     if (!g) { g = itemGroups[itemKey] = { k, tiers: [], rcpts: [], seen: {} }; itemOrder.push(itemKey); }
     const tier = { rate, taxPct, taxFrac, taxAmt, oq, part, partNo, partDesc };
     g.tiers.push(tier);
+    // Ordered value of this line: Qty × Rate + its tax (from Tax% or the amount).
+    poOrderVal[k] = (poOrderVal[k] || 0) + (oq * rate) + (taxPct > 0 ? oq * rate * taxFrac : taxAmt);
     const m = siAgg[_opNorm(cs) + '||' + _opNorm(part)];
     if (m && m.rcpts.length) m.rcpts.forEach(rc => {
       if (g.seen[rc.idx]) return;
@@ -5374,6 +5379,8 @@ function _vplpCompute() {
       g.rcpts.push(rc);
     });
   });
+  // Add the PO header's Tax(b) + Sub Total(b) to each PO's ordered value (once).
+  Object.keys(poOrderVal).forEach(k => { const i = poInfo[k]; if (i) poOrderVal[k] += (i.taxB || 0) + (i.addl || 0); });
   // Tax on a qty slice: material × Tax% (fraction), or the stored Tax Amount
   // apportioned by the slice's share of the tier's qty when the line has no %.
   const _tierTax = (t, ov) => t.taxPct > 0 ? (ov * t.rate * t.taxFrac) : (t.oq > 0 ? t.taxAmt * (ov / t.oq) : 0);
@@ -5538,7 +5545,7 @@ function _vplpCompute() {
       poNo: i.poNo || k, poKey: k, vid: i.vendorId || '', vendorName: i.vendorName || '', date: i.date || '',
     }));
   });
-  return { vendors: list, poInfo, poRevCr, poRevMat, poRevTaxA, poRevAddl, poUnMat, poUnTaxA, poRcpt, poPending, bridge, obByKey, grnLines };
+  return { vendors: list, poInfo, poRevCr, poRevMat, poRevTaxA, poRevAddl, poUnMat, poUnTaxA, poRcpt, poPending, poOrderVal, bridge, obByKey, grnLines };
 }
 // GRN + invoice sub-line for a credit (material-received) row. Each receipt's
 // GRN No links to its StockIN detail; invoice numbers are shown after.
@@ -6367,14 +6374,14 @@ function _vplpLedger(v, embedOpts) {
         // none reviewed → Pending (counts at PO rate); a mix → Partial.
         const nRev = app.filter(rc => rc.reviewed).length;
         const grnStatus = nRev === app.length ? 'Approved' : nRev === 0 ? 'Pending' : 'Partial';
-        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', grnStatus, mat, addl: addlC, taxA, taxB, credit, debit: 0, qty: app.reduce((s, rc) => s + (rc.qty || 0), 0), status: null, utr: '', uuid: '' });
+        if (credit > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: app, poRaw: i.raw || null, kind: 'cr', grnStatus, mat, addl: addlC, taxA, taxB, credit, debit: 0, qty: app.reduce((s, rc) => s + (rc.qty || 0), 0), poVal: d.poOrderVal[k] || 0, status: null, utr: '', uuid: '' });
       }
       // Rejected lines of this receipt → one uncounted row (un-reviewed receipts
       // now count via the PO/tiered logic, so the only excluded rows are rejections).
       const pen = g.filter(rc => rc.approved === false);
       if (pen.length) {
         const pendAmt = pen.reduce((s, rc) => s + (rc.credit || 0), 0);
-        if (pendAmt > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: pen, poRaw: i.raw || null, kind: 'cr', pending: true, rejected: true, pendingAmt: pendAmt, qty: pen.reduce((s, rc) => s + (rc.qty || 0), 0), mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
+        if (pendAmt > 0) all.push({ date: grnDate, ref, type: undated ? 'Undated StockIN Entries' : 'Material received', undated, rcpts: pen, poRaw: i.raw || null, kind: 'cr', pending: true, rejected: true, pendingAmt: pendAmt, qty: pen.reduce((s, rc) => s + (rc.qty || 0), 0), poVal: d.poOrderVal[k] || 0, mat: 0, addl: 0, taxA: 0, taxB: 0, credit: 0, debit: 0, status: null, utr: '', uuid: '' });
       }
     });
   });
@@ -6429,12 +6436,15 @@ function _vplpLedger(v, embedOpts) {
   const sum = key => entries.reduce((s, e) => s + e[key], 0);
   const totMat = sum('mat'), totAddl = sum('addl'), totTaxA = sum('taxA'), totTaxB = sum('taxB'), totCredit = sum('credit'), totDebit = sum('debit');
   const totQty = entries.reduce((s, e) => s + (e.qty || 0), 0);
+  // Total ORDERED value across this vendor's POs (all lines, received or not).
+  const totPOVal = Object.keys(v.poKeys).reduce((s, k) => s + ((d.poOrderVal && d.poOrderVal[k]) || 0), 0);
   const bal = totCredit - totDebit;
   // Compact KPI cards — right side of the control row (cards moved right).
   const card = (icon, iconStyle, val, label, cardStyle) =>
     `<div class="kpi-card" style="padding:.4rem .6rem;min-width:0;${cardStyle || ''}"><div style="display:flex;align-items:center;gap:.45rem"><div class="kpi-icon" style="width:22px;height:22px;font-size:.78rem;flex-shrink:0;${iconStyle}">${icon}</div><div style="display:flex;flex-direction:column;line-height:1.05"><span style="font-size:.86rem;font-weight:800">${val}</span><span style="font-size:.55rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap">${label}</span></div></div></div>`;
   const kpiCards = `<div style="display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end">
     ${card('⚖', `background:${bal >= 0 ? '#ffedd5;color:#c2410c' : '#dbeafe;color:#1d4ed8'}`, drcr(bal), bal >= 0 ? 'Outstanding' : 'Advance (Dr)', `border-left:3px solid ${bal >= 0 ? '#ea580c' : '#1d4ed8'}`)}
+    ${totPOVal ? card('📄', 'background:#e0e7ff;color:#4338ca', inr(totPOVal), 'PO Value') : ''}
     ${card('📦', 'background:#dcfce7;color:#15803d', inr(totMat), 'Material')}
     ${card('🧾', 'background:#dbeafe;color:#2563eb', inr(totTaxA + totTaxB), 'Tax (a+b)')}
     ${card('➕', 'background:#ede9fe;color:#7c3aed', inr(totAddl), "Add'l Charges")}
@@ -6503,7 +6513,7 @@ function _vplpLedger(v, embedOpts) {
     return `<tr${click}${e.pending ? ' style="opacity:.85"' : ''}>
       <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(e.date)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(e.ref)}</td>
-      <td style="padding:6px 9px">${partic}${e.kind === 'cr' ? _vplpRcptHtml(e.rcpts, esc) : ''}</td>
+      <td style="padding:6px 9px">${partic}${e.poVal ? ` <span style="font-size:.66rem;color:var(--txt3);white-space:nowrap" title="Total ordered value of this PO (all lines, received or not)">&middot; PO Value ₹${Math.round(e.poVal).toLocaleString('en-IN')}</span>` : ''}${e.kind === 'cr' ? _vplpRcptHtml(e.rcpts, esc) : ''}</td>
       <td style="padding:6px 9px;text-align:right;color:#b45309">${m(e.mat)}</td>
       <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(e.addl)}</td>
       <td style="padding:6px 9px;text-align:right;color:#2563eb">${mTax(e.taxA, e.mat)}</td>
