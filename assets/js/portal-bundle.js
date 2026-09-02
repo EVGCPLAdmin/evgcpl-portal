@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.63.0';
-const PORTAL_BUILD    = 743;
-const PORTAL_BUILD_AT = '2026-08-28T12:50:06Z';
+const PORTAL_VERSION  = '4.65.1';
+const PORTAL_BUILD    = 747;
+const PORTAL_BUILD_AT = '2026-08-31T08:59:35Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -66,7 +66,7 @@ const EXEC_REGISTRY_DEFAULTS = {
   aiProxy:     { label: 'AI Proxy (Groq)',        desc: 'aiProxy action — Groq llama-3.3-70b-versatile via Apps Script. Currently the SAME deployment as main.', files: ['Router.gs', 'AiProxy.gs', 'AIChat.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   diagnostic:  { label: 'Sheet Diagnostic',       desc: 'Sharing-Doctor — server-side sheet sharing checks (status/redirect/sniff). Currently the SAME deployment as main.', files: ['Router.gs', 'SheetDiagnostic.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbxr2AcTq_n1PGCpWdlX0yMfYY6X9TxLBWrNbL34draMXrTD-S-OVX77d9k5eqzNQ4_vOA/exec' },
   pcc:         { label: 'PCC Handlers',           desc: 'Project Cost Control: saveProjectSetup, saveBOQ, saveWBS, saveWorkplan, etc.',     files: ['Router.gs', 'PCCHandlers.gs', 'AppsScript_Handlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbyRE958JhUHHGd_QpWCU26iKL_gvTqiudH3VMaO6dGKs05QP2OSfCbyvJa-JYt6_UzH/exec' },
-  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app: saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments — PLUS the Tally reconciliation actions tvrSaveBatch / tvrGetStatus / tvrGetBatch / tvrSaveRules / tvrRunNow. Override via the exec_accounts row in the PortalConfig sheet.', files: ['Router.gs', 'AccountsHandlers.gs', 'TallyVendorReconcile.gs'], filesVerified: true, defaultUrl: 'https://script.google.com/macros/s/AKfycbwEeA7ZFcatNxhtz-cYVGcOwiesA2xzeqV2sqfeQplPEXrqZO_rWwdXzcbiWAW-ciEMPQ/exec' },
+  accounts:    { label: 'Accounts Backend',       desc: 'Accounts module web app: saveNewPaymentRequest, saveAccountsUpdate, saveVendorOpeningBalance, saveGRNReview, createPRFolder, uploadPRAttachment, listPRAttachments — PLUS the Tally reconciliation actions tvrSaveBatch / tvrGetStatus / tvrGetBatch / tvrSaveRules / tvrRunNow. Override via the exec_accounts row in the PortalConfig sheet.', files: ['Router.gs', 'AccountsHandlers.gs', 'TallyVendorReconcile.gs'], filesVerified: true, defaultUrl: 'https://script.google.com/macros/s/AKfycbzcDDxseLLz5qDbrXAybq7JRPn4E01r8PoUpMyYr5fni0cl4jRUtlZgSdjrNzQXRPn44Q/exec' },
   safety:      { label: 'Safety Handler',         desc: 'SafetyHandler.gs web app — Safety module writes (Incidents, DailyChecks). Override via the exec_safety row in the PortalConfig sheet.', files: ['Router.gs', 'SafetyHandlers.gs'], filesVerified: false, defaultUrl: 'https://script.google.com/macros/s/AKfycbyFq6zSKgn-W3qNQPNoDplqiJHDaQTrrKLSK7gecZNiHSnU7Y4Buav3RiGfcvXtn9B3/exec' },
 };
 const EXEC_LS_KEY = 'evgcpl_exec_registry_v1';
@@ -6003,6 +6003,33 @@ function _vplpPOTotals(d, k) {
     totMat, unMat, uf,
   };
 }
+// Fraction of a PO's credit that posts AFTER a vendor's opening-balance date,
+// weighted by each receipt's own credit.
+//
+// Returns 1 when there is no opening date, when the PO has no dated receipts to
+// judge by (fall back to the PO's own date, as before), or when every receipt is
+// after — so the only POs this changes are the ones that genuinely straddle the
+// opening date, which is the case the flat list previously got wrong.
+function _vplpPostOBShare(d, k, obDv, info) {
+  if (!obDv) return 1;
+  const rcpts = (d.poRcpt && d.poRcpt[k]) || [];
+  let total = 0, post = 0, dated = 0;
+  rcpts.forEach(rc => {
+    const c = rc.credit || 0;
+    if (c <= 0) return;
+    const dv = _mdpDateVal(rc.recvTs) || _mdpDateVal(rc.recvDate) || 0;
+    total += c;
+    if (dv) { dated += c; if (dv > obDv) post += c; }
+  });
+  // Nothing dated to go on → the PO's own date decides, all or nothing.
+  if (!total || !dated) return _mdpDateVal((info || {}).date) > obDv ? 1 : 0;
+  // Undated receipts follow the PO's date so they are neither lost nor
+  // double-counted; an undated receipt on a post-opening PO still posts.
+  const undated = total - dated;
+  const undatedPost = (undated > 0 && _mdpDateVal((info || {}).date) > obDv) ? undated : 0;
+  return (post + undatedPost) / total;
+}
+
 function _vplpVendorRows() {
   const d = _vplpData;
   if (!d) return [];
@@ -6026,8 +6053,22 @@ function _vplpVendorRows() {
       const i = d.poInfo[k] || {};
       const t = _vplpPOTotals(d, k);
       if (t.credit <= 0) return;
-      if (!after(_mdpDateVal(i.date))) return;   // pre-opening → closed, excluded
-      mat += t.mat; addl += t.addl; taxA += t.taxA; taxB += t.taxB; poCredit += t.credit;
+      // Credit posts when the goods are RECEIVED, not when the PO was raised —
+      // that is the date the per-vendor ledger splits on, so this must use it
+      // too or the two views disagree for any PO straddling the opening date:
+      // one raised before it but received after was dropped whole (already in
+      // the opening, said the PO date — but it wasn't), and one raised after it
+      // had its whole credit counted even where receipts predated the opening,
+      // double-counting against the opening balance.
+      //
+      // Apportioned by each receipt's own credit rather than all-or-nothing, so
+      // a PO received either side of the opening date contributes only its
+      // post-opening part. With no opening date, or every receipt after it, the
+      // share is 1 and this is exactly the old figure.
+      const share = _vplpPostOBShare(d, k, obDv, i);
+      if (share <= 0) return;
+      mat += t.mat * share; addl += t.addl * share; taxA += t.taxA * share;
+      taxB += t.taxB * share; poCredit += t.credit * share;
     });
     let payDebit = 0;
     (payByKey[v.key] || []).forEach(p => { if (after(p.dv)) payDebit += p.amt; });
@@ -6703,7 +6744,7 @@ const _TVR_SNAP_LS = 'evg_tvr_last_snapshot';   // yyyy-mm-dd of the last auto-s
 // behind this build. Without this check a stale deployment shows up only as
 // "Unknown POST action: tvrGetBatch" the moment someone clicks the feature that
 // needs it — an error that says nothing about the actual cause.
-const TVR_REQUIRED_BACKEND = 7;
+const TVR_REQUIRED_BACKEND = 8;
 
 async function _tvrPost(payload) {
   let res;
@@ -7026,7 +7067,28 @@ async function _tvrLoad(opts) {
   _tvrStatus = resp;
   _tvrViewRunId = resp.runId || '';
   _tvrRenderBody();
+  _tvrWarmLedger();
   return true;
+}
+
+// Load the Vendor Ledger data in the background so the Opening column and the
+// Portal Balance breakdown have something to read.
+//
+// Deliberately AFTER the first render and not awaited: it pulls the PO, GRN and
+// payment sheets, which is far heavier than the reconciliation status itself, and
+// the mismatch table is worth showing immediately rather than holding the whole
+// page for a supporting column. Cached (no force), so returning to this tab is
+// free, and a failure is silent — the column falls back to "·" and every other
+// figure on the page is unaffected.
+let _tvrWarming = false;
+function _tvrWarmLedger() {
+  if (_tvrWarming || _vplpData || typeof _vplpEnsure !== 'function') return;
+  _tvrWarming = true;
+  _vplpEnsure().then(() => {
+    _tvrBreakdownCache = null;   // recompute against the data that just arrived
+    if (_tvrTab === 'overview') _tvrRenderBody();
+  }).catch(() => { /* column shows "·"; nothing else depends on this */ })
+    .finally(() => { _tvrWarming = false; });
 }
 
 // Rendered inside the Overview body only — never in place of the tab bar.
@@ -7456,8 +7518,9 @@ function _tvrOverviewView() {
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:ui-monospace,Menlo,monospace;font-size:.7rem">${esc(m.vid) || '<span style="color:#c2410c">—</span>'}
         ${(m.mergedIds && m.mergedIds.length > 1) ? `<div style="font-size:.62rem;color:#7c3aed;font-family:inherit" title="These Vendor IDs share one TallyUID, so their balances are summed and the active/latest record supplies the name shown">+${m.mergedIds.length - 1} merged: ${esc(m.mergedIds.join(', '))}</div>` : ''}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:ui-monospace,Menlo,monospace;font-size:.64rem;color:var(--txt3);word-break:break-all;max-width:190px">${esc(m.tallyUid) || (m.guid ? `<span title="Tally has a GUID but Vendor Master has no TallyUID for this vendor" style="color:#c2410c">not linked</span>` : '—')}</td>
+      ${_tvrOpeningCell(m)}
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right">${m.tally === '' || m.tally == null ? '—' : _tvrSigned(m.tally)}</td>
-      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right">${m.portal === '' || m.portal == null ? '—' : _tvrSigned(m.portal)}</td>
+      <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right" title="${_tvrPortalWhy(m)}">${m.portal === '' || m.portal == null ? '—' : _tvrSigned(m.portal)}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:${col}">${_tvrSigned(diff)}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.72rem;color:var(--txt3)">${esc(_tvrTypeLabel(m.type))}${m.matchedBy ? `<div style="font-size:.64rem;opacity:.8">matched by ${esc(m.matchedBy)}</div>` : ''}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-size:.72rem">${m.ruleLabel === 'UNROUTED' ? '<span style="color:#dc2626;font-weight:700">Unrouted</span>' : esc(m.ruleLabel || '—')}</td>
@@ -7471,6 +7534,7 @@ function _tvrOverviewView() {
         <th style="padding:8px 9px">Vendor <span style="font-weight:400;opacity:.7">(Vendor Master)</span></th>
         <th style="padding:8px 9px">Vendor ID</th>
         <th style="padding:8px 9px" title="Tally's $GUID, via the TallyUID column in Vendor Master">Tally UID</th>
+        <th style="padding:8px 9px;text-align:right" title="The vendor's opening balance, from the live Vendor Ledger. Already included in the Portal Balance beside it — shown so a difference that is really a carried-forward figure is obvious.">Opening</th>
         <th style="padding:8px 9px;text-align:right">Tally Balance</th>
         <th style="padding:8px 9px;text-align:right">Portal Balance</th>
         <th style="padding:8px 9px;text-align:right">Difference</th>
@@ -7492,6 +7556,102 @@ function _tvrOverviewView() {
 // they are — the opposite of what this page exists to do.
 function _tvrLayout(parts, pinned) {
   return (pinned || '') + _tvrViews('overview').map(sec => parts[sec.id] || '').join('');
+}
+
+// Why the portal balance is what it is — opening + credit − debit, from the
+// LIVE ledger, keyed by TallyUID.
+//
+// A stored mismatch is a single net figure, so a disagreement gives no clue
+// whether the portal counted the wrong goods or missed the payments. The
+// browser already computes the breakdown to render the Vendor Ledger, so it
+// costs nothing to show it, and the difference between this live figure and
+// the snapshot's stored one is itself the answer when they disagree: the
+// snapshot is out of date.
+let _tvrBreakdownCache = null, _tvrBreakdownFor = null;
+function _tvrBreakdown() {
+  if (!_vplpData) return null;                       // ledger not loaded on this page yet
+  if (_tvrBreakdownCache && _tvrBreakdownFor === _vplpData) return _tvrBreakdownCache;
+  const map = {};
+  try {
+    const bridge = _vplpData.bridge || {};
+    _vplpVendorRows().forEach(r => {
+      const uid = (bridge.vidToTallyUid && bridge.vidToTallyUid[r.v.vid]) || '';
+      if (!uid) return;
+      const k = String(uid).trim().toLowerCase();
+      const e = map[k] || (map[k] = { opening: 0, credit: 0, debit: 0, bal: 0 });
+      // Summed, matching how the backend merges Vendor IDs sharing one TallyUID.
+      e.opening += (r.opCredit || 0) - (r.opDebit || 0);
+      e.credit  += r.credit || 0;
+      e.debit   += r.debit || 0;
+      e.bal     += r.bal || 0;
+    });
+  } catch (e) { return null; }
+  _tvrBreakdownCache = map; _tvrBreakdownFor = _vplpData;
+  return map;
+}
+// Opening-balance cell for a mismatch row.
+//
+// The figure comes from the LIVE ledger, not the stored run: the backend has
+// never recorded an opening balance, so reading it here avoids a schema change
+// and an Apps Script redeploy. That does mean it is today's opening balance
+// against a possibly older run — which is honest, because an opening balance is
+// a carried-forward constant that only moves when someone edits it, and if one
+// HAS been edited since the run then that is itself the likeliest explanation
+// for the mismatch and worth seeing.
+//
+// Rendered as Dr/Cr rather than a bare sign, matching how the Vendor Ledger
+// states it, and dimmed at zero so the rows that carry one stand out.
+function _tvrOpeningCell(m) {
+  const cell = 'padding:6px 9px;border-bottom:1px solid var(--border);text-align:right';
+  const uid = String(m.tallyUid || m.guid || '').trim().toLowerCase();
+  const map = _tvrBreakdown();
+  const e = (uid && map) ? map[uid] : null;
+  // The value STORED with the run wins over the live ledger: it is the opening
+  // balance that was in force on the day, and it is what that run's email
+  // reported. They differ only when someone has edited an opening balance since
+  // — which the tooltip then says outright, because that edit is very likely the
+  // explanation for the mismatch being looked at.
+  const stored = (m.opening === undefined || m.opening === null || m.opening === '')
+    ? null : Number(m.opening);
+  const val = (stored !== null && isFinite(stored)) ? stored : (e ? e.opening : null);
+  if (val === null) {
+    return map
+      ? `<td style="${cell};color:var(--txt3)">—</td>`
+      : `<td style="${cell};color:var(--txt3)" title="Loading the Vendor Ledger. Runs made once the Apps Script is on v${TVR_REQUIRED_BACKEND} store the opening balance with the run, so it shows without waiting.">·</td>`;
+  }
+  if (Math.abs(val) <= 1) return `<td style="${cell};color:var(--txt3);opacity:.55" title="No opening balance — this vendor's ledger starts at zero.">0</td>`;
+  // A positive opening is Cr (we owe it, carried forward); negative is Dr.
+  const cr = val > 0;
+  const drift = (stored !== null && isFinite(stored) && e && Math.abs(stored - e.opening) > 1)
+    ? `\nThe ledger now says ${_tvrInrPlain(e.opening)} — the opening balance has been edited since this run.` : '';
+  const why = (e
+    ? `Carried forward, already inside the Portal Balance. Live: opening ${_tvrInrPlain(e.opening)} + credit ${_tvrInrPlain(e.credit)} − paid ${_tvrInrPlain(e.debit)} = ${_tvrInrPlain(e.bal)}`
+    : 'Carried forward, already inside the Portal Balance. Stored with this run.') + drift;
+  return `<td style="${cell};font-weight:600;color:${cr ? '#b45309' : '#1d4ed8'}"
+    title="${why}">${_tvrInrPlain(Math.abs(val))} <span style="font-size:.66rem;opacity:.75">${cr ? 'Cr' : 'Dr'}</span></td>`;
+}
+
+function _tvrPortalWhy(m) {
+  const map = _tvrBreakdown();
+  const uid = String(m.tallyUid || m.guid || '').trim().toLowerCase();
+  const e = uid && map ? map[uid] : null;
+  if (!e) return 'Portal closing balance as captured in the snapshot.';
+  const f = n => _tvrInrPlain(n);
+  const live = `Live now: opening ${f(e.opening)} + credit ${f(e.credit)} − paid ${f(e.debit)} = ${f(e.bal)}`;
+  const stored = Number(m.portal);
+  if (!isFinite(stored)) return live;
+  const drift = e.bal - stored;
+  return Math.abs(drift) <= 1
+    ? live + '\nMatches the snapshot.'
+    : live + `\nSnapshot held ${f(stored)} — ${f(Math.abs(drift))} ${drift > 0 ? 'lower' : 'higher'} than the ledger says now, so the snapshot is stale. Capture a fresh one and re-run.`;
+}
+// Plain signed rupees for a title attribute (no markup, no entities).
+function _tvrInrPlain(n) {
+  const v = Math.round(Math.abs(Number(n) || 0));
+  const s = String(v);
+  const grouped = s.length <= 3 ? s
+    : s.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + s.slice(-3);
+  return (Number(n) < 0 ? '-' : '') + 'Rs ' + grouped;
 }
 
 // Hours since a "dd-MMM-yyyy HH:mm" backend stamp; -1 when unparseable.
@@ -7775,6 +7935,12 @@ async function _tvrBuildSnapshotRows(force) {
     // fallbacks for vendors that haven't been linked yet.
     .map(r => ({
       name: r.v.name, acc: r.v.vid || '', balance: r.bal, tallyUid: uidOf(r.v.vid),
+      // The carried-forward part of that balance, signed the same way (+Cr, −Dr).
+      // Stored WITH the snapshot rather than read live at display time, so a past
+      // run replays the opening balance that was actually in force on the day
+      // instead of whatever it has since been edited to — and so the emailed
+      // mismatch, which no browser is there to enrich, can state it at all.
+      opening: (r.opCredit || 0) - (r.opDebit || 0),
       // Carried so the backend can pick the display record when several Vendor
       // IDs share one TallyUID: active first, then latest timestamp.
       active: (bridge.vidToActive && bridge.vidToActive[r.v.vid] !== false) ? 1 : 0,
@@ -19103,6 +19269,10 @@ function _kbBodyTallyRecon() {
         </tbody>
       </table>
       <p class="kb-p">The Tally export is the <b>whole chart of accounts</b> — bank, GST, salary and asset ledgers as well as creditors — so most unlinked rows are simply not vendors and can be ignored. Watch the <b>coverage figure</b> (linked / total vendors) beside the mismatch count: an empty mismatch list means nothing if only a fraction of the vendor book is linked.</p>
+
+      <h3 class="kb-sub">Reading a mismatch row</h3>
+      <p class="kb-p">The <b>Opening</b> column shows the vendor's carried-forward balance, Cr (we owe it) or Dr (recoverable). It is <b>already inside</b> the Portal Balance beside it — it is shown so that a difference which is really a carried-forward figure, rather than this year's trading, is obvious at a glance. A vendor whose ledger starts at zero shows a dimmed <b>0</b>.</p>
+      <p class="kb-p">Hovering the <b>Portal Balance</b> gives the whole arithmetic — <b>opening + credit &minus; paid</b> — read live from the Vendor Ledger. If that live figure differs from the one stored in the run, the tooltip says so and by how much: that means the snapshot is older than the ledger, and capturing a fresh one and re-running will move the number. Both come from the live ledger, so they read <b>&middot;</b> for a moment while that data loads.</p>
 
       <h3 class="kb-sub">Several Vendor IDs, one vendor</h3>
       <p class="kb-p">Vendor Master often holds the same real vendor under several Vendor IDs, all carrying one TallyUID, while Tally has a single ledger. Those rows are <b>merged before comparison</b> and their balances summed — otherwise one partial balance would be reported as a mismatch against Tally's total, and the rest would surface as phantom unlinked vendors.</p>
