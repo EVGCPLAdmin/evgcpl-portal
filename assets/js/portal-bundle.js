@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.66.0';
-const PORTAL_BUILD    = 748;
-const PORTAL_BUILD_AT = '2026-09-02T14:41:50Z';
+const PORTAL_VERSION  = '4.66.1';
+const PORTAL_BUILD    = 749;
+const PORTAL_BUILD_AT = '2026-09-02T16:50:40Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -6486,7 +6486,7 @@ function _vplpLedger(v, embedOpts) {
               payFields.map(f => `<td style="${xtd}">${e.kind === 'dr' ? _regRawCell(pay[f]) : '—'}</td>`)).join('');
   };
   const extraHead = extraLabels.map(l => `<th data-evg-extra="1" style="padding:8px 9px;white-space:nowrap">${esc(l)}</th>`).join('');
-  const curatedLabels = ['Date', 'Reference', 'Particulars', 'Material (a)', "Add'l (b)", 'Tax (a)', 'Tax (b)', 'Credit', 'Debit', 'Balance Dr/Cr', 'Status'];
+  const curatedLabels = ['Date', 'Reference', 'PO Value', 'Particulars', 'Material (a)', "Add'l (b)", 'Tax (a)', 'Tax (b)', 'Credit', 'Debit', 'Balance Dr/Cr', 'Status'];
   const defHidden = _mdpEsc(_regHdrKeys(curatedLabels.concat(extraLabels)).slice(curatedLabels.length).join('|'));
   const body = entries.slice().reverse().map(e => {
     const s = e.status;
@@ -6513,7 +6513,8 @@ function _vplpLedger(v, embedOpts) {
     return `<tr${click}${e.pending ? ' style="opacity:.85"' : ''}>
       <td style="padding:6px 9px;white-space:nowrap">${_mdpFmtDate(e.date)}</td>
       <td style="padding:6px 9px;font-family:monospace;font-size:.72rem">${esc(e.ref)}</td>
-      <td style="padding:6px 9px">${partic}${e.poVal ? ` <span style="font-size:.66rem;color:var(--txt3);white-space:nowrap" title="Total ordered value of this PO (all lines, received or not)">&middot; PO Value ₹${Math.round(e.poVal).toLocaleString('en-IN')}</span>` : ''}${e.kind === 'cr' ? _vplpRcptHtml(e.rcpts, esc) : ''}</td>
+      <td style="padding:6px 9px;text-align:right;color:#4338ca;white-space:nowrap" title="Total ordered value of this PO (all lines, received or not)">${m(e.poVal)}</td>
+      <td style="padding:6px 9px">${partic}${e.kind === 'cr' ? _vplpRcptHtml(e.rcpts, esc) : ''}</td>
       <td style="padding:6px 9px;text-align:right;color:#b45309">${m(e.mat)}</td>
       <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(e.addl)}</td>
       <td style="padding:6px 9px;text-align:right;color:#2563eb">${mTax(e.taxA, e.mat)}</td>
@@ -6530,6 +6531,7 @@ function _vplpLedger(v, embedOpts) {
   const tfoot = `<tr style="background:var(--surface2);font-weight:700">
     <td style="padding:7px 9px">Totals</td>
     <td style="padding:7px 9px"></td>
+    <td style="padding:7px 9px;text-align:right;color:#4338ca" title="Total ordered value across this vendor's POs">${m(totPOVal)}</td>
     <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(totMat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(totAddl)}</td>
@@ -6548,7 +6550,7 @@ function _vplpLedger(v, embedOpts) {
   return vmCard + pendBanner + controlRow + modeHint + fyBar + `<div class="card"><div style="overflow-x:auto">
     <table class="evg-ledger-tbl" data-evg-default-hidden="${defHidden}" style="width:100%;border-collapse:collapse;font-size:.78rem">
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
-        <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px">Particulars</th>
+        <th style="padding:8px 9px">Date</th><th style="padding:8px 9px">Reference</th><th style="padding:8px 9px;text-align:right" title="Total ordered value of the PO">PO Value</th><th style="padding:8px 9px">Particulars</th>
         <th style="padding:8px 9px;text-align:right">Material (a)</th><th style="padding:8px 9px;text-align:right">Add'l (b)</th>
         <th style="padding:8px 9px;text-align:right">Tax (a)</th><th style="padding:8px 9px;text-align:right">Tax (b)</th>
         <th style="padding:8px 9px;text-align:right">Credit</th><th style="padding:8px 9px;text-align:right">Debit</th>
