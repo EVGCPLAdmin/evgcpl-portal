@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.66.2';
-const PORTAL_BUILD    = 750;
-const PORTAL_BUILD_AT = '2026-09-06T14:23:21Z';
+const PORTAL_VERSION  = '4.66.3';
+const PORTAL_BUILD    = 751;
+const PORTAL_BUILD_AT = '2026-09-06T15:02:58Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -7946,6 +7946,9 @@ async function _tvrBuildSnapshotRows(force) {
       // instead of whatever it has since been edited to — and so the emailed
       // mismatch, which no browser is there to enrich, can state it at all.
       opening: (r.opCredit || 0) - (r.opDebit || 0),
+      // The opening balance's As-On date, so the mail + CSV can state WHEN the
+      // carried-forward figure was struck (matches the Flat List's Opening Date).
+      openingDate: (r.v.opening && (r.v.opening.date || r.v.opening.asOn)) ? _mdpFmtDate(r.v.opening.date || r.v.opening.asOn) : '',
       // Carried so the backend can pick the display record when several Vendor
       // IDs share one TallyUID: active first, then latest timestamp.
       active: (bridge.vidToActive && bridge.vidToActive[r.v.vid] !== false) ? 1 : 0,
