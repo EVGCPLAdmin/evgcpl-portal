@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.66.1';
-const PORTAL_BUILD    = 749;
-const PORTAL_BUILD_AT = '2026-09-02T16:50:40Z';
+const PORTAL_VERSION  = '4.66.2';
+const PORTAL_BUILD    = 750;
+const PORTAL_BUILD_AT = '2026-09-06T14:23:21Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -6172,6 +6172,7 @@ function _vplpFlatList(toggle) {
     <td style="padding:6px 9px;font-family:ui-monospace,Menlo,monospace;font-size:.7rem;color:var(--txt2);word-break:break-word">${gstOf(r.v)}</td>
     <td style="padding:6px 9px">${statChip(r.status)}</td>
     <td style="padding:6px 9px;text-align:right;color:#4f46e5;font-weight:600">${dc(r.opCredit - r.opDebit)}</td>
+    <td style="padding:6px 9px;white-space:nowrap;color:var(--txt3);font-size:.74rem">${(r.v.opening && (r.v.opening.date || r.v.opening.asOn)) ? _mdpFmtDate(r.v.opening.date || r.v.opening.asOn) : '—'}</td>
     <td style="padding:6px 9px;text-align:right;color:#b45309">${m(r.mat)}</td>
     <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(r.addl)}</td>
     <td style="padding:6px 9px;text-align:right;color:#2563eb">${m(r.taxA + r.taxB)}</td>
@@ -6183,6 +6184,7 @@ function _vplpFlatList(toggle) {
     <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#4f46e5">${dc(Topen)}</td>
+    <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(T.mat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(T.addl)}</td>
     <td style="padding:7px 9px;text-align:right;color:#2563eb">${m(T.taxA + T.taxB)}</td>
@@ -6194,6 +6196,7 @@ function _vplpFlatList(toggle) {
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Vendor</th><th style="padding:8px 9px" title="GST number(s) from Vendor Master — multiple shown pipe-separated">GST No</th><th style="padding:8px 9px">Balance Status</th>
         <th style="padding:8px 9px;text-align:right" title="Net opening balance carried forward (before the opening date)">Opening (B/F)</th>
+        <th style="padding:8px 9px" title="The opening balance's As-On date">Opening Date</th>
         <th style="padding:8px 9px;text-align:right">Material</th><th style="padding:8px 9px;text-align:right">Add'l</th>
         <th style="padding:8px 9px;text-align:right">Tax</th><th style="padding:8px 9px;text-align:right" title="Billed after the opening date">Billed (Cr)</th>
         <th style="padding:8px 9px;text-align:right" title="Paid after the opening date">Paid (Dr)</th><th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th>
