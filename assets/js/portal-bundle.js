@@ -6172,7 +6172,6 @@ function _vplpFlatList(toggle) {
     <td style="padding:6px 9px;font-family:ui-monospace,Menlo,monospace;font-size:.7rem;color:var(--txt2);word-break:break-word">${gstOf(r.v)}</td>
     <td style="padding:6px 9px">${statChip(r.status)}</td>
     <td style="padding:6px 9px;text-align:right;color:#4f46e5;font-weight:600">${dc(r.opCredit - r.opDebit)}</td>
-    <td style="padding:6px 9px;white-space:nowrap;color:var(--txt3);font-size:.74rem">${(r.v.opening && (r.v.opening.date || r.v.opening.asOn)) ? _mdpFmtDate(r.v.opening.date || r.v.opening.asOn) : '—'}</td>
     <td style="padding:6px 9px;text-align:right;color:#b45309">${m(r.mat)}</td>
     <td style="padding:6px 9px;text-align:right;color:#7c3aed">${m(r.addl)}</td>
     <td style="padding:6px 9px;text-align:right;color:#2563eb">${m(r.taxA + r.taxB)}</td>
@@ -6184,7 +6183,6 @@ function _vplpFlatList(toggle) {
     <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#4f46e5">${dc(Topen)}</td>
-    <td style="padding:7px 9px"></td>
     <td style="padding:7px 9px;text-align:right;color:#b45309">${m(T.mat)}</td>
     <td style="padding:7px 9px;text-align:right;color:#7c3aed">${m(T.addl)}</td>
     <td style="padding:7px 9px;text-align:right;color:#2563eb">${m(T.taxA + T.taxB)}</td>
@@ -6196,7 +6194,6 @@ function _vplpFlatList(toggle) {
       <thead><tr style="background:var(--g9);color:#fff;text-align:left">
         <th style="padding:8px 9px">Vendor</th><th style="padding:8px 9px" title="GST number(s) from Vendor Master — multiple shown pipe-separated">GST No</th><th style="padding:8px 9px">Balance Status</th>
         <th style="padding:8px 9px;text-align:right" title="Net opening balance carried forward (before the opening date)">Opening (B/F)</th>
-        <th style="padding:8px 9px" title="The opening balance's As-On date">Opening Date</th>
         <th style="padding:8px 9px;text-align:right">Material</th><th style="padding:8px 9px;text-align:right">Add'l</th>
         <th style="padding:8px 9px;text-align:right">Tax</th><th style="padding:8px 9px;text-align:right" title="Billed after the opening date">Billed (Cr)</th>
         <th style="padding:8px 9px;text-align:right" title="Paid after the opening date">Paid (Dr)</th><th style="padding:8px 9px;text-align:right">Balance Dr/Cr</th>
@@ -7524,6 +7521,7 @@ function _tvrOverviewView() {
         ${(m.mergedIds && m.mergedIds.length > 1) ? `<div style="font-size:.62rem;color:#7c3aed;font-family:inherit" title="These Vendor IDs share one TallyUID, so their balances are summed and the active/latest record supplies the name shown">+${m.mergedIds.length - 1} merged: ${esc(m.mergedIds.join(', '))}</div>` : ''}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);font-family:ui-monospace,Menlo,monospace;font-size:.64rem;color:var(--txt3);word-break:break-all;max-width:190px">${esc(m.tallyUid) || (m.guid ? `<span title="Tally has a GUID but Vendor Master has no TallyUID for this vendor" style="color:#c2410c">not linked</span>` : '—')}</td>
       ${_tvrOpeningCell(m)}
+      ${_tvrOpeningDateCell(m)}
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right">${m.tally === '' || m.tally == null ? '—' : _tvrSigned(m.tally)}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right" title="${_tvrPortalWhy(m)}">${m.portal === '' || m.portal == null ? '—' : _tvrSigned(m.portal)}</td>
       <td style="padding:6px 9px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:${col}">${_tvrSigned(diff)}</td>
@@ -7540,6 +7538,7 @@ function _tvrOverviewView() {
         <th style="padding:8px 9px">Vendor ID</th>
         <th style="padding:8px 9px" title="Tally's $GUID, via the TallyUID column in Vendor Master">Tally UID</th>
         <th style="padding:8px 9px;text-align:right" title="The vendor's opening balance, from the live Vendor Ledger. Already included in the Portal Balance beside it — shown so a difference that is really a carried-forward figure is obvious.">Opening</th>
+        <th style="padding:8px 9px" title="The opening balance's As-On date (when the carried-forward figure was struck)">Opening Date</th>
         <th style="padding:8px 9px;text-align:right">Tally Balance</th>
         <th style="padding:8px 9px;text-align:right">Portal Balance</th>
         <th style="padding:8px 9px;text-align:right">Difference</th>
@@ -7583,12 +7582,15 @@ function _tvrBreakdown() {
       const uid = (bridge.vidToTallyUid && bridge.vidToTallyUid[r.v.vid]) || '';
       if (!uid) return;
       const k = String(uid).trim().toLowerCase();
-      const e = map[k] || (map[k] = { opening: 0, credit: 0, debit: 0, bal: 0 });
+      const e = map[k] || (map[k] = { opening: 0, credit: 0, debit: 0, bal: 0, openingDate: '', _odv: 0 });
       // Summed, matching how the backend merges Vendor IDs sharing one TallyUID.
       e.opening += (r.opCredit || 0) - (r.opDebit || 0);
       e.credit  += r.credit || 0;
       e.debit   += r.debit || 0;
       e.bal     += r.bal || 0;
+      // Latest opening As-On date among the merged Vendor IDs.
+      const _od = (r.v.opening && (r.v.opening.date || r.v.opening.asOn)) || '';
+      if (_od && _mdpDateVal(_od) > e._odv) { e._odv = _mdpDateVal(_od); e.openingDate = _mdpFmtDate(_od); }
     });
   } catch (e) { return null; }
   _tvrBreakdownCache = map; _tvrBreakdownFor = _vplpData;
@@ -7634,6 +7636,18 @@ function _tvrOpeningCell(m) {
     : 'Carried forward, already inside the Portal Balance. Stored with this run.') + drift;
   return `<td style="${cell};font-weight:600;color:${cr ? '#b45309' : '#1d4ed8'}"
     title="${why}">${_tvrInrPlain(Math.abs(val))} <span style="font-size:.66rem;opacity:.75">${cr ? 'Cr' : 'Dr'}</span></td>`;
+}
+// Opening-balance As-On date cell — the date the carried-forward figure was
+// struck. Prefers the value stored with the run (what its email reported), else
+// today's live ledger date, mirroring _tvrOpeningCell.
+function _tvrOpeningDateCell(m) {
+  const cell = 'padding:6px 9px;border-bottom:1px solid var(--border);font-size:.72rem;color:var(--txt3);white-space:nowrap';
+  const stored = String(m.openingDate || '').trim();
+  const uid = String(m.tallyUid || m.guid || '').trim().toLowerCase();
+  const map = _tvrBreakdown();
+  const e = (uid && map) ? map[uid] : null;
+  const val = stored || (e ? e.openingDate : '');
+  return `<td style="${cell}">${val ? _mdpEsc(val) : '—'}</td>`;
 }
 
 function _tvrPortalWhy(m) {
