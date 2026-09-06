@@ -157,9 +157,9 @@ var TVR_HEADERS = {};
 // "Employee Creditors", …) — kept so an unlinked ledger can be identified
 // without going back to Tally.
 TVR_HEADERS[TVR_TAB_TALLY]    = ['UploadedAt', 'UploadedBy', 'BatchId', 'Vendor Name', 'A/C Number', 'Closing Balance', 'GUID', 'Parent'];
-TVR_HEADERS[TVR_TAB_SNAPSHOT] = ['UploadedAt', 'UploadedBy', 'BatchId', 'Vendor Name', 'A/C Number', 'Closing Balance', 'TallyUID', 'Active', 'VMTimestamp', 'Opening'];
+TVR_HEADERS[TVR_TAB_SNAPSHOT] = ['UploadedAt', 'UploadedBy', 'BatchId', 'Vendor Name', 'A/C Number', 'Closing Balance', 'TallyUID', 'Active', 'VMTimestamp', 'Opening', 'Opening Date'];
 TVR_HEADERS[TVR_TAB_RULES]    = ['RuleID', 'MinAmount', 'MaxAmount', 'Recipients', 'Label', 'Active'];
-TVR_HEADERS[TVR_TAB_MISMATCH] = ['Date', 'RunId', 'Vendor Name', 'A/C Number', 'TallyBalance', 'PortalBalance', 'Diff', 'Type', 'NotifiedTo', 'RuleLabel', 'GUID', 'MatchedBy', 'Vendor ID', 'TallyUID', 'MergedIDs', 'Opening'];
+TVR_HEADERS[TVR_TAB_MISMATCH] = ['Date', 'RunId', 'Vendor Name', 'A/C Number', 'TallyBalance', 'PortalBalance', 'Diff', 'Type', 'NotifiedTo', 'RuleLabel', 'GUID', 'MatchedBy', 'Vendor ID', 'TallyUID', 'MergedIDs', 'Opening', 'Opening Date'];
 
 // Seeded on first use so the rules table is never empty (an empty table would
 // silently route nothing). Edit from the portal's Rules tab, not here.
@@ -362,7 +362,8 @@ function tvrSaveBatch(body) {
     // signed the same way. Stored so a replayed run and the mismatch email both
     // report the opening balance in force on the day, not today's.
     else base.push(String(r.tallyUid == null ? '' : r.tallyUid).trim(),
-                   r.active ? 1 : 0, _tvrNum(r.ts), _tvrNum(r.opening));
+                   r.active ? 1 : 0, _tvrNum(r.ts), _tvrNum(r.opening),
+                   String(r.openingDate == null ? '' : r.openingDate).trim());
     out.push(base);
   }
   if (!out.length) return { success: false, message: 'tvrSaveBatch: every row was missing a vendor name' };
@@ -511,6 +512,7 @@ function _tvrDiff(tallyRows, snapRows) {
       uid: String(r['TallyUID'] || '').trim(),
       bal: _tvrNum(r['Closing Balance']),
       opening: _tvrNum(r['Opening']),
+      openingDate: String(r['Opening Date'] || '').trim(),
       active: _tvrNum(r['Active']) ? 1 : 0,
       ts: _tvrNum(r['VMTimestamp']),
       used: false
@@ -543,7 +545,7 @@ function _tvrDiff(tallyRows, snapRows) {
     var total = 0, openTotal = 0;
     g.forEach(function (x) { total += x.bal; openTotal += x.opening || 0; x.used = true; });
     byUid[u] = {
-      name: rep.name, acc: rep.acc, uid: rep.uid, bal: total, opening: openTotal, used: false,
+      name: rep.name, acc: rep.acc, uid: rep.uid, bal: total, opening: openTotal, openingDate: rep.openingDate || '', used: false,
       mergedIds: g.map(function (x) { return x.acc; }).filter(Boolean),
       mergedCount: g.length,
       // Recorded so a merge is never invisible: the portal shows which Vendor
@@ -596,7 +598,7 @@ function _tvrDiff(tallyRows, snapRows) {
     if (Math.abs(diff) > TVR_TOLERANCE) {
       mismatches.push({ name: m.name || t.name, tallyName: t.name, acc: t.acc || m.acc,
                         guid: t.guid, vid: m.acc, tallyUid: m.uid, matchedBy: how,
-                        tally: t.bal, portal: m.bal, opening: m.opening || 0, diff: diff, type: 'balance-diff',
+                        tally: t.bal, portal: m.bal, opening: m.opening || 0, openingDate: m.openingDate || '', diff: diff, type: 'balance-diff',
                         mergedIds: m.mergedIds || [], mergedCount: m.mergedCount || 1 });
     }
   });
@@ -619,7 +621,7 @@ function _tvrDiff(tallyRows, snapRows) {
     }
     mismatches.push({ name: s.name, tallyName: '', acc: s.acc, guid: '', vid: s.acc,
                       tallyUid: s.uid, matchedBy: '',
-                      tally: '', portal: s.bal, opening: s.opening || 0, diff: -s.bal, type: 'missing-in-tally' });
+                      tally: '', portal: s.bal, opening: s.opening || 0, openingDate: s.openingDate || '', diff: -s.bal, type: 'missing-in-tally' });
   });
 
   mismatches.sort(function (a, b) { return Math.abs(b.diff) - Math.abs(a.diff); });
@@ -728,7 +730,7 @@ function runDailyVendorReconcile(opts) {
     var rows = mismatches.map(function (m) {
       return [dateStr, runId, m.name, m.acc, m.tally, m.portal, m.diff, m.type,
               m.notifiedTo, m.rule ? m.rule.label : 'UNROUTED', m.guid || '', m.matchedBy || '',
-              m.vid || '', m.tallyUid || '', (m.mergedIds || []).join(','), m.opening || 0];
+              m.vid || '', m.tallyUid || '', (m.mergedIds || []).join(','), m.opening || 0, m.openingDate || ''];
     });
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
   }
@@ -785,12 +787,12 @@ function _tvrCsv(items) {
     return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
   };
   var lines = [['Vendor (Vendor Master)', 'Vendor ID', 'Tally UID', 'Tally Name',
-                'Opening', 'Tally Balance', 'Portal Balance', 'Difference', 'Type', 'Matched By'].join(',')];
+                'Opening', 'Opening Date', 'Tally Balance', 'Portal Balance', 'Difference', 'Type', 'Matched By'].join(',')];
   items.forEach(function (m) {
     // Opening stays a raw signed number here, not a Dr/Cr string: the CSV is
     // opened in a spreadsheet and summed, and "Cr" would make the column text.
     lines.push([m.name, m.vid || '', m.tallyUid || '', m.tallyName || '',
-                m.opening || 0,
+                m.opening || 0, m.openingDate || '',
                 m.tally === '' ? '' : m.tally, m.portal === '' ? '' : m.portal,
                 m.diff, _tvrTypeLabel(m.type), m.matchedBy || ''].map(esc).join(','));
   });
@@ -851,7 +853,8 @@ function _tvrBody(items, dateStr, tally, snap, staleHrs) {
     // Only worth a line when there IS one — most vendors open at zero, and a
     // row of "Opening: 0" would bury the ones where it explains the difference.
     if (Math.abs(_tvrNum(m.opening)) > 1) {
-      lines.push('    Opening (carried forward, already inside Portal): ' + _tvrOpenStr(m.opening));
+      lines.push('    Opening (carried forward, already inside Portal): ' + _tvrOpenStr(m.opening) +
+                 (m.openingDate ? '   as on ' + m.openingDate : ''));
     }
   });
   lines.push('');
@@ -888,6 +891,7 @@ function _tvrHtml(items, dateStr, tally, snap, staleHrs) {
         esc(m.tallyUid || m.guid || '—') + '</td>' +
       '<td style="' + cell + ';text-align:right;font-size:12px;color:' +
         (Math.abs(_tvrNum(m.opening)) > 1 ? '#374151' : '#9ca3af') + '">' + esc(_tvrOpenStr(m.opening)) + '</td>' +
+      '<td style="' + cell + ';font-size:11px;color:#6b7280;white-space:nowrap">' + esc(m.openingDate || '—') + '</td>' +
       '<td style="padding:6px 9px;border-bottom:1px solid #e5e7eb;text-align:right">' + (m.tally === '' ? '—' : _tvrInr(m.tally)) + '</td>' +
       '<td style="padding:6px 9px;border-bottom:1px solid #e5e7eb;text-align:right">' + (m.portal === '' ? '—' : _tvrInr(m.portal)) + '</td>' +
       '<td style="padding:6px 9px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;color:' + col + '">' + _tvrInr(m.diff) + '</td>' +
@@ -906,6 +910,7 @@ function _tvrHtml(items, dateStr, tally, snap, staleHrs) {
       '<th style="padding:8px 9px">Vendor (Vendor Master)</th>' +
       '<th style="padding:8px 9px">Vendor ID</th><th style="padding:8px 9px">Tally UID</th>' +
       '<th style="padding:8px 9px;text-align:right">Opening</th>' +
+      '<th style="padding:8px 9px">Opening Date</th>' +
       '<th style="padding:8px 9px;text-align:right">Tally</th>' +
       '<th style="padding:8px 9px;text-align:right">Portal</th><th style="padding:8px 9px;text-align:right">Diff</th>' +
       '<th style="padding:8px 9px">Type</th></tr></thead><tbody>' + rows + '</tbody></table>' +
@@ -1021,6 +1026,7 @@ function tvrGetStatus(body) {
         vid: String(r['Vendor ID'] || '') || (fill.vid || ''),
         tallyUid: uid,
         opening: _tvrNum(r['Opening']),
+        openingDate: String(r['Opening Date'] || ''),
         mergedIds: mergedIds.length ? mergedIds : (fill.mergedIds || [])
       };
     }),

@@ -7946,6 +7946,9 @@ async function _tvrBuildSnapshotRows(force) {
       // instead of whatever it has since been edited to — and so the emailed
       // mismatch, which no browser is there to enrich, can state it at all.
       opening: (r.opCredit || 0) - (r.opDebit || 0),
+      // The opening balance's As-On date, so the mail + CSV can state WHEN the
+      // carried-forward figure was struck (matches the Flat List's Opening Date).
+      openingDate: (r.v.opening && (r.v.opening.date || r.v.opening.asOn)) ? _mdpFmtDate(r.v.opening.date || r.v.opening.asOn) : '',
       // Carried so the backend can pick the display record when several Vendor
       // IDs share one TallyUID: active first, then latest timestamp.
       active: (bridge.vidToActive && bridge.vidToActive[r.v.vid] !== false) ? 1 : 0,
