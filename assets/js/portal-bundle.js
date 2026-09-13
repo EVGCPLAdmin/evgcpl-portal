@@ -4249,9 +4249,15 @@ function _mdpParseRow(r) {
 }
 
 async function _mdpLoad(force) {
-  if (_mdpRows && !force) return;
-  const rows = await fetchSheetSafe('PaymentRequest', PAYMENT_SHEET_ID, {});
-  _mdpRows = (rows || []).filter(r => (r['Payment To'] || '').trim()).map(_mdpParseRow);
+  // Only a NON-EMPTY result counts as loaded. A transient PaymentRequest fetch
+  // failure returns [] — caching that as "loaded" used to stick (every later
+  // render skipped the reload), blanking the Vendor Ledger's Paid column and the
+  // MD queue until a forced refresh. Empty stays uncached so the next call retries.
+  if (_mdpRows && _mdpRows.length && !force) return;
+  const parse = rows => (rows || []).filter(r => (r['Payment To'] || '').trim()).map(_mdpParseRow);
+  let parsed = parse(await fetchSheetSafe('PaymentRequest', PAYMENT_SHEET_ID, {}));
+  if (!parsed.length) parsed = parse(await fetchSheetSafe('PaymentRequest', PAYMENT_SHEET_ID, {}));   // one retry on a transient empty
+  _mdpRows = parsed;
 }
 
 function renderMDPayments() {
