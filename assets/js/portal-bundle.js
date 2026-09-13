@@ -20,9 +20,9 @@
 //   PORTAL_VERSION  — semantic version string  (manually bumped on releases)
 //   PORTAL_BUILD    — auto-incremented integer (every build)
 //   PORTAL_BUILD_AT — UTC ISO timestamp of the build
-const PORTAL_VERSION  = '4.66.5';
-const PORTAL_BUILD    = 753;
-const PORTAL_BUILD_AT = '2026-09-07T04:40:02Z';
+const PORTAL_VERSION  = '4.66.6';
+const PORTAL_BUILD    = 754;
+const PORTAL_BUILD_AT = '2026-09-13T08:28:46Z';
 
 // ── Google OAuth — replace with your actual Client ID from Google Cloud Console ──
 const GOOGLE_CLIENT_ID = '276292295631-4maumpv2181lf4sh9lpnv9soibpm9c62.apps.googleusercontent.com';
@@ -4249,9 +4249,15 @@ function _mdpParseRow(r) {
 }
 
 async function _mdpLoad(force) {
-  if (_mdpRows && !force) return;
-  const rows = await fetchSheetSafe('PaymentRequest', PAYMENT_SHEET_ID, {});
-  _mdpRows = (rows || []).filter(r => (r['Payment To'] || '').trim()).map(_mdpParseRow);
+  // Only a NON-EMPTY result counts as loaded. A transient PaymentRequest fetch
+  // failure returns [] — caching that as "loaded" used to stick (every later
+  // render skipped the reload), blanking the Vendor Ledger's Paid column and the
+  // MD queue until a forced refresh. Empty stays uncached so the next call retries.
+  if (_mdpRows && _mdpRows.length && !force) return;
+  const parse = rows => (rows || []).filter(r => (r['Payment To'] || '').trim()).map(_mdpParseRow);
+  let parsed = parse(await fetchSheetSafe('PaymentRequest', PAYMENT_SHEET_ID, {}));
+  if (!parsed.length) parsed = parse(await fetchSheetSafe('PaymentRequest', PAYMENT_SHEET_ID, {}));   // one retry on a transient empty
+  _mdpRows = parsed;
 }
 
 function renderMDPayments() {
